@@ -80,7 +80,8 @@ Building and releasing the installer (needs `winget install JRSoftware.InnoSetup
 
 ```powershell
 cd installer
-.\build-installer.ps1 -Version 1.0.0
+.\build-installer.ps1              # auto-bumps patch (e.g. 1.0.2 → 1.0.3)
+.\build-installer.ps1 -Version 1.1.0   # explicit override
 ```
 
 ## Code signing
@@ -91,18 +92,18 @@ publisher (`Zero Zero Software`) instead of *"Unknown Publisher"*.
 **One-time setup** — create and trust a self-signed code-signing certificate:
 
 ```powershell
-.\sign.ps1 -Setup
+.\scripts\sign.ps1 -Setup
 ```
 
 This creates a 5-year cert in `Cert:\CurrentUser\My` and registers it as a trusted
 root + trusted publisher for the current user (no admin required).
 
 **Signing happens automatically** on every `Release` build via the `SignOutput`
-MSBuild target, which calls `sign.ps1`. To sign manually:
+MSBuild target, which calls `scripts\sign.ps1`. To sign manually:
 
 ```powershell
-.\sign.ps1                                   # signs the latest Release exe
-.\sign.ps1 -Path path\to\LenovoTray.exe      # sign a specific file
+.\scripts\sign.ps1                                   # signs the latest Release exe
+.\scripts\sign.ps1 -Path path\to\LenovoTray.exe      # sign a specific file
 ```
 
 Verify a signature:
@@ -115,7 +116,7 @@ Get-AuthenticodeSignature .\bin\Release\net10.0-windows10.0.26100.0\win-x64\Leno
 - The certificate's private key lives only in the Windows cert store — no `.pfx`
   is written to the project folder, so nothing secret is committed.
 - To use a real CA-issued certificate, import it into `Cert:\CurrentUser\My` with
-  subject `CN=Zero Zero Software` (or pass `-Subject` to `sign.ps1`); signing picks it up
+  subject `CN=Zero Zero Software` (or pass `-Subject` to `scripts\sign.ps1`); signing picks it up
   by subject automatically — no other change needed.
 - A self-signed cert is trusted only on machines where `-Setup` has been run.
   Other machines will still show "Unknown Publisher" unless the public cert is
@@ -209,12 +210,15 @@ LenovoChargeThreshold/
 │   ├── DashboardWindow.xaml / .cs   — Battery popup, arc gauge, status badges
 │   └── TrayMenu.cs                  — Builds the right-click menu from the feature list
 │
-└── Helpers/                         — Infrastructure utilities
-    ├── AppColors.cs                 — Shared colour constants and pre-allocated brushes
-    ├── IconGenerator.cs             — Static red-L tray icon (file-based) + live battery arc icon
-    ├── NativeMethods.cs             — Win32 P/Invoke: per-monitor work area + DPI, DestroyIcon
-    ├── RelayCommand.cs              — Minimal ICommand for tray click binding
-    └── TaskSchedulerHelper.cs       — Auto-start management via Task Scheduler
+├── Helpers/                         — Infrastructure utilities
+│   ├── AppColors.cs                 — Shared colour constants and pre-allocated brushes
+│   ├── IconGenerator.cs             — Static red-L tray icon (file-based) + live battery arc icon
+│   ├── NativeMethods.cs             — Win32 P/Invoke: per-monitor work area + DPI, DestroyIcon
+│   ├── RelayCommand.cs              — Minimal ICommand for tray click binding
+│   └── TaskSchedulerHelper.cs       — Auto-start management via Task Scheduler
+│
+└── scripts/
+    └── sign.ps1                     — Authenticode signing (Release builds + one-time cert setup)
 ```
 
 ## Design notes

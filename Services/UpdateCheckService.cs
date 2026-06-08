@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -7,8 +8,14 @@ namespace LenovoTray.Services;
 
 internal static class UpdateCheckService
 {
-    private static readonly Version CurrentVersion = new(1, 0, 0);
-    private static readonly HttpClient _httpClient = new();
+    // Read from the assembly manifest so the version never drifts out of sync with the csproj.
+    private static readonly Version CurrentVersion =
+        Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(1, 0, 0);
+
+    private static readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(10),
+    };
 
     /// <summary>
     /// The latest version string retrieved from GitHub, or null if the check has not run

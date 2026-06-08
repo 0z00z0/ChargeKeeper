@@ -311,17 +311,14 @@ public sealed partial class DashboardWindow : Window
             DispatcherQueue.TryEnqueue(() =>
             {
                 ApplyThresholdsButton.IsEnabled = true;
-                SmartChargeDetailText.Text = ok
-                    ? $"Custom: {start}% → {stop}%"
-                    : "Error — check driver";
-                // Refresh tick marks immediately to reflect the new thresholds.
-                if (ok)
+                if (!ok)
                 {
-                    GaugeStartTick.Data = BuildTickGeometry(GaugeCx, GaugeCy,
-                        GaugeStartAngle + GaugeSweep * start / 100.0);
-                    GaugeStopTick.Data  = BuildTickGeometry(GaugeCx, GaugeCy,
-                        GaugeStartAngle + GaugeSweep * stop  / 100.0);
+                    SmartChargeDetailText.Text = "Error — check driver";
+                    return;
                 }
+                // Full Refresh re-reads the service and repaints all badges, ticks, and sliders
+                // in one pass — no need to manually update individual elements here.
+                Refresh();
             });
         });
     }
@@ -352,13 +349,11 @@ public sealed partial class DashboardWindow : Window
         const double innerR = GaugeRadius - 6;
         const double outerR = GaugeRadius + 6;
         double rad = (angleDeg - 90) * Math.PI / 180;
-        var p1 = new Point(cx + innerR * Math.Cos(rad), cy + innerR * Math.Sin(rad));
-        var p2 = new Point(cx + outerR * Math.Cos(rad), cy + outerR * Math.Sin(rad));
-        var figure = new PathFigure { StartPoint = p1, IsClosed = false };
-        figure.Segments.Add(new LineSegment { Point = p2 });
-        var geo = new PathGeometry();
-        geo.Figures.Add(figure);
-        return geo;
+        return new LineGeometry
+        {
+            StartPoint = new Point(cx + innerR * Math.Cos(rad), cy + innerR * Math.Sin(rad)),
+            EndPoint   = new Point(cx + outerR * Math.Cos(rad), cy + outerR * Math.Sin(rad)),
+        };
     }
 
     /// <summary>

@@ -114,7 +114,7 @@ via winget. See **[installer/README.md](installer/README.md)** for the full rele
 ```powershell
 winget install JRSoftware.InnoSetup     # one-time
 cd installer
-.\build-installer.ps1 -Version 1.0.0    # → installer\Output\LenovoPowerTray-Setup.exe
+.\build-installer.ps1              # auto-bumps patch (or pass -Version 1.0.0 explicitly)
 ```
 
 ## External libraries

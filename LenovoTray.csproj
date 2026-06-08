@@ -4,6 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>LenovoTray</RootNamespace>
+    <Version>1.0.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
@@ -54,7 +55,7 @@
     'sign.ps1 -Setup'. ContinueOnError keeps the build green if no cert is present.
   -->
   <Target Name="SignOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\sign.ps1&quot; -Path &quot;$(TargetDir)$(AssemblyName).exe&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\sign.ps1&quot; -Path &quot;$(TargetDir)$(AssemblyName).exe&quot;" ContinueOnError="true" />
   </Target>
 
   <!-- Publish Properties -->

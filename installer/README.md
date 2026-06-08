@@ -16,11 +16,13 @@ Then:
 
 ```powershell
 cd installer
-.\build-installer.ps1 -Version 1.0.0
+.\build-installer.ps1              # auto-bumps patch (e.g. 1.0.2 → 1.0.3)
+.\build-installer.ps1 -Version 1.1.0   # explicit override
 ```
 
 This builds the native Smart Charge bridge, publishes the app self-contained (win-x64, no trimming),
-and compiles `LenovoPowerTray.iss` into:
+signs both the published exe and the installer exe (if a code-signing cert is present), and
+compiles `LenovoPowerTray.iss` into:
 
 ```
 installer\Output\LenovoPowerTray-Setup.exe

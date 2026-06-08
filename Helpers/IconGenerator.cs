@@ -140,7 +140,7 @@ internal static class IconGenerator
             float  fontSize = Math.Max(6f, size * 0.22f);
             using var font  = new Font("Segoe UI", fontSize, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
             using var brush = new SolidBrush(Color.FromArgb(220, 255, 255, 255));
-            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             g.DrawString(label, font, brush, new RectangleF(0, 0, size, size), sf);
         }
 

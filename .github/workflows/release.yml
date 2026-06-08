@@ -133,6 +133,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "signtool failed on $t ($LASTEXITCODE)." }
           }
 
+          # Re-compile the installer so it bundles the freshly-signed app exe, then
+          # re-sign the installer itself (so the distributed installer contains the
+          # signed app and is itself signed).
+          $iscc = Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction SilentlyContinue
+          if ($iscc) {
+            & $iscc.FullName "/DAppVersion=${{ steps.version.outputs.version }}" "/DPublishDir=$(Resolve-Path publish)" installer\LenovoPowerTray.iss
+            & $signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfxPath /p $env:CODE_SIGN_PASSWORD 'installer\Output\LenovoPowerTray-Setup.exe'
+          }
+
           # Remove the PFX immediately after signing
           Remove-Item $pfxPath -Force
           Write-Host 'PFX deleted.'

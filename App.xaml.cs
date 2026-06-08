@@ -24,9 +24,8 @@ public partial class App : Application
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
     private BatteryStatus _lastBatteryStatus = BatteryStatus.NotPresent;
 
-    // Cached battery percentage for dynamic tray icon; -1 = not yet read.
-    private int  _lastIconPct      = -1;
-    private bool _lastIconCharging = false;
+    // Cached tray icon state; -1 pct = not yet read.
+    private (int Pct, bool Charging) _lastIconState = (-1, false);
 
     public App() => InitializeComponent();
 
@@ -78,7 +77,7 @@ public partial class App : Application
     {
         try
         {
-            var report = Battery.AggregateBattery.GetReport();
+            var report = sender.GetReport();
 
             // ── Compute percentage ────────────────────────────────────────────
             int pct = 0;
@@ -92,10 +91,9 @@ public partial class App : Application
 
             // ── Dynamic tray icon ─────────────────────────────────────────────
             // Only re-render when something meaningful changed (avoids GDI churn every tick).
-            if (pct != _lastIconPct || charging != _lastIconCharging)
+            if ((pct, charging) != _lastIconState)
             {
-                _lastIconPct      = pct;
-                _lastIconCharging = charging;
+                _lastIconState = (pct, charging);
                 UpdateTrayIcon(pct, charging);
             }
 
@@ -146,9 +144,13 @@ public partial class App : Application
 
     private void ScheduleUpdateCheck()
     {
-        // Delay 30 s after startup so it doesn't slow down the cold-start path.
-        Task.Delay(TimeSpan.FromSeconds(30))
-            .ContinueWith(_ => UpdateCheckService.CheckAsync(version =>
+        // Fire-and-forget: delay 30 s so the check doesn't slow down the cold-start path.
+        // The async lambda ensures the inner CheckAsync Task is awaited (ContinueWith would
+        // have returned Task<Task> and orphaned the HTTP request).
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            await UpdateCheckService.CheckAsync(version =>
             {
                 // Marshal to UI thread to update the tray tooltip / menu.
                 _trayIcon?.DispatcherQueue.TryEnqueue(() =>
@@ -157,7 +159,8 @@ public partial class App : Application
                         _trayIcon.ToolTipText = $"Lenovo Power Tray — update available: v{version}";
                     _menu?.SetUpdateBadge(version);
                 });
-            }));
+            }).ConfigureAwait(false);
+        });
     }
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
