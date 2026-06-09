@@ -69,6 +69,10 @@ public partial class App : Application
         // before any UI is created so the menu HWND inherits the setting.
         NativeMethods.EnableDarkModeForNativeUi();
 
+        // Capture the UI dispatcher while we're on the UI thread. Battery events fire on a
+        // background thread and must marshal tray-icon updates back here (see UpdateTrayIcon).
+        _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+
         // Configurable startup delay — keeps the app off the critical sign-in path on
         // machines where many elevated processes start simultaneously.
         int delay = SettingsService.Current.StartupDelaySeconds;
@@ -190,9 +194,21 @@ public partial class App : Application
     }
 
     private System.Drawing.Icon? _currentBatteryIcon;
+    private Microsoft.UI.Dispatching.DispatcherQueue? _dispatcher;
 
     private void UpdateTrayIcon(int pct, bool charging)
     {
+        // The tray icon is a UI object and must be mutated on the UI thread. Battery
+        // ReportUpdated fires on a background (MTA) thread, so marshal the whole
+        // render → swap → dispose onto the dispatcher. Mutating/disposing the icon off-thread
+        // races with the shell and faults the native tray/GDI handle — an access violation that
+        // bypasses managed try/catch and kills the process (observed when unplugging AC power).
+        if (_dispatcher is { } dq && !dq.HasThreadAccess)
+        {
+            dq.TryEnqueue(() => UpdateTrayIcon(pct, charging));
+            return;
+        }
+
         try
         {
             var mode    = SettingsService.Current.IconMode;
