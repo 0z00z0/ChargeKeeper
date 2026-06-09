@@ -65,6 +65,10 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Opt native Win32 elements (the tray context menu) into system dark mode. Must run
+        // before any UI is created so the menu HWND inherits the setting.
+        NativeMethods.EnableDarkModeForNativeUi();
+
         // Configurable startup delay — keeps the app off the critical sign-in path on
         // machines where many elevated processes start simultaneously.
         int delay = SettingsService.Current.StartupDelaySeconds;

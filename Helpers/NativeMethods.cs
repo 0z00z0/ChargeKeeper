@@ -83,6 +83,34 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool DestroyIcon(IntPtr hIcon);
 
+    // ── Native Win32 dark-mode support ─────────────────────────────────────────
+    // uxtheme.dll exposes these only by ordinal (no named exports).
+    //   SetPreferredAppMode               = ordinal 135  (Win10 1903 / build 18362+)
+    //   RefreshImmersiveColorPolicyState  = ordinal 104
+    // Calling SetPreferredAppMode(AllowDark=1) at startup makes Windows render native Win32
+    // elements (the H.NotifyIcon tray context menu, scrollbars) dark when the system theme is
+    // dark — the same approach the sibling HyperVManagerTray app uses.
+    [DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = false)]
+    private static extern int SetPreferredAppMode(int mode);   // 0=Default 1=AllowDark 2=ForceDark 3=ForceLight
+
+    [DllImport("uxtheme.dll", EntryPoint = "#104", SetLastError = false)]
+    private static extern void RefreshImmersiveColorPolicyState();
+
+    /// <summary>
+    /// Opts the process into Windows dark-mode rendering for native Win32 UI (the tray context
+    /// menu). Call once, before any UI is created so the menu HWND inherits the setting. No-ops
+    /// safely on older Windows builds where the ordinals do not exist.
+    /// </summary>
+    internal static void EnableDarkModeForNativeUi()
+    {
+        try
+        {
+            SetPreferredAppMode(1); // AllowDark — follows the system light/dark preference
+            RefreshImmersiveColorPolicyState();
+        }
+        catch { /* ordinal absent on old builds — non-fatal */ }
+    }
+
     // ── Message boxes (Win32) ──────────────────────────────────────────────────
     // Plain Win32 MessageBox — safe to call from any thread, works in this elevated
     // unpackaged app, and needs no WinUI XamlRoot. Used for About / update prompts.
