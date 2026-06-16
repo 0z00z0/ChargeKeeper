@@ -332,38 +332,55 @@ internal sealed class TrayMenu
 
     private async Task CheckForUpdatesAsync()
     {
-        var outcome = await UpdateCheckService.CheckNowAsync().ConfigureAwait(false);
+        // Capture the foreground HWND now (tray flyout is open) so ShowUpdateDialog has a
+        // parent even if the flyout is dismissed by the time the HTTP check completes.
+        // Do NOT use ConfigureAwait(false) here: TaskDialogIndirect requires comctl32 v6
+        // (activated via the app manifest's SxS context), and thread-pool threads do not
+        // inherit that context — the dialog shows nothing if called from a thread-pool thread.
+        var hwnd    = NativeMethods.CaptureHwnd();
+        var outcome = await UpdateCheckService.CheckNowAsync();
         var running = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown";
 
         switch (outcome.Status)
         {
             case UpdateCheckService.UpdateStatus.Available:
+                bool canDownload = outcome.InstallerUrl is not null;
                 var action = NativeMethods.ShowUpdateDialog(
                     outcome.LatestVersion!, running,
                     outcome.ReleaseNotes ?? "", AppName,
-                    canDownload: outcome.InstallerUrl is not null);
+                    canDownload, hwnd);
 
-                if (action == NativeMethods.UpdateAction.Update)
+                switch (action)
                 {
-                    try
-                    {
-                        var path = await Task.Run(() =>
-                            UpdateCheckService.DownloadInstallerAsync(outcome.InstallerUrl!))
-                            .ConfigureAwait(false);
-                        // Start the installer, then exit so it finds no running elevated process.
-                        // An installer kill of an elevated process needs UAC; self-exit avoids it.
-                        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                        Flyout.DispatcherQueue.TryEnqueue(() => _onExit());
-                    }
-                    catch
-                    {
-                        NativeMethods.Warn("Download failed.\nOpening the releases page instead.", AppName);
+                    case NativeMethods.UpdateAction.Update:
+                        NativeMethods.Info(
+                            $"Downloading v{outcome.LatestVersion}...\n\nThe installer will launch automatically when ready.",
+                            AppName);
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var path = await UpdateCheckService
+                                    .DownloadInstallerAsync(outcome.InstallerUrl!)
+                                    .ConfigureAwait(false);
+                                // Launch installer, then exit so no elevated process remains for
+                                // the installer to kill (which would need its own UAC prompt).
+                                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                                Flyout.DispatcherQueue.TryEnqueue(() => _onExit());
+                            }
+                            catch (Exception ex)
+                            {
+                                NativeMethods.Warn(
+                                    $"Download failed:\n{ex.Message}\n\nTry updating from the releases page.",
+                                    AppName);
+                                Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
+                            }
+                        });
+                        break;
+
+                    case NativeMethods.UpdateAction.ShowReleases:
                         Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
-                    }
-                }
-                else if (action == NativeMethods.UpdateAction.ShowReleases)
-                {
-                    Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
+                        break;
                 }
                 break;
 

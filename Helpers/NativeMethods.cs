@@ -210,6 +210,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
+    /// <summary>Captures the foreground HWND while still on the UI thread, before any async work.</summary>
+    internal static IntPtr CaptureHwnd() => GetForegroundWindow();
+
     /// <summary>
     /// Shows the "update available" Task Dialog with up to three buttons
     /// (Update / Releases page / Cancel) and an expandable release-notes section.
