@@ -32,12 +32,14 @@ internal sealed class TrayMenu
     private readonly List<(ToggleMenuFlyoutItem Item, int Seconds)> _startupDelayItems  = [];
 
     private readonly Action _onIconModeChanged;
+    private readonly Action _onExit;
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
 
     public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged)
     {
+        _onExit            = onExit;
         _onIconModeChanged = onIconModeChanged;
         Flyout = new MenuFlyout();
 
@@ -328,7 +330,7 @@ internal sealed class TrayMenu
             Process.Start(new ProcessStartInfo(RepoUrl) { UseShellExecute = true });
     }
 
-    private static async Task CheckForUpdatesAsync()
+    private async Task CheckForUpdatesAsync()
     {
         var outcome = await UpdateCheckService.CheckNowAsync().ConfigureAwait(false);
         var running = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown";
@@ -348,7 +350,10 @@ internal sealed class TrayMenu
                         var path = await Task.Run(() =>
                             UpdateCheckService.DownloadInstallerAsync(outcome.InstallerUrl!))
                             .ConfigureAwait(false);
+                        // Start the installer, then exit so it finds no running elevated process.
+                        // An installer kill of an elevated process needs UAC; self-exit avoids it.
                         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                        Flyout.DispatcherQueue.TryEnqueue(() => _onExit());
                     }
                     catch
                     {
