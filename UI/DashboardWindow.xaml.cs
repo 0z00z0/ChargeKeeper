@@ -196,7 +196,13 @@ public sealed partial class DashboardWindow : Window
         {
             var chargeState = ChargeThresholdService.Read();
             bool standbyOn  = StandbyService.IsRunning();
-            DispatcherQueue.TryEnqueue(() => ApplyStatusBadges(chargeState, standbyOn));
+            // Guard: the window may close between this off-thread read and the marshalled apply.
+            // An unhandled throw in a dispatcher callback crashes the process (stowed exception).
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try { ApplyStatusBadges(chargeState, standbyOn); }
+                catch { /* window tearing down — a stale badge update must not be fatal */ }
+            });
         });
     }
 

@@ -178,11 +178,14 @@ public partial class App : Application
             // ── Dashboard live update ──────────────────────────────────────────
             // Push an immediate refresh to the open dashboard so power connect/disconnect
             // and percentage changes are reflected at once, without waiting for the 5 s timer.
-            if (_dashboard is { } dash)
+            if (_dashboard is not null)
             {
-                _dispatcher?.TryEnqueue(() =>
+                // Re-read _dashboard on the UI thread (where the Closed handler nulls it). Touching a
+                // window that closed after this tick captured it throws InvalidOperationException via
+                // combase — fatal inside a raw dispatcher callback. RunOnUi also catches as a backstop.
+                RunOnUi(() =>
                 {
-                    if (dash.AppWindow.IsVisible)
+                    if (_dashboard is { } dash && dash.AppWindow.IsVisible)
                         dash.RefreshFromEvent();
                 });
             }
@@ -291,6 +294,25 @@ public partial class App : Application
             UpdateTrayIcon(_lastIconState.Pct, _lastIconState.Charging);
     }
 
+    /// <summary>
+    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch. An exception
+    /// thrown inside a DispatcherQueue callback is NOT surfaced to Application.UnhandledException —
+    /// it tears the process down as an opaque 0xC000027B stowed exception (nothing reaches crash.log).
+    /// That is the root cause of the "tray icon vanishes" reports: e.g. a battery tick refreshing a
+    /// dashboard window that just closed throws InvalidOperationException via combase. Catching here
+    /// keeps the tray alive; the failure is logged instead of fatal.
+    /// </summary>
+    private void RunOnUi(Action action)
+    {
+        var dq = _dispatcher;
+        if (dq is null) return;
+        dq.TryEnqueue(() =>
+        {
+            try { action(); }
+            catch (Exception ex) { LogCrash("RunOnUi", ex); }
+        });
+    }
+
     private void UpdateTooltip(int pct, int? remainingMwh, int? fullMwh)
     {
         var lines = new System.Text.StringBuilder();
@@ -352,7 +374,7 @@ public partial class App : Application
         if (tooltip == _lastTooltip) return;
         _lastTooltip = tooltip;
 
-        _dispatcher?.TryEnqueue(() =>
+        RunOnUi(() =>
         {
             if (_trayIcon is not null)
                 _trayIcon.ToolTipText = tooltip;
@@ -374,7 +396,7 @@ public partial class App : Application
                 _updateAvailableVersion = version;
                 // Refresh tooltip to include the update notice; refresh menu badge on UI thread.
                 UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, null, null);
-                _trayIcon?.DispatcherQueue.TryEnqueue(() => _menu?.SetUpdateBadge(version));
+                RunOnUi(() => _menu?.SetUpdateBadge(version));
             }).ConfigureAwait(false);
         });
     }
