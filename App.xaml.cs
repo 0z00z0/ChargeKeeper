@@ -118,6 +118,9 @@ public partial class App : Application
     {
         Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's
+        // own state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
+        TravelOverrideService.StateChanged += RefreshTooltip;
         // Trigger immediately with the current state so the icon is right from the start.
         OnBatteryReportUpdated(Battery.AggregateBattery, null!);
     }
@@ -226,8 +229,9 @@ public partial class App : Application
             _lastOnAC           = charging;   // Charging or Idle ⇒ on AC (same expression as the icon)
             _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
             _lastThresholdState = ChargeThresholdService.Read();
-            UpdateTooltip(pct, report.RemainingCapacityInMilliwattHours,
-                               report.FullChargeCapacityInMilliwattHours);
+            _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
+            _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
+            UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
             // ── Toast: AC connected ───────────────────────────────────────────
             if (_lastBatteryStatus == BatteryStatus.Discharging &&
@@ -252,6 +256,8 @@ public partial class App : Application
     private string? _updateAvailableVersion;
     private int     _lastRateMW;   // milliwatts; positive = charging, negative = draining
     private bool    _lastOnAC;
+    private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
+    private int?    _lastFullMwh;
     private ChargeThresholdState? _lastThresholdState;
     private static readonly string _appVersion =
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?";
@@ -292,6 +298,19 @@ public partial class App : Application
     {
         if (_lastIconState.Pct >= 0)
             UpdateTrayIcon(_lastIconState.Pct, _lastIconState.Charging);
+    }
+
+    /// <summary>
+    /// Rebuilds the tray tooltip from the last cached battery reading — used when something that
+    /// affects the tooltip changes outside of a battery event (the travel-override activate/revert),
+    /// so it doesn't stay stuck on a stale line until the next ReportUpdated fires. Re-reads the
+    /// charge threshold so a just-restored Smart Charge limit shows immediately. Safe off the UI
+    /// thread: it only builds a string, then UpdateTooltip marshals the assignment via RunOnUi.
+    /// </summary>
+    internal void RefreshTooltip()
+    {
+        _lastThresholdState = ChargeThresholdService.Read();
+        UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
     }
 
     /// <summary>
@@ -445,6 +464,7 @@ public partial class App : Application
     {
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        TravelOverrideService.StateChanged -= RefreshTooltip;
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();

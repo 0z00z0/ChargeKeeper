@@ -20,9 +20,18 @@ internal static class TravelOverrideService
     /// <summary>True while a travel override is active.</summary>
     public static bool IsActive => SettingsService.Current.TravelOverrideActive;
 
-    /// <summary>The tray/dashboard action label for the override, reflecting its current state.</summary>
+    /// <summary>
+    /// Raised once the override has been activated or reverted and the state has settled
+    /// (threshold written + TravelOverrideActive saved). The tray tooltip isn't driven by a
+    /// battery event, so it subscribes to this to refresh immediately instead of staying stale.
+    /// Fires on a background thread.
+    /// </summary>
+    public static event Action? StateChanged;
+
+    /// <summary>The tray/dashboard action label for the override, reflecting its current state.
+    /// 🔝 ("to 100 %") matches the tooltip's "Charging to 100 %" line.</summary>
     public static string ActionLabel =>
-        IsActive ? "✕  Revert to charge threshold" : "⚡  Charge to 100 % once";
+        IsActive ? "✕  Revert to charge threshold" : "🔝  Charge to 100 % once";
 
     // Fire-once latch for the current activation (0 = armed, 1 = revert dispatched). ApplyRevert
     // clears TravelOverrideActive only asynchronously (background Task), so IsActive lags for a
@@ -65,6 +74,8 @@ internal static class TravelOverrideService
 
             // Disable threshold (start=0, stop=0 → charge to 100 %).
             ChargeThresholdService.SetEnabled(false);
+
+            StateChanged?.Invoke();   // refresh the tooltip now, don't wait for a battery event
         });
     }
 
@@ -128,6 +139,8 @@ internal static class TravelOverrideService
                 s.TravelOverrideRevertStop  = null;
                 SettingsService.Save();
             }
+
+            StateChanged?.Invoke();   // tooltip reverts to the Smart Charge line immediately
         });
     }
 }

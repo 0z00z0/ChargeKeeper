@@ -234,7 +234,7 @@
                     <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
                          Charge is capable so it can also be cancelled while active. -->
                     <Button x:Name="TravelOverrideButton"
-                            Content="⚡  Charge to 100 % once"
+                            Content="🔝  Charge to 100 % once"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
                             FontSize="11"
