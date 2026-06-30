@@ -323,11 +323,13 @@ public partial class App : Application
         // the bright cyan-teal reads clearly on the dark Win11 tooltip background.
         lines.Append($"💠 Lenovo Power Tray  v{_appVersion}");
 
-        // 🔌 AC · 75%  ·  +45 W   (on AC — a plug, distinct from the ⚡ brand mark on the title line)
+        // ⚡ AC · 75%  ·  +45 W   (on AC — the bolt forced to its TEXT/outline form via U+FE0E so it
+        //                          renders bright like the ⚙/⏱/⬆ outlines; the colour plug 🔌 was a
+        //                          dark emoji that nearly vanished on the dark tooltip background)
         // 🔋 75%  ·  −18 W        (on battery)
         // Glyph follows the power source so it never contradicts the AC label, and the rate is
         // shown only in its expected direction via the shared formatter (mW below 1 W, real −).
-        string chargeIcon = _lastOnAC ? "🔌" : "🔋";
+        string chargeIcon = _lastOnAC ? "⚡︎" : "🔋";   // ⚡ + U+FE0E = outline (text) presentation
         lines.Append(_lastOnAC
             ? $"\n{chargeIcon} AC · {pct}%"
             : $"\n{chargeIcon} {pct}%");
