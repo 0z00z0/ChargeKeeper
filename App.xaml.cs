@@ -317,8 +317,11 @@ public partial class App : Application
     {
         var lines = new System.Text.StringBuilder();
 
-        // ⚡ Lenovo Power Tray  v1.0.x
-        lines.Append($"⚡ Lenovo Power Tray  v{_appVersion}");
+        // 💠 Lenovo Power Tray  v1.0.x
+        // 💠 is the brand mark in ZeroZero's signature teal (#27e0c8-ish). A tray tooltip is plain
+        // text — no per-glyph colour — so a colour emoji is the only way to carry brand colour, and
+        // the bright cyan-teal reads clearly on the dark Win11 tooltip background.
+        lines.Append($"💠 Lenovo Power Tray  v{_appVersion}");
 
         // 🔌 AC · 75%  ·  +45 W   (on AC — a plug, distinct from the ⚡ brand mark on the title line)
         // 🔋 75%  ·  −18 W        (on battery)
