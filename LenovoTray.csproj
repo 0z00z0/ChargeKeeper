@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>LenovoTray</RootNamespace>
-    <Version>1.0.36</Version>
+    <Version>1.1.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Identity / packaging metadata -->
@@ -35,6 +35,24 @@
          the uninstall entry, Explorer, and the UAC elevation prompt. -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- Exposes internal types (BatteryHistoryService, HistoryDownsampler, GraphTimeScaleExtensions,
+       etc.) to the unit test project so tests can exercise them directly without a public API. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>LenovoTray.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <!-- Tests/ is a subfolder of this project's directory but belongs to the separate
+       LenovoTray.Tests project — exclude it from this project's default **/*.cs glob, or its
+       xUnit-only source (referencing types this WinExe project doesn't reference) gets compiled
+       into BOTH projects and fails to build here. -->
+  <ItemGroup>
+    <Compile Remove="Tests\**" />
+    <EmbeddedResource Remove="Tests\**" />
+    <None Remove="Tests\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico" />

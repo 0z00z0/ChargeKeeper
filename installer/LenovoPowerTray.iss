@@ -75,6 +75,12 @@ const
   TaskName       = '{#TaskName}';
   UpdateTaskName = 'LenovoTray AutoUpdate';
 
+var
+  // True when ssInstall found (and killed) a running instance. Lets a SILENT upgrade
+  // (winget / the AutoUpdate task) restart the app it killed: without this, a background
+  // upgrade leaves the tray app dead until the next sign-in.
+  WasRunning: Boolean;
+
 function ScheduledTaskExists(): Boolean;
 var
   ResultCode: Integer;
@@ -168,7 +174,8 @@ begin
     // LenovoTray.exe is requireAdministrator (elevated), so a non-elevated taskkill is
     // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
     // succeeds and the install continues without locked-file errors.
-    if AppIsRunning() then
+    WasRunning := AppIsRunning();
+    if WasRunning then
       ShellExec('runas', ExpandConstant('{cmd}'),
                 '/C taskkill /F /IM "{#AppExe}"',
                 '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -178,9 +185,16 @@ begin
   begin
     if WizardIsTaskSelected('runstartup') then RegisterStartupTask();
     if WizardIsTaskSelected('autoupdate') then RegisterAutoUpdateTask();
-    // Auto-launch only on an interactive install (not silent winget installs). Runs after
-    // task creation so a freshly-created startup task is used for a prompt-free launch.
-    if not WizardSilent() then LaunchApp();
+    if not WizardSilent() then
+      // Interactive install: launch after task creation so a freshly-created startup task
+      // is used for a prompt-free launch.
+      LaunchApp()
+    else if WasRunning and ScheduledTaskExists() then
+      // Silent upgrade (winget / AutoUpdate task) that killed a running instance: restart it
+      // via the elevated logon task — no UI, no UAC. Without this the background upgrade
+      // leaves the tray app dead until the next sign-in. When no task exists we stay silent
+      // (a UAC prompt from an unattended install would be wrong) and accept the gap.
+      Exec('schtasks.exe', '/Run /TN "' + TaskName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
 

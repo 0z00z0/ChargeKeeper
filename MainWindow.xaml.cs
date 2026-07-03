@@ -4,9 +4,10 @@ using Microsoft.UI.Xaml;
 namespace LenovoTray;
 
 /// <summary>
-/// Invisible host window.  WinUI 3 exits when all windows are closed, so this
-/// 1×1 off-screen window keeps the application alive without appearing on-screen
-/// or in the taskbar / Alt-Tab switcher.
+/// Invisible host window — a 1×1 off-screen placeholder so WinUI has a window to own without
+/// anything appearing on-screen or in the taskbar / Alt-Tab switcher. Process lifetime is NOT tied
+/// to this window closing: App sets DispatcherShutdownMode.OnExplicitShutdown, so only
+/// Application.Current.Exit() (via App.Shutdown, e.g. the tray "Exit" command) ends the process.
 /// </summary>
 public sealed partial class MainWindow : Window
 {

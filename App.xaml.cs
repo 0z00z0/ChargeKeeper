@@ -31,12 +31,67 @@ public partial class App : Application
     // Reset with 5 % hysteresis so it re-fires on the next dip if the user charges briefly.
     private bool _lowBatteryWarningFired;
 
+    // ── Teardown forensics + self-heal ─────────────────────────────────────────
+    // Diagnosed 2026-07-02: on AC unplug (and standby), this machine's Intel GPU can fault during
+    // the power transition (LiveKernelEvent 141). The compositor connection under the app dies and
+    // WinUI tears the process down as a CLEAN exit — no exception reaches any managed handler, no
+    // WER record, nothing in any log. The flags below let OnProcessExit tell that silent framework
+    // teardown apart from the two legitimate exits (tray-menu Exit, Windows logoff/shutdown) and
+    // relaunch a fresh instance for the illegitimate one.
+    private static volatile bool _intentionalExit;
+    private static volatile bool _sessionEnding;
+    private static readonly DateTime _processStartUtc = DateTime.UtcNow;
+
+    // ── Single-instance guard ───────────────────────────────────────────────────
+    // Diagnosed 2026-07-03: after install, the elevated post-install launch can go unnoticed (the
+    // UAC prompt isn't always where the user is looking), so they launch the app again themselves
+    // — nothing stopped a second process from running alongside the first. Two instances would
+    // both claim the tray icon and write to history.csv with no cross-process locking. Held for
+    // the whole process lifetime; Windows releases it automatically on termination (clean exit,
+    // crash, or kill) — no explicit Release() needed, which also sidesteps Mutex's normal
+    // same-thread-release requirement (ProcessExit handlers aren't guaranteed to run on the
+    // thread that acquired it).
+    private static Mutex? _singleInstanceMutex;
+    private const string SingleInstanceMutexName = "Local\\LenovoPowerTray.SingleInstance";
+
+    /// <summary>
+    /// Retries a non-blocking mutex acquire for a few seconds before giving up. A single instant
+    /// check isn't enough: the self-heal relaunch (<see cref="OnProcessExit"/>) spawns a new
+    /// process while the OLD one may still be a few milliseconds from fully terminating and
+    /// releasing the mutex — an instant WaitOne(0) would then wrongly treat that legitimate
+    /// relaunch as "already running" and exit.
+    /// </summary>
+    private static async Task<bool> AcquireSingleInstanceLockAsync()
+    {
+        for (int attempt = 0; attempt < 15; attempt++)
+        {
+            _singleInstanceMutex = new Mutex(initiallyOwned: false, SingleInstanceMutexName);
+            if (_singleInstanceMutex.WaitOne(TimeSpan.Zero))
+                return true;
+
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+            await Task.Delay(200).ConfigureAwait(true);
+        }
+        return false;
+    }
+
     public App()
     {
         InitializeComponent();
 
+        // THE key lifetime decision for a tray app (confirmed by app.log forensics 2026-07-02):
+        // during a GPU/compositor reset (AC unplug, standby), the framework can destroy ALL our
+        // windows from below — and with the default OnLastWindowClose policy it then tears the
+        // whole process down as a clean exit ("Dashboard window closed" → "Host window closed" →
+        // "DispatcherQueue.ShutdownStarting" within the same second). A tray app's lifetime must
+        // be anchored to the tray icon (a Win32 construct, not a XAML window), so only an explicit
+        // Application.Exit() — the tray menu's Exit — may end the process. The dashboard already
+        // recreates itself lazily on the next tray click when its window has been destroyed.
+        DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
+
         // Last-resort diagnostics: log any unhandled managed exception to
-        // %AppData%\LenovoPowerTray\crash.log before the process dies, so GUI crashes
+        // %AppData%\LenovoPowerTray\app.log before the process dies, so GUI crashes
         // (which surface only as an opaque 0xC000027B stowed exception in Event Viewer)
         // leave an actionable stack trace behind.
         UnhandledException += (_, e) =>
@@ -47,24 +102,103 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
+
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
 
-    private static void LogCrash(string source, Exception? ex)
+    /// <summary>
+    /// Fires on every CLEAN process teardown (it does NOT fire for hard kills like taskkill or a
+    /// native access violation — which is exactly what makes it the right hook: an installer's
+    /// taskkill must not trigger a relaunch that races the file copy). If the exit was neither
+    /// user-initiated nor a logoff/shutdown, it is the silent compositor-loss teardown described
+    /// above — spawn a replacement instance. The dying process is already elevated, so the child
+    /// inherits elevation without a UAC prompt.
+    /// </summary>
+    private void OnProcessExit(object? sender, EventArgs e)
+    {
+        var uptime = DateTime.UtcNow - _processStartUtc;
+        AppLog.Info($"ProcessExit: clean teardown after {uptime:hh\\:mm\\:ss} " +
+                    $"(intentional={_intentionalExit}, sessionEnding={_sessionEnding}).");
+
+        if (_intentionalExit || _sessionEnding) return;
+
+        // Crash-loop guard: allow at most 3 auto-relaunches per 10 minutes, tracked in a small
+        // state file. (A minimum-uptime gate was tried first and misfired: a GPU-reset teardown
+        // can hit a process that is only seconds old — e.g. launch, open dashboard, unplug —
+        // and the young-process rule wrongly suppressed the one relaunch that mattered.)
+        if (!TryRecordRelaunch())
+        {
+            AppLog.Info("Not relaunching: 3 auto-relaunches within 10 minutes — giving up.");
+            return;
+        }
+
+        try
+        {
+            if (Environment.ProcessPath is not { } exe) return;
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(exe, AutoRelaunchArg) { UseShellExecute = false });
+            AppLog.Info("Unexpected teardown — relaunched a fresh instance.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("OnProcessExit.Relaunch", ex);
+        }
+    }
+
+    private const string AutoRelaunchArg = "--auto-relaunch";
+
+    /// <summary>
+    /// Sliding-window rate limiter for the self-heal relaunch: returns false once 3 relaunches
+    /// have happened within the last 10 minutes. Timestamps persist in a file because each check
+    /// runs in a NEW process — in-memory state can't span the relaunch chain it is limiting.
+    /// </summary>
+    private static bool TryRecordRelaunch()
     {
         try
         {
-            var dir = Path.Combine(
+            var path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "LenovoPowerTray");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "crash.log"),
-                $"[{DateTime.Now:u}] {source}\n{ex}\n\n");
+                "LenovoPowerTray", "relaunch-history.txt");
+
+            var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
+            var recent = new List<long>();
+            if (File.Exists(path))
+                foreach (var line in File.ReadAllLines(path))
+                    if (long.TryParse(line, out var ts) && ts >= cutoff)
+                        recent.Add(ts);
+
+            if (recent.Count >= 3) return false;
+
+            recent.Add(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllLines(path, recent.Select(t => t.ToString()));
+            return true;
         }
-        catch { /* logging must never throw */ }
+        catch
+        {
+            // If the bookkeeping itself fails, err on the side of bringing the tray back.
+            return true;
+        }
     }
+
+    // Delegates to the shared AppLog (originally this method wrote crash.log directly; AppLog
+    // generalised that into an Info/Error log so major non-fatal events get a trail too).
+    private static void LogCrash(string source, Exception? ex) => AppLog.Error(source, ex);
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Must be the very first thing: exit before any window or tray icon is created if another
+        // instance already holds the lock.
+        if (!await AcquireSingleInstanceLockAsync().ConfigureAwait(true))
+        {
+            AppLog.Info("Another instance already holds the single-instance lock — exiting.");
+            _intentionalExit = true;   // must be set — otherwise OnProcessExit's self-heal relaunches
+                                        // this "duplicate" exit, and the relaunch detects a duplicate
+                                        // too, looping forever
+            Application.Current.Exit();
+            return;
+        }
+
         // Opt native Win32 elements (the tray context menu) into system dark mode. Must run
         // before any UI is created so the menu HWND inherits the setting.
         NativeMethods.EnableDarkModeForNativeUi();
@@ -73,6 +207,25 @@ public partial class App : Application
         // background thread and must marshal tray-icon updates back here (see UpdateTrayIcon).
         _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
+        // Teardown forensics: this event fires when the XAML framework itself initiates process
+        // teardown (last window closed — or, the case we're hunting, the compositor connection
+        // dying under the app during a GPU reset). Its presence/absence in app.log next to a
+        // ProcessExit line tells the silent-death mechanisms apart.
+        _dispatcher.ShutdownStarting += (_, _) =>
+            AppLog.Info("DispatcherQueue.ShutdownStarting — framework-initiated teardown.");
+
+        // Logoff/shutdown must not trigger the self-heal relaunch in OnProcessExit.
+        Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
+
+        // When OnProcessExit resurrected us after a GPU-reset teardown, the display subsystem may
+        // still be mid-recovery — give it a moment before creating windows and the tray icon,
+        // or the fresh instance can die to the same reset it was born from.
+        if (Environment.GetCommandLineArgs().Contains(AutoRelaunchArg))
+        {
+            AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
+            await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
+        }
+
         // Configurable startup delay — keeps the app off the critical sign-in path on
         // machines where many elevated processes start simultaneously.
         int delay = SettingsService.Current.StartupDelaySeconds;
@@ -80,9 +233,11 @@ public partial class App : Application
             await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(true);
 
         _hostWindow = new MainWindow();
+        _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         ToastService.Register();
         InitTrayIcon();
         SubscribeBatteryEvents();
+        StartHistorySampling();
         ScheduleUpdateCheck();
     }
 
@@ -125,27 +280,65 @@ public partial class App : Application
         OnBatteryReportUpdated(Battery.AggregateBattery, null!);
     }
 
+    // ── History sampling ──────────────────────────────────────────────────────
+
+    private System.Threading.Timer? _historyTimer;
+
+    private void StartHistorySampling()
+    {
+        // LoadWindow does a full CSV scan (up to 14 days of rows) — real disk I/O that must not
+        // run on the UI thread during startup, or a large history file could visibly delay launch.
+        // Prime the in-memory window from disk so the dashboard shows history immediately after a
+        // restart, then sample at a fixed cadence so downtime is visible as a gap in the timeline.
+        Task.Run(() =>
+        {
+            var span   = SettingsService.Current.GraphTimeScale.ToTimeSpan();
+            var loaded = BatteryHistoryService.LoadWindow(span);
+            AppLog.Info($"History sampling started: span={span}, {loaded.Count} sample(s) loaded from disk.");
+
+            int interval = BatteryHistoryService.SampleIntervalSeconds;
+            _historyTimer = new System.Threading.Timer(
+                _ => SampleHistory(), null, TimeSpan.FromSeconds(interval), TimeSpan.FromSeconds(interval));
+        });
+    }
+
+    private void SampleHistory()
+    {
+        try
+        {
+            if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
+            int? limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
+            BatteryHistoryService.Record(_lastIconState.Pct, limit, _lastRateMW);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("SampleHistory", ex);
+        }
+    }
+
+    private static void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
+    {
+        _sessionEnding = true;
+        AppLog.Info($"SessionEnding: {e.Reason}.");
+    }
+
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
+        // Log every transition — the timeline around these lines is what lets a later silent
+        // teardown be correlated with a power event (see the self-heal notes at the top).
+        AppLog.Info($"PowerModeChanged: {e.Mode}.");
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
         // On resume the shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated,
         // so H.NotifyIcon's built-in recovery never fires. A plain ForceCreate() can't help here:
         // its Create() early-returns while the library still believes the icon exists. Force a real
         // re-add by removing the stale registration first, then creating — the same TryRemove()+
         // Create() pair the library itself uses to recover from TaskbarCreated.
-        _dispatcher?.TryEnqueue(() =>
+        RunOnUi(() =>
         {
-            try
+            if (_trayIcon is { } icon)
             {
-                if (_trayIcon is { } icon)
-                {
-                    icon.TrayIcon.TryRemove();
-                    icon.TrayIcon.Create();
-                }
-            }
-            catch (Exception ex)
-            {
-                LogCrash("OnPowerModeChanged", ex);
+                icon.TrayIcon.TryRemove();
+                icon.TrayIcon.Create();
             }
             ForceIconRefresh();   // repaint the battery arc onto the (re)created icon
         });
@@ -168,7 +361,8 @@ public partial class App : Application
             bool charging = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
 
             // ── Battery history ───────────────────────────────────────────────
-            BatteryHistoryService.Record(pct);
+            // Sampled on a fixed cadence by _historyTimer (see SampleHistory), NOT per battery
+            // event — a regular cadence is what lets downtime show up as a gap in the graph.
 
             // ── Dynamic tray icon ─────────────────────────────────────────────
             // Only re-render when something meaningful changed (avoids GDI churn every tick).
@@ -442,7 +636,11 @@ public partial class App : Application
             if (_dashboard is null)
             {
                 _dashboard = new DashboardWindow(this);
-                _dashboard.Closed += (_, _) => _dashboard = null;
+                _dashboard.Closed += (_, _) =>
+                {
+                    AppLog.Info("Dashboard window closed.");
+                    _dashboard = null;
+                };
             }
 
             if (_dashboard.AppWindow.IsVisible)
@@ -462,8 +660,12 @@ public partial class App : Application
 
     private void Shutdown()
     {
+        _intentionalExit = true;   // tells OnProcessExit this teardown is legitimate — no relaunch
+        AppLog.Info("User exit via tray menu.");
+
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();

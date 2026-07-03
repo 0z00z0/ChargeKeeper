@@ -20,6 +20,25 @@ internal sealed class ThresholdPreset
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum TrayIconMode { Arc, Numeric }
 
+/// <summary>Selected time span for the dashboard history graph.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum GraphTimeScale { FifteenMinutes, OneHour, SixHours, TwelveHours, OneDay, OneWeek, FourteenDays }
+
+internal static class GraphTimeScaleExtensions
+{
+    public static TimeSpan ToTimeSpan(this GraphTimeScale s) => s switch
+    {
+        GraphTimeScale.FifteenMinutes => TimeSpan.FromMinutes(15),
+        GraphTimeScale.OneHour        => TimeSpan.FromHours(1),
+        GraphTimeScale.SixHours       => TimeSpan.FromHours(6),
+        GraphTimeScale.TwelveHours    => TimeSpan.FromHours(12),
+        GraphTimeScale.OneDay         => TimeSpan.FromDays(1),
+        GraphTimeScale.OneWeek        => TimeSpan.FromDays(7),
+        GraphTimeScale.FourteenDays   => TimeSpan.FromDays(14),
+        _                             => TimeSpan.FromHours(1),
+    };
+}
+
 /// <summary>Persisted application settings.</summary>
 internal sealed class AppSettings
 {
@@ -51,6 +70,10 @@ internal sealed class AppSettings
 
     /// <summary>Arc gauge (default) or numeric % in the tray icon.</summary>
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;
+
+    // ── History graph ────────────────────────────────────────────────────────
+    /// <summary>Selected time span shown in the dashboard history graph.</summary>
+    public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
 }
 
 /// <summary>

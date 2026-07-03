@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Targets the same Windows-specific TFM as LenovoTray.csproj (required for a ProjectReference to
+    a net10.0-windows project). Deliberately does NOT set UseWinUI/WindowsPackageType/etc. — the
+    types under test (BatteryHistoryService, HistoryDownsampler, GraphTimeScaleExtensions) are
+    plain C# with no XAML/WinRT dependency, so the test project stays lightweight.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>LenovoTray.Tests</RootNamespace>
+
+    <!-- Pin the output paths relative to THIS project. Without this, a solution-level build (both
+         projects together) leaks LenovoTray.csproj's RID-specific "win-x64" output path into this
+         project's copy targets, producing a malformed nested bin\...\Tests\bin\...\Tests\bin\...
+         path and failing to find WinUI asset files that were never meant to be copied here. -->
+    <BaseOutputPath>bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\</BaseIntermediateOutputPath>
+    <RuntimeIdentifier></RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LenovoTray.csproj" />
+  </ItemGroup>
+
+</Project>

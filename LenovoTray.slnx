@@ -12,6 +12,7 @@
     <Platform Name="ARM64" />
   </Configurations>
   <Project Path="LenovoTray.csproj" />
+  <Project Path="Tests/LenovoTray.Tests.csproj" />
   <Folder Name="/native/">
     <File Path="native/pwrmgr.idl" />
     <File Path="native/lenpower.c" />

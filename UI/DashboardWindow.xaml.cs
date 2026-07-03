@@ -20,7 +20,8 @@ public sealed partial class DashboardWindow : Window
 {
     // Fixed logical width; the height is measured from the content each time the window is
     // placed, so rows appearing/disappearing (sliders, travel button) need no height constants.
-    private const int WindowWidth = 280;
+    // Widened from 280 (Chunk 3) to fit the right-hand power axis plus the Chunk-4 scale buttons.
+    private const int WindowWidth = 340;
 
     // Arc gauge geometry: 100×100 px canvas, 7-o'clock start (135°), 270° sweep.
     private const double GaugeCx         = 50;
@@ -62,6 +63,30 @@ public sealed partial class DashboardWindow : Window
         // Track arc never changes — build it once here instead of every refresh tick.
         GaugeTrack.Data = BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
 
+        // Legend swatch colours never change — assign once instead of every render.
+        LegendSocSwatch.Background   = AppColors.GaugeHighBrush;
+        LegendLimitSwatch.Background = AppColors.HistoryLimitBrush;
+        LegendPowerSwatch.Background = AppColors.HistoryPowerBrush;
+
+        // Reflect the persisted time-scale choice in the button row. The in-memory window was
+        // already loaded from disk at this span by App.StartHistorySampling, so no LoadWindow call
+        // is needed here — CurrentWindow() already holds the right slice for the first render.
+        SetSelectedScaleButton(SettingsService.Current.GraphTimeScale);
+
+        // Narrow race: if the very first dashboard open happens before StartHistorySampling's
+        // background disk load finishes, CurrentWindow() is momentarily empty even though history
+        // exists on disk. Only kick a reload when that's actually the case — the normal case
+        // (already loaded) does zero extra I/O, so this doesn't reintroduce the full-scan-per-open
+        // cost the comment above deliberately avoids.
+        if (BatteryHistoryService.CurrentWindow().Count == 0)
+        {
+            Task.Run(() =>
+            {
+                BatteryHistoryService.LoadWindow(SettingsService.Current.GraphTimeScale.ToTimeSpan());
+                RunOnUi(RefreshBatteryInfo);
+            });
+        }
+
         _refreshTimer       = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) => Refresh();
 
@@ -69,8 +94,19 @@ public sealed partial class DashboardWindow : Window
         _thresholdApplyTimer.Tick    += (_, _) => CommitThresholds();
 
         Activated += OnActivated;
-        Closed    += (_, _) => { _refreshTimer.Stop(); _thresholdApplyTimer.Stop(); };
+        Closed    += (_, _) =>
+        {
+            _closed = true;   // gates RunOnUi: in-flight background reads must not touch a dead window
+            _refreshTimer.Stop();
+            _thresholdApplyTimer.Stop();
+        };
     }
+
+    // Set when the window closes (user action or the framework destroying windows during a GPU/
+    // compositor reset). Background reads started before the close complete afterwards and marshal
+    // back via RunOnUi — touching XAML members of a closed window then throws (e.g. AppWindow is
+    // null), so RunOnUi drops the callback instead.
+    private bool _closed;
 
     /// <summary>
     /// Sets the sliders' Minimum/Maximum/StepFrequency from code instead of XAML. Assigning
@@ -107,6 +143,23 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     internal void RefreshFromEvent() => Refresh();
 
+    /// <summary>
+    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch. Mirrors
+    /// App.RunOnUi: an exception thrown inside a raw DispatcherQueue.TryEnqueue callback is NOT
+    /// surfaced to Application.UnhandledException — it tears the whole process down as an opaque
+    /// stowed exception with nothing logged anywhere. This window has several Task.Run(...)
+    /// background reads (LoadWindow's disk scan, ChargeThresholdService RPC calls) that complete
+    /// and touch UI elements later, on the dispatcher — if the user closes the popup while one of
+    /// those is in flight, the delegate can hit a torn-down XAML element. Catching here keeps the
+    /// tray alive; the failure is logged instead of fatal.
+    /// </summary>
+    private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (_closed) return;   // window already destroyed — a stale callback has nothing to update
+        try { action(); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.RunOnUi", ex); }
+    });
+
     /// <summary>Positions the window above the system tray and shows it with fresh data.</summary>
     public void ShowNearTray()
     {
@@ -132,7 +185,7 @@ public sealed partial class DashboardWindow : Window
         // AppWindow works in physical pixels, but the XAML content is in effective pixels (DIPs).
         // Measure the root grid at the fixed width to get the natural content height.
         RootGrid.Measure(new Size(WindowWidth, double.PositiveInfinity));
-        int logicalHeight = Math.Clamp((int)Math.Ceiling(RootGrid.DesiredSize.Height), 200, 720);
+        int logicalHeight = Math.Clamp((int)Math.Ceiling(RootGrid.DesiredSize.Height), 200, 900);
 
         var (work, s) = NativeMethods.GetCursorMonitorMetrics();
         int w      = (int)Math.Ceiling(WindowWidth   * s);
@@ -196,13 +249,9 @@ public sealed partial class DashboardWindow : Window
         {
             var chargeState = ChargeThresholdService.Read();
             bool standbyOn  = StandbyService.IsRunning();
-            // Guard: the window may close between this off-thread read and the marshalled apply.
-            // An unhandled throw in a dispatcher callback crashes the process (stowed exception).
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                try { ApplyStatusBadges(chargeState, standbyOn); }
-                catch { /* window tearing down — a stale badge update must not be fatal */ }
-            });
+            // RunOnUi guards the window-may-have-closed-in-the-meantime race: an unhandled throw
+            // in a raw dispatcher callback crashes the whole process (stowed exception).
+            RunOnUi(() => ApplyStatusBadges(chargeState, standbyOn));
         });
     }
 
@@ -238,7 +287,7 @@ public sealed partial class DashboardWindow : Window
             TimeRemainingText.Text = ComputeTimeRemaining(report);
 
             // History sparkline.
-            UpdateSparkline(pct ?? 0);
+            UpdateSparkline();
         }
         catch
         {
@@ -311,74 +360,317 @@ public sealed partial class DashboardWindow : Window
             : $"−{span.Minutes}m";
     }
 
+    // ── Time-scale selector ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles a click on one of the seven time-scale buttons (15m/1h/.../14d). The clicked
+    /// button's <c>Tag</c> holds the <see cref="GraphTimeScale"/> member name (set in XAML).
+    /// Persists the choice, does the (disk) window reload at the new span, and re-renders.
+    /// </summary>
+    private void OnTimeScaleButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tagName } ||
+            !Enum.TryParse<GraphTimeScale>(tagName, out var scale))
+            return;
+
+        SettingsService.Current.GraphTimeScale = scale;
+        SettingsService.Save();
+        SetSelectedScaleButton(scale);   // highlight immediately; don't wait on the disk read below
+
+        // LoadWindow does a full CSV scan (up to 14 days of rows) — real disk I/O that must not run
+        // on the UI thread, or clicking a scale button could visibly freeze the popup for a moment.
+        Task.Run(() =>
+        {
+            BatteryHistoryService.LoadWindow(scale.ToTimeSpan());
+            AppLog.Info($"Time-scale changed to {scale}.");
+            RunOnUi(RefreshBatteryInfo);   // re-renders the sparkline + battery text
+        });
+    }
+
+    /// <summary>
+    /// Highlights the button matching <paramref name="scale"/> and restores the rest to their
+    /// themed resting look. Deselecting clears the local Background/Foreground value rather than
+    /// re-resolving a theme brush by string key, so the button falls back to whatever
+    /// <c>TimeScaleButtonStyle</c>'s setters provide (and stays correct if that style changes).
+    /// </summary>
+    private void SetSelectedScaleButton(GraphTimeScale scale)
+    {
+        foreach (var button in TimeScalePanel.Children.OfType<Button>())
+        {
+            bool selected = button.Tag is string tagName &&
+                             Enum.TryParse<GraphTimeScale>(tagName, out var buttonScale) &&
+                             buttonScale == scale;
+            if (selected)
+            {
+                button.Background = AppColors.TimeScaleSelectedBrush;
+                button.Foreground = AppColors.StatusChargingBrush;
+            }
+            else
+            {
+                button.ClearValue(Control.BackgroundProperty);
+                button.ClearValue(Control.ForegroundProperty);
+            }
+        }
+    }
+
     // ── History sparkline ─────────────────────────────────────────────────────
 
-    private void UpdateSparkline(int currentPct)
+    // A hole in the timeline bigger than this (3x the sample cadence) is treated as downtime (app
+    // was closed/crashed) rather than just a slightly-late sample, and gets a gap marker instead
+    // of a connecting line. Derived from BatteryHistoryService.SampleIntervalSeconds — the single
+    // source of truth for the cadence — instead of a second, independently-hardcoded number.
+    private static readonly TimeSpan GapThreshold =
+        TimeSpan.FromSeconds(BatteryHistoryService.SampleIntervalSeconds * 3);
+
+    private void UpdateSparkline()
     {
         SparklineCanvas.Children.Clear();
 
-        var samples = BatteryHistoryService.GetWindow(TimeSpan.FromHours(1));
-        if (samples.Length < 2)
+        var samples = BatteryHistoryService.CurrentWindow();
+        if (samples.Count < 2)
         {
-            SparklineStartLabel.Text = "—";
+            SparklineStartLabel.Text  = "—";
+            RightAxisTopLabel.Text    = "—";
+            RightAxisMidLabel.Text    = "—";
+            RightAxisBottomLabel.Text = "—";
             return;
         }
-
-        // Time-axis label: span between the oldest and newest sample (right edge is "now").
-        SparklineStartLabel.Text = FormatAgo(samples[^1].At - samples[0].At);
 
         // Canvas size is known once the element has been measured; guard against first render.
         double w = SparklineCanvas.ActualWidth;
         double h = SparklineCanvas.ActualHeight;
         if (w < 4 || h < 4) return;
 
-        // Projection from (time, percent) to canvas coordinates. Captured once here so the
-        // polyline and the min/max markers can't drift apart on padding/inversion changes.
+        // Downsample to roughly one point per horizontal pixel (with headroom for fidelity) so a
+        // 14-day/1-week window — tens of thousands of raw samples — doesn't force full-resolution
+        // processing and element allocation on every 5s render tick. Gap detection runs against the
+        // ORIGINAL full-resolution timestamps and is carried through as gapBefore — two adjacent
+        // points that survive reduction can legitimately be far apart in time purely from the
+        // stride, so re-deriving "is this a gap" from a Δt check on the reduced list would treat
+        // ordinary stride spacing as downtime and shatter every series into disconnected dots.
+        int maxPoints = Math.Max(200, (int)(w * 2));
+        var reduced   = HistoryDownsampler.Reduce(samples, maxPoints, GapThreshold);
+        samples = reduced.Samples;
+        var gapBefore = reduced.GapBeforeIndices;
+
+        // Selected window: real elapsed time from (now - loaded span) to now, NOT the span between
+        // the oldest/newest sample — this keeps the x-axis stable and absolute even when history is
+        // sparse (e.g. right after a restart) rather than rescaling to fit the data. Read from
+        // BatteryHistoryService's own tracked span (set by the last LoadWindow call) rather than
+        // re-deriving it from Settings, so there's one source of truth for "what's loaded."
+        var span        = BatteryHistoryService.CurrentSpan;
+        DateTime nowUtc  = DateTime.UtcNow;
+        DateTime winStart = nowUtc - span;
+
+        SparklineStartLabel.Text = FormatAgo(span);
+
+        // Projection from (time, percent) to canvas coordinates, over the fixed selected window
+        // (not the min/max of the samples) so the x-axis reflects real elapsed time. Captured once
+        // here so the polyline, gap markers, and min/max markers can't drift apart.
         const double pad = 4;
-        double tMin   = samples[0].At.Ticks;
-        double tRange = Math.Max((double)(samples[^1].At.Ticks - samples[0].At.Ticks), 1);
+        double tMin   = winStart.Ticks;
+        double tRange = Math.Max((double)span.Ticks, 1);
         double ProjectX(long ticks) => pad + (ticks - tMin) / tRange * (w - pad * 2);
-        // Y axis: 0% at bottom, 100% at top; invert because canvas Y grows downward.
-        double ProjectY(int pct)    => (h - pad) - pct / 100.0 * (h - pad * 2);
+        // Left % axis: 0% at bottom, 100% at top; invert because canvas Y grows downward. Shared
+        // by both the SoC and charge-limit series since they're the same 0-100% scale.
+        double ProjectYPct(double pct) => (h - pad) - pct / 100.0 * (h - pad * 2);
 
-        var poly = new Microsoft.UI.Xaml.Shapes.Polyline
+        // Right W axis: auto-scaled to the visible window's min/max power, always including 0.
+        double minW = 0, maxW = 0;
+        foreach (var s in samples)
         {
-            StrokeThickness = 1.5,
-            StrokeLineJoin  = PenLineJoin.Round,
-            Stroke          = currentPct switch
+            double watts = s.PowerMw / 1000.0;
+            if (watts < minW) minW = watts;
+            if (watts > maxW) maxW = watts;
+        }
+        double wRange = Math.Max(maxW - minW, 1); // avoid div-by-zero when power is flat at 0
+        double ProjectYWatts(double watts) => (h - pad) - (watts - minW) / wRange * (h - pad * 2);
+
+        RightAxisTopLabel.Text    = FormatWatts(maxW);
+        RightAxisBottomLabel.Text = FormatWatts(minW);
+        RightAxisMidLabel.Text    = FormatWatts(minW + wRange / 2);
+
+        // Fixed accent for the whole line, not a level-based switch (Nordic mist) — the battery's
+        // current % no longer recolours history that may be days old.
+        var socBrush     = AppColors.HistorySocBrush;
+        var socFillBrush = AppColors.HistorySocFillBrush;
+
+        // Draw the gap markers once (shared across all series — a restart is a restart regardless
+        // of which series you're looking at), then each series over the same time projection.
+        for (int i = 1; i < samples.Count; i++)
+            if (gapBefore.Contains(i))
+                DrawGapMarker(ProjectX(samples[i - 1].AtUtc.Ticks), h, pad);
+
+        // Subtle gradient shade under the SoC line (AppControl-style), drawn before any series line
+        // so the fill sits behind everything. Uses the same gapBefore boundaries as the line itself
+        // so the fill never bridges a downtime hole either. Brush is one of 3 pre-built, cached
+        // instances (AppColors) — never allocated here, unlike the first pass.
+        DrawGradientFill(samples, gapBefore, s => s.Soc, ProjectX, ProjectYPct, h - pad, socFillBrush);
+
+        // SoC — solid line, left axis, drawn heavier than the other two (primary: true) since it's
+        // the headline series. Drawn first among the three so limit/power (added next) sit
+        // visually on top where they cross it.
+        DrawSeries(samples, gapBefore, s => s.Soc, ProjectX, ProjectYPct, socBrush, dashed: false, primary: true);
+
+        // Charge limit (Smart Charge Stop threshold) — stepped line, left axis, in the SAME muted
+        // amber as the gauge's threshold tick marks so the concept has one colour everywhere.
+        // Null when Smart Charge is off; skip those points so no line is drawn across the off
+        // period. Stepped (rather than a straight line between samples) because the threshold only
+        // ever changes in discrete jumps when the user edits it — a linear ramp between two sampled
+        // values would misleadingly suggest it drifted gradually over the sample interval.
+        DrawSeries(samples, gapBefore, s => s.LimitPct, ProjectX, ProjectYPct, AppColors.HistoryLimitBrush, stepped: true);
+
+        // Charge power — dotted line, right axis, visually distinct both by dash pattern and by
+        // colour (muted lavender) as a different scale.
+        DrawSeries(samples, gapBefore, s => s.PowerMw / 1000.0, ProjectX, ProjectYWatts, AppColors.HistoryPowerBrush, dashed: true);
+
+        DrawSparklineMarkers(samples, w, ProjectX, ProjectYPct);
+    }
+
+    /// <summary>Formats a right-axis power value as a plain number, e.g. "12W" or "0W".</summary>
+    private static string FormatWatts(double watts) =>
+        $"{Math.Round(watts, MidpointRounding.AwayFromZero):0}W";
+
+    // Stroke width for the primary series (SoC) — heavier than the secondary series so it reads
+    // as the "main" line at a glance. Bumped up from the first pass (1.75/1.25), which read as too
+    // thin/hard to distinguish at high DPI (e.g. a 4K display) once three series share the plot.
+    private const double PrimaryStrokeWidth   = 2.5;
+    private const double SecondaryStrokeWidth = 2.0;
+
+    /// <summary>
+    /// Draws one time-series as one or more polyline segments, splitting at both timeline gaps
+    /// (per <paramref name="gapBefore"/> — indices preceded by a REAL gap in the original,
+    /// pre-downsampling data; a plain Δt check here would misfire on ordinary stride spacing after
+    /// reduction) and at null values (e.g. charge limit while Smart Charge is off) so no line is
+    /// drawn across a period with no meaningful value. Rounded joins and end caps throughout give
+    /// every series a soft, modern look rather than sharp/square segment ends. When
+    /// <paramref name="stepped"/> is set, each transition is drawn as a right-angle step (hold the
+    /// previous value horizontally, then jump) instead of a straight diagonal — appropriate for a
+    /// value that only changes in discrete jumps (the Smart Charge threshold), where a diagonal
+    /// would misleadingly suggest it drifted gradually between samples.
+    /// </summary>
+    private void DrawSeries(
+        IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
+        Func<long, double> projectX, Func<double, double> projectY, Brush brush,
+        bool dashed = false, bool primary = false, bool stepped = false)
+    {
+        Microsoft.UI.Xaml.Shapes.Polyline? segment = null;
+        double lastY = 0;
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var s = samples[i];
+            bool gap = i > 0 && gapBefore.Contains(i);
+            var value = select(s);
+
+            if (gap || value is null)
             {
-                <= 20 => AppColors.GaugeLowBrush,
-                <= 50 => AppColors.GaugeMedBrush,
-                _     => AppColors.GaugeHighBrush,
-            },
-        };
+                segment = null; // end the current run; nothing to draw for a missing value
+                continue;
+            }
 
-        foreach (var (at, pct) in samples)
-            poly.Points.Add(new Point(ProjectX(at.Ticks), ProjectY(pct)));
+            double x = projectX(s.AtUtc.Ticks);
+            double y = projectY(value.Value);
 
-        SparklineCanvas.Children.Add(poly);
-
-        DrawSparklineMarkers(samples, w, ProjectX, ProjectY);
+            if (segment is null)
+            {
+                segment = new Microsoft.UI.Xaml.Shapes.Polyline
+                {
+                    StrokeThickness    = primary ? PrimaryStrokeWidth : SecondaryStrokeWidth,
+                    StrokeLineJoin     = PenLineJoin.Round,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap   = PenLineCap.Round,
+                    Stroke             = brush,
+                };
+                if (dashed) segment.StrokeDashArray = [3, 2];
+                SparklineCanvas.Children.Add(segment);
+            }
+            else if (stepped && y != lastY)
+            {
+                segment.Points.Add(new Point(x, lastY));
+            }
+            segment.Points.Add(new Point(x, y));
+            lastY = y;
+        }
     }
 
     /// <summary>
-    /// Annotates the highest and lowest points of the sparkline with a coloured dot and a
-    /// percentage label. No-op when the visible range is flat (nothing meaningful to mark).
+    /// Draws a soft gradient shade under a series' segments (AppControl-style): a pre-built
+    /// (cached, never allocated here) brush fading from the line's colour to fully transparent at
+    /// the plot's bottom edge. Uses the identical <paramref name="gapBefore"/> boundaries as
+    /// <see cref="DrawSeries"/> so the fill never bridges a downtime hole. Must be called before
+    /// the corresponding line series so the fill layers underneath it.
+    /// </summary>
+    private void DrawGradientFill(
+        IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
+        Func<long, double> projectX, Func<double, double> projectY, double plotBottomY,
+        LinearGradientBrush fill)
+    {
+        List<Point>? segment = null;
+        void FlushSegment()
+        {
+            if (segment is not { Count: >= 2 } pts) { segment = null; return; }
+            var polygon = new Microsoft.UI.Xaml.Shapes.Polygon { Fill = fill };
+            foreach (var p in pts) polygon.Points.Add(p);
+            // Close the shape along the plot's bottom edge back to the segment's start-x.
+            polygon.Points.Add(new Point(pts[^1].X, plotBottomY));
+            polygon.Points.Add(new Point(pts[0].X,  plotBottomY));
+            SparklineCanvas.Children.Add(polygon);
+            segment = null;
+        }
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var s = samples[i];
+            bool gap = i > 0 && gapBefore.Contains(i);
+            var value = select(s);
+
+            if (gap || value is null) { FlushSegment(); continue; }
+
+            segment ??= [];
+            segment.Add(new Point(projectX(s.AtUtc.Ticks), projectY(value.Value)));
+        }
+        FlushSegment();
+    }
+
+    /// <summary>
+    /// Draws a short vertical dashed line spanning the plot height at a gap's start-x, making a
+    /// restart/downtime hole in the timeline visually obvious (rather than silently skipping it).
+    /// </summary>
+    private void DrawGapMarker(double x, double canvasHeight, double pad)
+    {
+        var dash = new Microsoft.UI.Xaml.Shapes.Line
+        {
+            X1 = x, X2 = x,
+            Y1 = pad, Y2 = canvasHeight - pad,
+            Stroke              = SparklineStartLabel.Foreground,
+            StrokeThickness     = 1,
+            StrokeDashArray     = [2, 2],
+            Opacity             = 0.6,
+        };
+        SparklineCanvas.Children.Add(dash);
+    }
+
+    /// <summary>
+    /// Annotates the highest and lowest points of the sparkline with a neutral dot and a
+    /// percentage label — position and the label already say "extreme", so the dot no longer
+    /// needs red/green colour coding (that read as an alarm alongside the graph's own colours).
+    /// No-op when the visible range is flat (nothing meaningful to mark).
     /// </summary>
     private void DrawSparklineMarkers(
-        (DateTime At, int Pct)[] samples, double canvasWidth,
-        Func<long, double> projectX, Func<int, double> projectY)
+        IReadOnlyList<BatterySample> samples, double canvasWidth,
+        Func<long, double> projectX, Func<double, double> projectY)
     {
         int maxPct = int.MinValue, minPct = int.MaxValue, maxIdx = 0, minIdx = 0;
-        for (int i = 0; i < samples.Length; i++)
+        for (int i = 0; i < samples.Count; i++)
         {
-            if (samples[i].Pct > maxPct) { maxPct = samples[i].Pct; maxIdx = i; }
-            if (samples[i].Pct < minPct) { minPct = samples[i].Pct; minIdx = i; }
+            if (samples[i].Soc > maxPct) { maxPct = samples[i].Soc; maxIdx = i; }
+            if (samples[i].Soc < minPct) { minPct = samples[i].Soc; minIdx = i; }
         }
         if (maxPct == minPct) return;
 
-        AddMarker(samples[maxIdx].At.Ticks, maxPct, AppColors.GaugeHighBrush);
-        AddMarker(samples[minIdx].At.Ticks, minPct, AppColors.GaugeLowBrush);
+        // Same neutral, theme-aware brush as the axis/time labels for both markers.
+        AddMarker(samples[maxIdx].AtUtc.Ticks, maxPct, SparklineStartLabel.Foreground);
+        AddMarker(samples[minIdx].AtUtc.Ticks, minPct, SparklineStartLabel.Foreground);
 
         void AddMarker(long ticks, int pct, Brush brush)
         {
@@ -394,16 +686,16 @@ public sealed partial class DashboardWindow : Window
             Canvas.SetTop(dot,  cy - dotR);
             SparklineCanvas.Children.Add(dot);
 
-            const double labelW = 26; // approximate width budget for edge clamping
+            const double labelW = 30; // approximate width budget for edge clamping
             var label = new TextBlock
             {
                 Text       = $"{pct}%",
-                FontSize   = 9,
+                FontSize   = 11,
                 // Reuse the axis labels' themed brush so the annotation tracks light/dark mode.
                 Foreground = SparklineStartLabel.Foreground,
             };
             Canvas.SetLeft(label, Math.Clamp(cx - labelW / 2, 0, Math.Max(0, canvasWidth - labelW)));
-            Canvas.SetTop(label,  cy - dotR - 11); // ~11px above the dot centre
+            Canvas.SetTop(label,  cy - dotR - 13); // ~13px above the dot centre (bigger label needs more room)
             SparklineCanvas.Children.Add(label);
         }
     }
@@ -489,8 +781,8 @@ public sealed partial class DashboardWindow : Window
     /// <summary>Applies active/inactive colours to a feature badge + indicator pair.</summary>
     private static void SetFeatureBadge(Border badge, Border indicator, bool on)
     {
-        badge.Background     = on ? AppColors.BadgeActiveBrush    : AppColors.BadgeInactiveBrush;
-        indicator.Background = on ? AppColors.IndicatorGreenBrush : AppColors.IndicatorGreyBrush;
+        badge.Background     = on ? AppColors.BadgeActiveBrush     : AppColors.BadgeInactiveBrush;
+        indicator.Background = on ? AppColors.IndicatorAccentBrush : AppColors.IndicatorGreyBrush;
     }
 
     // ── Threshold slider handlers ─────────────────────────────────────────────
@@ -544,7 +836,7 @@ public sealed partial class DashboardWindow : Window
         Task.Run(() =>
         {
             bool ok = ChargeThresholdService.SetThresholds(start, stop);
-            DispatcherQueue.TryEnqueue(() =>
+            RunOnUi(() =>
             {
                 if (ok)
                 {
