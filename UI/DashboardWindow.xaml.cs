@@ -430,6 +430,7 @@ public sealed partial class DashboardWindow : Window
         if (samples.Count < 2)
         {
             SparklineStartLabel.Text  = "—";
+            SparklineEndLabel.Text    = "—";
             RightAxisTopLabel.Text    = "—";
             RightAxisMidLabel.Text    = "—";
             RightAxisBottomLabel.Text = "—";
@@ -453,24 +454,27 @@ public sealed partial class DashboardWindow : Window
         samples = reduced.Samples;
         var gapBefore = reduced.GapBeforeIndices;
 
-        // Selected window: real elapsed time from (now - loaded span) to now, NOT the span between
-        // the oldest/newest sample — this keeps the x-axis stable and absolute even when history is
-        // sparse (e.g. right after a restart) rather than rescaling to fit the data. Read from
-        // BatteryHistoryService's own tracked span (set by the last LoadWindow call) rather than
-        // re-deriving it from Settings, so there's one source of truth for "what's loaded."
-        var span        = BatteryHistoryService.CurrentSpan;
-        DateTime nowUtc  = DateTime.UtcNow;
-        DateTime winStart = nowUtc - span;
-
-        SparklineStartLabel.Text = FormatAgo(span);
-
-        // Projection from (time, percent) to canvas coordinates, over the fixed selected window
-        // (not the min/max of the samples) so the x-axis reflects real elapsed time. Captured once
-        // here so the polyline, gap markers, and min/max markers can't drift apart.
+        // Compressed x-axis: continuous data segments fill the plot width, while each downtime gap
+        // (app closed/crashed) collapses to a small FIXED-width break instead of occupying its full
+        // real duration. A linear absolute-time axis meant a long off-period (e.g. overnight)
+        // crushed the actual battery trace into a sliver; here the last active period before a
+        // shutdown stays large and readable, with a time-split symbol marking where time was cut.
+        DateTime nowUtc = DateTime.UtcNow;
         const double pad = 4;
-        double tMin   = winStart.Ticks;
-        double tRange = Math.Max((double)span.Ticks, 1);
-        double ProjectX(long ticks) => pad + (ticks - tMin) / tRange * (w - pad * 2);
+
+        // Per-sample X for the compressed axis, index-based (a gap is defined by index — two reduced
+        // points can be far apart in ticks purely from stride, so a ticks→X function couldn't tell a
+        // real gap from ordinary spacing). Shared by every series, the gap breaks, and the min/max
+        // markers so they can't drift apart.
+        double[] xs = BuildCompressedX(samples, gapBefore, w, pad);
+
+        // Honest edge labels for a compressed axis: the left edge is the OLDEST loaded sample's age
+        // (leading downtime is collapsed, so it can be more recent than the full selected span), and
+        // the right edge is the newest sample — "now" while sampling is live.
+        SparklineStartLabel.Text = FormatAgo(nowUtc - samples[0].AtUtc);
+        var sinceLast = nowUtc - samples[^1].AtUtc;
+        SparklineEndLabel.Text   = sinceLast <= GapThreshold ? "now" : FormatAgo(sinceLast);
+
         // Left % axis: 0% at bottom, 100% at top; invert because canvas Y grows downward. Shared
         // by both the SoC and charge-limit series since they're the same 0-100% scale.
         double ProjectYPct(double pct) => (h - pad) - pct / 100.0 * (h - pad * 2);
@@ -495,22 +499,15 @@ public sealed partial class DashboardWindow : Window
         var socBrush     = AppColors.HistorySocBrush;
         var socFillBrush = AppColors.HistorySocFillBrush;
 
-        // Draw the gap markers once (shared across all series — a restart is a restart regardless
-        // of which series you're looking at), then each series over the same time projection.
-        for (int i = 1; i < samples.Count; i++)
-            if (gapBefore.Contains(i))
-                DrawGapMarker(ProjectX(samples[i - 1].AtUtc.Ticks), h, pad);
-
-        // Subtle gradient shade under the SoC line (AppControl-style), drawn before any series line
-        // so the fill sits behind everything. Uses the same gapBefore boundaries as the line itself
-        // so the fill never bridges a downtime hole either. Brush is one of 3 pre-built, cached
-        // instances (AppColors) — never allocated here, unlike the first pass.
-        DrawGradientFill(samples, gapBefore, s => s.Soc, ProjectX, ProjectYPct, h - pad, socFillBrush);
+        // Subtle gradient shade under the SoC line (AppControl-style), drawn first so the fill sits
+        // behind everything. Uses the same gapBefore boundaries as the line itself so the fill never
+        // bridges a downtime hole either. Brush is one of 3 pre-built, cached instances (AppColors).
+        DrawGradientFill(samples, gapBefore, s => s.Soc, xs, ProjectYPct, h - pad, socFillBrush);
 
         // SoC — solid line, left axis, drawn heavier than the other two (primary: true) since it's
         // the headline series. Drawn first among the three so limit/power (added next) sit
         // visually on top where they cross it.
-        DrawSeries(samples, gapBefore, s => s.Soc, ProjectX, ProjectYPct, socBrush, dashed: false, primary: true);
+        DrawSeries(samples, gapBefore, s => s.Soc, xs, ProjectYPct, socBrush, dashed: false, primary: true);
 
         // Charge limit (Smart Charge Stop threshold) — stepped line, left axis, in the SAME muted
         // amber as the gauge's threshold tick marks so the concept has one colour everywhere.
@@ -518,13 +515,68 @@ public sealed partial class DashboardWindow : Window
         // period. Stepped (rather than a straight line between samples) because the threshold only
         // ever changes in discrete jumps when the user edits it — a linear ramp between two sampled
         // values would misleadingly suggest it drifted gradually over the sample interval.
-        DrawSeries(samples, gapBefore, s => s.LimitPct, ProjectX, ProjectYPct, AppColors.HistoryLimitBrush, stepped: true);
+        DrawSeries(samples, gapBefore, s => s.LimitPct, xs, ProjectYPct, AppColors.HistoryLimitBrush, stepped: true);
 
         // Charge power — dotted line, right axis, visually distinct both by dash pattern and by
         // colour (muted lavender) as a different scale.
-        DrawSeries(samples, gapBefore, s => s.PowerMw / 1000.0, ProjectX, ProjectYWatts, AppColors.HistoryPowerBrush, dashed: true);
+        DrawSeries(samples, gapBefore, s => s.PowerMw / 1000.0, xs, ProjectYWatts, AppColors.HistoryPowerBrush, dashed: true);
 
-        DrawSparklineMarkers(samples, w, ProjectX, ProjectYPct);
+        // Time-split break symbol + skipped-duration label at each collapsed gap, drawn ON TOP of
+        // the series so both stay legible over the lines. The break x is the midpoint of the gap's
+        // fixed-width band; its duration is the real Δt between the two samples straddling the gap.
+        for (int i = 1; i < samples.Count; i++)
+            if (gapBefore.Contains(i))
+                DrawGapBreak((xs[i - 1] + xs[i]) / 2, samples[i].AtUtc - samples[i - 1].AtUtc, w, h, pad);
+
+        DrawSparklineMarkers(samples, w, xs, ProjectYPct);
+    }
+
+    /// <summary>
+    /// Builds the per-sample X coordinate for the compressed timeline: continuous data maps
+    /// proportionally to its real duration, but every downtime gap (an index in
+    /// <paramref name="gapBefore"/>) collapses to a small fixed-width break instead of its full
+    /// span. Total break width is capped at 40% of the plot so many gaps can't starve the data of
+    /// horizontal room.
+    /// </summary>
+    private static double[] BuildCompressedX(
+        IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, double w, double pad)
+    {
+        const double GapPx = 16;              // fixed on-screen width of one collapsed gap
+        double plotW = Math.Max(w - pad * 2, 1);
+
+        // Each non-gap step's clamped tick delta is computed ONCE here and reused below for both
+        // the width budget and the actual placement — computing it twice (as an earlier version of
+        // this method did) let the two copies disagree on a backward clock step (NTP correction,
+        // manual clock change): the budget pass clamped a negative delta to 0 but the placement
+        // pass didn't, so that sample could plot to the LEFT of its predecessor.
+        var deltas = new long[samples.Count]; // deltas[i] = ticks since sample i-1; 0 for i=0 or a gap
+        int gapCount = 0;
+        double activeTicks = 0;
+        for (int i = 1; i < samples.Count; i++)
+        {
+            if (gapBefore.Contains(i)) { gapCount++; continue; }
+            deltas[i] = Math.Max(0, samples[i].AtUtc.Ticks - samples[i - 1].AtUtc.Ticks);
+            activeTicks += deltas[i];
+        }
+
+        // Degenerate case: every inter-sample step is a gap (e.g. exactly two samples straddling one
+        // restart, with nothing else loaded) — there's no active elapsed time to proportion by, so
+        // pxPerTick would fall back to 0 and every point would cluster at the left edge, wasting most
+        // of the canvas. Give the gap(s) the FULL width instead of capping them to 40 %; there's no
+        // real data competing for the rest of it anyway.
+        double totalGapPx = activeTicks > 0 ? Math.Min(gapCount * GapPx, plotW * 0.4) : plotW;
+        double perGapPx   = gapCount > 0 ? totalGapPx / gapCount : 0;
+        double pxPerTick  = activeTicks > 0 ? (plotW - gapCount * perGapPx) / activeTicks : 0;
+
+        var xs = new double[samples.Count];
+        double x = pad;
+        xs[0] = x;
+        for (int i = 1; i < samples.Count; i++)
+        {
+            x += gapBefore.Contains(i) ? perGapPx : deltas[i] * pxPerTick;
+            xs[i] = x;
+        }
+        return xs;
     }
 
     /// <summary>Formats a right-axis power value as a plain number, e.g. "12W" or "0W".</summary>
@@ -551,7 +603,7 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void DrawSeries(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
-        Func<long, double> projectX, Func<double, double> projectY, Brush brush,
+        IReadOnlyList<double> xs, Func<double, double> projectY, Brush brush,
         bool dashed = false, bool primary = false, bool stepped = false)
     {
         Microsoft.UI.Xaml.Shapes.Polyline? segment = null;
@@ -568,7 +620,7 @@ public sealed partial class DashboardWindow : Window
                 continue;
             }
 
-            double x = projectX(s.AtUtc.Ticks);
+            double x = xs[i];
             double y = projectY(value.Value);
 
             if (segment is null)
@@ -602,7 +654,7 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void DrawGradientFill(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
-        Func<long, double> projectX, Func<double, double> projectY, double plotBottomY,
+        IReadOnlyList<double> xs, Func<double, double> projectY, double plotBottomY,
         LinearGradientBrush fill)
     {
         List<Point>? segment = null;
@@ -627,27 +679,111 @@ public sealed partial class DashboardWindow : Window
             if (gap || value is null) { FlushSegment(); continue; }
 
             segment ??= [];
-            segment.Add(new Point(projectX(s.AtUtc.Ticks), projectY(value.Value)));
+            segment.Add(new Point(xs[i], projectY(value.Value)));
         }
         FlushSegment();
     }
 
+    // Vertical band reserved at the top of the plot for the gap-break duration label, so the break
+    // strokes below start clear of it instead of crossing through the text (they used to share the
+    // same y=pad start point, which made the label unreadable where the strokes converged on it).
+    private const double GapLabelBandHeight = 15;
+
+    // The two diagonal strokes' x-offsets from the break's centre — hoisted out of DrawGapBreak so
+    // this small array isn't reallocated once per gap on every 5-second refresh tick.
+    private static readonly double[] GapStrokeOffsets = [-2.5, 1.5];
+
     /// <summary>
-    /// Draws a short vertical dashed line spanning the plot height at a gap's start-x, making a
-    /// restart/downtime hole in the timeline visually obvious (rather than silently skipping it).
+    /// Draws the time-split break for a collapsed downtime gap: two short parallel diagonal strokes
+    /// (the familiar "broken axis" mark) spanning the plot height below the reserved label band,
+    /// plus a high-contrast pill label of how much time the break stands in for (e.g. "13h", "2d").
+    /// Makes it obvious the timeline was cut here — and by roughly how much — rather than silently
+    /// skipping it or drawing it full-length.
     /// </summary>
-    private void DrawGapMarker(double x, double canvasHeight, double pad)
+    private void DrawGapBreak(double x, TimeSpan skipped, double canvasWidth, double canvasHeight, double pad)
     {
-        var dash = new Microsoft.UI.Xaml.Shapes.Line
+        var stroke = SparklineStartLabel.Foreground;
+        double linesTop = pad + GapLabelBandHeight;
+
+        foreach (double dx in GapStrokeOffsets)
+            SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Line
+            {
+                X1 = x + dx - 2, Y1 = canvasHeight - pad,
+                X2 = x + dx + 2, Y2 = linesTop,
+                Stroke             = stroke,
+                StrokeThickness    = 1.5,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap   = PenLineCap.Round,
+                Opacity            = 0.75,
+            });
+
+        // "How much time was skipped" pill, centred on the break inside its own reserved band —
+        // never overlapped by the strokes, which start below it.
+        AddAnnotationPill(x, pad, FormatGap(skipped), canvasWidth, fontSize: 11);
+    }
+
+    // Rough average glyph width for the SemiBold UI font at 1em, used to estimate a pill's width
+    // without a Measure() pass (see AddAnnotationPill) — labels are always short, fixed-format
+    // digit/letter/percent strings ("13h", "74%"), so pixel-perfect width isn't needed, only enough
+    // to centre and edge-clamp the pill reasonably.
+    private const double PillCharWidthEm = 0.62;
+    private const double PillPaddingX    = 8; // matches Padding(4,_,4,_) below, both sides combined
+
+    /// <summary>
+    /// Adds a small opaque "pill" (rounded solid-background + bold text) to the sparkline canvas,
+    /// horizontally centred on <paramref name="centerX"/> with its top edge at <paramref name="top"/>
+    /// and clamped to stay within the canvas. A plain themed-foreground TextBlock alone wasn't
+    /// enough contrast for annotations that sit on top of coloured lines and a gradient fill — a
+    /// genuinely opaque background (AnnotationPillBackgroundRef, NOT the card's own translucent
+    /// ControlFillColorDefaultBrush) guarantees legibility regardless of what's beneath.
+    /// </summary>
+    private void AddAnnotationPill(double centerX, double top, string text, double canvasWidth, double fontSize)
+    {
+        var label = new TextBlock
         {
-            X1 = x, X2 = x,
-            Y1 = pad, Y2 = canvasHeight - pad,
-            Stroke              = SparklineStartLabel.Foreground,
-            StrokeThickness     = 1,
-            StrokeDashArray     = [2, 2],
-            Opacity             = 0.6,
+            Text       = text,
+            FontSize   = fontSize,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = GraphLabelPillTextBrushRef.Foreground,
         };
-        SparklineCanvas.Children.Add(dash);
+        var pill = new Border
+        {
+            Background   = AnnotationPillBackgroundRef.Background,
+            CornerRadius = new CornerRadius(3),
+            Padding      = new Thickness(4, 1, 4, 1),
+            Child        = label,
+        };
+
+        // Estimated, not measured: Measure() requires a layout pass (real cost on every gap-break
+        // and every min/max marker, every 5-second tick) and, called here — before the pill is ever
+        // added to SparklineCanvas.Children — risks returning a degenerate 0×0 DesiredSize on the
+        // very first render (ShowNearTray's Refresh() runs before the window's first layout pass).
+        double estimatedWidth = text.Length * fontSize * PillCharWidthEm + PillPaddingX;
+        double left = Math.Clamp(centerX - estimatedWidth / 2, 0, Math.Max(0, canvasWidth - estimatedWidth));
+        Canvas.SetLeft(pill, left);
+        // Clamp vertically too: a min/max marker near 100% SoC places `top` just above the dot,
+        // which is already near the plot's own top edge — without this, the pill can compute a
+        // negative Top and render clipped above (or entirely outside) the canvas.
+        Canvas.SetTop(pill, Math.Max(0, top));
+        SparklineCanvas.Children.Add(pill);
+    }
+
+    /// <summary>
+    /// Formats a skipped-time gap compactly for the break label, e.g. "45m", "13h", "2d", "1w".
+    /// Rounds each tier's OWN value before comparing it to that tier's boundary — checking the raw
+    /// (unrounded) value against 60/24/7 let a value just under a boundary round UP to the boundary
+    /// itself instead of promoting to the next unit (e.g. 59.6 minutes rounding to "60m" rather than
+    /// "1h", or 23.6 hours to "24h" rather than "1d").
+    /// </summary>
+    private static string FormatGap(TimeSpan gap)
+    {
+        int minutes = (int)Math.Round(gap.TotalMinutes, MidpointRounding.AwayFromZero);
+        if (minutes < 60) return $"{Math.Max(1, minutes)}m";
+        int hours = (int)Math.Round(gap.TotalHours, MidpointRounding.AwayFromZero);
+        if (hours < 24) return $"{hours}h";
+        int days = (int)Math.Round(gap.TotalDays, MidpointRounding.AwayFromZero);
+        if (days < 7) return $"{days}d";
+        return $"{(int)Math.Round(gap.TotalDays / 7, MidpointRounding.AwayFromZero)}w";
     }
 
     /// <summary>
@@ -658,7 +794,7 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void DrawSparklineMarkers(
         IReadOnlyList<BatterySample> samples, double canvasWidth,
-        Func<long, double> projectX, Func<double, double> projectY)
+        IReadOnlyList<double> xs, Func<double, double> projectY)
     {
         int maxPct = int.MinValue, minPct = int.MaxValue, maxIdx = 0, minIdx = 0;
         for (int i = 0; i < samples.Count; i++)
@@ -668,35 +804,26 @@ public sealed partial class DashboardWindow : Window
         }
         if (maxPct == minPct) return;
 
-        // Same neutral, theme-aware brush as the axis/time labels for both markers.
-        AddMarker(samples[maxIdx].AtUtc.Ticks, maxPct, SparklineStartLabel.Foreground);
-        AddMarker(samples[minIdx].AtUtc.Ticks, minPct, SparklineStartLabel.Foreground);
+        AddMarker(xs[maxIdx], maxPct);
+        AddMarker(xs[minIdx], minPct);
 
-        void AddMarker(long ticks, int pct, Brush brush)
+        void AddMarker(double cx, int pct)
         {
             const double dotR = 3;
-            double cx = projectX(ticks);
             double cy = projectY(pct);
 
+            // Same neutral, theme-aware brush as the axis/time labels.
             var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
             {
-                Width = dotR * 2, Height = dotR * 2, Fill = brush,
+                Width = dotR * 2, Height = dotR * 2, Fill = SparklineStartLabel.Foreground,
             };
             Canvas.SetLeft(dot, cx - dotR);
             Canvas.SetTop(dot,  cy - dotR);
             SparklineCanvas.Children.Add(dot);
 
-            const double labelW = 30; // approximate width budget for edge clamping
-            var label = new TextBlock
-            {
-                Text       = $"{pct}%",
-                FontSize   = 11,
-                // Reuse the axis labels' themed brush so the annotation tracks light/dark mode.
-                Foreground = SparklineStartLabel.Foreground,
-            };
-            Canvas.SetLeft(label, Math.Clamp(cx - labelW / 2, 0, Math.Max(0, canvasWidth - labelW)));
-            Canvas.SetTop(label,  cy - dotR - 13); // ~13px above the dot centre (bigger label needs more room)
-            SparklineCanvas.Children.Add(label);
+            // Pill (not a plain themed-foreground label) so the percentage stays legible over the
+            // gradient fill and lines it sits above — ~20px clears the dot plus the pill's own padding.
+            AddAnnotationPill(cx, cy - dotR - 20, $"{pct}%", canvasWidth, fontSize: 13);
         }
     }
 

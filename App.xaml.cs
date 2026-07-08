@@ -199,6 +199,17 @@ public partial class App : Application
             return;
         }
 
+        // Capture a minidump if the app dies from a fault that bypasses every managed handler
+        // below (the "vanished tray icon, zero trace anywhere" signature seen 2026-07-03 and
+        // 2026-07-05 — no ProcessExit line, no app.log entry, no WER report at all). See
+        // CrashDumps.cs for the full story. Backgrounded: it only needs to be armed before some
+        // FUTURE crash, not before the rest of startup (window/tray-icon creation below) proceeds —
+        // registry I/O here would otherwise add unaccounted latency to the exact "is the app
+        // actually running yet" window this app's history has repeatedly had trouble with.
+        _ = Task.Run(() => CrashDumps.TryRegisterLocalDumps(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "LenovoPowerTray", "dumps")));
+
         // Opt native Win32 elements (the tray context menu) into system dark mode. Must run
         // before any UI is created so the menu HWND inherits the setting.
         NativeMethods.EnableDarkModeForNativeUi();

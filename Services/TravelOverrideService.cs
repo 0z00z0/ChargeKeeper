@@ -53,24 +53,29 @@ internal static class TravelOverrideService
     {
         Task.Run(() =>
         {
-            var s     = SettingsService.Current;
             var state = ChargeThresholdService.Read();
 
-            // Remember what to restore only when Smart Charge is on with valid values.
-            if (state is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 })
+            // Update() reads/mutates/saves atomically — a plain "var s = Current; ...; Save();"
+            // here would race SettingsService.Reload() (the "Reload settings from disk" menu
+            // command): Reload can swap Current out from under this Task.Run's async gap (the RPC
+            // read above), orphaning the mutation and silently losing it (see Update's doc comment).
+            SettingsService.Update(s =>
             {
-                s.TravelOverrideRevertStart = state.Start;
-                s.TravelOverrideRevertStop  = state.Stop;
-            }
-            else
-            {
-                // Was already disabled — nothing to restore.
-                s.TravelOverrideRevertStart = null;
-                s.TravelOverrideRevertStop  = null;
-            }
+                // Remember what to restore only when Smart Charge is on with valid values.
+                if (state is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 })
+                {
+                    s.TravelOverrideRevertStart = state.Start;
+                    s.TravelOverrideRevertStop  = state.Stop;
+                }
+                else
+                {
+                    // Was already disabled — nothing to restore.
+                    s.TravelOverrideRevertStart = null;
+                    s.TravelOverrideRevertStop  = null;
+                }
 
-            s.TravelOverrideActive = true;
-            SettingsService.Save();
+                s.TravelOverrideActive = true;
+            });
 
             // Disable threshold (start=0, stop=0 → charge to 100 %).
             ChargeThresholdService.SetEnabled(false);
@@ -118,13 +123,17 @@ internal static class TravelOverrideService
 
     private static void ApplyRevert()
     {
-        var s = SettingsService.Current;
+        // Read now, synchronously, before the async gap below — safe as a plain property read.
+        // The WRITE side (the `finally` block) is what must go through Update(), since Save()
+        // there is what would otherwise race a concurrent Reload() (see Update's doc comment).
+        var s           = SettingsService.Current;
+        var revertStart = s.TravelOverrideRevertStart;
+        var revertStop  = s.TravelOverrideRevertStop;
         Task.Run(() =>
         {
             try
             {
-                if (s.TravelOverrideRevertStart is { } start &&
-                    s.TravelOverrideRevertStop  is { } stop)
+                if (revertStart is { } start && revertStop is { } stop)
                 {
                     ChargeThresholdService.SetEnabled(true);
                     ChargeThresholdService.SetThresholds(start, stop);
@@ -134,10 +143,12 @@ internal static class TravelOverrideService
             catch { }
             finally
             {
-                s.TravelOverrideActive      = false;
-                s.TravelOverrideRevertStart = null;
-                s.TravelOverrideRevertStop  = null;
-                SettingsService.Save();
+                SettingsService.Update(cur =>
+                {
+                    cur.TravelOverrideActive      = false;
+                    cur.TravelOverrideRevertStart = null;
+                    cur.TravelOverrideRevertStop  = null;
+                });
             }
 
             StateChanged?.Invoke();   // tooltip reverts to the Smart Charge line immediately

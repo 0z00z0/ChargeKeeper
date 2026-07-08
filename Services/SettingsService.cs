@@ -103,7 +103,7 @@ internal static class SettingsService
     /// <summary>The loaded (and potentially modified) settings instance.</summary>
     public static AppSettings Current
     {
-        get { lock (_lock) { return _current ??= Load(); } }
+        get { lock (_lock) { return _current ??= ReadFile(_path) ?? new AppSettings(); } }
     }
 
     /// <summary>Path to the settings file — surfaced in UI as "Open settings file".</summary>
@@ -128,16 +128,56 @@ internal static class SettingsService
         }
     }
 
-    private static AppSettings Load()
+    /// <summary>
+    /// Atomically reads, mutates, and saves <see cref="Current"/> under one lock acquisition.
+    /// Use this — never the older "var s = Current; ... s.Prop = x; Save();" pattern — for any
+    /// mutation that spans an async gap (a background Task, an await, an RPC round-trip): the older
+    /// pattern captures a REFERENCE to the settings object, and if <see cref="Reload"/> swaps
+    /// <see cref="Current"/> out from under it during that gap, the mutation lands on an orphaned
+    /// object while <see cref="Save"/> (which always serialises the live <c>_current</c>, not the
+    /// stale capture) persists the reloaded object unchanged — silently dropping the write. Nesting
+    /// under the same <see cref="Lock"/> instance is safe: <c>System.Threading.Lock</c> (like the
+    /// classic <c>lock</c> keyword) is re-entrant for the thread already holding it, so calling
+    /// <see cref="Save"/> from inside this method's own lock does not deadlock.
+    /// </summary>
+    public static void Update(Action<AppSettings> mutate)
+    {
+        lock (_lock)
+        {
+            mutate(_current ??= ReadFile(_path) ?? new AppSettings());
+            Save();
+        }
+    }
+
+    /// <summary>Deserialises settings JSON from <paramref name="path"/>. Null on any I/O/parse failure or a missing file.</summary>
+    private static AppSettings? ReadFile(string path)
     {
         try
         {
-            if (File.Exists(_path))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), _opts)
-                       ?? new AppSettings();
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), _opts)
+                : null;
         }
-        catch { }
-        return new AppSettings();
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Re-reads settings.json from disk into <see cref="Current"/>, discarding any in-memory
+    /// changes that were never saved — the "Reload settings from disk" menu command, for picking
+    /// up an out-of-band edit (e.g. a manually-edited file, or one synced in from another machine
+    /// via roaming/OneDrive) without restarting the app. Unlike <see cref="Import"/>, this never
+    /// writes back to <see cref="FilePath"/> — it's a read-only refresh of the canonical file, not
+    /// a load-from-elsewhere-and-adopt. Leaves <see cref="Current"/> untouched and returns false on
+    /// a missing or invalid file.
+    /// </summary>
+    public static bool Reload()
+    {
+        if (ReadFile(_path) is not { } loaded) return false;
+        lock (_lock) { _current = loaded; }
+        return true;
     }
 
     /// <summary>Writes the current settings to an arbitrary path (Export). Throws on I/O error.</summary>
@@ -154,20 +194,12 @@ internal static class SettingsService
     /// </summary>
     public static bool Import(string path)
     {
-        try
+        if (ReadFile(path) is not { } loaded) return false;
+        lock (_lock)
         {
-            if (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), _opts) is not { } loaded)
-                return false;
-
-            lock (_lock)
-                _current = loaded;
-
+            _current = loaded;
             Save();   // persist the imported settings to the canonical location
-            return true;
         }
-        catch
-        {
-            return false;
-        }
+        return true;
     }
 }

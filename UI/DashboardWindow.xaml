@@ -159,7 +159,20 @@
              slightly softer than the 6px status badges below) and a touch of inner padding give
              the plot a card-like feel consistent with the rest of the dashboard. -->
         <StackPanel Grid.Row="3" Margin="0,0,0,12" Spacing="6">
-            <Border CornerRadius="8"
+            <!-- Hidden references read from code for the gap/min-max annotation pills, matching this
+                 file's existing pattern of sourcing ThemeResource brushes from an inert XAML element
+                 instead of a code-behind resource lookup. GraphLabelPillTextBrushRef gives a
+                 higher-contrast text brush than the axis labels' Tertiary. AnnotationPillBackgroundRef
+                 is deliberately NOT SparklineCard's own ControlFillColorDefaultBrush — that Fluent
+                 brush is a translucent "reveal" surface by design, not solid, so a pill using it would
+                 still let the coloured line/gradient underneath bleed through and defeat the whole
+                 point of the pill (contrast). SolidBackgroundFillColorBase IS a fully opaque brush. -->
+            <TextBlock x:Name="GraphLabelPillTextBrushRef" Visibility="Collapsed"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            <Border x:Name="AnnotationPillBackgroundRef" Visibility="Collapsed"
+                    Background="{ThemeResource SolidBackgroundFillColorBase}"/>
+            <Border x:Name="SparklineCard"
+                    CornerRadius="8"
                     Padding="0,6,0,0"
                     Background="{ThemeResource ControlFillColorDefaultBrush}">
                 <Grid>
@@ -190,7 +203,11 @@
                         <TextBlock x:Name="RightAxisBottomLabel" Text="—" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     </Grid>
 
-                    <!-- Time axis: left = span of the visible history, right = now. -->
+                    <!-- Time axis: left = age of the OLDEST loaded sample, right = age of the newest
+                         (usually "now", but shows an elapsed time instead once sampling has gone
+                         quiet for longer than GapThreshold). NOT a fixed span — leading downtime is
+                         collapsed by the compressed x-axis, so the left edge can be more recent than
+                         the selected GraphTimeScale. Set dynamically in UpdateSparkline. -->
                     <Grid Grid.Row="1" Grid.Column="1" Margin="7,3,7,6">
                         <TextBlock x:Name="SparklineStartLabel"
                                    Text="—"

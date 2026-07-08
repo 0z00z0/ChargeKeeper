@@ -25,6 +25,7 @@ internal sealed class TrayMenu
     private MenuFlyoutItem?       _updateItem;
     private MenuFlyoutItem?       _travelItem;
     private ToggleMenuFlyoutItem? _iconModeItem;
+    private MenuFlyoutSubItem?    _presetsSubmenu;
     private AboutWindow?          _aboutWindow;
 
     // Settings submenu state (radio-style items synced in RefreshState).
@@ -56,7 +57,8 @@ internal sealed class TrayMenu
             // Append preset submenu + travel override directly under Smart Charge.
             if (feature is SmartChargeFeature)
             {
-                Flyout.Items.Add(BuildPresetsSubmenu());
+                _presetsSubmenu = BuildPresetsSubmenu();
+                Flyout.Items.Add(_presetsSubmenu);
 
                 _travelItem = new MenuFlyoutItem
                 {
@@ -85,6 +87,7 @@ internal sealed class TrayMenu
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Export settings…", Command = new RelayCommand(ExportSettings) });
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Import settings…", Command = new RelayCommand(ImportSettings) });
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Open settings file", Command = new RelayCommand(OpenSettingsFile) });
+        settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Reload settings from disk", Command = new RelayCommand(ReloadSettings) });
         settingsMenu.Items.Add(new MenuFlyoutSeparator());
         settingsMenu.Items.Add(new MenuFlyoutItem
         {
@@ -162,6 +165,30 @@ internal sealed class TrayMenu
     private MenuFlyoutSubItem BuildPresetsSubmenu()
     {
         var sub = new MenuFlyoutSubItem { Text = "Presets" };
+        AddPresetItems(sub);
+        return sub;
+    }
+
+    /// <summary>
+    /// Clears and re-adds the Presets submenu's items from the (possibly just-reloaded/imported)
+    /// live settings. <see cref="RefreshState"/> alone is NOT enough for this submenu: it only
+    /// toggles IsChecked on the EXISTING items, which still close over the ThresholdPreset objects
+    /// captured when the menu was built — after an out-of-band edit to settings.json (the exact
+    /// scenario "Reload settings from disk" exists for), those closures would keep applying the
+    /// stale, pre-edit Start/Stop values. Call after any operation that can replace
+    /// <see cref="SettingsService.Current"/> wholesale (<see cref="SettingsService.Reload"/>,
+    /// <see cref="SettingsService.Import"/>).
+    /// </summary>
+    private void RebuildPresetsSubmenu()
+    {
+        if (_presetsSubmenu is null) return;
+        _presetItems.Clear();
+        _presetsSubmenu.Items.Clear();
+        AddPresetItems(_presetsSubmenu);
+    }
+
+    private void AddPresetItems(MenuFlyoutSubItem sub)
+    {
         foreach (var preset in SettingsService.Current.Presets)
         {
             var p    = preset; // local copy for lambda capture
@@ -174,7 +201,6 @@ internal sealed class TrayMenu
             _presetItems.Add((item, p));
             sub.Items.Add(item);
         }
-        return sub;
     }
 
     private static void ApplyPreset(ThresholdPreset preset)
@@ -186,10 +212,11 @@ internal sealed class TrayMenu
                 ChargeThresholdService.SetEnabled(true);
                 bool ok = ChargeThresholdService.SetThresholds(preset.Start, preset.Stop);
                 if (ok)
-                {
-                    SettingsService.Current.ActivePreset = preset.Name;
-                    SettingsService.Save();
-                }
+                    // Update() (not "Current.ActivePreset = x; Save();") — this spans the RPC call
+                    // above, so a concurrent "Reload settings from disk" could otherwise swap
+                    // Current out from under a plain captured-reference mutation and silently lose
+                    // this write (see SettingsService.Update's doc comment).
+                    SettingsService.Update(s => s.ActivePreset = preset.Name);
             }
             catch { }
         });
@@ -295,21 +322,47 @@ internal sealed class TrayMenu
         }
     }
 
+    /// <summary>
+    /// Re-reads settings.json from disk without restarting the app (e.g. after a manual edit, or a
+    /// file synced in from another machine) — same purpose as HyperVManagerTray's "Reload config
+    /// from disk", but read-only against the canonical file rather than adopting an arbitrary path
+    /// like <see cref="ImportSettings"/> does.
+    /// </summary>
+    private void ReloadSettings() =>
+        ApplySettingsLoadResult(SettingsService.Reload(),
+            "Settings reloaded from disk.",
+            "Could not reload settings — the file is missing or invalid.");
+
     private void ImportSettings()
     {
         var path = NativeMethods.ShowOpenFileDialog(IntPtr.Zero, "Import Lenovo Power Tray settings",
             "json", "Settings JSON (*.json)|*.json|All files (*.*)|*.*");
         if (path is null) return;
 
-        if (SettingsService.Import(path))
+        ApplySettingsLoadResult(SettingsService.Import(path),
+            "Settings imported.",
+            "Could not import settings — the file is missing or invalid.");
+    }
+
+    /// <summary>
+    /// Shared success/failure handling for the two commands that can replace
+    /// <see cref="SettingsService.Current"/> wholesale (Reload, Import): on success, refreshes
+    /// everything built from a one-time snapshot of the old settings — icon mode, the menu's
+    /// check marks, AND the Presets submenu (which <see cref="RefreshState"/> alone does not
+    /// rebuild, see <see cref="RebuildPresetsSubmenu"/>) — then confirms via a toast either way.
+    /// </summary>
+    private void ApplySettingsLoadResult(bool ok, string successMessage, string failureMessage)
+    {
+        if (ok)
         {
-            _onIconModeChanged(); // imported icon mode takes effect immediately
-            RefreshState();       // resync the menu check marks
-            NativeMethods.Info("Settings imported.", AppName);
+            _onIconModeChanged();     // icon mode takes effect immediately
+            RebuildPresetsSubmenu();  // stale closures over the old Presets list, not just stale IsChecked
+            RefreshState();           // resync the remaining menu check marks
+            NativeMethods.Info(successMessage, AppName);
         }
         else
         {
-            NativeMethods.Warn("Could not import settings — the file is missing or invalid.", AppName);
+            NativeMethods.Warn(failureMessage, AppName);
         }
     }
 
