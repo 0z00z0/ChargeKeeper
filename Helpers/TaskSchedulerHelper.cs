@@ -1,16 +1,16 @@
 using System.Security.Principal;
 using Microsoft.Win32.TaskScheduler;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Manages the Windows Task Scheduler entry that auto-starts LenovoTray at logon.
+/// Manages the Windows Task Scheduler entry that auto-starts ChargeKeeper at logon.
 /// A scheduled task (rather than a Run key) is required because the app runs elevated —
 /// Run-key entries for elevated apps trigger a UAC prompt on every boot.
 /// </summary>
 internal static class TaskSchedulerHelper
 {
-    private const string TaskName = "LenovoTray AutoStart";
+    private const string TaskName = "ChargeKeeper AutoStart";
 
     /// <summary>Returns <c>true</c> when the auto-start task exists and is enabled.</summary>
     internal static bool IsAutoStartEnabled()
@@ -43,7 +43,7 @@ internal static class TaskSchedulerHelper
             ?? throw new InvalidOperationException("Cannot determine executable path for auto-start task.");
 
         var td = ts.NewTask();
-        td.RegistrationInfo.Description = "Lenovo Power Tray — starts minimised to system tray";
+        td.RegistrationInfo.Description = "ChargeKeeper — starts minimised to system tray";
         td.Principal.RunLevel           = TaskRunLevel.Highest;  // elevated, no UAC prompt
 
         // Trigger: run when this specific user logs on

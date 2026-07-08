@@ -2,7 +2,7 @@
 #
 # Installer manifest. Per release: bump PackageVersion, set InstallerUrl to the GitHub
 # Release asset, and fill InstallerSha256 (build-installer.ps1 prints the SHA256).
-PackageIdentifier: 0z00z0.LenovoPowerTray
+PackageIdentifier: 0z00z0.ChargeKeeper
 PackageVersion: 1.0.0
 InstallerType: inno
 Scope: user
@@ -15,13 +15,13 @@ InstallerSwitches:
   SilentWithProgress: /SILENT /SUPPRESSMSGBOXES /NORESTART
 # Lets `winget list` / `winget upgrade` match the per-user uninstall entry Inno registers.
 AppsAndFeaturesEntries:
-  - DisplayName: Lenovo Power Tray
+  - DisplayName: ChargeKeeper
     Publisher: ZeroZero Software
     DisplayVersion: 1.0.0
     InstallerType: inno
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/0z00z0/LenovoPowerTray/releases/download/v1.0.0/LenovoPowerTray-Setup.exe
+    InstallerUrl: https://github.com/0z00z0/ChargeKeeper/releases/download/v1.0.0/ChargeKeeper-Setup.exe
     InstallerSha256: 211A595B5DB205CC8D89115FACC53B7B461FA405E016E92363292C4B661C2829
 ManifestType: installer
 ManifestVersion: 1.6.0

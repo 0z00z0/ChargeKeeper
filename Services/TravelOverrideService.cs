@@ -1,6 +1,6 @@
 using Windows.System.Power;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 /// <summary>
 /// Manages the "charge to 100 % once" travel override.

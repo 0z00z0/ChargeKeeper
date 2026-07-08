@@ -1,7 +1,7 @@
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.Features;
+namespace ChargeKeeper.Features;
 
 /// <summary>Smart Charge battery threshold via the Lenovo Power Manager RPC interface.</summary>
 internal sealed class SmartChargeFeature : IToggleFeature

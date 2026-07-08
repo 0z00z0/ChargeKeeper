@@ -1,9 +1,9 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Generates the red Lenovo "L" tray icon at runtime.

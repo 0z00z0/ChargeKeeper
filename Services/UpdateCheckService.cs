@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 internal static class UpdateCheckService
 {
@@ -30,7 +30,7 @@ internal static class UpdateCheckService
     /// </summary>
     public static string? LatestVersion { get; private set; }
 
-    private const string ReleasesPageUrl = "https://github.com/0z00z0/LenovoPowerTray/releases";
+    private const string ReleasesPageUrl = "https://github.com/0z00z0/ChargeKeeper/releases";
 
     public enum UpdateStatus { UpToDate, Available, NoReleases, Error }
 
@@ -52,8 +52,8 @@ internal static class UpdateCheckService
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                "https://api.github.com/repos/0z00z0/LenovoPowerTray/releases/latest");
-            request.Headers.UserAgent.ParseAdd("LenovoPowerTray/1.0");
+                "https://api.github.com/repos/0z00z0/ChargeKeeper/releases/latest");
+            request.Headers.UserAgent.ParseAdd("ChargeKeeper/1.0");
 
             using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
 
@@ -112,7 +112,7 @@ internal static class UpdateCheckService
     /// </summary>
     public static async Task<string> DownloadInstallerAsync(string url)
     {
-        var path = Path.Combine(Path.GetTempPath(), "LenovoPowerTray-Setup.exe");
+        var path = Path.Combine(Path.GetTempPath(), "ChargeKeeper-Setup.exe");
         using var response = await _downloadClient
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead)
             .ConfigureAwait(false);
@@ -150,9 +150,9 @@ internal static class UpdateCheckService
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                "https://api.github.com/repos/0z00z0/LenovoPowerTray/releases/latest");
+                "https://api.github.com/repos/0z00z0/ChargeKeeper/releases/latest");
 
-            request.Headers.UserAgent.ParseAdd("LenovoPowerTray/1.0");
+            request.Headers.UserAgent.ParseAdd("ChargeKeeper/1.0");
 
             using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();

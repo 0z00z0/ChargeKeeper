@@ -1,4 +1,4 @@
-; Inno Setup script for Lenovo Power Tray.
+; Inno Setup script for ChargeKeeper.
 ;
 ; Per-user install (no admin required). The app itself is requireAdministrator and
 ; elevates at runtime; the installer does not. The optional "Run at startup" task is
@@ -7,12 +7,12 @@
 ; Build via installer\build-installer.ps1, which publishes the app and passes
 ; /DPublishDir and /DAppVersion to ISCC.
 
-#define AppName       "Lenovo Power Tray"
-#define AppExe        "LenovoTray.exe"
+#define AppName       "ChargeKeeper"
+#define AppExe        "ChargeKeeper.exe"
 #define AppPublisher  "ZeroZero Software"
-#define AppUrl        "https://github.com/0z00z0/LenovoPowerTray"
-#define TaskName      "LenovoTray AutoStart"
-#define WingetId      "0z00z0.LenovoPowerTray"
+#define AppUrl        "https://github.com/0z00z0/ChargeKeeper"
+#define TaskName      "ChargeKeeper AutoStart"
+#define WingetId      "0z00z0.ChargeKeeper"
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -39,7 +39,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=Output
-OutputBaseFilename=LenovoPowerTray-Setup-{#AppVersion}
+OutputBaseFilename=ChargeKeeper-Setup-{#AppVersion}
 SetupIconFile=..\Assets\AppIcon.ico
 Compression=lzma2
 SolidCompression=yes
@@ -73,7 +73,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Code]
 const
   TaskName       = '{#TaskName}';
-  UpdateTaskName = 'LenovoTray AutoUpdate';
+  UpdateTaskName = 'ChargeKeeper AutoUpdate';
 
 var
   // True when ssInstall found (and killed) a running instance. Lets a SILENT upgrade
@@ -109,7 +109,7 @@ function AppIsRunning(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // tasklist|find: exit 0 only when a LenovoTray.exe process is present. Works without
+  // tasklist|find: exit 0 only when a ChargeKeeper.exe process is present. Works without
   // elevation (the image name is visible even for an elevated process).
   Result := Exec(ExpandConstant('{cmd}'),
                  '/C tasklist /FI "IMAGENAME eq {#AppExe}" /NH | find /I "{#AppExe}"',
@@ -171,7 +171,7 @@ begin
   if CurStep = ssInstall then
   begin
     // Kill any running instance BEFORE files are replaced so nothing is locked.
-    // LenovoTray.exe is requireAdministrator (elevated), so a non-elevated taskkill is
+    // ChargeKeeper.exe is requireAdministrator (elevated), so a non-elevated taskkill is
     // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
     // succeeds and the install continues without locked-file errors.
     WasRunning := AppIsRunning();

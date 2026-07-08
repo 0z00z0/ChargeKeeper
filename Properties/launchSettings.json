@@ -1,9 +1,9 @@
 {
   "profiles": {
-    "LenovoTray (Package)": {
+    "ChargeKeeper (Package)": {
       "commandName": "MsixPackage"
     },
-    "LenovoTray (Unpackaged)": {
+    "ChargeKeeper (Unpackaged)": {
       "commandName": "Project"
     }
   }

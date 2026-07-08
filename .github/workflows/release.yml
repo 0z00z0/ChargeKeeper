@@ -117,14 +117,14 @@ jobs:
           }
 
           # 1) Sign the published app exe.
-          Invoke-Sign 'publish\LenovoTray.exe'
+          Invoke-Sign 'publish\ChargeKeeper.exe'
 
           # 2) Recompile the installer (now bundling the signed exe), then sign it.
           $iscc = (Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction SilentlyContinue).FullName
           if (-not $iscc) { throw 'ISCC.exe not found.' }
-          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "/DPublishDir=$(Resolve-Path publish)" installer\LenovoPowerTray.iss
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "/DPublishDir=$(Resolve-Path publish)" installer\ChargeKeeper.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)." }
-          Invoke-Sign "installer\Output\LenovoPowerTray-Setup-${{ steps.version.outputs.version }}.exe"
+          Invoke-Sign "installer\Output\ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe"
 
           Remove-Item $pfxPath -Force
           Write-Host 'Signed app exe + installer; PFX deleted.'
@@ -140,7 +140,7 @@ jobs:
         id: sha256
         shell: pwsh
         run: |
-          $setup = "installer\Output\LenovoPowerTray-Setup-${{ steps.version.outputs.version }}.exe"
+          $setup = "installer\Output\ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe"
           $hash  = (Get-FileHash $setup -Algorithm SHA256).Hash.ToUpper()
           Write-Host "SHA256: $hash"
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -153,9 +153,9 @@ jobs:
           $sha256 = '${{ steps.sha256.outputs.sha256 }}'
           $tag    = "v$ver"
 
-          $installerYaml = 'installer\winget\0z00z0.LenovoPowerTray.installer.yaml'
-          $versionYaml   = 'installer\winget\0z00z0.LenovoPowerTray.yaml'
-          $localeYaml    = 'installer\winget\0z00z0.LenovoPowerTray.locale.en-US.yaml'
+          $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
+          $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
 
           # Helper: replace a YAML scalar in-place
           function Set-YamlValue {
@@ -170,7 +170,7 @@ jobs:
           Set-YamlValue $installerYaml 'InstallerSha256'  $sha256
 
           # Update InstallerUrl to point at the new release asset
-          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/LenovoPowerTray-Setup-$ver.exe"
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/ChargeKeeper-Setup-$ver.exe"
           Set-YamlValue $installerYaml 'InstallerUrl' $url
 
           # Also update DisplayVersion inside AppsAndFeaturesEntries
@@ -209,24 +209,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
-          name: Lenovo Power Tray v${{ steps.version.outputs.version }}
+          name: ChargeKeeper v${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
           files: |
-            installer/Output/LenovoPowerTray-Setup-${{ steps.version.outputs.version }}.exe
-            installer/winget/0z00z0.LenovoPowerTray.installer.yaml
-            installer/winget/0z00z0.LenovoPowerTray.yaml
-            installer/winget/0z00z0.LenovoPowerTray.locale.en-US.yaml
+            installer/Output/ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe
+            installer/winget/0z00z0.ChargeKeeper.installer.yaml
+            installer/winget/0z00z0.ChargeKeeper.yaml
+            installer/winget/0z00z0.ChargeKeeper.locale.en-US.yaml
           body: |
-            ## Lenovo Power Tray v${{ steps.version.outputs.version }}
+            ## ChargeKeeper v${{ steps.version.outputs.version }}
 
             **Install / upgrade via winget:**
             ```
-            winget install 0z00z0.LenovoPowerTray
-            winget upgrade 0z00z0.LenovoPowerTray
+            winget install 0z00z0.ChargeKeeper
+            winget upgrade 0z00z0.ChargeKeeper
             ```
 
-            Or download `LenovoPowerTray-Setup-${{ steps.version.outputs.version }}.exe` below — per-user installer, no admin required.
+            Or download `ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe` below — per-user installer, no admin required.
 
             **SHA256 (installer):** `${{ steps.sha256.outputs.sha256 }}`
 
@@ -251,9 +251,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
           $assets = @(
-            '0z00z0.LenovoPowerTray.installer.yaml',
-            '0z00z0.LenovoPowerTray.yaml',
-            '0z00z0.LenovoPowerTray.locale.en-US.yaml'
+            '0z00z0.ChargeKeeper.installer.yaml',
+            '0z00z0.ChargeKeeper.yaml',
+            '0z00z0.ChargeKeeper.locale.en-US.yaml'
           )
           foreach ($a in $assets) {
             gh release download $tag --repo ${{ github.repository }} --pattern $a --dir $outDir

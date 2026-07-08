@@ -1,7 +1,7 @@
 using System.ServiceProcess;
 using Microsoft.Win32;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 /// <summary>
 /// Controls the <c>LenovoSmartStandby</c> Windows service, which schedules when

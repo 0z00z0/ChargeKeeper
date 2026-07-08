@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>Thin wrappers around Win32 APIs used across the app.</summary>
 internal static class NativeMethods

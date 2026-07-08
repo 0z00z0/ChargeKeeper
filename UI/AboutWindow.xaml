@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Window
-    x:Class="LenovoTray.UI.AboutWindow"
+    x:Class="ChargeKeeper.UI.AboutWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
@@ -54,7 +54,7 @@
                     <!-- App name + version -->
                     <StackPanel Grid.Column="1" VerticalAlignment="Center"
                                 Margin="10,0,0,0" Spacing="2">
-                        <TextBlock Text="Lenovo Power Tray"
+                        <TextBlock Text="ChargeKeeper"
                                    FontSize="13" FontWeight="SemiBold"
                                    Foreground="White"/>
                         <TextBlock x:Name="VersionText" Text="v—"
@@ -88,7 +88,7 @@
 
                 <!-- Description -->
                 <TextBlock
-                    Text="Smart Charge and Smart Standby for ThinkPad. Control battery charge thresholds and standby power settings directly from the system tray."
+                    Text="Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver)."
                     FontSize="11" TextWrapping="Wrap"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 

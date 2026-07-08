@@ -1,14 +1,14 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
-PackageIdentifier: 0z00z0.LenovoPowerTray
+PackageIdentifier: 0z00z0.ChargeKeeper
 PackageVersion: 1.0.0
 PackageLocale: en-US
 Publisher: ZeroZero Software
 PublisherUrl: https://0z0.xyz
-PublisherSupportUrl: https://github.com/0z00z0/LenovoPowerTray/issues
-PackageName: Lenovo Power Tray
-PackageUrl: https://github.com/0z00z0/LenovoPowerTray
+PublisherSupportUrl: https://github.com/0z00z0/ChargeKeeper/issues
+PackageName: ChargeKeeper
+PackageUrl: https://github.com/0z00z0/ChargeKeeper
 License: MIT
-LicenseUrl: https://github.com/0z00z0/LenovoPowerTray/blob/main/LICENSE
+LicenseUrl: https://github.com/0z00z0/ChargeKeeper/blob/main/LICENSE
 ShortDescription: System-tray app for ThinkPad Smart Charge and Smart Standby.
 Description: >-
   A lightweight Windows system-tray app for Lenovo ThinkPad laptops that toggles

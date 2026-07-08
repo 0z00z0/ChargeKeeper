@@ -1,8 +1,8 @@
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 using Xunit;
 
-namespace LenovoTray.Tests;
+namespace ChargeKeeper.Tests;
 
 public class HistoryDownsamplerTests
 {

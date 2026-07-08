@@ -4,16 +4,16 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.Foundation;
 using Windows.Graphics;
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.UI;
+namespace ChargeKeeper.UI;
 
 public sealed partial class AboutWindow : Window
 {
-    private const string GitHubUrl = "https://github.com/0z00z0/LenovoPowerTray";
+    private const string GitHubUrl = "https://github.com/0z00z0/ChargeKeeper";
     private const string BmacUrl   = "https://buymeacoffee.com/ezpl";
-    private const string AppName   = "Lenovo Power Tray";
+    private const string AppName   = "ChargeKeeper";
 
     private readonly Action _onExit;
 

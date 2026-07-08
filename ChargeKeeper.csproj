@@ -3,18 +3,18 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>LenovoTray</RootNamespace>
-    <Version>1.1.10</Version>
+    <RootNamespace>ChargeKeeper</RootNamespace>
+    <Version>1.2.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Identity / packaging metadata -->
-    <AssemblyTitle>Lenovo Power Tray</AssemblyTitle>
-    <Product>Lenovo Power Tray</Product>
-    <Description>Smart Charge &amp; Smart Standby tray app for ThinkPad — direct access to power settings without opening Lenovo Vantage.</Description>
+    <AssemblyTitle>ChargeKeeper</AssemblyTitle>
+    <Product>ChargeKeeper</Product>
+    <Description>Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray.</Description>
     <Authors>ZeroZero Software</Authors>
     <Company>ZeroZero Software</Company>
     <Copyright>Copyright © 2026 ZeroZero Software</Copyright>
-    <RepositoryUrl>https://github.com/0z00z0/LenovoPowerTray</RepositoryUrl>
+    <RepositoryUrl>https://github.com/0z00z0/ChargeKeeper</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
     <!-- InvariantGlobalization is left OFF (default). It was briefly suspected of causing the
@@ -40,12 +40,12 @@
        etc.) to the unit test project so tests can exercise them directly without a public API. -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>LenovoTray.Tests</_Parameter1>
+      <_Parameter1>ChargeKeeper.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 
   <!-- Tests/ is a subfolder of this project's directory but belongs to the separate
-       LenovoTray.Tests project — exclude it from this project's default **/*.cs glob, or its
+       ChargeKeeper.Tests project — exclude it from this project's default **/*.cs glob, or its
        xUnit-only source (referencing types this WinExe project doesn't reference) gets compiled
        into BOTH projects and fails to build here. -->
   <ItemGroup>
@@ -102,7 +102,7 @@
 
   <!--
     `dotnet publish` for an unpackaged WinUI 3 app drops the app resource index
-    ($(AssemblyName).pri, e.g. LenovoTray.pri) — it holds the compiled XAML resources
+    ($(AssemblyName).pri, e.g. ChargeKeeper.pri) — it holds the compiled XAML resources
     (App.xaml dictionaries, control templates). Without it Microsoft.UI.Xaml.dll crashes
     at startup with a stowed exception (0xC000027B). Copy it into the publish output.
   -->

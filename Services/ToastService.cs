@@ -1,7 +1,7 @@
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 internal static class ToastService
 {

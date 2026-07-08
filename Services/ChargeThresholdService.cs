@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 /// <summary>
 /// Current battery charge-threshold configuration, as reported by the Lenovo Power

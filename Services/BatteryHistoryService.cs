@@ -1,13 +1,13 @@
 using System.Globalization;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 /// <summary>One recorded battery reading. Power is stored in milliwatts (positive = charging).</summary>
 internal readonly record struct BatterySample(DateTime AtUtc, int Soc, int? LimitPct, int PowerMw);
 
 /// <summary>
 /// File-backed battery history. Every sample (SoC %, Smart-Charge limit %, charge power mW) is
-/// appended to <c>%AppData%\LenovoPowerTray\history.csv</c> with an absolute UTC timestamp, so the
+/// appended to <c>%AppData%\ChargeKeeper\history.csv</c> with an absolute UTC timestamp, so the
 /// graph survives restarts and downtime shows up as a gap in the timeline. Data is kept for 14 days.
 /// <para>
 /// Only the <em>currently-selected time window</em> is held in memory: <see cref="LoadWindow"/> reads
@@ -27,7 +27,7 @@ internal static class BatteryHistoryService
 
     private static readonly string _defaultPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LenovoPowerTray", "history.csv");
+        "ChargeKeeper", "history.csv");
     private static string _path = _defaultPath;
 
     private static readonly Lock _lock = new();

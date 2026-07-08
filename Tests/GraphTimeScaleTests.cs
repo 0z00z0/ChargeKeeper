@@ -1,7 +1,7 @@
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 using Xunit;
 
-namespace LenovoTray.Tests;
+namespace ChargeKeeper.Tests;
 
 public class GraphTimeScaleTests
 {

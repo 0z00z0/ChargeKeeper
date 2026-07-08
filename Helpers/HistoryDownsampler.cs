@@ -1,6 +1,6 @@
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Reduces a large, time-ordered <see cref="BatterySample"/> list to roughly a target point count
