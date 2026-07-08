@@ -14,6 +14,13 @@
 #define TaskName      "ChargeKeeper AutoStart"
 #define WingetId      "0z00z0.ChargeKeeper"
 
+; Legacy names from this app's previous identity ("Lenovo Power Tray", v1.1.x and older).
+; Kept ONLY so an in-place upgrade can kill the old process and clean up its leftovers —
+; see [InstallDelete] and the legacy cleanup in [Code].
+#define LegacyExe        "LenovoTray.exe"
+#define LegacyTaskName   "LenovoTray AutoStart"
+#define LegacyUpdateTask "LenovoTray AutoUpdate"
+
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
@@ -23,6 +30,10 @@
 
 [Setup]
 ; AppId uniquely identifies this app for upgrades/uninstall — do not change it.
+; Deliberately UNCHANGED across the Lenovo Power Tray -> ChargeKeeper rename so existing
+; 1.1.x installs upgrade in place. Consequence: upgraded installs keep living in their old
+; "%LocalAppData%\Programs\Lenovo Power Tray" folder (Inno reuses the recorded {app}),
+; while fresh installs get "...\ChargeKeeper". Cosmetic only — accepted trade-off.
 AppId={{B1F8E4B2-3D7A-4C56-9E2F-7A1C9D5E6F40}
 AppName={#AppName}
 AppVersion={#AppVersion}
@@ -52,6 +63,17 @@ RestartApplications=no
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[InstallDelete]
+; Upgrades from Lenovo Power Tray (<= 1.1.x): the assembly was renamed LenovoTray ->
+; ChargeKeeper, so the old binaries would otherwise linger next to the new ones inside
+; the old install folder (same AppId -> same {app}). Also drop the old cached tray icon.
+Type: files; Name: "{app}\{#LegacyExe}"
+Type: files; Name: "{app}\LenovoTray.dll"
+Type: files; Name: "{app}\LenovoTray.pri"
+Type: files; Name: "{app}\LenovoTray.deps.json"
+Type: files; Name: "{app}\LenovoTray.runtimeconfig.json"
+Type: files; Name: "{app}\LenovoRed-*.ico"
 
 [Icons]
 ; Per-user "All apps" Start-menu entry. IconFilename is set explicitly so the shortcut
@@ -105,15 +127,30 @@ begin
            + 'from the app''s tray menu later.', mbInformation, MB_OK);
 end;
 
-function AppIsRunning(): Boolean;
+function ProcessIsRunning(const ExeName: string): Boolean;
 var
   ResultCode: Integer;
 begin
-  // tasklist|find: exit 0 only when a ChargeKeeper.exe process is present. Works without
+  // tasklist|find: exit 0 only when the named process is present. Works without
   // elevation (the image name is visible even for an elevated process).
   Result := Exec(ExpandConstant('{cmd}'),
-                 '/C tasklist /FI "IMAGENAME eq {#AppExe}" /NH | find /I "{#AppExe}"',
+                 '/C tasklist /FI "IMAGENAME eq ' + ExeName + '" /NH | find /I "' + ExeName + '"',
                  '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function AppIsRunning(): Boolean;
+begin
+  Result := ProcessIsRunning('{#AppExe}');
+end;
+
+function LegacyTaskExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // The old "Lenovo Power Tray" install registered an elevated logon task pointing at the
+  // now-renamed exe; querying it needs no elevation.
+  Result := Exec('schtasks.exe', '/Query /TN "{#LegacyTaskName}"', '',
+                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 procedure StopAppAndRemoveStartupTask();
@@ -122,8 +159,12 @@ var
 begin
   // Stopping the running (elevated) app and deleting its RL HIGHEST logon task both need
   // admin, so do them together in one elevated cmd -> at most ONE UAC prompt on uninstall.
+  // The legacy Lenovo Power Tray exe/task are included as free extra cleanup for installs
+  // that were upgraded across the rename; both are no-ops on fresh ChargeKeeper installs.
   ShellExec('runas', ExpandConstant('{cmd}'),
-            '/C taskkill /IM "{#AppExe}" /F & schtasks /Delete /TN "' + TaskName + '" /F',
+            '/C taskkill /IM "{#AppExe}" /F & taskkill /IM "{#LegacyExe}" /F'
+            + ' & schtasks /Delete /TN "' + TaskName + '" /F'
+            + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F',
             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -167,6 +208,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
+  LegacyWasRunning: Boolean;
 begin
   if CurStep = ssInstall then
   begin
@@ -174,11 +216,27 @@ begin
     // ChargeKeeper.exe is requireAdministrator (elevated), so a non-elevated taskkill is
     // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
     // succeeds and the install continues without locked-file errors.
-    WasRunning := AppIsRunning();
-    if WasRunning then
+    //
+    // Upgrades from Lenovo Power Tray (<= 1.1.x): the old LenovoTray.exe would also hold
+    // file locks in the shared {app} folder, so it is killed in the SAME elevated cmd, and
+    // — since we are elevated anyway — the old elevated "LenovoTray AutoStart" logon task
+    // (now pointing at a deleted exe) is dropped for free. An interactive install also
+    // elevates when only the stale legacy task exists; a silent one never adds a prompt.
+    WasRunning       := AppIsRunning();
+    LegacyWasRunning := ProcessIsRunning('{#LegacyExe}');
+    if WasRunning or LegacyWasRunning or (LegacyTaskExists() and not WizardSilent()) then
       ShellExec('runas', ExpandConstant('{cmd}'),
-                '/C taskkill /F /IM "{#AppExe}"',
+                '/C taskkill /F /IM "{#AppExe}" & taskkill /F /IM "{#LegacyExe}"'
+                + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F',
                 '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Either exe having been running qualifies the silent-upgrade restart in ssPostInstall.
+    WasRunning := WasRunning or LegacyWasRunning;
+
+    // The legacy "LenovoTray AutoUpdate" logon task is non-elevated, so it can always be
+    // removed without a prompt; harmless when it doesn't exist. Its ChargeKeeper
+    // replacement is created in ssPostInstall when the autoupdate task is ticked.
+    Exec('schtasks.exe', '/Delete /TN "{#LegacyUpdateTask}" /F', '',
+         SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 
   if CurStep = ssPostInstall then
