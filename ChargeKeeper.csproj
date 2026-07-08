@@ -56,7 +56,6 @@
 
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico" />
-    <Content Include="Assets\LenovoRed.ico" Condition="Exists('Assets\LenovoRed.ico')" />
   </ItemGroup>
 
   <!--

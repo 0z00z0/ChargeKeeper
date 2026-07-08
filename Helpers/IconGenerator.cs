@@ -6,26 +6,28 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Generates the red Lenovo "L" tray icon at runtime.
+/// Generates the ChargeKeeper "Guarded Battery" tray icon at runtime — the static fallback
+/// shown at startup until the first battery event replaces it with the live arc/number icon.
 /// Writing to a file on disk lets H.NotifyIcon reload the icon if it is recreated,
 /// and avoids the GDI handle leak that <c>Bitmap.GetHicon()</c> introduces.
 /// </summary>
 internal static class IconGenerator
 {
-    // Geometry as fractions of the icon size, so every frame is rendered natively and
-    // stays crisp at small sizes. The "L" is drawn as two bars rather than a font glyph
-    // (font hinting/antialiasing turns mushy at 16 px).
+    // Rounded-square background geometry shared by the numeric icon renderer.
     private const float CornerRadiusFraction = 0.18f; // rounded-square corner radius
-    private const float MarginFraction        = 0.04f; // gap from icon edge to red square
-    private const float BarThicknessFraction  = 0.17f; // stroke width of the "L"
-    private const float LetterHeightFraction  = 0.58f; // vertical extent of the "L"
-    private const float LetterWidthFraction   = 0.44f; // foot width of the "L"
+    private const float MarginFraction        = 0.04f; // gap from icon edge to background square
 
     // Sizes baked into the .ico — covers 100/125/150/200% tray DPI without upscaling.
     private static readonly int[] IconSizes = [32, 24, 20, 16];
 
-    // Lenovo brand red: #E2001A
-    private static readonly Color LenovoRed = Color.FromArgb(0xE2, 0x00, 0x1A);
+    // ── ChargeKeeper "Guarded Battery" brand palette ──────────────────────────
+    // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
+    // vector), redrawn natively per frame from a 256-unit reference canvas.
+    private static readonly Color BgCenter   = Color.FromArgb(0x15, 0x26, 0x3A); // radial centre-top
+    private static readonly Color BgEdge     = Color.FromArgb(0x0A, 0x0F, 0x17); // radial edge
+    private static readonly Color BodyLight  = Color.FromArgb(0x7B, 0x8C, 0xFF); // purple (gradient start)
+    private static readonly Color BodyDark   = Color.FromArgb(0x3F, 0x5B, 0xE0); // indigo (gradient end)
+    private static readonly Color LimitAmber = Color.FromArgb(0xD8, 0xA6, 0x57); // charge-limit line
 
     /// <summary>
     /// Generates a multi-size ICO file and returns its path.
@@ -33,11 +35,12 @@ internal static class IconGenerator
     /// </summary>
     // Version stamp baked into the filename so an in-place app update regenerates the icon
     // automatically rather than serving the stale cached file from a previous version.
-    private const string IconVersion = "v4";
+    // v5: the red Lenovo "L" was replaced by the ChargeKeeper "Guarded Battery" mark.
+    private const string IconVersion = "v5";
 
     internal static string GenerateAndSaveTrayIcon(string outputDirectory)
     {
-        var icoPath = Path.Combine(outputDirectory, $"LenovoRed-{IconVersion}.ico");
+        var icoPath = Path.Combine(outputDirectory, $"ChargeKeeper-{IconVersion}.ico");
         if (File.Exists(icoPath)) return icoPath;
 
         SaveAsIco(icoPath);
@@ -103,7 +106,7 @@ internal static class IconGenerator
         {
             > 50 => Color.FromArgb(255, 0x22, 0xD3, 0x9A),
             > 20 => Color.FromArgb(255, 0xFF, 0xA5, 0x20),
-            _    => Color.FromArgb(255, 0xE2, 0x00, 0x1A),
+            _    => Color.FromArgb(255, 0xEF, 0x44, 0x44),
         };
         if (charging) bg = Color.FromArgb(255, 0x22, 0xD3, 0x9A);
 
@@ -144,6 +147,13 @@ internal static class IconGenerator
 
     // ── Private rendering ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Renders the "Guarded Battery" mark: a battery outline in a purple→indigo gradient on a
+    /// dark rounded square, with an amber vertical line at the ~80 % mark representing the
+    /// charge-limit threshold. Geometry is expressed on a 256-unit reference canvas (the same
+    /// numbers as <c>brand\chargekeeper-icon.svg</c>) and scaled to <paramref name="size"/>,
+    /// with minimum stroke widths so the mark stays legible at 16 px.
+    /// </summary>
     private static Bitmap RenderIconBitmap(int size)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
@@ -152,24 +162,47 @@ internal static class IconGenerator
         g.PixelOffsetMode   = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        // Rounded red square background (radius/margin scale with the icon).
-        int margin = Math.Max(1, (int)Math.Round(size * MarginFraction));
-        var rect   = new Rectangle(margin, margin, size - margin * 2 - 1, size - margin * 2 - 1);
-        int radius = Math.Max(2, (int)Math.Round(size * CornerRadiusFraction));
-        using (var bg   = new SolidBrush(LenovoRed))
-        using (var path = BuildRoundedRectPath(rect, radius))
-            g.FillPath(bg, path);
+        float s = size / 256f;
 
-        // White "L": a vertical stem plus a bottom foot, centred as one bounding box.
-        float thickness = size * BarThicknessFraction;
-        float height    = size * LetterHeightFraction;
-        float width     = size * LetterWidthFraction;
-        float x0        = (size - width)  / 2f;
-        float y0        = (size - height) / 2f;
+        // Dark rounded-square background with a subtle centre-top radial gradient.
+        using (var bgPath = BuildRoundedRectPath(new RectangleF(8 * s, 8 * s, 240 * s, 240 * s), 52 * s))
+        using (var bg     = new PathGradientBrush(bgPath))
+        {
+            bg.CenterColor    = BgCenter;
+            bg.CenterPoint    = new PointF(size / 2f, size * 0.28f);
+            bg.SurroundColors = [BgEdge];
+            g.FillPath(bg, bgPath);
+        }
 
-        using var white = new SolidBrush(Color.White);
-        g.FillRectangle(white, x0, y0, thickness, height);                       // vertical stem
-        g.FillRectangle(white, x0, y0 + height - thickness, width, thickness);   // bottom foot
+        // Battery body outline: purple→indigo gradient stroke.
+        var bodyRect = new RectangleF(40 * s, 92 * s, 156 * s, 80 * s);
+        using (var bodyPath  = BuildRoundedRectPath(bodyRect, 18 * s))
+        using (var bodyBrush = new LinearGradientBrush(bodyRect, BodyLight, BodyDark,
+                                                       LinearGradientMode.ForwardDiagonal))
+        using (var bodyPen   = new System.Drawing.Pen(bodyBrush, Math.Max(12 * s, 1.6f))
+                                   { LineJoin = LineJoin.Round })
+            g.DrawPath(bodyPen, bodyPath);
+
+        // Battery cap (positive terminal): solid indigo.
+        using (var capPath = BuildRoundedRectPath(new RectangleF(206 * s, 112 * s, 18 * s, 40 * s), 7 * s))
+        using (var cap     = new SolidBrush(BodyDark))
+            g.FillPath(cap, capPath);
+
+        // Interior charge fill: same gradient at ~85 % opacity, filled to ~80 % of the body.
+        var fillRect = new RectangleF(58 * s, 110 * s, 88 * s, 44 * s);
+        using (var fillPath  = BuildRoundedRectPath(fillRect, 9 * s))
+        using (var fillBrush = new LinearGradientBrush(fillRect,
+                   Color.FromArgb(217, BodyLight), Color.FromArgb(217, BodyDark),
+                   LinearGradientMode.ForwardDiagonal))
+            g.FillPath(fillBrush, fillPath);
+
+        // Amber charge-limit line at the 80 % mark, slightly overshooting the body top/bottom.
+        // Clamped to ≥2 px so it survives the 16 px frame.
+        using (var limitPen = new System.Drawing.Pen(LimitAmber, Math.Max(7 * s, 2f)))
+        {
+            limitPen.StartCap = limitPen.EndCap = LineCap.Round;
+            g.DrawLine(limitPen, 158 * s, 80 * s, 158 * s, 184 * s);
+        }
 
         return bmp;
     }
@@ -215,7 +248,7 @@ internal static class IconGenerator
             {
                 > 50 => Color.FromArgb(255, 0x22, 0xD3, 0x9A),  // green
                 > 20 => Color.FromArgb(255, 0xFF, 0xA5, 0x20),  // orange
-                _    => Color.FromArgb(255, 0xE2, 0x00, 0x1A),  // red
+                _    => Color.FromArgb(255, 0xEF, 0x44, 0x44),  // red
             };
             if (charging) fillColor = Color.FromArgb(255, 0x22, 0xD3, 0x9A);
 
@@ -251,6 +284,24 @@ internal static class IconGenerator
         path.AddArc(bounds.Right - d, bounds.Y,          d, d, 270, 90);
         path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d,   0, 90);
         path.AddArc(bounds.X,         bounds.Bottom - d, d, d,  90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>
+    /// Float-precision rounded rect used by the scaled brand-mark geometry. The radius is
+    /// clamped to half the shorter side — at 16 px some scaled radii would otherwise exceed
+    /// the rect and make GDI+ arcs fold over themselves.
+    /// </summary>
+    private static GraphicsPath BuildRoundedRectPath(RectangleF b, float radius)
+    {
+        radius   = Math.Min(radius, Math.Min(b.Width, b.Height) / 2f);
+        float d  = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(b.X,         b.Y,          d, d, 180, 90);
+        path.AddArc(b.Right - d, b.Y,          d, d, 270, 90);
+        path.AddArc(b.Right - d, b.Bottom - d, d, d,   0, 90);
+        path.AddArc(b.X,         b.Bottom - d, d, d,  90, 90);
         path.CloseFigure();
         return path;
     }

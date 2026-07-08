@@ -290,7 +290,7 @@ public partial class App : Application
     {
         _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
 
-        // Start with the static red "L" icon; battery arc replaces it on the first battery event.
+        // Start with the static ChargeKeeper mark; battery arc replaces it on the first battery event.
         var exeDir   = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         var iconPath = IconGenerator.GenerateAndSaveTrayIcon(exeDir);
         _trayIcon.Icon = new System.Drawing.Icon(iconPath);
