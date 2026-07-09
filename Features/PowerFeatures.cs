@@ -10,6 +10,14 @@ internal sealed class SmartChargeFeature : IToggleFeature
     public bool   IsAvailable => ChargeThresholdService.Read()?.Capable ?? false;
     public bool   IsEnabled   => ChargeThresholdService.Read()?.Enabled ?? false;
     public bool   SetEnabled(bool enabled) => ChargeThresholdService.SetEnabled(enabled);
+
+    // Both flags come from a single Power-Manager RPC read — override ReadState so the menu's
+    // snapshot pays one round-trip, not the two that IsAvailable + IsEnabled would each cost.
+    public (bool Available, bool Enabled) ReadState()
+    {
+        var s = ChargeThresholdService.Read();
+        return (s?.Capable ?? false, s?.Enabled ?? false);
+    }
 }
 
 /// <summary>Smart Standby scheduling, backed by the <c>LenovoSmartStandby</c> Windows service.</summary>

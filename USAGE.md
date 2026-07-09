@@ -233,11 +233,18 @@ ChargeKeeper/
 ├── App.xaml / .cs                   — Tray icon lifetime, coordinates dashboard
 ├── MainWindow.xaml / .cs            — Invisible 1×1 host window (keeps WinUI 3 alive)
 │
-├── Services/                        — All direct hardware / OS interaction
-│   ├── ChargeThresholdService.cs    — Smart Charge read/write via LenPower.dll (Power Manager RPC)
-│   ├── StandbyService.cs            — LenovoSmartStandby service start/stop
+├── Services/                        — App services + static facades over the active vendor module
+│   ├── VendorCatalog.cs             — Selects the active vendor power module (Lenovo today)
+│   ├── ChargeThresholdService.cs    — Facade → IChargeThresholdProvider of the active vendor
+│   ├── StandbyService.cs            — Facade → IStandbyProvider of the active vendor
 │   ├── ToastService.cs              — Windows toast notifications (charge complete, AC connected)
 │   └── UpdateCheckService.cs        — GitHub releases API check; notifies if a newer version exists
+│
+├── Vendors/                         — Vendor-specific power management, one project per vendor
+│   ├── Abstractions/                — ChargeKeeper.Vendors.Abstractions: the vendor-neutral contract
+│   │                                  (IVendorPowerModule, IChargeThresholdProvider, IStandbyProvider)
+│   └── Lenovo/                      — ChargeKeeper.Vendors.Lenovo: LenPower.dll P/Invoke (Power
+│                                      Manager RPC) + LenovoSmartStandby service control
 │
 ├── native/                          — Native bridge (built separately via build.cmd)
 │   ├── pwrmgr.idl                   — RPC interface definition (MIDL input)
@@ -275,8 +282,10 @@ ChargeKeeper/
 
 ## Design notes
 
-- **No public API surface** — all service/feature types are `internal`; the only
-  `public` class is `App`, required by the WinUI framework.
+- **No public API surface** — in the app project all service/feature types are
+  `internal`; the only `public` class is `App`, required by the WinUI framework.
+  The `Vendors/*` projects expose only their contract types (interfaces + the
+  module class) as `public` — implementations stay `internal`.
 - **Feature abstraction** — the three menu toggles implement `IToggleFeature`
   (`Name` / `IsAvailable` / `IsEnabled` / `SetEnabled`). `IsAvailable` distinguishes
   "hardware not capable" from "feature off", so `TrayMenu` can grey out incapable items
@@ -285,10 +294,15 @@ ChargeKeeper/
 - **UI thread safety** — toggle writes and dashboard badge reads all run on background
   threads via `Task.Run` (RPC and service calls can block for seconds); results are
   marshalled back to the UI thread with `DispatcherQueue.TryEnqueue`.
+- **Vendor split** — everything Lenovo-specific lives in its own project
+  (`Vendors/Lenovo`) behind the vendor-neutral interfaces in `Vendors/Abstractions`,
+  so another vendor (e.g. HP) is a new project plus one line in `VendorCatalog`.
+  The app keeps thin static facades (`ChargeThresholdService`, `StandbyService`)
+  so call sites are unchanged from before the split.
 - **Native interop** — Smart Charge is the one feature that can't be done from
   managed code or WMI; it goes through `LenPower.dll` (see `native/`). The managed
-  `ChargeThresholdService` fails soft (`Read()` → `null`) if the bridge or driver
-  is absent, so the rest of the app works on non-Lenovo hardware.
+  provider fails soft (`Read()` → `null`) if the bridge or driver is absent, so
+  the rest of the app works on non-Lenovo hardware.
 - **DPI** — the app is declared `PerMonitorV2`-aware. `AppWindow.Resize/Move` work
   in physical pixels while XAML lays out in DIPs, so the popup is sized and placed
   using the work area **and** DPI scale of the monitor under the cursor

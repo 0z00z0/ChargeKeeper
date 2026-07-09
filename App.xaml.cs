@@ -742,7 +742,8 @@ public partial class App : Application
     /// <summary>
     /// Opens the bigger, resizable battery-history graph window, or focuses it if already open.
     /// Mirrors TrayMenu's AboutWindow singleton pattern (create once, Activate() thereafter) rather
-    /// than DashboardWindow's hide/show toggle — this is a normal persistent window, not a popup.
+    /// than DashboardWindow's hide/show toggle — the window closes itself on focus loss (popup-style
+    /// dismissal), so instances are short-lived and Closed keeps the singleton reference honest.
     /// </summary>
     internal void ShowHistoryWindow()
     {
@@ -751,7 +752,18 @@ public partial class App : Application
             _historyWindow.Activate();
             return;
         }
-        _historyWindow = new BatteryHistoryWindow();
+
+        // Capture the dashboard's on-screen rect (physical px) NOW — the dashboard auto-hides the
+        // moment the new window takes focus, so it can't be read later. The pop-out animates open
+        // from this rect ("the dashboard's graph grows into a window"); null (no visible dashboard)
+        // skips the animation and places the window at its final rect directly.
+        Windows.Graphics.RectInt32? origin = null;
+        if (_dashboard is { } dash && dash.AppWindow.IsVisible)
+            origin = new Windows.Graphics.RectInt32(
+                dash.AppWindow.Position.X, dash.AppWindow.Position.Y,
+                dash.AppWindow.Size.Width, dash.AppWindow.Size.Height);
+
+        _historyWindow = new BatteryHistoryWindow(origin);
         _historyWindow.Closed += (_, _) => _historyWindow = null;
         _historyWindow.Activate();
     }

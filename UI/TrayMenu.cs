@@ -16,14 +16,36 @@ namespace ChargeKeeper.UI;
 /// with command bindings; <see cref="RefreshState"/> resyncs the check marks before the menu
 /// is shown.  Each toggle is generated from an <see cref="IToggleFeature"/>, so adding a new
 /// feature is a one-line change at the call site.
+///
+/// <para>
+/// State model: the menu has ONE read path and ONE apply path. <see cref="ReadState"/>
+/// captures every input the menu reflects (feature states, settings, travel override) into a
+/// single immutable <see cref="MenuState"/> snapshot; <see cref="ApplyState"/> derives EVERY
+/// item's IsChecked/IsEnabled from that snapshot. No command handler updates its own item —
+/// each mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>
+/// (directly, or via <see cref="TravelOverrideService.StateChanged"/>), so two items can never
+/// disagree about the current state.
+/// </para>
+///
+/// <para>
+/// Visual language: every STATEFUL item is a <see cref="ToggleMenuFlyoutItem"/> whose check
+/// mark reflects the snapshot (features, presets, travel override, icon mode, low-battery,
+/// startup delay); every ACTION is a plain text item (Export/Import, About…, Exit). No regular
+/// item carries an icon — the only emoji is the transient "⬆ Update available" alert badge.
+/// </para>
 /// </summary>
 internal sealed class TrayMenu
 {
     private readonly List<(ToggleMenuFlyoutItem Item, IToggleFeature Feature)> _toggles = [];
     private readonly List<(ToggleMenuFlyoutItem Item, ThresholdPreset Preset)> _presetItems = [];
 
+    // Index of the Smart Charge toggle in _toggles (-1 if absent). Its state gates the Presets
+    // submenu and the travel-override item; caching the index lets those read from the same
+    // snapshot slot as the toggle itself, so the gate can never disagree with the check mark.
+    private readonly int _smartChargeIndex = -1;
+
     private MenuFlyoutItem?       _updateItem;
-    private MenuFlyoutItem?       _travelItem;
+    private ToggleMenuFlyoutItem? _travelItem;
     private ToggleMenuFlyoutItem? _iconModeItem;
     private MenuFlyoutSubItem?    _presetsSubmenu;
     private AboutWindow?          _aboutWindow;
@@ -57,12 +79,17 @@ internal sealed class TrayMenu
             // Append preset submenu + travel override directly under Smart Charge.
             if (feature is SmartChargeFeature)
             {
+                _smartChargeIndex = _toggles.Count - 1;   // the toggle just added above
                 _presetsSubmenu = BuildPresetsSubmenu();
                 Flyout.Items.Add(_presetsSubmenu);
 
-                _travelItem = new MenuFlyoutItem
+                // Constant caption + check-mark-while-active: stateful items all speak the same
+                // visual language, and no regular item carries an emoji icon. (The dashboard's
+                // plain Button keeps TravelOverrideService.ActionLabel — a button's caption must
+                // say what clicking does; a toggle's check mark already does.)
+                _travelItem = new ToggleMenuFlyoutItem
                 {
-                    Text    = TravelOverrideService.ActionLabel,
+                    Text    = "Charge to 100 % once",
                     Command = new RelayCommand(OnTravelOverride),
                 };
                 Flyout.Items.Add(_travelItem);
@@ -76,9 +103,8 @@ internal sealed class TrayMenu
 
         _iconModeItem = new ToggleMenuFlyoutItem
         {
-            Text      = "Numeric % icon",
-            IsChecked = SettingsService.Current.IconMode == TrayIconMode.Numeric,
-            Command   = new RelayCommand(ToggleIconMode),
+            Text    = "Numeric % icon",
+            Command = new RelayCommand(ToggleIconMode),
         };
         settingsMenu.Items.Add(_iconModeItem);
         settingsMenu.Items.Add(BuildLowBatteryMenu());
@@ -101,6 +127,12 @@ internal sealed class TrayMenu
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(onExit) });
+
+        // Resync when the override auto-reverts (battery reached full) or is toggled from the
+        // dashboard — otherwise the menu wouldn't learn about it until the next right-click.
+        // Fires on a background thread; QueueRefresh marshals the apply back to the UI thread.
+        // Never unsubscribed: TrayMenu lives for the whole process.
+        TravelOverrideService.StateChanged += QueueRefresh;
 
         RefreshState();
     }
@@ -128,36 +160,122 @@ internal sealed class TrayMenu
         Flyout.Items.Insert(1, new MenuFlyoutSeparator());
     }
 
-    /// <summary>Re-reads live state into the toggle check marks and availability. Call right before the menu opens.</summary>
-    public void RefreshState()
+    /// <summary>
+    /// Re-reads live state into every item's check mark / availability, synchronously on the UI
+    /// thread. Call right before the menu opens: H.NotifyIcon builds the native popup from the
+    /// flyout at right-click time, so the snapshot must be applied before it is shown.
+    /// </summary>
+    public void RefreshState() => ApplyState(ReadState());
+
+    /// <summary>
+    /// The funnel every state mutation ends in: captures a fresh <see cref="MenuState"/> OFF the
+    /// UI thread (the feature reads go through the Lenovo RPC bridge — same off-thread-read
+    /// pattern as <c>DashboardWindow.Refresh</c>) and marshals one <see cref="ApplyState"/> back
+    /// to the UI thread. Safe to call from any thread. If the native menu is already open the
+    /// visible popup won't repaint (it's a snapshot by design), but the flyout is consistent for
+    /// the next open even if that open skips <see cref="RefreshState"/>.
+    /// </summary>
+    private void QueueRefresh() => Task.Run(() =>
     {
-        foreach (var (item, feature) in _toggles)
+        try
         {
-            item.IsEnabled = SafeCall(() => feature.IsAvailable, fallback: true);
-            item.IsChecked = item.IsEnabled && SafeCall(() => feature.IsEnabled, fallback: false);
+            var state = ReadState();
+            Flyout.DispatcherQueue?.TryEnqueue(() =>
+            {
+                // A throw inside a raw dispatcher callback tears the process down as an opaque
+                // stowed exception (see App.RunOnUi) — catch and log instead.
+                try { ApplyState(state); }
+                catch (Exception ex) { AppLog.Error("TrayMenu.QueueRefresh", ex); }
+            });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("TrayMenu.QueueRefresh", ex);
+        }
+    });
+
+    /// <summary>
+    /// One immutable snapshot of every input the menu reflects — the single internal state all
+    /// items are derived from. <see cref="ReadState"/> is the only producer (may perform RPC —
+    /// callable from any thread); <see cref="ApplyState"/> is the only consumer (UI thread only).
+    /// </summary>
+    private sealed record MenuState(
+        IReadOnlyList<(bool Available, bool Enabled)> Features,   // aligned with _toggles
+        string? ActivePreset,
+        bool    TravelOverrideActive,
+        bool    NumericIcon,
+        bool    LowBatteryEnabled,
+        int     LowBatteryPct,
+        int     StartupDelaySeconds);
+
+    private MenuState ReadState()
+    {
+        var features = new (bool Available, bool Enabled)[_toggles.Count];
+        for (int i = 0; i < _toggles.Count; i++)
+        {
+            var feature = _toggles[i].Feature;
+            // One combined read (Smart Charge answers both flags from a single RPC — see
+            // SmartChargeFeature.ReadState); "enabled" is meaningful only when available.
+            var (available, enabled) = SafeCall(() => feature.ReadState(),
+                                                fallback: (Available: true, Enabled: false));
+            features[i] = (available, available && enabled);
         }
 
-        // Preset check marks: highlight whichever preset is active (null = custom / none).
-        string? active = SettingsService.Current.ActivePreset;
+        var s = SettingsService.Current;
+        return new MenuState(
+            features,
+            s.ActivePreset,
+            TravelOverrideService.IsActive,
+            s.IconMode == TrayIconMode.Numeric,
+            s.LowBatteryWarningEnabled,
+            s.LowBatteryWarningPct,
+            s.StartupDelaySeconds);
+    }
+
+    private void ApplyState(MenuState state)
+    {
+        for (int i = 0; i < _toggles.Count; i++)
+        {
+            var (available, enabled) = state.Features[i];
+            _toggles[i].Item.IsEnabled = available;
+            _toggles[i].Item.IsChecked = enabled;
+        }
+
+        // Smart Charge's own snapshot slot gates the presets + travel override, so those can never
+        // disagree with its toggle. (false,false) when there is no Smart Charge feature.
+        var (scAvailable, scEnabled) = _smartChargeIndex >= 0
+            ? state.Features[_smartChargeIndex]
+            : (Available: false, Enabled: false);
+
+        // A preset shows checked only while its thresholds are actually in effect: Smart Charge
+        // on and no travel override lifting them. Activating the override deliberately KEEPS
+        // ActivePreset in settings (the auto-revert restores that preset's thresholds), but the
+        // menu must never show a checked preset next to a checked "Charge to 100 % once".
         foreach (var (item, preset) in _presetItems)
-            item.IsChecked = preset.Name == active;
+            item.IsChecked = scEnabled &&
+                             !state.TravelOverrideActive &&
+                             preset.Name == state.ActivePreset;
+        if (_presetsSubmenu is not null)
+            _presetsSubmenu.IsEnabled = scAvailable;
 
-        // Travel override label.
+        // Travel override: checked while a "charge to 100 % once" is in progress; greyed out on
+        // hardware without threshold support (mirrors the dashboard hiding its button).
         if (_travelItem is not null)
-            _travelItem.Text = TravelOverrideService.ActionLabel;
+        {
+            _travelItem.IsEnabled = scAvailable;
+            _travelItem.IsChecked = state.TravelOverrideActive;
+        }
 
-        // Icon mode toggle.
         if (_iconModeItem is not null)
-            _iconModeItem.IsChecked = SettingsService.Current.IconMode == TrayIconMode.Numeric;
+            _iconModeItem.IsChecked = state.NumericIcon;
 
         // Settings submenu radio-style items.
-        var s = SettingsService.Current;
         if (_lowBattEnabledItem is not null)
-            _lowBattEnabledItem.IsChecked = s.LowBatteryWarningEnabled;
+            _lowBattEnabledItem.IsChecked = state.LowBatteryEnabled;
         foreach (var (item, pct) in _lowBattPctItems)
-            item.IsChecked = pct == s.LowBatteryWarningPct;
+            item.IsChecked = pct == state.LowBatteryPct;
         foreach (var (item, secs) in _startupDelayItems)
-            item.IsChecked = secs == s.StartupDelaySeconds;
+            item.IsChecked = secs == state.StartupDelaySeconds;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -192,24 +310,29 @@ internal sealed class TrayMenu
         foreach (var preset in SettingsService.Current.Presets)
         {
             var p    = preset; // local copy for lambda capture
-            var item = new ToggleMenuFlyoutItem
-            {
-                Text      = $"{p.Name}  ({p.Start}–{p.Stop} %)",
-                IsChecked = p.Name == SettingsService.Current.ActivePreset,
-            };
+            var item = new ToggleMenuFlyoutItem { Text = $"{p.Name}  ({p.Start}–{p.Stop} %)" };
             item.Command = new RelayCommand(() => ApplyPreset(p));
             _presetItems.Add((item, p));
             sub.Items.Add(item);
         }
     }
 
-    private static void ApplyPreset(ThresholdPreset preset)
+    private void ApplyPreset(ThresholdPreset preset)
         => Task.Run(() =>
         {
             try
             {
-                // Enable Smart Charge then apply the preset thresholds.
-                ChargeThresholdService.SetEnabled(true);
+                // A preset IS an explicit threshold choice — it supersedes an in-flight
+                // "charge to 100 % once" override. Clear the override state FIRST and WITHOUT
+                // reverting (Deactivate, not Cancel): the preset thresholds below are the new
+                // truth, and an armed auto-revert would otherwise clobber them with the
+                // pre-override values as soon as the battery next reports full.
+                TravelOverrideService.Deactivate();
+
+                // Writing valid non-zero thresholds IS how the interface enables Smart Charge, so
+                // SetThresholds alone both enables and sets. A preceding SetEnabled(true) would only
+                // do a throwaway write of default/old values that this call immediately overwrites —
+                // and briefly commit those wrong thresholds to firmware in between.
                 bool ok = ChargeThresholdService.SetThresholds(preset.Start, preset.Stop);
                 if (ok)
                     // Update() (not "Current.ActivePreset = x; Save();") — this spans the RPC call
@@ -219,8 +342,12 @@ internal sealed class TrayMenu
                     SettingsService.Update(s => s.ActivePreset = preset.Name);
             }
             catch { }
+            finally { QueueRefresh(); }
         });
 
+    // No explicit QueueRefresh here: Activate/Cancel settle asynchronously and fire
+    // StateChanged when done — which is subscribed to QueueRefresh in the constructor.
+    // Refreshing before they settle would only capture the not-yet-changed state.
     private static void OnTravelOverride()
     {
         if (TravelOverrideService.IsActive)
@@ -231,10 +358,10 @@ internal sealed class TrayMenu
 
     private void ToggleIconMode()
     {
-        var s = SettingsService.Current;
-        s.IconMode = s.IconMode == TrayIconMode.Arc ? TrayIconMode.Numeric : TrayIconMode.Arc;
-        SettingsService.Save();
+        SettingsService.Update(s =>
+            s.IconMode = s.IconMode == TrayIconMode.Arc ? TrayIconMode.Numeric : TrayIconMode.Arc);
         _onIconModeChanged();
+        QueueRefresh();
     }
 
     // ── Settings submenus (low-battery warning, startup delay, export/import) ──
@@ -245,9 +372,8 @@ internal sealed class TrayMenu
 
         _lowBattEnabledItem = new ToggleMenuFlyoutItem
         {
-            Text      = "Enabled",
-            IsChecked = SettingsService.Current.LowBatteryWarningEnabled,
-            Command   = new RelayCommand(ToggleLowBatteryEnabled),
+            Text    = "Enabled",
+            Command = new RelayCommand(ToggleLowBatteryEnabled),
         };
         sub.Items.Add(_lowBattEnabledItem);
         sub.Items.Add(new MenuFlyoutSeparator());
@@ -257,9 +383,8 @@ internal sealed class TrayMenu
             var p    = pct; // capture
             var item = new ToggleMenuFlyoutItem
             {
-                Text      = $"Warn at {p}%",
-                IsChecked = SettingsService.Current.LowBatteryWarningPct == p,
-                Command   = new RelayCommand(() => SetLowBatteryPct(p)),
+                Text    = $"Warn at {p}%",
+                Command = new RelayCommand(() => SetLowBatteryPct(p)),
             };
             _lowBattPctItems.Add((item, p));
             sub.Items.Add(item);
@@ -275,9 +400,8 @@ internal sealed class TrayMenu
             var s    = secs; // capture
             var item = new ToggleMenuFlyoutItem
             {
-                Text      = label,
-                IsChecked = SettingsService.Current.StartupDelaySeconds == s,
-                Command   = new RelayCommand(() => SetStartupDelay(s)),
+                Text    = label,
+                Command = new RelayCommand(() => SetStartupDelay(s)),
             };
             _startupDelayItems.Add((item, s));
             sub.Items.Add(item);
@@ -285,23 +409,26 @@ internal sealed class TrayMenu
         return sub;
     }
 
-    private static void ToggleLowBatteryEnabled()
+    private void ToggleLowBatteryEnabled()
     {
-        SettingsService.Current.LowBatteryWarningEnabled = !SettingsService.Current.LowBatteryWarningEnabled;
-        SettingsService.Save();
+        SettingsService.Update(s => s.LowBatteryWarningEnabled = !s.LowBatteryWarningEnabled);
+        QueueRefresh();
     }
 
-    private static void SetLowBatteryPct(int pct)
+    private void SetLowBatteryPct(int pct)
     {
-        SettingsService.Current.LowBatteryWarningPct     = pct;
-        SettingsService.Current.LowBatteryWarningEnabled = true; // choosing a level implies "on"
-        SettingsService.Save();
+        SettingsService.Update(s =>
+        {
+            s.LowBatteryWarningPct     = pct;
+            s.LowBatteryWarningEnabled = true; // choosing a level implies "on"
+        });
+        QueueRefresh();
     }
 
-    private static void SetStartupDelay(int seconds)
+    private void SetStartupDelay(int seconds)
     {
-        SettingsService.Current.StartupDelaySeconds = seconds;
-        SettingsService.Save();
+        SettingsService.Update(s => s.StartupDelaySeconds = seconds);
+        QueueRefresh();
     }
 
     private void ExportSettings()
@@ -467,11 +594,23 @@ internal sealed class TrayMenu
     }
 
     // Apply target state off the UI thread — RPC/service writes can block for seconds.
-    private static void Toggle(IToggleFeature feature, bool enable)
+    private void Toggle(IToggleFeature feature, bool enable)
         => Task.Run(() =>
         {
             try
             {
+                // Re-enabling Smart Charge while "charge to 100 % once" is running means
+                // "threshold back on" — which is exactly the override's cancel path: it restores
+                // the saved pre-override thresholds AND disarms the auto-revert. A bare
+                // SetEnabled(true) would instead apply DEFAULT thresholds (activating the
+                // override wiped the firmware values to 0/0) and leave the auto-revert armed to
+                // clobber them at the next full charge.
+                if (feature is SmartChargeFeature && enable && TravelOverrideService.IsActive)
+                {
+                    TravelOverrideService.Cancel();   // fires StateChanged → QueueRefresh
+                    return;
+                }
+
                 bool ok = feature.SetEnabled(enable);
                 if (!ok)
                     System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' → {enable} returned false");
@@ -480,6 +619,10 @@ internal sealed class TrayMenu
             {
                 // AutoStartFeature can throw InvalidOperationException when exe path can't be resolved.
                 System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' failed: {ex.Message}");
+            }
+            finally
+            {
+                QueueRefresh();   // funnel: mutate → refresh, success or not
             }
         });
 

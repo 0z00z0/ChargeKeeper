@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.2.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Identity / packaging metadata -->
@@ -56,6 +56,28 @@
          in Tests\bin get copied into this project's output, which the next Tests build copies
          back, nesting one level deeper per build until MAX_PATH kills the build (MSB3021). -->
     <Content Remove="Tests\**" />
+  </ItemGroup>
+
+  <!-- Vendor power-management modules live in their own projects (referenced below) so more
+       vendors (e.g. HP) can coexist later. Vendors/ sits under this project's directory, so it
+       must be excluded from this WinExe's **/*.cs glob for the same reason Tests/ is — its
+       sources would otherwise compile into BOTH assemblies as duplicate types. -->
+  <ItemGroup>
+    <Compile Remove="Vendors\**" />
+    <EmbeddedResource Remove="Vendors\**" />
+    <None Remove="Vendors\**" />
+    <Content Remove="Vendors\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Vendors\Abstractions\ChargeKeeper.Vendors.Abstractions.csproj" />
+    <ProjectReference Include="Vendors\Lenovo\ChargeKeeper.Vendors.Lenovo.csproj" />
+  </ItemGroup>
+
+  <!-- ChargeThresholdState (and friends) moved to the vendor-abstractions namespace with the
+       split; imported globally so the many existing call sites keep compiling unqualified. -->
+  <ItemGroup>
+    <Using Include="ChargeKeeper.Vendors" />
   </ItemGroup>
 
   <ItemGroup>

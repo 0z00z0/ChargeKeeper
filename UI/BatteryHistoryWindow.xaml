@@ -12,8 +12,9 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- A normal, resizable window (unlike DashboardWindow's borderless auto-hide popup) hosting
-         the same graph control — "Expand" already got the user here, so ShowExpandButton is off. -->
+    <!-- A frameless, resizable, close-on-blur window (DashboardWindow-style chrome, just bigger)
+         hosting the same graph control — "Expand" already got the user here, so ShowExpandButton
+         is off (hides the corner glyph and disables double-click-to-expand). -->
     <Grid Padding="20,16,20,20">
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph" ShowExpandButton="False"/>
     </Grid>

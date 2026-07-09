@@ -28,8 +28,10 @@ internal static class TravelOverrideService
     /// </summary>
     public static event Action? StateChanged;
 
-    /// <summary>The tray/dashboard action label for the override, reflecting its current state.
-    /// 🔝 ("to 100 %") matches the tooltip's "Charging to 100 %" line.</summary>
+    /// <summary>The dashboard's action-button label for the override, reflecting its current
+    /// state. (The tray menu no longer uses this — it shows a constant-caption toggle item with
+    /// a check mark instead, see <c>TrayMenu</c>.) 🔝 ("to 100 %") matches the tooltip's
+    /// "Charging to 100 %" line.</summary>
     public static string ActionLabel =>
         IsActive ? "✕  Revert to charge threshold" : "🔝  Charge to 100 % once";
 
@@ -88,6 +90,37 @@ internal static class TravelOverrideService
     public static void Cancel() => ApplyRevert();
 
     /// <summary>
+    /// Clears the override state WITHOUT touching the charge thresholds — for when an explicit
+    /// new threshold choice (e.g. applying a preset) supersedes the override. The caller is about
+    /// to write thresholds of its own, so restoring the saved pre-override values (what
+    /// <see cref="Cancel"/> does) would clobber them — and leaving the override armed would let
+    /// the auto-revert clobber them later, at the next full charge. No-op when not active.
+    /// </summary>
+    public static void Deactivate()
+    {
+        if (!IsActive) return;
+        ClearOverrideState();
+    }
+
+    /// <summary>
+    /// The state-clearing half of a deactivate/revert: drop the persisted override flag and the
+    /// saved revert thresholds, then fire <see cref="StateChanged"/>. Shared by <see cref="Deactivate"/>
+    /// (clear only) and <see cref="ApplyRevert"/> (restore thresholds THEN clear) so a future added
+    /// override field can't be cleared in one place and forgotten in the other.
+    /// </summary>
+    private static void ClearOverrideState()
+    {
+        SettingsService.Update(s =>
+        {
+            s.TravelOverrideActive      = false;
+            s.TravelOverrideRevertStart = null;
+            s.TravelOverrideRevertStop  = null;
+        });
+
+        StateChanged?.Invoke();   // tray tooltip + menu resync immediately
+    }
+
+    /// <summary>
     /// Fed the latest battery state by <c>App</c> on every report. Reverts to the saved thresholds
     /// once the override is active and charging has completed. "Complete" is either:
     /// <list type="bullet">
@@ -143,15 +176,9 @@ internal static class TravelOverrideService
             catch { }
             finally
             {
-                SettingsService.Update(cur =>
-                {
-                    cur.TravelOverrideActive      = false;
-                    cur.TravelOverrideRevertStart = null;
-                    cur.TravelOverrideRevertStop  = null;
-                });
+                // Clear flag + saved thresholds and fire StateChanged (tooltip/menu resync).
+                ClearOverrideState();
             }
-
-            StateChanged?.Invoke();   // tooltip reverts to the Smart Charge line immediately
         });
     }
 }

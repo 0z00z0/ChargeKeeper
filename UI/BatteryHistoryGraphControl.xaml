@@ -31,43 +31,27 @@
          Auto-sized Grid) so nothing between Row 1's "*" and the card itself caps its growth. -->
     <Grid x:Name="RootGrid" RowSpacing="6">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- 0: Time-scale selector + expand trigger -->
+            <RowDefinition Height="Auto"/>  <!-- 0: Time-scale selector -->
             <RowDefinition Height="*"/>     <!-- 1: History sparkline card -->
             <RowDefinition Height="Auto"/>  <!-- 2: Legend -->
         </Grid.RowDefinitions>
 
         <!-- Time-scale selector: compact segmented control, one toggle button per GraphTimeScale
-             value in order, plus (optionally) a plain-text trigger to pop the graph out into a
-             bigger, resizable window. The selected scale button is highlighted in code
-             (SetSelectedScaleButton). -->
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0"
-                        x:Name="TimeScalePanel"
-                        Orientation="Horizontal"
-                        Spacing="4">
-                <Button x:Name="Scale15mButton" Content="15m" Tag="FifteenMinutes" Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale1hButton"  Content="1h"  Tag="OneHour"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale6hButton"  Content="6h"  Tag="SixHours"       Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale12hButton" Content="12h" Tag="TwelveHours"    Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale1dButton"  Content="1d"  Tag="OneDay"         Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale1wButton"  Content="1w"  Tag="OneWeek"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-                <Button x:Name="Scale14dButton" Content="14d" Tag="FourteenDays"   Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            </StackPanel>
-            <Button x:Name="ExpandButton"
-                    Grid.Column="1"
-                    Content="⤢  Expand"
-                    FontSize="12"
-                    Padding="8,4"
-                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    BorderThickness="0"
-                    CornerRadius="4"
-                    Click="OnExpandButtonClick"/>
-        </Grid>
+             value in order. The selected scale button is highlighted in code
+             (SetSelectedScaleButton). The expand trigger lives on the plot card itself
+             (ExpandGlyph below), not in this row, so the seven buttons get the full width. -->
+        <StackPanel Grid.Row="0"
+                    x:Name="TimeScalePanel"
+                    Orientation="Horizontal"
+                    Spacing="4">
+            <Button x:Name="Scale15mButton" Content="15m" Tag="FifteenMinutes" Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale1hButton"  Content="1h"  Tag="OneHour"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale6hButton"  Content="6h"  Tag="SixHours"       Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale12hButton" Content="12h" Tag="TwelveHours"    Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale1dButton"  Content="1d"  Tag="OneDay"         Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale1wButton"  Content="1w"  Tag="OneWeek"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="Scale14dButton" Content="14d" Tag="FourteenDays"   Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+        </StackPanel>
 
         <!-- Hidden references read from code for the gap/min-max annotation pills, matching this
              codebase's existing pattern of sourcing ThemeResource brushes from an inert XAML
@@ -111,7 +95,13 @@
                     <TextBlock x:Name="LeftAxisBottomLabel" Text="0"   FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
 
-                <Canvas x:Name="SparklineCanvas" Grid.Row="0" Grid.Column="1" SizeChanged="OnCanvasSizeChanged"/>
+                <!-- Background is set (Transparent) so the empty plot area hit-tests: a Canvas
+                     with a null Background is invisible to pointer input everywhere its children
+                     aren't, which would silently limit DoubleTapped-to-expand to the lines only. -->
+                <Canvas x:Name="SparklineCanvas" Grid.Row="0" Grid.Column="1"
+                        Background="Transparent"
+                        SizeChanged="OnCanvasSizeChanged"
+                        DoubleTapped="OnCanvasDoubleTapped"/>
 
                 <!-- Right axis: charge power W, auto-scaled to the visible window (min/0/max),
                      always including 0. Populated in code since the range is dynamic. -->
@@ -138,6 +128,27 @@
                                HorizontalAlignment="Right"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
+
+                <!-- Expand affordance: subdued glyph in the card's bottom-right corner cell (the
+                     right-axis column's slice of the time-axis row) — the only spot on the card
+                     that is always empty, so it can never collide with the W-axis labels above it
+                     or the time labels beside it. Padding is kept tighter than the ~4 the glyph
+                     visually wants vertically so the button stays no taller than the time-axis
+                     row and can't grow the card (the small dashboard is sized to the pixel). -->
+                <Button x:Name="ExpandGlyph"
+                        Grid.Row="1"
+                        Grid.Column="2"
+                        Content="⤢"
+                        FontSize="14"
+                        Padding="4,1"
+                        Margin="0,0,2,2"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Background="Transparent"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        BorderThickness="0"
+                        ToolTipService.ToolTip="Expand"
+                        Click="OnExpandGlyphClick"/>
             </Grid>
         </Border>
 

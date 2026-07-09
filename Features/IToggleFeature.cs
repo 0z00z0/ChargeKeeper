@@ -26,4 +26,12 @@ internal interface IToggleFeature
     /// Returns <c>true</c> if the write succeeded, <c>false</c> on failure.
     /// </summary>
     bool SetEnabled(bool enabled);
+
+    /// <summary>
+    /// One combined (available, enabled) snapshot. Defaults to the two independent property reads;
+    /// a feature backed by a single expensive probe (Smart Charge's Power-Manager RPC) overrides
+    /// this to answer both from ONE round-trip instead of calling <see cref="IsAvailable"/> and
+    /// <see cref="IsEnabled"/> back to back — halving the RPC cost of the menu's refresh snapshot.
+    /// </summary>
+    (bool Available, bool Enabled) ReadState() => (IsAvailable, IsEnabled);
 }

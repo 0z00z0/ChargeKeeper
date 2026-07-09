@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Same TFM/platforms as the app so the win-* RID publish graph resolves without
+         AnyCPU↔x64 mapping noise (the .slnx deliberately declares no "Any CPU" config). -->
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>ChargeKeeper.Vendors.Lenovo</RootNamespace>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Abstractions\ChargeKeeper.Vendors.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LenovoSmartStandby service start/stop; same version the app pins. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.8" />
+  </ItemGroup>
+
+  <!-- NOTE: the native LenPower.dll bridge (P/Invoked by LenovoChargeThreshold) is built by
+       native\build.cmd at the REPO root and deployed next to the exe by the app's csproj —
+       kept there so the CI workflow and installer paths stay unchanged. -->
+</Project>

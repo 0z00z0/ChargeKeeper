@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 using ChargeKeeper.Helpers;
@@ -68,8 +69,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private bool _unloaded;
 
     /// <summary>
-    /// Raised when the user clicks the "Expand" button. The control has no reference to the app
-    /// or window-management — it only signals intent; the host decides what "expand" means.
+    /// Raised when the user asks to expand the graph — via the "⤢" corner glyph or by
+    /// double-clicking the plot. The control has no reference to the app or window-management —
+    /// it only signals intent; the host decides what "expand" means.
     /// </summary>
     public event EventHandler? ExpandRequested;
 
@@ -86,13 +88,14 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     }
 
     /// <summary>
-    /// Shows/hides the "⤢ Expand" trigger. The pop-out window hosts this same control to show the
-    /// already-expanded graph, where an "Expand" button pointing at itself would be meaningless.
+    /// Shows/hides the "⤢" expand glyph AND gates the double-click-to-expand gesture. The pop-out
+    /// window hosts this same control to show the already-expanded graph, where an expand
+    /// affordance pointing at itself would be meaningless.
     /// </summary>
     public bool ShowExpandButton
     {
-        get => ExpandButton.Visibility == Visibility.Visible;
-        set => ExpandButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        get => ExpandGlyph.Visibility == Visibility.Visible;
+        set => ExpandGlyph.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public BatteryHistoryGraphControl()
@@ -148,8 +151,17 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         catch (Exception ex) { AppLog.Error("BatteryHistoryGraphControl.RunOnUi", ex); }
     });
 
-    private void OnExpandButtonClick(object sender, RoutedEventArgs e) =>
+    private void OnExpandGlyphClick(object sender, RoutedEventArgs e) =>
         ExpandRequested?.Invoke(this, EventArgs.Empty);
+
+    // Double-click anywhere on the plot = expand, same as the corner glyph — but only where the
+    // expand affordance is enabled at all, so double-clicking inside the already-open pop-out
+    // (ShowExpandButton="False") does nothing instead of re-signalling itself.
+    private void OnCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (ShowExpandButton)
+            ExpandRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     // Restarts the debounce on every intermediate resize event; Render() only runs once the size
     // has settled for _resizeRenderTimer's interval.
