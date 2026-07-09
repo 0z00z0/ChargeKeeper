@@ -1,9 +1,9 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.Graphics;
-using LenovoTray.Helpers;
+using ChargeKeeper.Helpers;
 
-namespace LenovoTray.UI;
+namespace ChargeKeeper.UI;
 
 /// <summary>
 /// Bigger, resizable "pop-out" view of the battery-history graph — opened via the "⤢ Expand"
@@ -26,7 +26,7 @@ public sealed partial class BatteryHistoryWindow : Window
     public BatteryHistoryWindow()
     {
         InitializeComponent();
-        Title = "Battery History — Lenovo Power Tray";
+        Title = "Battery History — ChargeKeeper";
         ConfigureWindowChrome();
         PlaceWindow();
 

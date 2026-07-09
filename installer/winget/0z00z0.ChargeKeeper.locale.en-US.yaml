@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: 0z00z0.ChargeKeeper
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: ZeroZero Software
+PublisherUrl: https://0z0.xyz
+PublisherSupportUrl: https://github.com/0z00z0/ChargeKeeper/issues
+PackageName: ChargeKeeper
+PackageUrl: https://github.com/0z00z0/ChargeKeeper
+License: MIT
+LicenseUrl: https://github.com/0z00z0/ChargeKeeper/blob/main/LICENSE
+ShortDescription: Battery care from the system tray — charge limits, live battery gauge, smart standby.
+Description: >-
+  ChargeKeeper keeps your laptop battery healthy from the system tray: set battery
+  charge limits, watch a live battery gauge and history graph, and control smart
+  standby. Runs on Lenovo ThinkPads today (requires the Lenovo Power Management
+  Driver); built to support more hardware over time. Formerly published as
+  "Lenovo Power Tray". The app requires administrator rights at runtime.
+Moniker: chargekeeper
+Tags:
+  - battery
+  - charge-limit
+  - thinkpad
+  - power
+  - tray
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

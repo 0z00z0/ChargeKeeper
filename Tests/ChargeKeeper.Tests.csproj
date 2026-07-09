@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Targets the same Windows-specific TFM as LenovoTray.csproj (required for a ProjectReference to
+    Targets the same Windows-specific TFM as ChargeKeeper.csproj (required for a ProjectReference to
     a net10.0-windows project). Deliberately does NOT set UseWinUI/WindowsPackageType/etc. — the
     types under test (BatteryHistoryService, HistoryDownsampler, GraphTimeScaleExtensions) are
     plain C# with no XAML/WinRT dependency, so the test project stays lightweight.
@@ -12,10 +12,10 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RootNamespace>LenovoTray.Tests</RootNamespace>
+    <RootNamespace>ChargeKeeper.Tests</RootNamespace>
 
     <!-- Pin the output paths relative to THIS project. Without this, a solution-level build (both
-         projects together) leaks LenovoTray.csproj's RID-specific "win-x64" output path into this
+         projects together) leaks ChargeKeeper.csproj's RID-specific "win-x64" output path into this
          project's copy targets, producing a malformed nested bin\...\Tests\bin\...\Tests\bin\...
          path and failing to find WinUI asset files that were never meant to be copied here. -->
     <BaseOutputPath>bin\</BaseOutputPath>
@@ -33,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\LenovoTray.csproj" />
+    <ProjectReference Include="..\ChargeKeeper.csproj" />
   </ItemGroup>
 
 </Project>

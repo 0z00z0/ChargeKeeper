@@ -1,7 +1,7 @@
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 using Xunit;
 
-namespace LenovoTray.Tests;
+namespace ChargeKeeper.Tests;
 
 // BatteryHistoryService is a static class writing to a fixed AppData path in production; each
 // test points it at an isolated temp file via UseTestPath (which also resets all in-memory state),

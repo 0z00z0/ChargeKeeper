@@ -1,7 +1,7 @@
 using Microsoft.Win32;
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Self-registers Windows Error Reporting "LocalDumps" for this exe so that a NATIVE crash — or
@@ -20,7 +20,7 @@ namespace LenovoTray.Helpers;
 /// </summary>
 internal static class CrashDumps
 {
-    private const string ExeName = "LenovoTray.exe";
+    private const string ExeName = "ChargeKeeper.exe";
     private const string LocalDumpsKey =
         @"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\" + ExeName;
     private const string IfeoKey =

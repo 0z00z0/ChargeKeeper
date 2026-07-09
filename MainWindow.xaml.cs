@@ -1,7 +1,7 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
-namespace LenovoTray;
+namespace ChargeKeeper;
 
 /// <summary>
 /// Invisible host window — a 1×1 off-screen placeholder so WinUI has a window to own without

@@ -11,8 +11,8 @@
     <Platform Name="x86" />
     <Platform Name="ARM64" />
   </Configurations>
-  <Project Path="LenovoTray.csproj" />
-  <Project Path="Tests/LenovoTray.Tests.csproj" />
+  <Project Path="ChargeKeeper.csproj" />
+  <Project Path="Tests/ChargeKeeper.Tests.csproj" />
   <Folder Name="/native/">
     <File Path="native/pwrmgr.idl" />
     <File Path="native/lenpower.c" />
@@ -20,18 +20,18 @@
     <File Path="native/test-read.ps1" />
   </Folder>
   <Folder Name="/installer/">
-    <File Path="installer/LenovoPowerTray.iss" />
+    <File Path="installer/ChargeKeeper.iss" />
     <File Path="installer/build-installer.ps1" />
     <File Path="installer/README.md" />
-    <File Path="installer/winget/ezpl.LenovoPowerTray.installer.yaml" />
-    <File Path="installer/winget/ezpl.LenovoPowerTray.locale.en-US.yaml" />
-    <File Path="installer/winget/ezpl.LenovoPowerTray.yaml" />
+    <File Path="installer/winget/0z00z0.ChargeKeeper.installer.yaml" />
+    <File Path="installer/winget/0z00z0.ChargeKeeper.locale.en-US.yaml" />
+    <File Path="installer/winget/0z00z0.ChargeKeeper.yaml" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path="README.md" />
     <File Path="USAGE.md" />
     <File Path="LICENSE" />
-    <File Path="sign.ps1" />
+    <File Path="scripts/sign.ps1" />
     <File Path=".gitignore" />
   </Folder>
 </Solution>

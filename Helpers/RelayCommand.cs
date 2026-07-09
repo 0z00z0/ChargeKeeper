@@ -1,4 +1,4 @@
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Minimal <see cref="System.Windows.Input.ICommand"/> implementation that delegates

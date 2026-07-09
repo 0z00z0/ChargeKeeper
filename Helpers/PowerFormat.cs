@@ -1,4 +1,4 @@
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Formats a battery charge/discharge rate the same way everywhere it is shown

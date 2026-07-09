@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-    Builds the per-user Inno Setup installer for Lenovo Power Tray.
+    Builds the per-user Inno Setup installer for ChargeKeeper.
 
 .DESCRIPTION
     1. Builds the native Smart Charge bridge (native\build.cmd → LenPower.dll).
     2. Publishes the app fully self-contained (win-x64, Windows App SDK bundled, no trimming —
        trimming breaks WinUI 3).
-    3. Compiles installer\LenovoPowerTray.iss with Inno Setup (ISCC.exe).
+    3. Compiles installer\ChargeKeeper.iss with Inno Setup (ISCC.exe).
 
-    Output: installer\Output\LenovoPowerTray-Setup.exe (per-user, no admin to install;
+    Output: installer\Output\ChargeKeeper-Setup.exe (per-user, no admin to install;
     the app elevates itself at runtime).
 
     Requires Inno Setup (ISCC). If missing, install it once:
@@ -27,9 +27,9 @@ $ErrorActionPreference = "Stop"
 
 $installerDir = $PSScriptRoot
 $root         = Split-Path $installerDir -Parent
-$proj         = Join-Path $root "LenovoTray.csproj"
+$proj         = Join-Path $root "ChargeKeeper.csproj"
 $publishDir   = Join-Path $root "publish"
-$iss          = Join-Path $installerDir "LenovoPowerTray.iss"
+$iss          = Join-Path $installerDir "ChargeKeeper.iss"
 
 # ── 0. Resolve / bump version ────────────────────────────────────────────────
 $projContent = Get-Content $proj -Raw
@@ -50,7 +50,7 @@ if ([string]::IsNullOrEmpty($Version)) {
 if ($currentVersion -ne $Version) {
     ($projContent -replace "<Version>$currentVersion</Version>", "<Version>$Version</Version>") |
         Set-Content $proj -NoNewline
-    Write-Host "    Updated LenovoTray.csproj: $currentVersion -> $Version" -ForegroundColor DarkGray
+    Write-Host "    Updated ChargeKeeper.csproj: $currentVersion -> $Version" -ForegroundColor DarkGray
 }
 
 # ── 1. Native bridge (Smart Charge) ──────────────────────────────────────────
@@ -71,15 +71,15 @@ if (-not (Test-Path (Join-Path $publishDir "LenPower.dll"))) {
     Write-Warning "LenPower.dll is not in the publish output — Smart Charge will show as Unavailable."
 }
 
-if (-not (Test-Path (Join-Path $publishDir "LenovoTray.pri"))) {
-    throw "LenovoTray.pri missing from publish output — WinUI would crash at startup (0xC000027B)."
+if (-not (Test-Path (Join-Path $publishDir "ChargeKeeper.pri"))) {
+    throw "ChargeKeeper.pri missing from publish output — WinUI would crash at startup (0xC000027B)."
 }
 
 # ── 2b. Sign the published exe ───────────────────────────────────────────────
 # dotnet publish creates a fresh apphost in the publish folder — a separate binary
 # from the bin\ build output that SignOutput already signed. Sign this copy so the
 # installed exe is not flagged as Unsigned by security tools.
-$publishedExe = Join-Path $publishDir "LenovoTray.exe"
+$publishedExe = Join-Path $publishDir "ChargeKeeper.exe"
 if (Test-Path $publishedExe) {
     Write-Host "==> Signing published exe..." -ForegroundColor Cyan
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\sign.ps1") -Path $publishedExe
@@ -101,14 +101,14 @@ if (-not $iscc) {
 
 # ── 4. Compile the installer ─────────────────────────────────────────────────
 # Remove any previous versioned setup files so the Output folder stays clean.
-Get-ChildItem (Join-Path $installerDir "Output") -Filter "LenovoPowerTray-Setup-*.exe" -ErrorAction SilentlyContinue |
+Get-ChildItem (Join-Path $installerDir "Output") -Filter "ChargeKeeper-Setup-*.exe" -ErrorAction SilentlyContinue |
     Remove-Item -Force
 
 Write-Host "==> Compiling installer with $iscc ..." -ForegroundColor Cyan
 & $iscc "/DAppVersion=$Version" "/DPublishDir=$publishDir" $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)." }
 
-$setup = Join-Path $installerDir "Output\LenovoPowerTray-Setup-$Version.exe"
+$setup = Join-Path $installerDir "Output\ChargeKeeper-Setup-$Version.exe"
 
 # ── 5. Sign the installer exe ────────────────────────────────────────────────
 # Sign before computing the SHA so the printed hash matches the distributed file.

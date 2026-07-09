@@ -1,6 +1,6 @@
 # Installer & distribution
 
-Lenovo Power Tray ships as a **per-user Inno Setup installer** (`%LocalAppData%`, no admin to
+ChargeKeeper ships as a **per-user Inno Setup installer** (`%LocalAppData%`, no admin to
 install) and is distributed through **winget**. The app itself is elevated at runtime; the installer
 is not.
 
@@ -16,30 +16,30 @@ Then:
 
 ```powershell
 cd installer
-.\build-installer.ps1              # auto-bumps patch (e.g. 1.0.2 → 1.0.3)
-.\build-installer.ps1 -Version 1.1.0   # explicit override
+.\build-installer.ps1              # auto-bumps patch (e.g. 1.2.0 → 1.2.1)
+.\build-installer.ps1 -Version 1.3.0   # explicit override
 ```
 
 This builds the native Smart Charge bridge, publishes the app self-contained (win-x64, no trimming),
 signs both the published exe and the installer exe (if a code-signing cert is present), and
-compiles `LenovoPowerTray.iss` into:
+compiles `ChargeKeeper.iss` into:
 
 ```
-installer\Output\LenovoPowerTray-Setup.exe
+installer\Output\ChargeKeeper-Setup.exe
 ```
 
 The script prints the installer's **SHA256** — paste it into the winget manifest (below).
 
 ### What the installer does
-- Installs per-user to `%LocalAppData%\Programs\Lenovo Power Tray` — **no admin prompt**.
+- Installs per-user to `%LocalAppData%\Programs\ChargeKeeper` — **no admin prompt**.
 - Adds a Start-menu shortcut.
 - Optional **"Run at startup"** checkbox: if ticked, creates a `RunLevel=Highest` logon task
-  (`LenovoTray AutoStart`) so the elevated app auto-starts with no boot-time UAC. Creating that task
-  is the *only* step that elevates, and only when the box is checked. (The same task is what the
-  app's "Launch at startup" tray toggle manages.)
+  (`ChargeKeeper AutoStart`) so the elevated app auto-starts with no boot-time UAC. Creating that
+  task is the *only* step that elevates, and only when the box is checked. (The same task is what
+  the app's "Launch at startup" tray toggle manages.)
 - Optional **"Auto update in background"** checkbox: creates a **non-elevated** logon task
-  (`LenovoTray AutoUpdate`, runs 5 min after sign-in) that runs
-  `winget upgrade --id 0z00z0.LenovoPowerTray --silent`. Creating it needs **no admin** (no UAC).
+  (`ChargeKeeper AutoUpdate`, runs 5 min after sign-in) that runs
+  `winget upgrade --id 0z00z0.ChargeKeeper --silent`. Creating it needs **no admin** (no UAC).
   - This only finds updates once the package is reachable from a **winget source** — i.e. submitted
     to the public `microsoft/winget-pkgs`, or a [local source](#winget) the machine has configured.
     Until then the task runs harmlessly and finds nothing.
@@ -47,6 +47,23 @@ The script prints the installer's **SHA256** — paste it into the winget manife
     replaces the files but does **not** relaunch (`RestartApplications=no`) — relaunching an
     elevated app would pop an unexpected UAC prompt. The new version starts at the next sign-in
     (if "Run at startup" is on) or the next manual launch.
+
+### Upgrading from Lenovo Power Tray (≤ 1.1.x)
+
+The Inno `AppId` was deliberately **kept** across the rename, so running the ChargeKeeper
+installer over an existing Lenovo Power Tray install upgrades it in place:
+
+- The old `LenovoTray.exe` process is killed together with the new one in the same elevated step.
+- The stale `LenovoTray.*` binaries and cached icon files are deleted from the install folder
+  (`[InstallDelete]`).
+- The old scheduled tasks (`LenovoTray AutoStart`, `LenovoTray AutoUpdate`) are removed; tick the
+  corresponding checkboxes to get their ChargeKeeper replacements.
+- Upgraded installs keep living in their old `%LocalAppData%\Programs\Lenovo Power Tray` folder
+  (Inno reuses the recorded install path); fresh installs go to `...\ChargeKeeper`. Cosmetic only.
+- The app migrates `%AppData%\LenovoPowerTray` → `%AppData%\ChargeKeeper` on first launch, so
+  settings and battery history carry over.
+- The **winget identity is new** (`0z00z0.ChargeKeeper`) — the old package ID will not auto-upgrade
+  across the rename; users install the new ID once.
 
 ## Releasing
 
@@ -56,7 +73,7 @@ The script prints the installer's **SHA256** — paste it into the winget manife
 
 **One-time setup: configure signing secrets**
 
-The workflow signs `LenovoTray.exe` and `LenovoPowerTray-Setup.exe` with an Authenticode PFX.
+The workflow signs `ChargeKeeper.exe` and `ChargeKeeper-Setup.exe` with an Authenticode PFX.
 Add these two repository secrets (Settings → Secrets and variables → Actions → New repository secret):
 
 | Secret name          | Value                                                                 |
@@ -95,7 +112,7 @@ Remove-Item codesign.pfx
    - Compile the installer with Inno Setup 6.
    - Authenticode-sign the `.exe` files (if secrets are set).
    - Compute the SHA256 and patch the winget manifests in-place.
-   - Create a GitHub Release named **"Lenovo Power Tray v1.2.3"** with the installer
+   - Create a GitHub Release named **"ChargeKeeper v1.2.3"** with the installer
      and winget manifest files attached.
    - Run `winget validate` against the patched manifests.
 
@@ -105,8 +122,8 @@ version string if you want to build without pushing a tag.
 ### Manual release
 
 1. `build-installer.ps1 -Version X.Y.Z`.
-2. Create a GitHub Release tagged `vX.Y.Z` on `0z00z0/LenovoPowerTray` and attach
-   `LenovoPowerTray-Setup.exe`.
+2. Create a GitHub Release tagged `vX.Y.Z` on `0z00z0/ChargeKeeper` and attach
+   `ChargeKeeper-Setup.exe`.
 3. Update `winget/` manifests: bump `PackageVersion`, set the `InstallerUrl` to the new asset, and
    set `InstallerSha256` to the value the build script printed.
 
@@ -115,15 +132,15 @@ version string if you want to build without pushing a tag.
 End users:
 
 ```powershell
-winget install 0z00z0.LenovoPowerTray     # first install (per-user, silent, no admin)
-winget upgrade 0z00z0.LenovoPowerTray      # update to a newer published version
+winget install 0z00z0.ChargeKeeper     # first install (per-user, silent, no admin)
+winget upgrade 0z00z0.ChargeKeeper      # update to a newer published version
 ```
 
 > winget has **no background auto-updater** — updates happen when the user runs `winget upgrade`.
 > This is the intended trade-off for keeping the app and installer simple.
 
 ### Manifests (`winget/`)
-Three files target `0z00z0.LenovoPowerTray`: `*.installer.yaml`, `*.locale.en-US.yaml`, and the version
+Three files target `0z00z0.ChargeKeeper`: `*.installer.yaml`, `*.locale.en-US.yaml`, and the version
 manifest. Validate / test locally before publishing:
 
 ```powershell
@@ -136,7 +153,7 @@ Regenerating from a release with **wingetcreate** is convenient:
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate update 0z00z0.LenovoPowerTray --version X.Y.Z --urls <Setup.exe URL> --out installer\winget
+wingetcreate update 0z00z0.ChargeKeeper --version X.Y.Z --urls <Setup.exe URL> --out installer\winget
 ```
 
 Submitting to the public `microsoft/winget-pkgs` repo is **optional** — the manifests work with a

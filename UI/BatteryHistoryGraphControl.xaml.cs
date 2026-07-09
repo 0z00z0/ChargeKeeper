@@ -2,10 +2,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.UI;
+namespace ChargeKeeper.UI;
 
 /// <summary>
 /// The battery-history sparkline graph (SoC / charge-limit / power series, compressed-gap time

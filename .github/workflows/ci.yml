@@ -31,7 +31,7 @@ jobs:
       # The app targets win-x64 with ReadyToRun on Release, which needs the
       # win-x64 runtime pack — restore/build must specify the RID (NETSDK1112).
       - name: Restore
-        run: dotnet restore LenovoTray.csproj -r win-x64
+        run: dotnet restore ChargeKeeper.csproj -r win-x64
 
       - name: Build (Release)
-        run: dotnet build LenovoTray.csproj -c Release -r win-x64 --no-restore --nologo
+        run: dotnet build ChargeKeeper.csproj -c Release -r win-x64 --no-restore --nologo

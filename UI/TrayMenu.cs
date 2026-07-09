@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.UI.Xaml.Controls;
-using LenovoTray.Features;
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Features;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.UI;
+namespace ChargeKeeper.UI;
 
 /// <summary>
 /// Owns the tray icon's right-click context menu.
@@ -307,8 +307,8 @@ internal sealed class TrayMenu
     private void ExportSettings()
     {
         // No owner window needed — the tray menu has no HWND; Win32 dialogs accept NULL owner.
-        var path = NativeMethods.ShowSaveFileDialog(IntPtr.Zero, "Export Lenovo Power Tray settings",
-            "LenovoPowerTray-settings.json", "json",
+        var path = NativeMethods.ShowSaveFileDialog(IntPtr.Zero, "Export ChargeKeeper settings",
+            "ChargeKeeper-settings.json", "json",
             "Settings JSON (*.json)|*.json|All files (*.*)|*.*");
         if (path is null) return;
         try
@@ -335,7 +335,7 @@ internal sealed class TrayMenu
 
     private void ImportSettings()
     {
-        var path = NativeMethods.ShowOpenFileDialog(IntPtr.Zero, "Import Lenovo Power Tray settings",
+        var path = NativeMethods.ShowOpenFileDialog(IntPtr.Zero, "Import ChargeKeeper settings",
             "json", "Settings JSON (*.json)|*.json|All files (*.*)|*.*");
         if (path is null) return;
 
@@ -368,7 +368,7 @@ internal sealed class TrayMenu
 
     // ── About / updates ─────────────────────────────────────────────────────
 
-    private const string AppName = "Lenovo Power Tray";
+    private const string AppName = "ChargeKeeper";
 
     private void ShowAbout()
     {

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Code-signs LenovoTray.exe with a self-signed certificate.
+    Code-signs ChargeKeeper.exe with a self-signed certificate.
 
 .DESCRIPTION
     Run once with -Setup to create a self-signed code-signing certificate in the
@@ -9,7 +9,7 @@
 
     Without -Setup, the script signs the target executable using the existing
     certificate. This mode is invoked automatically by the Release build (see the
-    SignOutput target in LenovoTray.csproj) and exits 0 if no certificate is found,
+    SignOutput target in ChargeKeeper.csproj) and exits 0 if no certificate is found,
     so it never breaks a build.
 
     To use a real CA-issued certificate instead, import it into Cert:\CurrentUser\My
@@ -56,10 +56,10 @@ function New-TrustedSigningCertificate {
         -KeyUsage DigitalSignature `
         -KeyExportPolicy Exportable `
         -NotAfter (Get-Date).AddYears(5) `
-        -FriendlyName "LenovoTray Code Signing"
+        -FriendlyName "ChargeKeeper Code Signing"
 
     # Trust the cert for the current user so the signature validates without admin.
-    $pub = Join-Path $env:TEMP "lenovotray-pub.cer"
+    $pub = Join-Path $env:TEMP "chargekeeper-pub.cer"
     try {
         Export-Certificate -Cert $cert -FilePath $pub | Out-Null
         Import-Certificate -FilePath $pub -CertStoreLocation Cert:\CurrentUser\Root             | Out-Null
@@ -90,7 +90,7 @@ if ($Setup) {
 # This script lives in scripts\, so the project root is one level up.
 if (-not $Path) {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $Path = Join-Path $repoRoot "bin\Release\net10.0-windows10.0.26100.0\win-x64\LenovoTray.exe"
+    $Path = Join-Path $repoRoot "bin\Release\net10.0-windows10.0.26100.0\win-x64\ChargeKeeper.exe"
 }
 
 if (-not (Test-Path $Path)) {

@@ -1,7 +1,8 @@
-# Lenovo Power Tray
+# ChargeKeeper
 
-System tray app for ThinkPad laptops.  Exposes two Lenovo power features as
-quick toggles without opening Vantage.
+Battery care from the system tray — charge limits, a live battery gauge, and smart standby
+control. Runs on ThinkPad laptops today (formerly published as **Lenovo Power Tray**); built to
+support more hardware over time.
 
 ## Features
 
@@ -51,8 +52,8 @@ Appears bottom-right above the taskbar.  Closes on focus loss.  Refreshes every 
 - Power source (AC / Battery) and charge/drain rate in watts
 - **TIME stat** — time-to-full when charging, time-remaining when discharging; shows **—** when the
   charge rate is negligible
-- **Battery % history sparkline** — a 1-hour mini-graph of battery level, colour-coded like the
-  gauge. Session-only (kept in memory, not persisted across restarts)
+- **Battery % history graph** — a graph of battery level over a selectable time span,
+  colour-coded like the gauge, persisted across restarts
 - **Smart Charge badge** — shows current thresholds; expands to reveal Start/Stop sliders when
   Smart Charge is enabled. Sliders are constrained (≥ 5% gap); **Apply** writes the new thresholds
   immediately via `LenSetChargeThreshold`
@@ -69,7 +70,11 @@ Configured in Settings (on/off toggle + threshold).
 
 ## Settings
 
-Settings persist to `%AppData%\LenovoPowerTray\settings.json` — a roaming, human-readable JSON file.
+Settings persist to `%AppData%\ChargeKeeper\settings.json` — a roaming, human-readable JSON file.
+
+> **Upgrading from Lenovo Power Tray?** On first launch the app automatically moves the old
+> `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper`, so settings and battery history
+> carry over.
 
 The dashboard's collapsible **Settings** expander exposes:
 
@@ -98,28 +103,33 @@ Output: `bin\Release\net10.0-windows10.0.26100.0\win-x64\`
 
 ## Installing & updating
 
-End users install via **winget** (`winget install 0z00z0.LenovoPowerTray`) or by running
-`LenovoPowerTray-Setup.exe` from the GitHub releases. The installer is a **per-user Inno Setup**
+End users install via **winget** (`winget install 0z00z0.ChargeKeeper`) or by running
+`ChargeKeeper-Setup.exe` from the GitHub releases. The installer is a **per-user Inno Setup**
 package — it installs to `%LocalAppData%` with **no admin prompt**, adds a Start-menu shortcut, and
 offers two checkboxes: **"Run at startup"** and **"Auto update in background"**. Updates otherwise
 come from `winget upgrade`.
 
-The **"Auto update in background"** option creates a non-elevated logon task (`LenovoTray AutoUpdate`)
+The **"Auto update in background"** option creates a non-elevated logon task (`ChargeKeeper AutoUpdate`)
 that runs `winget upgrade` silently after each sign-in — so the app self-updates without the user
 running anything, *provided the package is reachable from a winget source* (public `winget-pkgs`
 submission or a local source). It needs no elevation to set up.
 
 The app stays `requireAdministrator`, so it elevates only at runtime. The single place the installer
 elevates is when "Run at startup" is ticked, to register a `RunLevel=Highest` logon task
-(`LenovoTray AutoStart`) — the same task the in-app "Launch at startup" toggle manages.
+(`ChargeKeeper AutoStart`) — the same task the in-app "Launch at startup" toggle manages.
+
+Upgrading over an existing **Lenovo Power Tray** install works in place: the installer closes the
+old `LenovoTray.exe`, deletes its stale binaries and scheduled tasks, and keeps the recorded
+install folder. Note that the winget package identity changed with the rename, so winget users
+run `winget install 0z00z0.ChargeKeeper` once; the old package ID will not upgrade across the rename.
 
 Building and releasing the installer (needs `winget install JRSoftware.InnoSetup`) is documented in
 **[installer/README.md](installer/README.md)**:
 
 ```powershell
 cd installer
-.\build-installer.ps1              # auto-bumps patch (e.g. 1.0.2 → 1.0.3)
-.\build-installer.ps1 -Version 1.1.0   # explicit override
+.\build-installer.ps1              # auto-bumps patch (e.g. 1.2.0 → 1.2.1)
+.\build-installer.ps1 -Version 1.3.0   # explicit override
 ```
 
 ## Code signing
@@ -141,13 +151,13 @@ MSBuild target, which calls `scripts\sign.ps1`. To sign manually:
 
 ```powershell
 .\scripts\sign.ps1                                   # signs the latest Release exe
-.\scripts\sign.ps1 -Path path\to\LenovoTray.exe      # sign a specific file
+.\scripts\sign.ps1 -Path path\to\ChargeKeeper.exe    # sign a specific file
 ```
 
 Verify a signature:
 
 ```powershell
-Get-AuthenticodeSignature .\bin\Release\net10.0-windows10.0.26100.0\win-x64\LenovoTray.exe
+Get-AuthenticodeSignature .\bin\Release\net10.0-windows10.0.26100.0\win-x64\ChargeKeeper.exe
 ```
 
 **Notes**
@@ -219,7 +229,7 @@ the firmware reported the battery as not threshold-capable.
 ## Project structure
 
 ```
-LenovoChargeThreshold/
+ChargeKeeper/
 ├── App.xaml / .cs                   — Tray icon lifetime, coordinates dashboard
 ├── MainWindow.xaml / .cs            — Invisible 1×1 host window (keeps WinUI 3 alive)
 │
@@ -236,9 +246,12 @@ LenovoChargeThreshold/
 │   └── test-read.ps1                — Elevated manual read check
 │
 ├── installer/                       — Per-user Inno Setup installer + winget manifests
-│   ├── LenovoPowerTray.iss          — Inno script (per-user, optional Run-at-startup task)
-│   ├── build-installer.ps1          — publish + compile → Output\LenovoPowerTray-Setup.exe
-│   └── winget/                      — winget manifests (0z00z0.LenovoPowerTray)
+│   ├── ChargeKeeper.iss             — Inno script (per-user, optional Run-at-startup task)
+│   ├── build-installer.ps1          — publish + compile → Output\ChargeKeeper-Setup.exe
+│   └── winget/                      — winget manifests (0z00z0.ChargeKeeper)
+│
+├── brand/                           — Brand assets
+│   └── chargekeeper-icon.svg        — Authoritative vector of the "Guarded Battery" app icon
 │
 ├── Features/                        — Toggleable capabilities behind one interface
 │   ├── IToggleFeature.cs            — Name / IsEnabled / SetEnabled abstraction
@@ -250,12 +263,13 @@ LenovoChargeThreshold/
 │
 ├── Helpers/                         — Infrastructure utilities
 │   ├── AppColors.cs                 — Shared colour constants and pre-allocated brushes
-│   ├── IconGenerator.cs             — Static red-L tray icon (file-based) + live battery arc icon
+│   ├── IconGenerator.cs             — Static brand-mark tray icon (file-based) + live battery arc icon
 │   ├── NativeMethods.cs             — Win32 P/Invoke: per-monitor work area + DPI, DestroyIcon
 │   ├── RelayCommand.cs              — Minimal ICommand for tray click binding
 │   └── TaskSchedulerHelper.cs       — Auto-start management via Task Scheduler
 │
 └── scripts/
+    ├── make-appicon.ps1             — Regenerates Assets\AppIcon.ico from the brand geometry
     └── sign.ps1                     — Authenticode signing (Release builds + one-time cert setup)
 ```
 

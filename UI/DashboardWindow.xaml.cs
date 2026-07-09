@@ -6,10 +6,10 @@ using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Power;
 using Windows.Foundation;
 using Windows.System.Power;
-using LenovoTray.Helpers;
-using LenovoTray.Services;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.UI;
+namespace ChargeKeeper.UI;
 
 /// <summary>
 /// Borderless popup that shows battery status and the current state of both Lenovo

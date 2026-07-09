@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Security.Principal;
 using System.Text;
-using LenovoTray.Services;
+using ChargeKeeper.Services;
 
-namespace LenovoTray.Helpers;
+namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Keeps the tray app alive via Task Scheduler, and keeps Task Scheduler from being the thing
@@ -21,9 +21,9 @@ namespace LenovoTray.Helpers;
 /// from full XML instead.
 ///
 /// Two tasks are maintained at startup (best-effort, elevated app so no UAC):
-///  1. "LenovoTray AutoStart"  — repaired in place (power-safe settings) when it exists and
+///  1. "ChargeKeeper AutoStart" — repaired in place (power-safe settings) when it exists and
 ///     points at THIS exe; never created here (running at startup stays the user's choice).
-///  2. "LenovoTray Watchdog"   — created/refreshed: relaunches the exe with --watchdog-relaunch
+///  2. "ChargeKeeper Watchdog"  — created/refreshed: relaunches the exe with --watchdog-relaunch
 ///     every 5 minutes plus on session unlock and resume-from-standby. A probe that finds a
 ///     live instance exits instantly via the single-instance mutex; one that finds the
 ///     hold-marker (user chose Exit from the tray menu) stays down. This is the backstop for
@@ -35,15 +35,15 @@ internal static class WatchdogTask
 {
     internal const string WatchdogArg = "--watchdog-relaunch";
 
-    private const string AutoStartTaskName = "LenovoTray AutoStart";
-    private const string WatchdogTaskName  = "LenovoTray Watchdog";
+    private const string AutoStartTaskName = "ChargeKeeper AutoStart";
+    private const string WatchdogTaskName  = "ChargeKeeper Watchdog";
 
     // Bumping the def version forces a rewrite of both task definitions on next startup.
-    private const string DefStamp = "[LenovoTray def-v1]";
+    private const string DefStamp = "[ChargeKeeper def-v1]";
 
     private static string HoldMarkerPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LenovoPowerTray", "watchdog-hold.marker");
+        "ChargeKeeper", "watchdog-hold.marker");
 
     internal static bool HoldMarkerExists => File.Exists(HoldMarkerPath);
 
@@ -75,7 +75,11 @@ internal static class WatchdogTask
         try
         {
             if (Environment.ProcessPath is not { } exe) return;
-            if (!exe.EndsWith(@"\Lenovo Power Tray\LenovoTray.exe", StringComparison.OrdinalIgnoreCase))
+            // Two accepted install locations: fresh installs live in "...\ChargeKeeper";
+            // installs upgraded across the Lenovo Power Tray -> ChargeKeeper rename keep the
+            // old folder name (the installer reuses the AppId-recorded {app} directory).
+            if (!exe.EndsWith(@"\ChargeKeeper\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase) &&
+                !exe.EndsWith(@"\Lenovo Power Tray\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase))
             {
                 AppLog.Info("Watchdog: not running from the install directory — task registration skipped.");
                 return;
@@ -120,7 +124,7 @@ internal static class WatchdogTask
 
         bool ok = RegisterTask(WatchdogTaskName,
             BuildTaskXml(WatchdogTaskName,
-                $"Relaunches Lenovo Power Tray if its process is gone (probe exits instantly when it is running, or when the user exited via the tray menu). {DefStamp}",
+                $"Relaunches ChargeKeeper if its process is gone (probe exits instantly when it is running, or when the user exited via the tray menu). {DefStamp}",
                 triggers, exe, WatchdogArg, sid));
         AppLog.Info(ok
             ? $"Watchdog: scheduled task '{WatchdogTaskName}' registered (5-min + unlock + resume probes)."
@@ -149,7 +153,7 @@ internal static class WatchdogTask
 
         bool ok = RegisterTask(AutoStartTaskName,
             BuildTaskXml(AutoStartTaskName,
-                $"Starts Lenovo Power Tray at logon, elevated, with power-safe settings. {DefStamp}",
+                $"Starts ChargeKeeper at logon, elevated, with power-safe settings. {DefStamp}",
                 triggers, exe, arguments: null, sid));
         AppLog.Info(ok
             ? "Watchdog: AutoStart task repaired — StopIfGoingOnBatteries and the 72h execution "
@@ -212,7 +216,7 @@ internal static class WatchdogTask
 
     private static bool RegisterTask(string name, string xml)
     {
-        string tmp = Path.Combine(Path.GetTempPath(), $"LenovoTrayTask-{Guid.NewGuid():N}.xml");
+        string tmp = Path.Combine(Path.GetTempPath(), $"ChargeKeeperTask-{Guid.NewGuid():N}.xml");
         try
         {
             // UTF-16 with BOM to match the declaration — schtasks rejects a mismatch.

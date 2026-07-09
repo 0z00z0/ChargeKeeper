@@ -1,7 +1,13 @@
-# Lenovo Power Tray
+# ChargeKeeper
 
-A lightweight Windows **system-tray app** for Lenovo ThinkPad laptops (built and tested on an
-**X1 Yoga Gen 7**) that toggles two power features without opening the slow Lenovo Vantage app:
+**Battery care from the system tray** — charge limits, a live battery gauge, and smart standby
+control. ChargeKeeper runs on Lenovo ThinkPads today (it requires the Lenovo Power Management
+Driver) and is built to support more hardware over time.
+
+> Formerly published as **Lenovo Power Tray**. See
+> [Upgrading from Lenovo Power Tray](#upgrading-from-lenovo-power-tray).
+
+Two power features, without opening the slow Lenovo Vantage app:
 
 - **Smart Charge** — battery charge threshold, via the Lenovo Power Manager local-RPC interface
   (the same one Lenovo Vantage uses), through a small native bridge (`LenPower.dll`)
@@ -15,19 +21,20 @@ optionally, the battery percentage as a number.
 ### Features
 
 - **Threshold presets** — named charging profiles (**Daily** 60–80%, **Travel** 80–100%) from the
-  tray right-click **Presets** submenu, applied via the Lenovo Power Manager.
+  tray right-click **Presets** submenu.
 - **Charge to 100% once (travel override)** — a tray menu item that temporarily lifts the charge
   threshold for one cycle, then auto-restores it once the battery reaches full. Survives an app
   restart mid-charge.
 - **Custom low-battery warning** — a toast at a user-set battery % while discharging (Settings).
 - **Time remaining / time to full** — the dashboard shows estimated time-to-full (charging) or
   time-remaining (discharging).
-- **Battery % history sparkline** — a small graph of recent battery level in the dashboard.
+- **Battery % history graph** — a persistent graph of recent battery level in the dashboard,
+  with selectable time scales.
 - **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings).
 - **Numeric % tray icon** — show the battery percentage as a number instead of the arc gauge
   (toggle in the tray menu and dashboard).
 - **Settings persistence + Export/Import** — settings are stored as human-readable JSON at
-  `%AppData%\LenovoPowerTray\settings.json`. The dashboard's **Settings** section has **Export…** /
+  `%AppData%\ChargeKeeper\settings.json`. The dashboard's **Settings** section has **Export…** /
   **Import…** buttons (Win32 file dialogs, which work in this elevated app) and an **Open file**
   link. Settings are portable across machines by copying this file; automatic cloud sync is not yet
   implemented.
@@ -45,11 +52,11 @@ optionally, the battery percentage as a number.
 **winget** (recommended):
 
 ```powershell
-winget install 0z00z0.LenovoPowerTray
-winget upgrade 0z00z0.LenovoPowerTray   # update later
+winget install 0z00z0.ChargeKeeper
+winget upgrade 0z00z0.ChargeKeeper   # update later
 ```
 
-Or grab `LenovoPowerTray-Setup.exe` from the [latest release](https://github.com/0z00z0/LenovoPowerTray/releases)
+Or grab `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
 and run it. The installer is **per-user — no admin needed to install** — and offers two options:
 
 - **Run at startup** — auto-starts the app at sign-in. Ticking it asks for elevation once, to
@@ -61,9 +68,28 @@ and run it. The installer is **per-user — no admin needed to install** — and
 The app itself shows a UAC prompt when it launches, since changing the charge threshold / standby
 service requires administrator rights.
 
+## Upgrading from Lenovo Power Tray
+
+ChargeKeeper is the same app under a new name. Upgrading is safe and mostly automatic:
+
+- **Settings and battery history migrate automatically.** On first launch, ChargeKeeper moves your
+  old `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper` — settings, presets, and the
+  battery history graph all carry over.
+- **The installer cleans up after the old version.** Running the ChargeKeeper installer over an
+  existing Lenovo Power Tray install closes the old app, removes its old binaries and scheduled
+  tasks, and upgrades in place.
+- **winget users: install the new ID once.** The package identity changed, so the old package will
+  not auto-upgrade across the rename. Run:
+  ```powershell
+  winget install 0z00z0.ChargeKeeper
+  ```
+  and Windows' Apps list will show ChargeKeeper replacing the old entry.
+
 ## Requirements
 
-- Windows 10 (1809+) / Windows 11 on a Lenovo ThinkPad
+- Windows 10 (1809+) / Windows 11
+- Currently a **Lenovo ThinkPad** (built and tested on an X1 Yoga Gen 7) — the charge-limit
+  feature talks to Lenovo's power-management driver; support for other vendors is planned
 - **Administrator rights** — both features require elevation (the app manifest declares
   `requireAdministrator`)
 
@@ -116,7 +142,7 @@ dotnet build -c Release
 
 # 3. Run elevated
 dotnet run
-# or right-click the compiled LenovoTray.exe → "Run as administrator"
+# or right-click the compiled ChargeKeeper.exe → "Run as administrator"
 ```
 
 > Smart Standby, the dashboard, and auto-start work without the native bridge. If `LenPower.dll`
@@ -135,7 +161,7 @@ via winget. See **[installer/README.md](installer/README.md)** for the full rele
 ```powershell
 winget install JRSoftware.InnoSetup     # one-time
 cd installer
-.\build-installer.ps1              # auto-bumps patch (or pass -Version 1.0.0 explicitly)
+.\build-installer.ps1              # auto-bumps patch (or pass -Version 1.2.0 explicitly)
 ```
 
 ## External libraries

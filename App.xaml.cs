@@ -2,12 +2,12 @@ using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
-using LenovoTray.Features;
-using LenovoTray.Helpers;
-using LenovoTray.Services;
-using LenovoTray.UI;
+using ChargeKeeper.Features;
+using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
+using ChargeKeeper.UI;
 
-namespace LenovoTray;
+namespace ChargeKeeper;
 
 /// <summary>
 /// Application entry point.  Owns the tray icon lifetime and coordinates the
@@ -58,7 +58,7 @@ public partial class App : Application
     // same-thread-release requirement (ProcessExit handlers aren't guaranteed to run on the
     // thread that acquired it).
     private static Mutex? _singleInstanceMutex;
-    private const string SingleInstanceMutexName = "Local\\LenovoPowerTray.SingleInstance";
+    private const string SingleInstanceMutexName = "Local\\ChargeKeeper.SingleInstance";
 
     /// <summary>
     /// Retries a non-blocking mutex acquire for a few seconds before giving up. A single instant
@@ -84,6 +84,12 @@ public partial class App : Application
 
     public App()
     {
+        // Must run before ANYTHING touches %AppData%\ChargeKeeper: the first AppLog write (or a
+        // settings/history read) would create the new folder, and Directory.Move refuses to move
+        // onto an existing destination — which would strand the user's settings + battery history
+        // in the old folder forever.
+        MigrateLegacyAppDataFolder();
+
         InitializeComponent();
 
         // THE key lifetime decision for a tray app (confirmed by app.log forensics 2026-07-02):
@@ -97,7 +103,7 @@ public partial class App : Application
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
         // Last-resort diagnostics: log any unhandled managed exception to
-        // %AppData%\LenovoPowerTray\app.log before the process dies, so GUI crashes
+        // %AppData%\ChargeKeeper\app.log before the process dies, so GUI crashes
         // (which surface only as an opaque 0xC000027B stowed exception in Event Viewer)
         // leave an actionable stack trace behind.
         UnhandledException += (_, e) =>
@@ -110,6 +116,32 @@ public partial class App : Application
             LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
 
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+    }
+
+    /// <summary>
+    /// One-time migration for the rename from Lenovo Power Tray to ChargeKeeper: moves the old
+    /// <c>%AppData%\LenovoPowerTray</c> folder to <c>%AppData%\ChargeKeeper</c> so settings,
+    /// battery history, and logs survive the upgrade. Runs only when the old folder exists and the
+    /// new one doesn't (i.e. exactly once); a failure is logged and never crashes startup — the
+    /// app then simply starts with fresh defaults, same as a clean install.
+    /// </summary>
+    private static void MigrateLegacyAppDataFolder()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var oldDir  = Path.Combine(appData, "LenovoPowerTray");
+            var newDir  = Path.Combine(appData, "ChargeKeeper");
+            if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return;
+
+            Directory.Move(oldDir, newDir);
+            AppLog.Info("Migrated legacy %AppData%\\LenovoPowerTray folder to %AppData%\\ChargeKeeper.");
+        }
+        catch (Exception ex)
+        {
+            // Logged only AFTER the move attempt — AppLog itself creates the new folder.
+            AppLog.Error("MigrateLegacyAppDataFolder", ex);
+        }
     }
 
     /// <summary>
@@ -166,7 +198,7 @@ public partial class App : Application
         {
             var path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "LenovoPowerTray", "relaunch-history.txt");
+                "ChargeKeeper", "relaunch-history.txt");
 
             var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
             var recent = new List<long>();
@@ -240,7 +272,7 @@ public partial class App : Application
         {
             string dumpDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "LenovoPowerTray", "dumps");
+                "ChargeKeeper", "dumps");
             CrashDumps.TryRegisterLocalDumps(dumpDir);
             CrashDumps.TryRegisterSilentExitMonitor(dumpDir);
             WatchdogTask.TryEnsureTasks();
@@ -296,7 +328,7 @@ public partial class App : Application
     {
         _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
 
-        // Start with the static red "L" icon; battery arc replaces it on the first battery event.
+        // Start with the static ChargeKeeper mark; battery arc replaces it on the first battery event.
         var exeDir   = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         var iconPath = IconGenerator.GenerateAndSaveTrayIcon(exeDir);
         _trayIcon.Icon = new System.Drawing.Icon(iconPath);
@@ -579,11 +611,11 @@ public partial class App : Application
     {
         var lines = new System.Text.StringBuilder();
 
-        // 💠 Lenovo Power Tray  v1.0.x
+        // 💠 ChargeKeeper  v1.0.x
         // 💠 is the brand mark in ZeroZero's signature teal (#27e0c8-ish). A tray tooltip is plain
         // text — no per-glyph colour — so a colour emoji is the only way to carry brand colour, and
         // the bright cyan-teal reads clearly on the dark Win11 tooltip background.
-        lines.Append($"💠 Lenovo Power Tray  v{_appVersion}");
+        lines.Append($"💠 ChargeKeeper  v{_appVersion}");
 
         // ⚡ AC · 75%  ·  +45 W   (on AC — the bolt forced to its TEXT/outline form via U+FE0E so it
         //                          renders bright like the ⚙/⏱/⬆ outlines; the colour plug 🔌 was a

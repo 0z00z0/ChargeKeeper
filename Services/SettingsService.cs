@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace LenovoTray.Services;
+namespace ChargeKeeper.Services;
 
 /// <summary>A named charging-threshold profile.</summary>
 internal sealed class ThresholdPreset
@@ -78,7 +78,7 @@ internal sealed class AppSettings
 
 /// <summary>
 /// Loads and saves <see cref="AppSettings"/> to
-/// <c>%AppData%\LenovoPowerTray\settings.json</c>.
+/// <c>%AppData%\ChargeKeeper\settings.json</c>.
 /// <para>
 /// Roaming AppData syncs automatically via Windows roaming profiles and OneDrive
 /// Known Folder Move — the file follows the user between machines on the same profile.
@@ -89,7 +89,7 @@ internal static class SettingsService
 {
     private static readonly string _path = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LenovoPowerTray", "settings.json");
+        "ChargeKeeper", "settings.json");
 
     private static readonly Lock          _lock = new();
     private static          AppSettings?  _current;
