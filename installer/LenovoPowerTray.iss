@@ -72,8 +72,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Code]
 const
-  TaskName       = '{#TaskName}';
-  UpdateTaskName = 'LenovoTray AutoUpdate';
+  TaskName         = '{#TaskName}';
+  UpdateTaskName   = 'LenovoTray AutoUpdate';
+  WatchdogTaskName = 'LenovoTray Watchdog';
 
 var
   // True when ssInstall found (and killed) a running instance. Lets a SILENT upgrade
@@ -90,11 +91,27 @@ begin
                  SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
+function WatchdogTaskExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec('schtasks.exe', '/Query /TN "' + WatchdogTaskName + '"', '',
+                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
 procedure RegisterStartupTask();
 var
   ResultCode: Integer;
   Params: string;
 begin
+  // The app rewrites this task at startup with power-safe settings from full XML
+  // (StopIfGoingOnBatteries=false etc. — the schtasks CLI defaults below made Task Scheduler
+  // hard-kill the instance the moment AC dropped at undock; root cause of the 2026-07
+  // "vanished tray icon" incidents, see Helpers/WatchdogTask.cs). If the task already exists,
+  // leave the app-maintained definition alone — recreating it here would regress those flags
+  // until the app's next startup repair.
+  if ScheduledTaskExists() then exit;
+
   // A logon task with RL HIGHEST lets the elevated app auto-start with no boot-time UAC
   // prompt. Creating a HIGHEST task needs admin, so this one step elevates via 'runas'
   // (exactly one UAC prompt — and only because the user ticked "Run at startup").
@@ -120,10 +137,13 @@ procedure StopAppAndRemoveStartupTask();
 var
   ResultCode: Integer;
 begin
-  // Stopping the running (elevated) app and deleting its RL HIGHEST logon task both need
-  // admin, so do them together in one elevated cmd -> at most ONE UAC prompt on uninstall.
+  // Stopping the running (elevated) app and deleting its RL HIGHEST logon + watchdog tasks all
+  // need admin, so do them together in one elevated cmd -> at most ONE UAC prompt on uninstall.
+  // Watchdog task goes FIRST: it relaunches a missing LenovoTray.exe, so it must be gone before
+  // the taskkill or it could resurrect the app mid-uninstall.
   ShellExec('runas', ExpandConstant('{cmd}'),
-            '/C taskkill /IM "{#AppExe}" /F & schtasks /Delete /TN "' + TaskName + '" /F',
+            '/C schtasks /Delete /TN "' + WatchdogTaskName + '" /F & '
+            + 'taskkill /IM "{#AppExe}" /F & schtasks /Delete /TN "' + TaskName + '" /F',
             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -204,8 +224,8 @@ begin
   // aren't locked, otherwise the uninstall leaves the exe behind and the app keeps running.
   if CurUninstallStep = usUninstall then
   begin
-    // Elevate once only if there's something elevated to do (app running or HIGHEST task).
-    if AppIsRunning() or ScheduledTaskExists() then
+    // Elevate once only if there's something elevated to do (app running or a HIGHEST task).
+    if AppIsRunning() or ScheduledTaskExists() or WatchdogTaskExists() then
       StopAppAndRemoveStartupTask();
 
     RemoveAutoUpdateTask();   // non-elevated, no prompt

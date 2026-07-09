@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>LenovoTray</RootNamespace>
-    <Version>1.1.10</Version>
+    <Version>1.1.12</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Identity / packaging metadata -->
@@ -52,6 +52,10 @@
     <Compile Remove="Tests\**" />
     <EmbeddedResource Remove="Tests\**" />
     <None Remove="Tests\**" />
+    <!-- WinUI's targets also glob every image file into Content — without this Remove, the PNGs
+         in Tests\bin get copied into this project's output, which the next Tests build copies
+         back, nesting one level deeper per build until MAX_PATH kills the build (MSB3021). -->
+    <Content Remove="Tests\**" />
   </ItemGroup>
 
   <ItemGroup>

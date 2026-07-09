@@ -16,10 +16,11 @@ namespace LenovoTray;
 public partial class App : Application
 {
     // Invisible WinUI 3 host — the framework exits when every window is closed.
-    private Window?          _hostWindow;
-    private TaskbarIcon?     _trayIcon;
-    private DashboardWindow? _dashboard;
-    private TrayMenu?        _menu;
+    private Window?              _hostWindow;
+    private TaskbarIcon?         _trayIcon;
+    private DashboardWindow?     _dashboard;
+    private BatteryHistoryWindow? _historyWindow;
+    private TrayMenu?            _menu;
 
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
     private BatteryStatus _lastBatteryStatus = BatteryStatus.NotPresent;
@@ -42,6 +43,11 @@ public partial class App : Application
     private static volatile bool _sessionEnding;
     private static readonly DateTime _processStartUtc = DateTime.UtcNow;
 
+    // Watchdog probes (see WatchdogTask.cs) start this exe every ~5 minutes; when the app is
+    // alive or was deliberately exited, the probe must exit without leaving a trace in app.log —
+    // 288 "duplicate instance" + "ProcessExit" pairs a day would bury the real forensics.
+    private static volatile bool _quietExit;
+
     // ── Single-instance guard ───────────────────────────────────────────────────
     // Diagnosed 2026-07-03: after install, the elevated post-install launch can go unnoticed (the
     // UAC prompt isn't always where the user is looking), so they launch the app again themselves
@@ -61,9 +67,9 @@ public partial class App : Application
     /// releasing the mutex — an instant WaitOne(0) would then wrongly treat that legitimate
     /// relaunch as "already running" and exit.
     /// </summary>
-    private static async Task<bool> AcquireSingleInstanceLockAsync()
+    private static async Task<bool> AcquireSingleInstanceLockAsync(int attempts = 15)
     {
-        for (int attempt = 0; attempt < 15; attempt++)
+        for (int attempt = 0; attempt < attempts; attempt++)
         {
             _singleInstanceMutex = new Mutex(initiallyOwned: false, SingleInstanceMutexName);
             if (_singleInstanceMutex.WaitOne(TimeSpan.Zero))
@@ -116,6 +122,8 @@ public partial class App : Application
     /// </summary>
     private void OnProcessExit(object? sender, EventArgs e)
     {
+        if (_quietExit) return;
+
         var uptime = DateTime.UtcNow - _processStartUtc;
         AppLog.Info($"ProcessExit: clean teardown after {uptime:hh\\:mm\\:ss} " +
                     $"(intentional={_intentionalExit}, sessionEnding={_sessionEnding}).");
@@ -187,28 +195,56 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // Must be the very first thing: exit before any window or tray icon is created if another
-        // instance already holds the lock.
-        if (!await AcquireSingleInstanceLockAsync().ConfigureAwait(true))
+        // Watchdog probes must respect a deliberate tray-menu Exit: the hold-marker written by
+        // Shutdown() keeps them from resurrecting an app the user chose to stop.
+        bool watchdogStart = Environment.GetCommandLineArgs().Contains(WatchdogTask.WatchdogArg);
+        if (watchdogStart && WatchdogTask.HoldMarkerExists)
         {
-            AppLog.Info("Another instance already holds the single-instance lock — exiting.");
-            _intentionalExit = true;   // must be set — otherwise OnProcessExit's self-heal relaunches
-                                        // this "duplicate" exit, and the relaunch detects a duplicate
-                                        // too, looping forever
+            _intentionalExit = true;
+            _quietExit = true;
             Application.Current.Exit();
             return;
         }
 
+        // Must be the very first thing: exit before any window or tray icon is created if another
+        // instance already holds the lock. Watchdog probes use a single instant attempt — the 3s
+        // retry below exists for the self-heal relaunch race, and a probe finding a live instance
+        // is the expected steady state, not a race worth waiting out.
+        if (!await AcquireSingleInstanceLockAsync(watchdogStart ? 1 : 15).ConfigureAwait(true))
+        {
+            if (!watchdogStart)
+                AppLog.Info("Another instance already holds the single-instance lock — exiting.");
+            _intentionalExit = true;   // must be set — otherwise OnProcessExit's self-heal relaunches
+                                        // this "duplicate" exit, and the relaunch detects a duplicate
+                                        // too, looping forever
+            _quietExit = watchdogStart;
+            Application.Current.Exit();
+            return;
+        }
+
+        if (watchdogStart)
+            AppLog.Info("Watchdog relaunch: no live instance found — restoring the tray app.");
+        else
+            WatchdogTask.TryClearHoldMarker();   // any deliberate start re-arms resurrection
+
         // Capture a minidump if the app dies from a fault that bypasses every managed handler
         // below (the "vanished tray icon, zero trace anywhere" signature seen 2026-07-03 and
-        // 2026-07-05 — no ProcessExit line, no app.log entry, no WER report at all). See
-        // CrashDumps.cs for the full story. Backgrounded: it only needs to be armed before some
-        // FUTURE crash, not before the rest of startup (window/tray-icon creation below) proceeds —
-        // registry I/O here would otherwise add unaccounted latency to the exact "is the app
-        // actually running yet" window this app's history has repeatedly had trouble with.
-        _ = Task.Run(() => CrashDumps.TryRegisterLocalDumps(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "LenovoPowerTray", "dumps")));
+        // 2026-07-05 — no ProcessExit line, no app.log entry, no WER report at all). LocalDumps
+        // covers unhandled faults; the SilentProcessExit monitor covers fault-less external
+        // terminations (the undock-kill signature confirmed 2026-07-06/07-08). See CrashDumps.cs
+        // for the full story. Backgrounded: it only needs to be armed before some FUTURE crash,
+        // not before the rest of startup (window/tray-icon creation below) proceeds — registry
+        // I/O here would otherwise add unaccounted latency to the exact "is the app actually
+        // running yet" window this app's history has repeatedly had trouble with.
+        _ = Task.Run(() =>
+        {
+            string dumpDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "LenovoPowerTray", "dumps");
+            CrashDumps.TryRegisterLocalDumps(dumpDir);
+            CrashDumps.TryRegisterSilentExitMonitor(dumpDir);
+            WatchdogTask.TryEnsureTasks();
+        });
 
         // Opt native Win32 elements (the tray context menu) into system dark mode. Must run
         // before any UI is created so the menu HWND inherits the setting.
@@ -228,12 +264,14 @@ public partial class App : Application
         // Logoff/shutdown must not trigger the self-heal relaunch in OnProcessExit.
         Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
 
-        // When OnProcessExit resurrected us after a GPU-reset teardown, the display subsystem may
-        // still be mid-recovery — give it a moment before creating windows and the tray icon,
-        // or the fresh instance can die to the same reset it was born from.
-        if (Environment.GetCommandLineArgs().Contains(AutoRelaunchArg))
+        // When OnProcessExit resurrected us after a GPU-reset teardown — or a watchdog probe is
+        // restoring us right after an unlock/resume — the display subsystem may still be
+        // mid-recovery: give it a moment before creating windows and the tray icon, or the
+        // fresh instance can die to the same reset it was born from.
+        if (watchdogStart || Environment.GetCommandLineArgs().Contains(AutoRelaunchArg))
         {
-            AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
+            if (!watchdogStart)
+                AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
         }
 
@@ -667,11 +705,31 @@ public partial class App : Application
         }
     }
 
+    // ── Battery history pop-out ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the bigger, resizable battery-history graph window, or focuses it if already open.
+    /// Mirrors TrayMenu's AboutWindow singleton pattern (create once, Activate() thereafter) rather
+    /// than DashboardWindow's hide/show toggle — this is a normal persistent window, not a popup.
+    /// </summary>
+    internal void ShowHistoryWindow()
+    {
+        if (_historyWindow is not null)
+        {
+            _historyWindow.Activate();
+            return;
+        }
+        _historyWindow = new BatteryHistoryWindow();
+        _historyWindow.Closed += (_, _) => _historyWindow = null;
+        _historyWindow.Activate();
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     private void Shutdown()
     {
         _intentionalExit = true;   // tells OnProcessExit this teardown is legitimate — no relaunch
+        WatchdogTask.WriteHoldMarker();   // and tells the watchdog task the same — stay down
         AppLog.Info("User exit via tray menu.");
 
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;

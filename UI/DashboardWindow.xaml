@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:LenovoTray.UI"
     mc:Ignorable="d">
 
     <Window.SystemBackdrop>
@@ -15,30 +16,12 @@
          The window height is measured from this grid (PlaceWindow), so rows can appear/disappear
          without any hard-coded height constants. -->
     <Grid x:Name="RootGrid" Padding="20,16,20,20">
-        <Grid.Resources>
-            <!-- Compact segmented-toggle style for the time-scale row (15m/1h/6h/.../14d).
-                 Selection highlight (background/foreground) is applied per-button in code-behind
-                 (SetSelectedScaleButton) since it changes at runtime; this style only sets the
-                 resting/hover/pressed look shared by all seven buttons. WinUI 3's Window has no
-                 Resources property (unlike WPF), so this lives on the root Grid instead. -->
-            <Style x:Key="TimeScaleButtonStyle" TargetType="Button">
-                <Setter Property="Padding" Value="0,4"/>
-                <Setter Property="MinWidth" Value="36"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="CornerRadius" Value="4"/>
-                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
-                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            </Style>
-        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- 0: Header -->
             <RowDefinition Height="Auto"/>  <!-- 1: Gauge + stats -->
-            <RowDefinition Height="Auto"/>  <!-- 2: Time-scale selector -->
-            <RowDefinition Height="Auto"/>  <!-- 3: History sparkline -->
-            <RowDefinition Height="Auto"/>  <!-- 4: Separator -->
-            <RowDefinition Height="Auto"/>  <!-- 5: Status badges -->
+            <RowDefinition Height="Auto"/>  <!-- 2: History graph (time-scale selector + sparkline) -->
+            <RowDefinition Height="Auto"/>  <!-- 3: Separator -->
+            <RowDefinition Height="Auto"/>  <!-- 4: Status badges -->
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -137,118 +120,24 @@
             </StackPanel>
         </Grid>
 
-        <!-- Time-scale selector: compact segmented control, one toggle button per GraphTimeScale
-             value in order. The selected button is highlighted in code (SetSelectedScaleButton). -->
-        <StackPanel Grid.Row="2"
-                    x:Name="TimeScalePanel"
-                    Orientation="Horizontal"
-                    Spacing="4"
-                    Margin="0,0,0,8">
-            <Button x:Name="Scale15mButton" Content="15m" Tag="FifteenMinutes" Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale1hButton"  Content="1h"  Tag="OneHour"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale6hButton"  Content="6h"  Tag="SixHours"       Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale12hButton" Content="12h" Tag="TwelveHours"    Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale1dButton"  Content="1d"  Tag="OneDay"         Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale1wButton"  Content="1w"  Tag="OneWeek"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="Scale14dButton" Content="14d" Tag="FourteenDays"   Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-        </StackPanel>
-
-        <!-- Battery history graph: SoC + charge-limit (left % axis) and charge power (right W
-             axis, dotted), a time axis along the bottom, and a compact legend. Plot area is ~2x
-             the original 56px total (Chunk 2): canvas alone is 112px tall. Rounded corners (8px,
-             slightly softer than the 6px status badges below) and a touch of inner padding give
-             the plot a card-like feel consistent with the rest of the dashboard. -->
-        <StackPanel Grid.Row="3" Margin="0,0,0,12" Spacing="6">
-            <!-- Hidden references read from code for the gap/min-max annotation pills, matching this
-                 file's existing pattern of sourcing ThemeResource brushes from an inert XAML element
-                 instead of a code-behind resource lookup. GraphLabelPillTextBrushRef gives a
-                 higher-contrast text brush than the axis labels' Tertiary. AnnotationPillBackgroundRef
-                 is deliberately NOT SparklineCard's own ControlFillColorDefaultBrush — that Fluent
-                 brush is a translucent "reveal" surface by design, not solid, so a pill using it would
-                 still let the coloured line/gradient underneath bleed through and defeat the whole
-                 point of the pill (contrast). SolidBackgroundFillColorBase IS a fully opaque brush. -->
-            <TextBlock x:Name="GraphLabelPillTextBrushRef" Visibility="Collapsed"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-            <Border x:Name="AnnotationPillBackgroundRef" Visibility="Collapsed"
-                    Background="{ThemeResource SolidBackgroundFillColorBase}"/>
-            <Border x:Name="SparklineCard"
-                    CornerRadius="8"
-                    Padding="0,6,0,0"
-                    Background="{ThemeResource ControlFillColorDefaultBrush}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="126"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="28"/>   <!-- left % axis labels -->
-                        <ColumnDefinition Width="*"/>    <!-- canvas -->
-                        <ColumnDefinition Width="36"/>   <!-- right W axis labels -->
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Left axis: SoC / limit %, 0 at bottom, 100 at top. -->
-                    <Grid Grid.Row="0" Grid.Column="0" Margin="6,2,3,4">
-                        <TextBlock x:Name="LeftAxisTopLabel"    Text="100" FontSize="11" VerticalAlignment="Top"    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="LeftAxisMidLabel"    Text="50"  FontSize="11" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="LeftAxisBottomLabel" Text="0"   FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    </Grid>
-
-                    <Canvas x:Name="SparklineCanvas" Grid.Row="0" Grid.Column="1"/>
-
-                    <!-- Right axis: charge power W, auto-scaled to the visible window (min/0/max),
-                         always including 0. Populated in code since the range is dynamic. -->
-                    <Grid Grid.Row="0" Grid.Column="2" Margin="3,2,4,4">
-                        <TextBlock x:Name="RightAxisTopLabel"    Text="—" FontSize="11" VerticalAlignment="Top"    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="RightAxisMidLabel"    Text="—" FontSize="11" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="RightAxisBottomLabel" Text="—" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    </Grid>
-
-                    <!-- Time axis: left = age of the OLDEST loaded sample, right = age of the newest
-                         (usually "now", but shows an elapsed time instead once sampling has gone
-                         quiet for longer than GapThreshold). NOT a fixed span — leading downtime is
-                         collapsed by the compressed x-axis, so the left edge can be more recent than
-                         the selected GraphTimeScale. Set dynamically in UpdateSparkline. -->
-                    <Grid Grid.Row="1" Grid.Column="1" Margin="7,3,7,6">
-                        <TextBlock x:Name="SparklineStartLabel"
-                                   Text="—"
-                                   FontSize="12"
-                                   HorizontalAlignment="Left"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="SparklineEndLabel"
-                                   Text="now"
-                                   FontSize="12"
-                                   HorizontalAlignment="Right"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    </Grid>
-                </Grid>
-            </Border>
-
-            <!-- Compact legend: coloured swatch + label per series. Swatch colours are assigned in
-                 code-behind (AppColors), matching how the rest of this window applies brushes. -->
-            <StackPanel Orientation="Horizontal" Spacing="14" Margin="4,0,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
-                    <TextBlock Text="SoC" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Border x:Name="LegendLimitSwatch" Width="8" Height="8" CornerRadius="4"/>
-                    <TextBlock Text="Limit" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Border x:Name="LegendPowerSwatch" Width="8" Height="8" CornerRadius="4"/>
-                    <TextBlock Text="Power" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
-            </StackPanel>
-        </StackPanel>
+        <!-- Battery history graph + its time-scale ("period") controls — extracted into
+             BatteryHistoryGraphControl so the exact same graph can also be hosted in the bigger,
+             resizable BatteryHistoryWindow pop-out (opened via this control's "Expand" button)
+             without duplicating the drawing code. PlotAreaHeight pins the plot canvas to the same
+             126px it always had here, keeping this popup's measured size unchanged. -->
+        <local:BatteryHistoryGraphControl x:Name="HistoryGraph"
+                                           Grid.Row="2"
+                                           Margin="0,0,0,12"
+                                           PlotAreaHeight="126"/>
 
         <!-- Separator -->
-        <Border Grid.Row="4"
+        <Border Grid.Row="3"
                 Height="1"
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                 Margin="0,0,0,12"/>
 
         <!-- Status badges -->
-        <StackPanel Grid.Row="5" Spacing="8">
+        <StackPanel Grid.Row="4" Spacing="8">
 
             <!-- Smart Charge badge -->
             <Border x:Name="SmartChargeBadge"
