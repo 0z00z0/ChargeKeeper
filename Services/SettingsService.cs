@@ -64,6 +64,16 @@ internal sealed class AppSettings
     public bool LowBatteryWarningEnabled { get; set; } = true;
     public int  LowBatteryWarningPct     { get; set; } = 15;
 
+    /// <summary>
+    /// Overnight-drain anomaly warning (TODO #26): toast when the battery loses charge faster than
+    /// this rate across a detected downtime gap (app closed, crashed, or the system suspended) —
+    /// e.g. Modern Standby failing to actually suspend can drain several percent an hour even with
+    /// the lid closed. Default 3%/hour is a deliberately loose bar: normal Modern Standby drain is
+    /// usually well under 1%/hour, so 3 leaves headroom before flagging genuinely abnormal drain.
+    /// </summary>
+    public bool DrainAnomalyWarningEnabled  { get; set; } = true;
+    public int  DrainAnomalyPercentPerHour  { get; set; } = 3;
+
     // ── App behaviour ────────────────────────────────────────────────────────
     /// <summary>Seconds to pause at startup before initialising (0 = no delay).</summary>
     public int StartupDelaySeconds { get; set; } = 0;
@@ -74,6 +84,33 @@ internal sealed class AppSettings
     // ── History graph ────────────────────────────────────────────────────────
     /// <summary>Selected time span shown in the dashboard history graph.</summary>
     public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
+
+    /// <summary>
+    /// How long a hole in the sample timeline must be before it's registered as a downtime gap
+    /// (app closed/crashed) and drawn as a compressed-axis break instead of a connecting line.
+    /// Default of 1 matches the previous hardcoded ~1-minute threshold
+    /// (<c>BatteryHistoryService.SampleIntervalSeconds * 3</c>), so existing users see no change in
+    /// behaviour until they pick a different value. 0 = "None" — disable gap detection entirely
+    /// (never show a gap marker, treated as an effectively infinite threshold, NOT a literal
+    /// zero-minute one).
+    /// </summary>
+    public int DowntimeGapMinutes { get; set; } = 1;
+
+    // ── Network / dock-based profiles (TODO #31) ────────────────────────────────
+    /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
+    public bool NetworkProfilesEnabled { get; set; } = false;
+
+    /// <summary>User-configured location → preset mappings ("office dock" → "Daily", etc.).</summary>
+    public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
+
+    /// <summary>
+    /// Preset to apply when the current location matches none of <see cref="NetworkLocationRules"/>
+    /// — the "unknown network → travel preset" case from the original idea. Null = do nothing (stay
+    /// on whatever threshold was already active) rather than force a change on every unrecognised
+    /// network, which would be surprising on a network the user simply hasn't gotten round to
+    /// naming yet.
+    /// </summary>
+    public string? UnknownNetworkPresetName { get; set; }
 }
 
 /// <summary>
