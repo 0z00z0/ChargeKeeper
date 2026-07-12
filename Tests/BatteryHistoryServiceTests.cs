@@ -114,4 +114,78 @@ public class BatteryHistoryServiceTests : IDisposable
         Assert.True(BatteryHistoryService.TryParse(rawLine, out var remaining));
         Assert.Equal(20, remaining.Soc);
     }
+
+    // ── Downtime-gap detection (TODO #26) ───────────────────────────────────────
+
+    [Fact]
+    public void Record_FirstEverSample_ReportsNoGap()
+    {
+        // Nothing to compare against yet — must not report a spurious gap against a non-existent
+        // "previous" sample.
+        var gap = BatteryHistoryService.Record(80, null, 0);
+        Assert.Null(gap);
+    }
+
+    [Fact]
+    public void Record_ConsecutiveSamplesCloseTogether_ReportsNoGap()
+    {
+        var old = new BatterySample(DateTime.UtcNow.AddSeconds(-20), 80, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1)); // load it into the in-memory window
+
+        var gap = BatteryHistoryService.Record(79, null, 0); // normal ~20s tick later
+
+        Assert.Null(gap);
+    }
+
+    [Fact]
+    public void Record_AfterLongGap_ReportsDropAndDuration()
+    {
+        var beforeGap = DateTime.UtcNow.AddHours(-6);
+        var old = new BatterySample(beforeGap, 90, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
+
+        var gap = BatteryHistoryService.Record(75, null, 0); // app just restarted after ~6h downtime
+
+        Assert.NotNull(gap);
+        Assert.Equal(15, gap!.Value.SocDropPercent); // 90% → 75%
+        Assert.True(gap.Value.GapDuration >= TimeSpan.FromHours(5.9));
+    }
+
+    [Fact]
+    public void Record_AfterGapWithRise_ReportsNegativeDrop()
+    {
+        // The battery kept charging (or was topped off) while the app wasn't running — a real,
+        // legitimate reading the caller is expected to filter out as "not an anomaly", not
+        // something this layer should hide or clamp away.
+        var old = new BatterySample(DateTime.UtcNow.AddHours(-6), 60, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
+
+        var gap = BatteryHistoryService.Record(95, null, 0);
+
+        Assert.NotNull(gap);
+        Assert.True(gap!.Value.SocDropPercent < 0);
+    }
+
+    [Fact]
+    public void Record_AfterGapLongerThanLoadedWindow_StillReportsGap()
+    {
+        // Regression guard for the overnight-drain no-op: with only a 1h window loaded, a sample
+        // from BEFORE an overnight (>1h) downtime falls OUTSIDE _window entirely. Gap detection must
+        // compare against the last PERSISTED sample (from the file), not _window[^1], or the
+        // overnight drain — the exact case the feature exists for — is never seen.
+        var beforeGap = new BatterySample(DateTime.UtcNow.AddHours(-8), 90, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(beforeGap) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));   // the 8h-old sample is outside this window
+
+        Assert.Empty(BatteryHistoryService.CurrentWindow());       // sanity: the window really is empty
+
+        var gap = BatteryHistoryService.Record(75, null, 0);       // app "restarts" after 8h down
+
+        Assert.NotNull(gap);
+        Assert.Equal(15, gap!.Value.SocDropPercent);               // 90 → 75
+        Assert.True(gap.Value.GapDuration >= TimeSpan.FromHours(7.9));
+    }
 }
