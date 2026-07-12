@@ -61,9 +61,14 @@ if ($LASTEXITCODE -ne 0) { throw "native\build.cmd failed ($LASTEXITCODE)." }
 # ── 2. Publish the app (fully self-contained, no trim) ───────────────────────
 Write-Host "==> Publishing app (self-contained win-x64, Windows App SDK bundled)..." -ForegroundColor Cyan
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
+# WindowsAppSDKSelfContained is NOT passed here as a -p: global on purpose: a command-line global
+# propagates into the referenced ZeroZero.Brand.WinUI class library and the WindowsAppSDK targets
+# reject it there ("should not be applied to a class library"). It's set as a project-level
+# property in ChargeKeeper.csproj (conditioned on --self-contained) instead, which stays local to
+# the app. --self-contained true still bundles the runtime for the app itself.
 dotnet publish $proj `
     -c Release -r win-x64 --self-contained true `
-    -p:WindowsAppSDKSelfContained=true -p:PublishTrimmed=false -p:PublishReadyToRun=true `
+    -p:PublishTrimmed=false -p:PublishReadyToRun=true `
     -o $publishDir
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)." }
 

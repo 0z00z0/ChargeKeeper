@@ -37,6 +37,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting
+      # a sibling checkout (..\ZeroZeroBrand\src\...) — locally that's a sibling
+      # folder; in CI the runner only checks out this repo, so we fetch it here.
+      - name: Checkout ZeroZeroBrand (sibling dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: 0z00z0/ZeroZeroBrand
+          path: ../ZeroZeroBrand
+
       # ── 2. Resolve version string ────────────────────────────────────────────
       # Tag-triggered: strip the leading 'v'.
       # workflow_dispatch: use the input; fall back to '0.0.0-dev'.

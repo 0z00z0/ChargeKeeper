@@ -4,6 +4,8 @@ using Microsoft.UI.Xaml.Controls;
 using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Brand.Core;
+using ZeroZero.Brand.WinUI;
 
 namespace ChargeKeeper.UI;
 
@@ -48,12 +50,20 @@ internal sealed class TrayMenu
     private ToggleMenuFlyoutItem? _travelItem;
     private ToggleMenuFlyoutItem? _iconModeItem;
     private MenuFlyoutSubItem?    _presetsSubmenu;
-    private AboutWindow?          _aboutWindow;
+    private BrandAboutWindow?     _aboutWindow;
 
     // Settings submenu state (radio-style items synced in RefreshState).
     private ToggleMenuFlyoutItem? _lowBattEnabledItem;
     private readonly List<(ToggleMenuFlyoutItem Item, int Pct)>     _lowBattPctItems    = [];
     private readonly List<(ToggleMenuFlyoutItem Item, int Seconds)> _startupDelayItems  = [];
+    private readonly List<(ToggleMenuFlyoutItem Item, int Minutes)> _downtimeGapItems   = [];
+    private ToggleMenuFlyoutItem? _drainAnomalyEnabledItem;
+    private readonly List<(ToggleMenuFlyoutItem Item, int PercentPerHour)> _drainAnomalyItems = [];
+
+    // Network profiles (TODO #31).
+    private ToggleMenuFlyoutItem? _networkProfilesEnabledItem;
+    private MenuFlyoutItem?       _currentLocationItem;
+    private MenuFlyoutSubItem?    _addLocationSubmenu;
 
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
@@ -109,6 +119,9 @@ internal sealed class TrayMenu
         settingsMenu.Items.Add(_iconModeItem);
         settingsMenu.Items.Add(BuildLowBatteryMenu());
         settingsMenu.Items.Add(BuildStartupDelayMenu());
+        settingsMenu.Items.Add(BuildDowntimeGapMenu());
+        settingsMenu.Items.Add(BuildDrainAnomalyMenu());
+        settingsMenu.Items.Add(BuildNetworkProfilesMenu());
         settingsMenu.Items.Add(new MenuFlyoutSeparator());
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Export settings…", Command = new RelayCommand(ExportSettings) });
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Import settings…", Command = new RelayCommand(ImportSettings) });
@@ -134,7 +147,19 @@ internal sealed class TrayMenu
         // Never unsubscribed: TrayMenu lives for the whole process.
         TravelOverrideService.StateChanged += QueueRefresh;
 
-        RefreshState();
+        // Network-location auto-apply (TODO #31) — fires on a background thread (same as
+        // TravelOverrideService.StateChanged above); OnNetworkLocationChanged marshals via
+        // ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed, same
+        // "lives for the whole process" reasoning.
+        NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
+
+        // QueueRefresh, not RefreshState: the initial state read (ReadState) does a Lenovo RPC +
+        // Task Scheduler COM connect + SCM query + NIC enumeration, and this constructor runs on the
+        // UI thread inside InitTrayIcon — BEFORE the tray icon is created. Doing that work
+        // synchronously here delayed the icon appearing. QueueRefresh does the read off-thread and
+        // marshals ApplyState back, and it's redundant for correctness anyway (RightClickCommand
+        // calls RefreshState on every right-click, so the user never sees pre-refresh state).
+        QueueRefresh();
     }
 
     /// <summary>
@@ -206,7 +231,12 @@ internal sealed class TrayMenu
         bool    NumericIcon,
         bool    LowBatteryEnabled,
         int     LowBatteryPct,
-        int     StartupDelaySeconds);
+        int     StartupDelaySeconds,
+        int     DowntimeGapMinutes,
+        bool    DrainAnomalyEnabled,
+        int     DrainAnomalyPercentPerHour,
+        bool    NetworkProfilesEnabled,
+        string  CurrentLocationLabel);
 
     private MenuState ReadState()
     {
@@ -229,7 +259,26 @@ internal sealed class TrayMenu
             s.IconMode == TrayIconMode.Numeric,
             s.LowBatteryWarningEnabled,
             s.LowBatteryWarningPct,
-            s.StartupDelaySeconds);
+            s.StartupDelaySeconds,
+            s.DowntimeGapMinutes,
+            s.DrainAnomalyWarningEnabled,
+            s.DrainAnomalyPercentPerHour,
+            s.NetworkProfilesEnabled,
+            DescribeCurrentLocation());
+    }
+
+    /// <summary>
+    /// Formats the "Current: …" status row for the Network profiles submenu. Safe off the UI
+    /// thread — <see cref="NetworkLocationService.DetectCurrent"/> is pure
+    /// System.Net.NetworkInformation + P/Invoke, no UI-thread affinity, same as the RPC-backed
+    /// feature reads elsewhere in <see cref="ReadState"/>.
+    /// </summary>
+    private static string DescribeCurrentLocation()
+    {
+        var location = NetworkLocationService.DetectCurrent();
+        if (location.IsEmpty) return "Current: no network detected";
+        var rule = SettingsService.Current.NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
+        return rule is not null ? $"Current: {rule.Name}" : "Current: unrecognised network";
     }
 
     private void ApplyState(MenuState state)
@@ -276,6 +325,17 @@ internal sealed class TrayMenu
             item.IsChecked = pct == state.LowBatteryPct;
         foreach (var (item, secs) in _startupDelayItems)
             item.IsChecked = secs == state.StartupDelaySeconds;
+        foreach (var (item, minutes) in _downtimeGapItems)
+            item.IsChecked = minutes == state.DowntimeGapMinutes;
+        if (_drainAnomalyEnabledItem is not null)
+            _drainAnomalyEnabledItem.IsChecked = state.DrainAnomalyEnabled;
+        foreach (var (item, pctPerHour) in _drainAnomalyItems)
+            item.IsChecked = pctPerHour == state.DrainAnomalyPercentPerHour;
+
+        if (_networkProfilesEnabledItem is not null)
+            _networkProfilesEnabledItem.IsChecked = state.NetworkProfilesEnabled;
+        if (_currentLocationItem is not null)
+            _currentLocationItem.Text = state.CurrentLocationLabel;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -431,6 +491,209 @@ internal sealed class TrayMenu
         QueueRefresh();
     }
 
+    /// <summary>
+    /// How long a hole in the sample timeline must be before the history graph
+    /// (<c>BatteryHistoryGraphControl</c>) registers it as a downtime gap and draws a compressed-
+    /// axis break instead of a connecting line — e.g. so a brief app-reinstall restart doesn't get
+    /// flagged. "None" (0) disables gap detection entirely rather than meaning a literal
+    /// zero-minute threshold (see <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>).
+    /// </summary>
+    private MenuFlyoutSubItem BuildDowntimeGapMenu()
+    {
+        var sub = new MenuFlyoutSubItem { Text = "Downtime gap threshold" };
+        foreach (var (label, minutes) in new[] { ("None", 0), ("1 minute", 1), ("5 minutes", 5), ("15 minutes", 15), ("30 minutes", 30) })
+        {
+            var m    = minutes; // capture
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text    = label,
+                Command = new RelayCommand(() => SetDowntimeGapMinutes(m)),
+            };
+            _downtimeGapItems.Add((item, m));
+            sub.Items.Add(item);
+        }
+        return sub;
+    }
+
+    private void SetDowntimeGapMinutes(int minutes)
+    {
+        SettingsService.Update(s => s.DowntimeGapMinutes = minutes);
+        QueueRefresh();
+    }
+
+    /// <summary>
+    /// Overnight-drain anomaly warning (TODO #26): toast when the battery loses charge faster than
+    /// this rate across a detected downtime gap (see <see cref="SettingsService.AppSettings.DrainAnomalyPercentPerHour"/>).
+    /// Same "Enabled" + rate-list shape as <see cref="BuildLowBatteryMenu"/>.
+    /// </summary>
+    private MenuFlyoutSubItem BuildDrainAnomalyMenu()
+    {
+        var sub = new MenuFlyoutSubItem { Text = "Overnight-drain warning" };
+
+        _drainAnomalyEnabledItem = new ToggleMenuFlyoutItem
+        {
+            Text    = "Enabled",
+            Command = new RelayCommand(ToggleDrainAnomalyEnabled),
+        };
+        sub.Items.Add(_drainAnomalyEnabledItem);
+        sub.Items.Add(new MenuFlyoutSeparator());
+
+        foreach (var pctPerHour in new[] { 2, 3, 5, 10 })
+        {
+            var p    = pctPerHour; // capture
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text    = $"Warn above {p}%/hour",
+                Command = new RelayCommand(() => SetDrainAnomalyPercentPerHour(p)),
+            };
+            _drainAnomalyItems.Add((item, p));
+            sub.Items.Add(item);
+        }
+        return sub;
+    }
+
+    private void ToggleDrainAnomalyEnabled()
+    {
+        SettingsService.Update(s => s.DrainAnomalyWarningEnabled = !s.DrainAnomalyWarningEnabled);
+        QueueRefresh();
+    }
+
+    private void SetDrainAnomalyPercentPerHour(int pctPerHour)
+    {
+        SettingsService.Update(s =>
+        {
+            s.DrainAnomalyPercentPerHour = pctPerHour;
+            s.DrainAnomalyWarningEnabled = true; // choosing a level implies "on"
+        });
+        QueueRefresh();
+    }
+
+    // ── Network profiles (TODO #31) ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Note on "right-click": the original request described right-click context menus for these
+    /// two actions, but H.NotifyIcon's native popup (built fresh from this Flyout on every
+    /// right-click — see the class doc comment) has no nested-right-click surface to hang a second
+    /// context menu off of, and neither does anything else in this app's UI today. Same
+    /// functionality, reached via ordinary left-click commands in this submenu instead — the
+    /// established idiom for every other action here (toggle icon mode, presets, etc.).
+    /// </summary>
+    private MenuFlyoutSubItem BuildNetworkProfilesMenu()
+    {
+        var sub = new MenuFlyoutSubItem { Text = "Network profiles" };
+
+        _networkProfilesEnabledItem = new ToggleMenuFlyoutItem
+        {
+            Text    = "Enabled",
+            Command = new RelayCommand(ToggleNetworkProfilesEnabled),
+        };
+        sub.Items.Add(_networkProfilesEnabledItem);
+        sub.Items.Add(new MenuFlyoutSeparator());
+
+        // Status-only row (IsEnabled false so it reads as informational, not clickable); text is
+        // set from the MenuState snapshot in ApplyState, like every other item here.
+        _currentLocationItem = new MenuFlyoutItem { IsEnabled = false };
+        sub.Items.Add(_currentLocationItem);
+
+        _addLocationSubmenu = new MenuFlyoutSubItem { Text = "Add configuration for this network" };
+        RebuildAddLocationSubmenu();
+        sub.Items.Add(_addLocationSubmenu);
+
+        return sub;
+    }
+
+    /// <summary>
+    /// Clears and re-adds the "Add configuration" submenu's per-preset items from the (possibly
+    /// just-reloaded/imported) live Presets list — same reason and same pattern as
+    /// <see cref="RebuildPresetsSubmenu"/>: RefreshState alone only toggles IsChecked on existing
+    /// items, which would otherwise keep closing over stale ThresholdPreset objects after an
+    /// out-of-band settings edit.
+    /// </summary>
+    private void RebuildAddLocationSubmenu()
+    {
+        if (_addLocationSubmenu is null) return;
+        _addLocationSubmenu.Items.Clear();
+        foreach (var preset in SettingsService.Current.Presets)
+        {
+            var p = preset; // local copy for lambda capture
+            _addLocationSubmenu.Items.Add(new MenuFlyoutItem
+            {
+                Text    = $"{p.Name}  ({p.Start}–{p.Stop} %)",
+                Command = new RelayCommand(() => _ = AddLocationConfigurationAsync(p)),
+            });
+        }
+    }
+
+    private void ToggleNetworkProfilesEnabled()
+    {
+        SettingsService.Update(s => s.NetworkProfilesEnabled = !s.NetworkProfilesEnabled);
+        QueueRefresh();
+    }
+
+    /// <summary>
+    /// "Add configuration for this network → &lt;preset&gt;": fingerprints the CURRENT network,
+    /// prompts for a friendly name (pre-filled from the WiFi SSID or adapter name when available),
+    /// and saves a new rule mapping that fingerprint to the chosen preset. Also applies the preset
+    /// immediately — the user just told the app "this network wants this threshold", and since
+    /// they're on that network right now, waiting for the NEXT location change (which won't happen
+    /// again until they actually move) would just look like nothing happened.
+    /// </summary>
+    private async Task AddLocationConfigurationAsync(ThresholdPreset preset)
+    {
+        var location = NetworkLocationService.DetectCurrent();
+        if (location.IsEmpty)
+        {
+            NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
+            return;
+        }
+
+        string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
+        string? name = await new NameLocationWindow(suggested).ShowAsync();
+        if (name is null) return; // cancelled
+
+        SettingsService.Update(s =>
+        {
+            s.NetworkLocationRules.Add(new NetworkLocationRule
+            {
+                Name       = name,
+                AdapterMac = location.AdapterMac,
+                IpCidr     = location.IpCidr,
+                PresetName = preset.Name,
+            });
+            s.NetworkProfilesEnabled = true; // configuring a location implies wanting the feature on
+        });
+
+        ApplyPreset(preset); // applies + QueueRefresh internally
+    }
+
+    /// <summary>
+    /// Auto-apply on detected location change (TODO #31). Fires on whatever thread
+    /// <see cref="NetworkLocationService.LocationChanged"/> raised on (a debounce-timer thread, not
+    /// the UI thread) — <see cref="ApplyPreset"/> already marshals its own UI-thread work via
+    /// QueueRefresh, so this method itself needs no explicit marshalling.
+    /// </summary>
+    private void OnNetworkLocationChanged(NetworkLocation location)
+    {
+        var s = SettingsService.Current;
+        if (s.NetworkProfilesEnabled)
+        {
+            // A matched rule wins outright; otherwise fall back to the "unknown network" preset —
+            // but only when a real (non-empty) location was detected. An empty location (no
+            // network at all) isn't "unknown", it's "nothing to react to".
+            string? presetName = s.NetworkLocationRules.FirstOrDefault(r => r.Matches(location))?.PresetName
+                ?? (!location.IsEmpty ? s.UnknownNetworkPresetName : null);
+            var preset = presetName is not null
+                ? s.Presets.FirstOrDefault(p => p.Name == presetName)
+                : null;
+            if (preset is not null)
+            {
+                ApplyPreset(preset); // applies + QueueRefresh internally
+                return;
+            }
+        }
+        QueueRefresh(); // still resync the "Current: …" status row even when nothing was applied
+    }
+
     private void ExportSettings()
     {
         // No owner window needed — the tray menu has no HWND; Win32 dialogs accept NULL owner.
@@ -482,9 +745,10 @@ internal sealed class TrayMenu
     {
         if (ok)
         {
-            _onIconModeChanged();     // icon mode takes effect immediately
-            RebuildPresetsSubmenu();  // stale closures over the old Presets list, not just stale IsChecked
-            RefreshState();           // resync the remaining menu check marks
+            _onIconModeChanged();       // icon mode takes effect immediately
+            RebuildPresetsSubmenu();    // stale closures over the old Presets list, not just stale IsChecked
+            RebuildAddLocationSubmenu(); // same staleness risk — its items also close over ThresholdPreset objects
+            RefreshState();             // resync the remaining menu check marks
             NativeMethods.Info(successMessage, AppName);
         }
         else
@@ -504,12 +768,48 @@ internal sealed class TrayMenu
             _aboutWindow.Activate();
             return;
         }
-        _aboutWindow = new AboutWindow(_onExit);
+
+        var options = new BrandAboutOptions
+        {
+            Info = new AboutInfo
+            {
+                AppName     = AppName,
+                Version     = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown",
+                Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
+                RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
+                // Keep this list in sync with the README's "External libraries" table (memory
+                // preference) — same three non-Microsoft NuGet dependencies.
+                ExternalLibraries =
+                [
+                    new ExternalLibrary("H.NotifyIcon.WinUI", "HavenDV", "System-tray icon + native context menu for WinUI 3", "MIT", "https://github.com/HavenDV/H.NotifyIcon"),
+                    new ExternalLibrary("TaskScheduler", "David Hall", "Managed wrapper over the Windows Task Scheduler API (auto-start)", "MIT", "https://github.com/dahall/TaskScheduler"),
+                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
+                ],
+            },
+            // Reuses this class's own CheckForUpdatesAsync (below) rather than duplicating a second
+            // near-identical copy of the old AboutWindow.xaml.cs update-check block: both versions
+            // differed only in how they captured the parent HWND (AppWindow.Id of the About window
+            // itself vs NativeMethods.CaptureHwnd()), and BrandAboutWindow doesn't expose its own
+            // HWND — so CaptureHwnd() is required here either way.
+            //
+            // CheckForUpdatesAsync always returns false (it never asks the window to drive the exit):
+            // when an update is chosen it shows a "Downloading…" prompt and kicks off a *background*
+            // installer download, then ChargeKeeper terminates itself via _onExit() once that
+            // completes (see below). Because the window is never told an update was applied, its
+            // OnBeforeExit teardown hook is never invoked — so it's left null here.
+            OnCheckForUpdates = CheckForUpdatesAsync,
+        };
+
+        _aboutWindow = new BrandAboutWindow(options);
         _aboutWindow.Closed += (_, _) => _aboutWindow = null;
         _aboutWindow.Activate();
     }
 
-    private async Task CheckForUpdatesAsync()
+    // Returns true only if the caller (the shared About window) should now drive an app exit for an
+    // installer relaunch. ChargeKeeper always returns false: it runs the installer download on a
+    // background task and terminates itself via _onExit() when that finishes, so it never needs the
+    // window to co-ordinate the exit. See the ShowAbout wiring comment.
+    private async Task<bool> CheckForUpdatesAsync()
     {
         // Capture the foreground HWND now (tray flyout is open) so ShowUpdateDialog has a
         // parent even if the flyout is dismissed by the time the HTTP check completes.
@@ -575,6 +875,10 @@ internal sealed class TrayMenu
                 NativeMethods.Warn("Could not check for updates.\nCheck your internet connection.", AppName);
                 break;
         }
+
+        // ChargeKeeper self-drives any update-triggered exit (background download → _onExit), so the
+        // window is never asked to close the app on our behalf.
+        return false;
     }
 
     private static void OpenSettingsFile()

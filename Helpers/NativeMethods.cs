@@ -80,9 +80,6 @@ internal static class NativeMethods
         return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1040 };
     }
 
-    [DllImport("user32.dll")]
-    internal static extern bool DestroyIcon(IntPtr hIcon);
-
     // ── Native Win32 dark-mode support ─────────────────────────────────────────
     // uxtheme.dll exposes these only by ordinal (no named exports).
     //   SetPreferredAppMode               = ordinal 135  (Win10 1903 / build 18362+)

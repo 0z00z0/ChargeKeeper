@@ -173,6 +173,7 @@ packages). The only **non-Microsoft** dependencies are:
 |---------|--------|---------|---------|
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
+| [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
 
 ## Credits & acknowledgements
 
