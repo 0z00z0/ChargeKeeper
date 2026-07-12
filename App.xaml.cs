@@ -315,11 +315,17 @@ public partial class App : Application
 
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
-        ToastService.Register();
+        // InitTrayIcon first so the tray icon appears as early as possible: registering the
+        // notification platform (ToastService.Register — a COM/registry call, tens–hundreds of ms
+        // cold for an unpackaged app) doesn't need to gate icon creation. Kept BEFORE
+        // SubscribeBatteryEvents so a startup low-battery toast (raised by the forced first battery
+        // read there) can still fire.
         InitTrayIcon();
+        ToastService.Register();
         SubscribeBatteryEvents();
         StartHistorySampling();
         ScheduleUpdateCheck();
+        NetworkLocationService.Start();   // TODO #31 — TrayMenu subscribes to LocationChanged for the auto-apply reaction
     }
 
     // ── Tray icon ─────────────────────────────────────────────────────────────
@@ -357,8 +363,13 @@ public partial class App : Application
         // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's
         // own state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
-        // Trigger immediately with the current state so the icon is right from the start.
-        OnBatteryReportUpdated(Battery.AggregateBattery, null!);
+        // Trigger immediately with the current state so the icon is right from the start — but on a
+        // background thread (this is called on the UI thread during startup, whereas the event
+        // normally fires on an MTA thread). The handler already marshals its icon swap + dashboard
+        // refresh via UpdateTrayIcon/RunOnUi, so running it off-thread keeps the battery read + two
+        // Lenovo RPCs + the capacity-file read it does out of the startup UI-thread path. The static
+        // brand icon is already showing, so there's no visible gap while this completes.
+        _ = Task.Run(() => OnBatteryReportUpdated(Battery.AggregateBattery, null!));
     }
 
     // ── History sampling ──────────────────────────────────────────────────────
@@ -389,12 +400,26 @@ public partial class App : Application
         {
             if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
             int? limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
-            BatteryHistoryService.Record(_lastIconState.Pct, limit, _lastRateMW);
+            var gap = BatteryHistoryService.Record(_lastIconState.Pct, limit, _lastRateMW);
+            if (gap is { } g) CheckDrainAnomaly(g);
         }
         catch (Exception ex)
         {
             AppLog.Error("SampleHistory", ex);
         }
+    }
+
+    /// <summary>
+    /// Overnight-drain anomaly (TODO #26): fires a toast when a just-detected downtime gap shows a
+    /// genuine, trustworthy over-threshold drain. The actual decision (noise floors + rate check)
+    /// lives in the pure, unit-tested <see cref="DrainAnomalyPolicy"/>; this only reads settings and
+    /// raises the toast.
+    /// </summary>
+    private static void CheckDrainAnomaly(DowntimeGapInfo gap)
+    {
+        var s = SettingsService.Current;
+        if (DrainAnomalyPolicy.ShouldWarn(s.DrainAnomalyWarningEnabled, gap.SocDropPercent, gap.GapDuration, s.DrainAnomalyPercentPerHour))
+            ToastService.NotifyDrainAnomaly(gap.SocDropPercent, gap.GapDuration);
     }
 
     private static void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
@@ -444,6 +469,14 @@ public partial class App : Application
             // ── Battery history ───────────────────────────────────────────────
             // Sampled on a fixed cadence by _historyTimer (see SampleHistory), NOT per battery
             // event — a regular cadence is what lets downtime show up as a gap in the graph.
+
+            // ── Battery capacity history (TODO #24) ─────────────────────────────
+            // Unlike the SoC history above, this rides the battery-report EVENT rather than a
+            // dedicated timer — RecordIfNewDay is a cheap no-op after the first success each day,
+            // and this event already fires often enough (multiple times an hour) that a separate
+            // timer would add nothing but a second thing to start/stop at shutdown.
+            if (report.FullChargeCapacityInMilliwattHours is > 0 and { } fullChargeMwh)
+                BatteryCapacityHistoryService.RecordIfNewDay(fullChargeMwh, report.DesignCapacityInMilliwattHours);
 
             // ── Dynamic tray icon ─────────────────────────────────────────────
             // Only re-render when something meaningful changed (avoids GDI churn every tick).
@@ -506,6 +539,9 @@ public partial class App : Application
             _lastThresholdState = ChargeThresholdService.Read();
             _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
             _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
+            // Only worth querying while an adapter is actually attached (TODO #41); on battery
+            // there's nothing to read and the RPC call would just be wasted.
+            _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
             // ── Toast: AC connected ───────────────────────────────────────────
@@ -533,6 +569,7 @@ public partial class App : Application
     private bool    _lastOnAC;
     private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
     private int?    _lastFullMwh;
+    private int?    _lastAdapterWattage; // AC adapter rated wattage (TODO #41), null until known
     private ChargeThresholdState? _lastThresholdState;
     private static readonly string _appVersion =
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?";
@@ -624,8 +661,11 @@ public partial class App : Application
         // Glyph follows the power source so it never contradicts the AC label, and the rate is
         // shown only in its expected direction via the shared formatter (mW below 1 W, real −).
         string chargeIcon = _lastOnAC ? "⚡︎" : "🔋";   // ⚡ + U+FE0E = outline (text) presentation
+        // Adapter wattage (TODO #41) rides along in the "AC" label itself — "AC (65W)" — rather
+        // than as a separate line, since it's a property of the power SOURCE, not a new stat.
+        string acLabel = _lastAdapterWattage is { } watts ? $"AC ({watts}W)" : "AC";
         lines.Append(_lastOnAC
-            ? $"\n{chargeIcon} AC · {pct}%"
+            ? $"\n{chargeIcon} {acLabel} · {pct}%"
             : $"\n{chargeIcon} {pct}%");
         string? rate = (_lastOnAC && _lastRateMW > 0) || (!_lastOnAC && _lastRateMW < 0)
             ? PowerFormat.SignedRate(_lastRateMW)
@@ -753,15 +793,25 @@ public partial class App : Application
             return;
         }
 
-        // Capture the dashboard's on-screen rect (physical px) NOW — the dashboard auto-hides the
-        // moment the new window takes focus, so it can't be read later. The pop-out animates open
-        // from this rect ("the dashboard's graph grows into a window"); null (no visible dashboard)
-        // skips the animation and places the window at its final rect directly.
+        // Capture the dashboard's on-screen rect (physical px) NOW — it's read before HideWindow()
+        // below. The pop-out animates open from this rect ("the dashboard's graph grows into a
+        // window"); null (no visible dashboard) skips the animation and places the window at its
+        // final rect directly.
         Windows.Graphics.RectInt32? origin = null;
         if (_dashboard is { } dash && dash.AppWindow.IsVisible)
+        {
             origin = new Windows.Graphics.RectInt32(
                 dash.AppWindow.Position.X, dash.AppWindow.Position.Y,
                 dash.AppWindow.Size.Width, dash.AppWindow.Size.Height);
+
+            // Hide the dashboard NOW rather than waiting for its own Deactivated handler to react
+            // to the new window taking focus. The dashboard is IsAlwaysOnTop=true; left visible,
+            // it can keep fighting the freshly-activated (non-topmost) pop-out for z-order/focus
+            // at the exact same on-screen rect, which was observed as the pop-out opening and then
+            // immediately closing again (its own focus-loss dismissal misfiring within the same
+            // instant). Hiding it up front removes that contender entirely.
+            dash.HideWindow();
+        }
 
         _historyWindow = new BatteryHistoryWindow(origin);
         _historyWindow.Closed += (_, _) => _historyWindow = null;
@@ -780,6 +830,7 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
+        NetworkLocationService.Stop();
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();
