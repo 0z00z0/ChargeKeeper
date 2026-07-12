@@ -126,10 +126,18 @@ rest of the app (Smart Standby, auto-start, battery gauge) works fine without it
 - .NET 10 SDK
 - A C++ toolset (Visual Studio / Build Tools with **"Desktop development with C++"**) to build the
   native Smart Charge bridge (`native/`) — only needed once
+- A sibling clone of [ZeroZeroBrand](https://github.com/0z00z0/ZeroZeroBrand) (shared ZeroZero
+  Software branding components — see [Shared components](#shared-components) below)
 
 ## Build from source
 
 ```powershell
+# 0. Clone this repo AND the shared branding library as siblings (the csproj references
+#    ..\ZeroZeroBrand\src\ZeroZero.Brand.WinUI by relative path).
+git clone https://github.com/0z00z0/ChargeKeeper.git
+git clone https://github.com/0z00z0/ZeroZeroBrand.git
+cd ChargeKeeper
+
 # 1. Build the native Smart Charge bridge (LenPower.dll). One-time, needs the C++ toolset.
 #    build.cmd locates MSVC + MIDL automatically (incl. VS 2026 Insiders).
 cd native
@@ -174,6 +182,23 @@ packages). The only **non-Microsoft** dependencies are:
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
 | [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
+
+## Shared components
+
+The **About** window comes from [ZeroZeroBrand](https://github.com/0z00z0/ZeroZeroBrand)
+(`ZeroZero.Brand.WinUI.BrandAboutWindow`, MIT) — the shared branding library used across ZeroZero
+Software apps, referenced as a sibling-folder `ProjectReference` (no NuGet package yet). How the
+integration works:
+
+- The app supplies data only (`BrandAboutOptions` → `AboutInfo`: name, version, description, repo
+  URL, external-library credits); the library owns all chrome, layout, and the brand typeface.
+- `OnCheckForUpdates` (`Func<Task<bool>>`) plugs the app's own update flow into the window's
+  *Check for Updates* button. ChargeKeeper always returns `false` — it downloads the installer on a
+  background task and exits itself when ready, so the window never needs to drive the exit
+  (`OnBeforeExit` is therefore left unset).
+- CI clones the library **pinned to an exact commit** (see the `ZEROZEROBRAND_REF` step in
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml)); bump the pin deliberately after
+  validating a new library version locally.
 
 ## Credits & acknowledgements
 
