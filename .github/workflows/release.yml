@@ -37,14 +37,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting
-      # a sibling checkout (..\ZeroZeroBrand\src\...) — locally that's a sibling
-      # folder; in CI the runner only checks out this repo, so we fetch it here.
-      - name: Checkout ZeroZeroBrand (sibling dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: 0z00z0/ZeroZeroBrand
-          path: ../ZeroZeroBrand
+      # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting a
+      # sibling checkout (..\ZeroZeroBrand\src\...) — locally that's a sibling
+      # folder. actions/checkout refuses a `path:` outside the workspace
+      # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
+      # directly beside this checkout instead.
+      - name: Clone ZeroZeroBrand (sibling dependency)
+        run: git clone --depth 1 https://github.com/0z00z0/ZeroZeroBrand.git ../ZeroZeroBrand
 
       # ── 2. Resolve version string ────────────────────────────────────────────
       # Tag-triggered: strip the leading 'v'.
