@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using Microsoft.UI.Xaml.Controls;
 using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;

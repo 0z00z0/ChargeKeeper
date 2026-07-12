@@ -408,9 +408,20 @@ public sealed partial class DashboardWindow : Window
         {
             _updatingSliders = true;
             if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+            {
+                // User moved the start thumb: push stop up — and when that hits the 100 ceiling,
+                // pull start back down instead. Without the second step, dragging start into the
+                // 96-100 range left a sub-5 (even zero) gap, and SetThresholds rejects
+                // start >= stop, so the write silently failed until the next device resync.
                 stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
+                if (stop - start < 5) start = (int)(ThresholdRange.RangeStart = stop - 5);
+            }
             else
+            {
+                // User moved the stop thumb: push start down — mirrored 5-point floor case.
                 start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
+                if (stop - start < 5) stop = (int)(ThresholdRange.RangeEnd = start + 5);
+            }
             _updatingSliders = false;
         }
 
