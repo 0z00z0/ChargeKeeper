@@ -2,9 +2,11 @@
 <!--
   ChargeKeeper app icon — "Guarded Battery".
 
-  A battery outline in a purple→indigo gradient on a dark rounded square, with an amber
-  vertical line at the ~80 % mark representing the charge-limit threshold (slightly
-  overshooting the body so it reads as a marker, not a fill edge).
+  A battery outline in a purple→indigo gradient, with an amber vertical line at the ~80 %
+  mark representing the charge-limit threshold (slightly overshooting the body so it reads
+  as a marker, not a fill edge). Fully transparent background — no background plate — scaled
+  to fill the canvas (matching modern Windows 11 icon conventions, where the shell supplies
+  its own rounded-square mask/backdrop rather than the app baking one in).
 
   This file is the authoritative vector. The shipped Assets\AppIcon.ico is generated from
   the same geometry by scripts\make-appicon.ps1 (which redraws it natively per size), and
@@ -12,30 +14,23 @@
 -->
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bg" cx="0.5" cy="0.28" r="0.95">
-      <stop offset="0" stop-color="#15263a"/>
-      <stop offset="1" stop-color="#0a0f17"/>
-    </radialGradient>
     <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#7b8cff"/>
       <stop offset="1" stop-color="#3f5be0"/>
     </linearGradient>
   </defs>
 
-  <!-- Dark rounded-square background -->
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
-
   <!-- Battery body outline -->
-  <rect x="40" y="92" width="156" height="80" rx="18"
-        fill="none" stroke="url(#body)" stroke-width="12"/>
+  <rect x="13" y="78" width="195" height="100" rx="23"
+        fill="none" stroke="url(#body)" stroke-width="15"/>
 
   <!-- Battery cap (positive terminal) -->
-  <rect x="206" y="112" width="18" height="40" rx="7" fill="#3f5be0"/>
+  <rect x="221" y="103" width="23" height="50" rx="9" fill="#3f5be0"/>
 
   <!-- Interior charge fill (~80 % of the body) -->
-  <rect x="58" y="110" width="88" height="44" rx="9" fill="url(#body)" opacity="0.85"/>
+  <rect x="36" y="101" width="110" height="55" rx="11" fill="url(#body)" opacity="0.85"/>
 
   <!-- Amber charge-limit line at the 80 % mark -->
-  <line x1="158" y1="80" x2="158" y2="184" stroke="#d8a657" stroke-width="7"
+  <line x1="161" y1="63" x2="161" y2="193" stroke="#d8a657" stroke-width="9"
         stroke-linecap="round"/>
 </svg>

@@ -9,7 +9,8 @@
     means 256). PNG-compressed frames are supported by Windows Vista and later.
 
     The geometry matches brand\chargekeeper-icon.svg (the authoritative vector),
-    expressed on a 256-unit reference canvas and scaled per frame. Stroke widths are
+    expressed on a 256-unit reference canvas and scaled per frame. No background plate —
+    fully transparent, battery glyph scaled to fill the canvas. Stroke widths are
     clamped so the battery outline and the amber charge-limit line stay legible at 16 px.
 
     After writing, the ICO is round-tripped through System.Drawing.Icon at several
@@ -33,8 +34,6 @@ if (-not $OutPath) { $OutPath = Join-Path $root "Assets\AppIcon.ico" }
 $sizes = 256, 128, 64, 48, 32, 16
 
 # ── Palette (matches brand\chargekeeper-icon.svg / Helpers\IconGenerator.cs) ──
-$bgCenter   = [System.Drawing.Color]::FromArgb(0x15, 0x26, 0x3A)   # radial centre-top
-$bgEdge     = [System.Drawing.Color]::FromArgb(0x0A, 0x0F, 0x17)   # radial edge
 $bodyLight  = [System.Drawing.Color]::FromArgb(0x7B, 0x8C, 0xFF)   # purple (gradient start)
 $bodyDark   = [System.Drawing.Color]::FromArgb(0x3F, 0x5B, 0xE0)   # indigo (gradient end)
 $limitAmber = [System.Drawing.Color]::FromArgb(0xD8, 0xA6, 0x57)   # charge-limit line
@@ -65,27 +64,19 @@ function New-IconFramePng([int]$size) {
 
             [float]$s = $size / 256.0
 
-            # Dark rounded-square background with a subtle centre-top radial gradient.
-            $bgPath = New-RoundedRectPath (8 * $s) (8 * $s) (240 * $s) (240 * $s) (52 * $s)
-            try {
-                $bg = New-Object System.Drawing.Drawing2D.PathGradientBrush($bgPath)
-                try {
-                    $bg.CenterColor    = $bgCenter
-                    $bg.CenterPoint    = New-Object System.Drawing.PointF(($size / 2), ($size * 0.28))
-                    $bg.SurroundColors = @($bgEdge)
-                    $g.FillPath($bg, $bgPath)
-                } finally { $bg.Dispose() }
-            } finally { $bgPath.Dispose() }
+            # No background plate — fully transparent (canvas already cleared above). Battery
+            # glyph geometry scaled ~1.25x vs. the original inset-in-a-card design so it fills
+            # the canvas instead of floating in a smaller background square.
 
             # Battery body outline: purple→indigo gradient stroke (clamped ≥1.6 px).
-            $bodyRect = New-Object System.Drawing.RectangleF((40 * $s), (92 * $s), (156 * $s), (80 * $s))
-            $bodyPath = New-RoundedRectPath (40 * $s) (92 * $s) (156 * $s) (80 * $s) (18 * $s)
+            $bodyRect = New-Object System.Drawing.RectangleF((13 * $s), (78 * $s), (195 * $s), (100 * $s))
+            $bodyPath = New-RoundedRectPath (13 * $s) (78 * $s) (195 * $s) (100 * $s) (23 * $s)
             try {
                 $bodyBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
                     $bodyRect, $bodyLight, $bodyDark,
                     [System.Drawing.Drawing2D.LinearGradientMode]::ForwardDiagonal)
                 try {
-                    $bodyPen = New-Object System.Drawing.Pen($bodyBrush, [Math]::Max(12 * $s, 1.6))
+                    $bodyPen = New-Object System.Drawing.Pen($bodyBrush, [Math]::Max(15 * $s, 1.6))
                     try {
                         $bodyPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
                         $g.DrawPath($bodyPen, $bodyPath)
@@ -94,7 +85,7 @@ function New-IconFramePng([int]$size) {
             } finally { $bodyPath.Dispose() }
 
             # Battery cap (positive terminal): solid indigo.
-            $capPath = New-RoundedRectPath (206 * $s) (112 * $s) (18 * $s) (40 * $s) (7 * $s)
+            $capPath = New-RoundedRectPath (221 * $s) (103 * $s) (23 * $s) (50 * $s) (9 * $s)
             try {
                 $cap = New-Object System.Drawing.SolidBrush($bodyDark)
                 try   { $g.FillPath($cap, $capPath) }
@@ -102,8 +93,8 @@ function New-IconFramePng([int]$size) {
             } finally { $capPath.Dispose() }
 
             # Interior charge fill: same gradient at ~85 % opacity, to ~80 % of the body.
-            $fillRect = New-Object System.Drawing.RectangleF((58 * $s), (110 * $s), (88 * $s), (44 * $s))
-            $fillPath = New-RoundedRectPath (58 * $s) (110 * $s) (88 * $s) (44 * $s) (9 * $s)
+            $fillRect = New-Object System.Drawing.RectangleF((36 * $s), (101 * $s), (110 * $s), (55 * $s))
+            $fillPath = New-RoundedRectPath (36 * $s) (101 * $s) (110 * $s) (55 * $s) (11 * $s)
             try {
                 $fillBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
                     $fillRect,
@@ -116,11 +107,11 @@ function New-IconFramePng([int]$size) {
 
             # Amber charge-limit line at the 80 % mark, overshooting the body top/bottom.
             # Clamped to ≥2 px so it survives the 16 px frame.
-            $limitPen = New-Object System.Drawing.Pen($limitAmber, [Math]::Max(7 * $s, 2.0))
+            $limitPen = New-Object System.Drawing.Pen($limitAmber, [Math]::Max(9 * $s, 2.0))
             try {
                 $limitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
                 $limitPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Round
-                $g.DrawLine($limitPen, (158 * $s), (80 * $s), (158 * $s), (184 * $s))
+                $g.DrawLine($limitPen, (161 * $s), (63 * $s), (161 * $s), (193 * $s))
             } finally { $limitPen.Dispose() }
         } finally { $g.Dispose() }
 

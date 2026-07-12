@@ -77,9 +77,13 @@ Type: files; Name: "{app}\LenovoTray.runtimeconfig.json"
 Type: files; Name: "{app}\LenovoRed-*.ico"
 
 [Icons]
-; Per-user "All apps" Start-menu entry. IconFilename is set explicitly so the shortcut
-; always shows the embedded app icon (some shells don't pick it up from the target alone).
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\AppIcon.ico"; Comment: "{#AppName}"
+; Per-user "All apps" Start-menu entry. IconFilename points at the exe itself (which embeds
+; the icon via <ApplicationIcon> in the csproj) — same pattern as the desktop shortcut below
+; and UninstallDisplayIcon above. A prior version pointed this at "{app}\AppIcon.ico", a loose
+; file the csproj's Content-include never actually copies to the publish output (no
+; CopyToOutputDirectory) — that path never existed on any install, so the shortcut silently
+; showed a blank/generic icon once Explorer's icon cache stopped masking it.
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Comment: "{#AppName}"
 ; Optional desktop shortcut (off by default; ticked via the task below).
 Name: "{userdesktop}\{#AppName}";  Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Tasks: desktopicon
 
