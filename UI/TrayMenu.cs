@@ -268,16 +268,21 @@ internal sealed class TrayMenu
     }
 
     /// <summary>
-    /// Formats the "Current: …" status row for the Network profiles submenu. Safe off the UI
-    /// thread — <see cref="NetworkLocationService.DetectCurrent"/> is pure
-    /// System.Net.NetworkInformation + P/Invoke, no UI-thread affinity, same as the RPC-backed
-    /// feature reads elsewhere in <see cref="ReadState"/>.
+    /// Formats the "Current: …" status row for the Network profiles submenu. Prefers the service's
+    /// last debounced reading (<see cref="NetworkLocationService.LastKnown"/>, a lock-guarded field
+    /// read) over a fresh <see cref="NetworkLocationService.DetectCurrent"/>: this runs inside
+    /// <see cref="ReadState"/> on EVERY menu open, and a full adapter enumeration + routing-table
+    /// P/Invoke there is wasted work when LocationChanged → QueueRefresh already keeps the row
+    /// current. Falls back to a live read only when LastKnown is empty — the service isn't running
+    /// (profiles disabled) or hasn't resolved yet — where a stale "no network detected" would
+    /// mislead. Safe off the UI thread either way.
     /// </summary>
     private static string DescribeCurrentLocation()
     {
-        var location = NetworkLocationService.DetectCurrent();
+        var location = NetworkLocationService.LastKnown;
+        if (location.IsEmpty) location = NetworkLocationService.DetectCurrent();
         if (location.IsEmpty) return "Current: no network detected";
-        var rule = SettingsService.Current.NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
+        var rule = SettingsService.Current.FindNetworkRule(location);
         return rule is not null ? $"Current: {rule.Name}" : "Current: unrecognised network";
     }
 
@@ -365,12 +370,16 @@ internal sealed class TrayMenu
         AddPresetItems(_presetsSubmenu);
     }
 
+    // Single source for how a preset renders as a menu label, so the Presets and Add-location
+    // submenus can't drift on format.
+    private static string PresetLabel(ThresholdPreset p) => $"{p.Name}  ({p.Start}–{p.Stop} %)";
+
     private void AddPresetItems(MenuFlyoutSubItem sub)
     {
         foreach (var preset in SettingsService.Current.Presets)
         {
             var p    = preset; // local copy for lambda capture
-            var item = new ToggleMenuFlyoutItem { Text = $"{p.Name}  ({p.Start}–{p.Stop} %)" };
+            var item = new ToggleMenuFlyoutItem { Text = PresetLabel(p) };
             item.Command = new RelayCommand(() => ApplyPreset(p));
             _presetItems.Add((item, p));
             sub.Items.Add(item);
@@ -618,7 +627,7 @@ internal sealed class TrayMenu
             var p = preset; // local copy for lambda capture
             _addLocationSubmenu.Items.Add(new MenuFlyoutItem
             {
-                Text    = $"{p.Name}  ({p.Start}–{p.Stop} %)",
+                Text    = PresetLabel(p),
                 Command = new RelayCommand(() => _ = AddLocationConfigurationAsync(p)),
             });
         }
@@ -680,7 +689,7 @@ internal sealed class TrayMenu
             // A matched rule wins outright; otherwise fall back to the "unknown network" preset —
             // but only when a real (non-empty) location was detected. An empty location (no
             // network at all) isn't "unknown", it's "nothing to react to".
-            string? presetName = s.NetworkLocationRules.FirstOrDefault(r => r.Matches(location))?.PresetName
+            string? presetName = s.FindNetworkRule(location)?.PresetName
                 ?? (!location.IsEmpty ? s.UnknownNetworkPresetName : null);
             var preset = presetName is not null
                 ? s.Presets.FirstOrDefault(p => p.Name == presetName)
@@ -774,7 +783,7 @@ internal sealed class TrayMenu
             Info = new AboutInfo
             {
                 AppName     = AppName,
-                Version     = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown",
+                Version     = AppInfo.Version,
                 Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
                 RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
                 // Keep this list in sync with the README's "External libraries" table (memory
@@ -818,7 +827,7 @@ internal sealed class TrayMenu
         // inherit that context — the dialog shows nothing if called from a thread-pool thread.
         var hwnd    = NativeMethods.CaptureHwnd();
         var outcome = await UpdateCheckService.CheckNowAsync();
-        var running = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown";
+        var running = AppInfo.Version;
 
         switch (outcome.Status)
         {

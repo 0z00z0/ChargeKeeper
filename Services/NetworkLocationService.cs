@@ -70,11 +70,11 @@ internal static class NetworkLocationService
     // succession, and evaluating on each one would flap the applied preset before settling.
     private const int DebounceMs = 1500;
 
-    // Guards the timer swap + _last + the started/handler state. NetworkChange events can fire
-    // concurrently on multiple threads, racing ScheduleEvaluate's dispose-then-reassign and
-    // Evaluate's read/write of _last; Start/Stop normally run once on the UI thread but are cheap
-    // to guard too. LocationChanged is invoked OUTSIDE the lock so a slow subscriber (ApplyPreset)
-    // can't stall an incoming NetworkChange.
+    // Guards the timer re-arm + _last + the started/handler state. NetworkChange events can fire
+    // concurrently on multiple threads, racing ScheduleEvaluate's Change() against Stop()'s
+    // dispose and Evaluate's read/write of _last; Start/Stop normally run once on the UI thread
+    // but are cheap to guard too. LocationChanged is invoked OUTSIDE the lock so a slow subscriber
+    // (ApplyPreset) can't stall an incoming NetworkChange.
     private static readonly System.Threading.Lock _sync = new();
     private static System.Threading.Timer? _debounceTimer;
     private static NetworkLocation _last;
@@ -90,12 +90,25 @@ internal static class NetworkLocationService
     /// <summary>Raised (off the UI thread, after the debounce settles) whenever the detected location changes.</summary>
     public static event Action<NetworkLocation>? LocationChanged;
 
+    /// <summary>
+    /// The last debounced location <see cref="Evaluate"/> resolved — the cheap read for status
+    /// display (the tray menu shows a location row on every open). Unlike <see cref="DetectCurrent"/>
+    /// this does no adapter enumeration; <see cref="LocationChanged"/> keeps consumers current.
+    /// Default (empty) until the first post-<see cref="Start"/> evaluation lands.
+    /// </summary>
+    public static NetworkLocation LastKnown { get { lock (_sync) return _last; } }
+
     public static void Start()
     {
         lock (_sync)
         {
             if (_started) return;
             _started = true;
+            // One timer for the service's lifetime, re-armed per event via Change() — dock/undock
+            // transitions fire NetworkChange in bursts (the exact case the debounce exists for),
+            // and allocating a fresh Timer per event on that hot path is pointless churn.
+            _debounceTimer = new System.Threading.Timer(_ => Evaluate(), null,
+                System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             _addressChangedHandler      = (_, _) => ScheduleEvaluate();
             _availabilityChangedHandler = (_, _) => ScheduleEvaluate();
             NetworkChange.NetworkAddressChanged      += _addressChangedHandler;
@@ -124,8 +137,7 @@ internal static class NetworkLocationService
         lock (_sync)
         {
             if (!_started) return;   // a NetworkChange racing Stop() must not re-arm the timer
-            _debounceTimer?.Dispose();
-            _debounceTimer = new System.Threading.Timer(_ => Evaluate(), null, DebounceMs, System.Threading.Timeout.Infinite);
+            _debounceTimer?.Change(DebounceMs, System.Threading.Timeout.Infinite);   // push the deadline out
         }
     }
 

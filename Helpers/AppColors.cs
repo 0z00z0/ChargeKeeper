@@ -17,13 +17,17 @@ internal static class AppColors
     // of green-in-some-places, blue-in-others. TODO #34 reintroduced a genuine green (SageGreen,
     // below) as a deliberate, scoped exception to that rule: the arc gauge and tray icon now
     // colour-code charge state (green/yellow/orange/blue), a stronger signal there than accent
-    // uniformity — see the "Arc gauge fills" section for how that interacts with SteelBlue/
-    // GaugeHighBrush, which stays exactly as it was for an unrelated reason.
-    internal static readonly Color SteelBlue   = Color.FromArgb(255, 0x7F, 0xA8, 0xB8);
+    // uniformity. The gauge-tier bytes themselves live in GaugePalette (shared with the GDI+ tray
+    // icon renderer, which can't use Windows.UI.Color) — this class builds its WinUI Colors from
+    // those packed values so the dashboard and tray icon can't drift.
+    internal static readonly Color SteelBlue   = FromPacked(GaugePalette.SteelBlue);
     internal static readonly Color Orange      = Color.FromArgb(255, 0xFF, 0x8C, 0x00);
     internal static readonly Color Grey        = Color.FromArgb(255, 0x9E, 0x9E, 0x9E);
-    internal static readonly Color Amber       = Color.FromArgb(255, 0xD8, 0xA6, 0x57);  // brand amber
+    internal static readonly Color Amber       = FromPacked(GaugePalette.Amber);   // brand amber
     internal static readonly Color Blue        = Color.FromArgb(255, 0x36, 0xB0, 0xE6);  // brand blue (idle)
+
+    private static Color FromPacked(uint argb) => Color.FromArgb(
+        (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
 
     // ── Battery status glyph (gauge centre) ─────────────────────────────────────
     internal static readonly SolidColorBrush StatusChargingBrush    = new(SteelBlue);  // charging  ▲
@@ -57,8 +61,8 @@ internal static class AppColors
     // orange-tan hue reads as muted orange convincingly enough that a distinct new "orange" would
     // have been redundant. The old DustyRed (a true muted red, ≤ 20 % tier) is gone: nothing in
     // this new red/orange-less scheme called for a red, and it had no other callers.
-    internal static readonly Color SageGreen  = Color.FromArgb(255, 0x7A, 0xB8, 0x8F);  // dusty sage green
-    internal static readonly Color Terracotta = Color.FromArgb(255, 0xC9, 0x92, 0x6B);  // dusty terracotta
+    internal static readonly Color SageGreen  = FromPacked(GaugePalette.SageGreen);   // dusty sage green
+    internal static readonly Color Terracotta = FromPacked(GaugePalette.Terracotta);  // dusty terracotta
     internal static readonly SolidColorBrush GaugeGreenBrush    = new(SageGreen);  // > 75 %
     internal static readonly SolidColorBrush GaugeMedBrush      = new(Amber);      // 26-75 % ("yellow")
     // Terracotta moves here from the old medium tier — it keeps its shared-colour relationship
@@ -71,15 +75,6 @@ internal static class AppColors
     // the threshold-slider/SoC-line accent, which were already SteelBlue. Charging/on-AC now
     // reads as the same muted accent everywhere instead of two different blues.
     internal static readonly SolidColorBrush GaugeChargingBrush = new(SteelBlue);  // charging/on-AC override, any %
-
-    // GaugeHighBrush intentionally KEEPS its original SteelBlue value and is no longer read by the
-    // arc gauge's own top tier (that's GaugeGreenBrush now, above) — BatteryHistoryGraphControl's
-    // constructor still binds its SoC legend swatch directly to this brush so the swatch matches
-    // HistorySocBrush/the actual SoC line colour (both SteelBlue). Repointing or removing this
-    // constant would silently desync that legend from the line it labels, so it stays as dead
-    // weight from the gauge's point of view on purpose. > 50 % is its original (now unused by the
-    // gauge) threshold comment, kept for history.
-    internal static readonly SolidColorBrush GaugeHighBrush = new(SteelBlue);   // > 50 % (legacy; see above)
 
     // ── History graph series ("Nordic mist") ────────────────────────────────────
     // One fixed accent per series, not a level-based switch — the old red/amber/green cycling

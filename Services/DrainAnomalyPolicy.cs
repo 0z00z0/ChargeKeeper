@@ -26,7 +26,7 @@ internal static class DrainAnomalyPolicy
         if (!enabled) return false;
         if (socDropPercent < MinDropPercent) return false;   // too small (also excludes rises/flats)
         if (gapDuration < MinGap) return false;              // too short to extrapolate a rate from
-        if (gapDuration.TotalHours <= 0) return false;       // div-by-zero guard (unreachable given MinGap)
+                                                             // (also guards the division below)
 
         double ratePerHour = socDropPercent / gapDuration.TotalHours;
         return ratePerHour >= thresholdPercentPerHour;

@@ -23,16 +23,14 @@ internal static class ToastService
         }
     }
 
-    public static void NotifyChargeComplete(int stopPct)
+    // The one shared show path: every notification is fire-and-forget and must never crash the
+    // app, so the build+show+swallow scaffold lives here once instead of being copied per toast.
+    private static void TryShow(string title, string body)
     {
         try
         {
-            string body = stopPct == 100
-                ? "Fully charged"
-                : $"Smart Charge stopped at {stopPct}%  —  charged to limit";
-
             var builder = new AppNotificationBuilder()
-                .AddText("Battery charged")
+                .AddText(title)
                 .AddText(body);
 
             AppNotificationManager.Default.Show(builder.BuildNotification());
@@ -43,37 +41,16 @@ internal static class ToastService
         }
     }
 
-    public static void NotifyChargingStarted()
-    {
-        try
-        {
-            var builder = new AppNotificationBuilder()
-                .AddText("Charging")
-                .AddText("AC power connected");
+    public static void NotifyChargeComplete(int stopPct) =>
+        TryShow("Battery charged", stopPct == 100
+            ? "Fully charged"
+            : $"Smart Charge stopped at {stopPct}%  —  charged to limit");
 
-            AppNotificationManager.Default.Show(builder.BuildNotification());
-        }
-        catch
-        {
-            // Toast failure must not crash the app.
-        }
-    }
+    public static void NotifyChargingStarted() =>
+        TryShow("Charging", "AC power connected");
 
-    public static void NotifyLowBattery(int pct)
-    {
-        try
-        {
-            var builder = new AppNotificationBuilder()
-                .AddText("Low battery")
-                .AddText($"Battery at {pct}% — connect AC power");
-
-            AppNotificationManager.Default.Show(builder.BuildNotification());
-        }
-        catch
-        {
-            // Toast failure must not crash the app.
-        }
-    }
+    public static void NotifyLowBattery(int pct) =>
+        TryShow("Low battery", $"Battery at {pct}% — connect AC power");
 
     /// <summary>
     /// Overnight-drain anomaly (TODO #26): the battery lost more charge than expected across a
@@ -84,19 +61,8 @@ internal static class ToastService
     /// </summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
     {
-        try
-        {
-            string span = duration.TotalHours >= 1 ? $"{duration.TotalHours:0.#}h" : $"{duration.Minutes}m";
-            var builder = new AppNotificationBuilder()
-                .AddText("Unusual battery drain")
-                .AddText($"Lost {dropPercent}% over {span} while asleep — Modern Standby misbehaving?");
-
-            AppNotificationManager.Default.Show(builder.BuildNotification());
-        }
-        catch
-        {
-            // Toast failure must not crash the app.
-        }
+        string span = duration.TotalHours >= 1 ? $"{duration.TotalHours:0.#}h" : $"{duration.Minutes}m";
+        TryShow("Unusual battery drain", $"Lost {dropPercent}% over {span} while asleep — Modern Standby misbehaving?");
     }
 
     public static void Cleanup()

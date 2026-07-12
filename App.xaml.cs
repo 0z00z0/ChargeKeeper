@@ -464,7 +464,7 @@ public partial class App : Application
                 pct = Math.Clamp((int)Math.Round(100.0 * remaining / full), 0, 100);
             }
 
-            bool charging = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
+            bool charging = BatteryStatsFormatter.IsOnAC(report.Status);
 
             // ── Battery history ───────────────────────────────────────────────
             // Sampled on a fixed cadence by _historyTimer (see SampleHistory), NOT per battery
@@ -534,13 +534,13 @@ public partial class App : Application
             TravelOverrideService.OnBatteryReport(pct, report.Status);
 
             // ── Tray tooltip ──────────────────────────────────────────────────
-            _lastOnAC           = charging;   // Charging or Idle ⇒ on AC (same expression as the icon)
+            _lastOnAC           = charging;   // IsOnAC — shared with the icon expression above
             _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
             _lastThresholdState = ChargeThresholdService.Read();
             _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
             _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
-            // Only worth querying while an adapter is actually attached (TODO #41); on battery
-            // there's nothing to read and the RPC call would just be wasted.
+            // Only meaningful while an adapter is attached (TODO #41); the read is memoized inside
+            // ChargerInfoService, so per-event calls here are cheap after the first.
             _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
@@ -549,6 +549,15 @@ public partial class App : Application
                 report.Status      == BatteryStatus.Charging)
             {
                 ToastService.NotifyChargingStarted();
+            }
+
+            // ── Charger-wattage cache invalidation ────────────────────────────
+            // Unplugged: drop ChargerInfoService's memoized adapter wattage, so the next AC
+            // session re-reads whatever adapter is attached then — it may be a different charger.
+            if (_lastBatteryStatus != BatteryStatus.Discharging &&
+                report.Status      == BatteryStatus.Discharging)
+            {
+                ChargerInfoService.Invalidate();
             }
 
             _lastBatteryStatus = report.Status;
@@ -571,8 +580,6 @@ public partial class App : Application
     private int?    _lastFullMwh;
     private int?    _lastAdapterWattage; // AC adapter rated wattage (TODO #41), null until known
     private ChargeThresholdState? _lastThresholdState;
-    private static readonly string _appVersion =
-        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?";
 
     private void UpdateTrayIcon(int pct, bool charging)
     {
@@ -652,7 +659,7 @@ public partial class App : Application
         // 💠 is the brand mark in ZeroZero's signature teal (#27e0c8-ish). A tray tooltip is plain
         // text — no per-glyph colour — so a colour emoji is the only way to carry brand colour, and
         // the bright cyan-teal reads clearly on the dark Win11 tooltip background.
-        lines.Append($"💠 ChargeKeeper  v{_appVersion}");
+        lines.Append($"💠 ChargeKeeper  v{AppInfo.Version}");
 
         // ⚡ AC · 75%  ·  +45 W   (on AC — the bolt forced to its TEXT/outline form via U+FE0E so it
         //                          renders bright like the ⚙/⏱/⬆ outlines; the colour plug 🔌 was a
@@ -673,20 +680,12 @@ public partial class App : Application
         if (rate is not null)
             lines.Append($"  ·  {rate}");
 
-        // ⏱ ~2h 15m remaining  /  ⏱ ~45m to full
-        if (Math.Abs(_lastRateMW) >= 100 && remainingMwh is { } rem && fullMwh is > 0 and { } full)
-        {
-            double h = _lastRateMW < 0
-                ? rem        / (double)Math.Abs(_lastRateMW)
-                : (full-rem) / (double)_lastRateMW;
-            if (h > 0 && h < 99)
-            {
-                var ts    = TimeSpan.FromHours(h);
-                var tstr  = ts.TotalHours >= 1 ? $"~{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"~{ts.Minutes}m";
-                var label = _lastRateMW < 0 ? "remaining" : "to full";
-                lines.Append($"\n⏱ {tstr} {label}");
-            }
-        }
+        // ⏱ ~2h 15m remaining  /  ⏱ ~45m to full — the same estimate the two windows' REMAINING
+        // stat shows, via the shared formatter (noise floor, >99h cap, and h/m text all live there;
+        // this used to be a third hand-rolled copy that had already drifted on zero-padding).
+        string timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMW, remainingMwh, fullMwh);
+        if (timeText != "—")
+            lines.Append($"\n⏱ {timeText}");
 
         // 🔝 Charging to 100%   OR   ⚙ Smart Charge: 70–80%
         if (TravelOverrideService.IsActive)

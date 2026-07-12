@@ -16,6 +16,16 @@ namespace ChargeKeeper.Helpers;
 internal static class BatteryStatsFormatter
 {
     /// <summary>
+    /// "On AC" as the app defines it everywhere (tray icon, tooltip, both windows' POWER stat):
+    /// Charging, or Idle — Idle means full/threshold-held, which only happens while externally
+    /// powered. Shared so the call sites can't drift (they used to carry comments promising to stay
+    /// "identical" to each other); takes the enum rather than a <c>BatteryReport</c> so it stays
+    /// unit-testable (see the class doc).
+    /// </summary>
+    public static bool IsOnAC(Windows.System.Power.BatteryStatus status) =>
+        status is Windows.System.Power.BatteryStatus.Charging or Windows.System.Power.BatteryStatus.Idle;
+
+    /// <summary>
     /// POWER line: source label (+ optional adapter wattage) and, when meaningfully non-zero in the
     /// expected direction, the live rate. <paramref name="onAC"/> and <paramref name="adapterWattage"/>
     /// are passed in rather than re-derived here so callers control their own caching/query cadence

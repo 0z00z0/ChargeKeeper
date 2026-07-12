@@ -111,6 +111,14 @@ internal sealed class AppSettings
     /// naming yet.
     /// </summary>
     public string? UnknownNetworkPresetName { get; set; }
+
+    /// <summary>
+    /// First rule matching <paramref name="location"/>, or null. The single lookup both the tray
+    /// menu's "Current: …" status row and the location-change auto-apply use, so "which rule wins"
+    /// (list order) stays defined in exactly one place.
+    /// </summary>
+    public NetworkLocationRule? FindNetworkRule(NetworkLocation location) =>
+        NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
 }
 
 /// <summary>

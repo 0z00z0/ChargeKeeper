@@ -48,7 +48,6 @@ public sealed partial class BatteryHistoryWindow : Window
     // that's also the signal at close time that there's nothing to retract into.
     private readonly RectInt32 _finalRect;
     private readonly RectInt32? _originRect;
-    private bool _pendingAnimation;
     private bool _animStarted;
 
     // Set the moment the Closed event fires (final teardown). Stops a stray animation tick from
@@ -68,11 +67,6 @@ public sealed partial class BatteryHistoryWindow : Window
     // observed as the pop-out opening and then immediately closing again on a fast double-click.
     private bool _everActivated;
 
-    // Rated wattage of the connected AC adapter (TODO #41), refreshed alongside the POWER/REMAINING
-    // stats on the same 5 s timer as the graph. This window (not the small dashboard, whose fixed
-    // 340px width can't fit "AC Power (60W charger)") is where the wattage actually shows.
-    private int? _cachedAdapterWattage;
-
     /// <param name="originRect">
     /// The tray dashboard's current on-screen rect (physical px) to animate open from, or null to
     /// place the window at its final rect directly (e.g. dashboard already hidden).
@@ -88,8 +82,7 @@ public sealed partial class BatteryHistoryWindow : Window
         {
             // Place the window at the origin NOW so its first painted frame is the small dashboard
             // rect; the grow-to-final animation is kicked off once the window is shown (OnActivated).
-            _originRect       = origin;
-            _pendingAnimation = true;
+            _originRect = origin;
             AppWindow.MoveAndResize(origin);
         }
         else
@@ -153,7 +146,8 @@ public sealed partial class BatteryHistoryWindow : Window
 
         _everActivated = true;
 
-        if (_pendingAnimation && !_animStarted && _originRect is { } openOrigin)
+        // _originRect non-null ⇔ an open animation was requested; _animStarted latches it one-shot.
+        if (!_animStarted && _originRect is { } openOrigin)
         {
             _animStarted = true;
             AnimateRect(openOrigin, _finalRect, HistoryGraph.Render);
@@ -179,30 +173,29 @@ public sealed partial class BatteryHistoryWindow : Window
     /// <summary>
     /// Refreshes the POWER/REMAINING stats from a fresh <see cref="BatteryReport"/>, same formatting
     /// as <see cref="DashboardWindow"/> via <see cref="BatteryStatsFormatter"/>. The adapter wattage
-    /// (TODO #41) is an RPC read, so it's queried off the UI thread and only while actually on AC —
-    /// on battery there's no adapter to ask about.
+    /// (TODO #41) is memoized in <see cref="ChargerInfoService"/>: the warm path is a plain cached
+    /// read painted immediately; only a cold cache (first AC read of a session) does the RPC, off
+    /// the UI thread, then repaints.
     /// </summary>
     private void RefreshStats()
     {
         try
         {
             var report = Battery.AggregateBattery.GetReport();
-            bool onAC  = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
+            bool onAC  = BatteryStatsFormatter.IsOnAC(report.Status);
             int  rateMw = report.ChargeRateInMilliwatts ?? 0;
 
-            PowerSourceText.Text   = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, _cachedAdapterWattage);
+            int? watts = ChargerInfoService.CachedWattage;   // never RPCs — UI-thread safe
+            PowerSourceText.Text   = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, watts);
             TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
                 report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
 
-            if (onAC)
+            if (onAC && watts is null)
                 Task.Run(() =>
                 {
                     int? wattage = ChargerInfoService.GetRatedWattage();
-                    RunOnUi(() =>
-                    {
-                        _cachedAdapterWattage = wattage;
-                        PowerSourceText.Text  = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, wattage);
-                    });
+                    if (wattage is not null)
+                        RunOnUi(() => PowerSourceText.Text = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, wattage));
                 });
         }
         catch (Exception ex)
@@ -211,21 +204,8 @@ public sealed partial class BatteryHistoryWindow : Window
         }
     }
 
-    private void ConfigureWindowChrome()
-    {
-        // No taskbar/Alt-Tab entry: with the auto-close-on-blur behaviour, alt-tabbing away closes
-        // the window anyway, so a switcher entry would be pointless (same rationale as
-        // DashboardWindow/AboutWindow).
-        AppWindow.IsShownInSwitchers = false;
-
-        var presenter = OverlappedPresenter.Create();
-        presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
-        presenter.IsResizable   = true;
-        presenter.IsMaximizable = false;  // meaningless without a title bar's caption buttons
-        presenter.IsMinimizable = false;
-        presenter.IsAlwaysOnTop = false;
-        AppWindow.SetPresenter(presenter);
-    }
+    private void ConfigureWindowChrome() =>
+        WindowChrome.ApplyPopup(this, resizable: true, alwaysOnTop: false);
 
     /// <summary>
     /// Final placement: ~70% width × 65% height of the monitor under the cursor (clamped to a sane

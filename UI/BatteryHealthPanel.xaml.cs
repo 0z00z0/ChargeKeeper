@@ -24,6 +24,12 @@ public sealed partial class BatteryHealthPanel : UserControl
     private const double ProjectionFraction = 0.5;
     private const int    MaxProjectionDays  = 180;
 
+    // Loaded once per panel lifetime (= one pop-out session). SizeChanged → Render fires on every
+    // layout pass — ~every 10ms for the host window's 340ms open/retract animations, plus every
+    // user resize — and nothing in the capacity file can change within a session (at most one row
+    // per day), so re-reading the CSV from disk on each of those passes was pure waste.
+    private IReadOnlyList<CapacitySample>? _samples;
+
     public BatteryHealthPanel()
     {
         InitializeComponent();
@@ -35,13 +41,13 @@ public sealed partial class BatteryHealthPanel : UserControl
     private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e) => Render();
 
     /// <summary>
-    /// Re-reads the capacity history from disk and redraws. Cheap enough (at most one row per day)
-    /// to call on every open/resize rather than caching — unlike the main graph, this panel has no
-    /// periodic refresh timer, since nothing here can change within a single pop-out session.
+    /// Redraws from the session-cached capacity history (read from disk once, on the first render —
+    /// see <see cref="_samples"/>). Unlike the main graph, this panel has no periodic refresh
+    /// timer, since nothing here can change within a single pop-out session.
     /// </summary>
     public void Render()
     {
-        var samples = BatteryCapacityHistoryService.LoadAll();
+        var samples = _samples ??= BatteryCapacityHistoryService.LoadAll();
         TrendCanvas.Children.Clear();
 
         if (samples.Count < 2)

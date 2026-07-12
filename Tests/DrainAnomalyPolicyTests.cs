@@ -5,8 +5,7 @@ namespace ChargeKeeper.Tests;
 
 public class DrainAnomalyPolicyTests
 {
-    // A real overnight anomaly: 12% lost over 8h = 1.5%/h, over a 3%/h... no — pick values that
-    // clearly clear every floor and the rate. 30% over 8h = 3.75%/h ≥ 3%/h threshold.
+    // A real overnight anomaly: 30% over 8h = 3.75%/h, clearing every floor and the 3%/h threshold.
     [Fact]
     public void ShouldWarn_GenuineOvernightDrain_True()
     {

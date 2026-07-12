@@ -28,15 +28,16 @@ internal static class IconGenerator
     private static readonly Color LimitAmber = Color.FromArgb(0xD8, 0xA6, 0x57); // charge-limit line
 
     // ── Arc fill colours — charge state (TODO #34) ────────────────────────────
-    // System.Drawing has no shared type with WinUI's Windows.UI.Color, so these are literal
-    // duplicates of Helpers\AppColors.cs's SageGreen/Amber/Terracotta/SteelBlue — same ARGB bytes,
-    // kept in sync BY HAND. This is the actual mechanism that makes the tray icon and the
-    // dashboard gauge "consistent" (TODO #34): if AppColors' values change, these must change
-    // with them.
-    private static readonly Color FillGreen    = Color.FromArgb(0x7A, 0xB8, 0x8F); // == AppColors.SageGreen  (> 75 %)
-    private static readonly Color FillYellow   = Color.FromArgb(0xD8, 0xA6, 0x57); // == AppColors.Amber      (26-75 %)
-    private static readonly Color FillOrange   = Color.FromArgb(0xC9, 0x92, 0x6B); // == AppColors.Terracotta (<= 25 %)
-    private static readonly Color FillCharging = Color.FromArgb(0x7F, 0xA8, 0xB8); // == AppColors.SteelBlue  (on AC)
+    // System.Drawing has no shared type with WinUI's Windows.UI.Color, but packed ARGB bytes cross
+    // that divide fine: these build from the same GaugePalette constants AppColors uses, so the
+    // tray icon and the dashboard gauge are consistent (TODO #34) structurally instead of by a
+    // "keep in sync BY HAND" comment.
+    private static readonly Color FillGreen    = FromPacked(GaugePalette.SageGreen);   // > GreenAbovePct
+    private static readonly Color FillYellow   = FromPacked(GaugePalette.Amber);       // middle tier
+    private static readonly Color FillOrange   = FromPacked(GaugePalette.Terracotta);  // ≤ LowAtOrBelowPct
+    private static readonly Color FillCharging = FromPacked(GaugePalette.SteelBlue);   // on AC
+
+    private static Color FromPacked(uint argb) => Color.FromArgb(unchecked((int)argb));
 
     /// <summary>
     /// Generates a multi-size ICO file and returns its path.
@@ -102,13 +103,13 @@ internal static class IconGenerator
         // Colour-coded background — same palette, thresholds, and charging override as the arc
         // fill (TODO #34). This mode previously used its own hardcoded vivid traffic-light colours
         // (a teal-green/orange/red scheme at 50/20% cutoffs) left over from before #34 introduced
-        // the shared AppColors palette, so a discharging battery at low charge showed a jarring
-        // saturated red/orange here instead of the muted Terracotta everywhere else in the app —
-        // reusing the same Fill* constants and 75/25 cutoffs as RenderBatteryBitmap fixes that.
+        // the shared palette, so a discharging battery at low charge showed a jarring saturated
+        // red/orange here instead of the muted Terracotta everywhere else in the app — reusing the
+        // same Fill* constants and GaugePalette cutoffs as RenderBatteryBitmap fixes that.
         Color bg = percent switch
         {
-            > 75 => FillGreen,
-            > 25 => FillYellow,
+            > GaugePalette.GreenAbovePct   => FillGreen,
+            > GaugePalette.LowAtOrBelowPct => FillYellow,
             _    => FillOrange,
         };
         if (charging) bg = FillCharging;
@@ -235,11 +236,10 @@ internal static class IconGenerator
 
         if (percent > 0)
         {
-            // Fill colour by charge state (TODO #34): green > 75 %, yellow 26-75 %, orange
-            // <= 25 %, charging/on-AC forces blue. Values are the muted AppColors palette, not
-            // a vivid traffic-light scheme — see the Fill* constants above for why these exact
-            // hex literals (not new ones) were chosen: they match AppColors.cs byte-for-byte so
-            // the gauge and this icon are actually consistent, not just visually similar.
+            // Fill colour by charge state (TODO #34): green above GreenAbovePct, orange at/below
+            // LowAtOrBelowPct, amber between, charging/on-AC forces blue. Values are the muted
+            // shared palette (GaugePalette → same bytes AppColors builds from), not a vivid
+            // traffic-light scheme — the gauge and this icon are consistent structurally.
             Color fillColor = percent switch
             {
                 > 75 => FillGreen,

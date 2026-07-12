@@ -1,8 +1,6 @@
 using CommunityToolkit.WinUI.Controls;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Power;
 using Windows.Foundation;
@@ -69,6 +67,13 @@ public sealed partial class DashboardWindow : Window
 
         // Track arc never changes — build it once here instead of every refresh tick.
         GaugeTrack.Data = BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
+
+        // Threshold-tick strokes come from the shared palette rather than XAML hex literals (which
+        // had to be hand-synced with Terracotta and once drifted): HistoryLimitBrush, so the
+        // "charge limit" concept is the same brush here and in the history graph. GaugeFill's own
+        // stroke is set per-refresh by UpdateGaugeArc before the window is ever shown.
+        GaugeStartTick.Stroke = AppColors.HistoryLimitBrush;
+        GaugeStopTick.Stroke  = AppColors.HistoryLimitBrush;
 
         // The graph control has no reference to App/window-management — it only signals intent.
         HistoryGraph.ExpandRequested += (_, _) => _app.ShowHistoryWindow();
@@ -197,18 +202,8 @@ public sealed partial class DashboardWindow : Window
 
     // ── Window chrome ─────────────────────────────────────────────────────────
 
-    private void ConfigureWindowChrome()
-    {
-        AppWindow.IsShownInSwitchers = false;
-
-        var presenter = OverlappedPresenter.Create();
-        presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
-        presenter.IsResizable   = false;
-        presenter.IsMaximizable = false;
-        presenter.IsMinimizable = false;
-        presenter.IsAlwaysOnTop = true;
-        AppWindow.SetPresenter(presenter);
-    }
+    private void ConfigureWindowChrome() =>
+        WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);
 
     // ── Focus / activation ────────────────────────────────────────────────────
 
@@ -260,10 +255,9 @@ public sealed partial class DashboardWindow : Window
 
             BatteryPercentText.Text = pct.HasValue ? $"{pct}%" : "--";
 
-            // Idle and Charging both indicate AC is connected — same expression IconGenerator
-            // uses for the tray icon's blue "on AC" override (App.xaml.cs UpdateTrayIcon), kept
-            // identical here so the gauge and the tray icon agree on when to show blue (TODO #34).
-            bool onAC = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
+            // Shared "on AC" definition (IsOnAC) — the same call the tray icon path uses, so the
+            // gauge and the tray icon structurally agree on when to show blue (TODO #34).
+            bool onAC = BatteryStatsFormatter.IsOnAC(report.Status);
             UpdateGaugeArc(pct ?? 0, onAC);
 
             // Adapter wattage (TODO #41) lives in the pop-out window only now — the small popup's
@@ -484,10 +478,11 @@ public sealed partial class DashboardWindow : Window
     // ── Arc gauge ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Colours the arc by charge state (TODO #34): green &gt; 75 %, yellow 26-75 %, orange
-    /// &le; 25 %, with <paramref name="onAC"/> forcing blue regardless of level. The tray icon's
-    /// arc (<see cref="Helpers.IconGenerator"/>) uses the exact same thresholds and the exact same
-    /// hex values (via <see cref="AppColors"/>) so the gauge and the tray icon always agree.
+    /// Colours the arc by charge state (TODO #34): green, amber, then orange as the level drops,
+    /// with <paramref name="onAC"/> forcing blue regardless of level. Thresholds AND colour bytes
+    /// come from <see cref="GaugePalette"/> — the same constants the tray icon's arc
+    /// (<see cref="Helpers.IconGenerator"/>) renders from — so the gauge and the tray icon agree
+    /// structurally, not by hand-synced literals.
     /// </summary>
     private void UpdateGaugeArc(int percent, bool onAC)
     {
@@ -500,9 +495,9 @@ public sealed partial class DashboardWindow : Window
             ? AppColors.GaugeChargingBrush
             : percent switch
             {
-                > 75 => AppColors.GaugeGreenBrush,
-                > 25 => AppColors.GaugeMedBrush,
-                _    => AppColors.GaugeLowBrush
+                > GaugePalette.GreenAbovePct   => AppColors.GaugeGreenBrush,
+                > GaugePalette.LowAtOrBelowPct => AppColors.GaugeMedBrush,
+                _                              => AppColors.GaugeLowBrush
             };
     }
 

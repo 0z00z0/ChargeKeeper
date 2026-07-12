@@ -161,8 +161,10 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     {
         InitializeComponent();
 
-        // Legend swatch colours never change — assign once instead of every render.
-        LegendSocSwatch.Background   = AppColors.GaugeHighBrush;
+        // Legend swatch colours never change — assign once instead of every render. The SoC swatch
+        // uses the SAME brush as the SoC line itself, so the legend can never desync from the
+        // series it labels.
+        LegendSocSwatch.Background   = AppColors.HistorySocBrush;
         LegendLimitSwatch.Background = AppColors.HistoryLimitBrush;
         LegendPowerSwatch.Background = AppColors.HistoryPowerBrush;
 
@@ -560,22 +562,35 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     }
 
     /// <summary>
-    /// Fills <see cref="StressHeatmapBar"/> with a per-sample-stop <see cref="LinearGradientBrush"/>
-    /// (TODO #25): one <see cref="GradientStop"/> per sample, positioned at the SAME x (as a 0-1
-    /// fraction of plot width) as that sample's point on the SoC line above it, coloured by
-    /// <see cref="StressColor"/>. Reuses <paramref name="xs"/> — already monotonically
-    /// non-decreasing by construction (<see cref="BuildCompressedX"/>) — rather than a fresh
-    /// per-pixel scan, so the strip stays cheap to rebuild every render and can never visually
-    /// drift out of alignment with the series it sits under.
+    /// Fills <see cref="StressHeatmapBar"/> with a <see cref="LinearGradientBrush"/> (TODO #25):
+    /// stops positioned at the SAME x (as a 0-1 fraction of plot width) as the samples' points on
+    /// the SoC line above, coloured by <see cref="StressColor"/>. Reuses <paramref name="xs"/> —
+    /// already monotonically non-decreasing by construction (<see cref="BuildCompressedX"/>) —
+    /// rather than a fresh per-pixel scan, so the strip can never visually drift out of alignment
+    /// with the series it sits under. Stops are STRIDED to a cap: the downsampler yields up to
+    /// 2×plot-width samples, and one stop per sample would allocate thousands of
+    /// <see cref="GradientStop"/>s per 5s render for a 7px-high strip where anything beyond ~one
+    /// stop per device pixel is invisible.
     /// </summary>
     private void DrawStressHeatmap(IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs, double w)
     {
+        const int MaxStops = 200;
+        int step = Math.Max(1, samples.Count / MaxStops);
+
         var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
-        for (int i = 0; i < samples.Count; i++)
+        for (int i = 0; i < samples.Count; i += step)
             brush.GradientStops.Add(new GradientStop
             {
                 Offset = Math.Clamp(xs[i] / w, 0, 1),
                 Color  = StressColor(samples[i].Soc),
+            });
+        // Always close the strip at the final sample so striding can't leave the right edge
+        // painted with a stale colour extrapolated from an earlier stop.
+        if (step > 1 && (samples.Count - 1) % step != 0)
+            brush.GradientStops.Add(new GradientStop
+            {
+                Offset = Math.Clamp(xs[^1] / w, 0, 1),
+                Color  = StressColor(samples[^1].Soc),
             });
         StressHeatmapBar.Fill = brush;
     }

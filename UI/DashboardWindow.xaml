@@ -51,17 +51,16 @@
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
                     <Path x:Name="GaugeFill"
-                          Stroke="#C9926B"
                           StrokeThickness="10"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
-                    <!-- Charge threshold tick markers — same Terracotta as the low/orange-gauge tier
-                         (TODO #34 moved Terracotta from the old medium tier to the new ≤25% tier) and
-                         the history graph's charge-limit line (AppColors.Terracotta), so the "charge
-                         limit" concept reads as one colour everywhere on the dashboard. -->
+                    <!-- Charge threshold tick markers. Strokes (ticks AND the fill above) are
+                         assigned in code-behind from the shared palette — ticks get
+                         AppColors.HistoryLimitBrush (Terracotta) so the "charge limit" concept
+                         reads as one colour everywhere; hex literals here had to be hand-synced
+                         and once drifted. -->
                     <Path x:Name="GaugeStartTick"
-                          Stroke="#C9926B"
                           StrokeThickness="2.5"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
@@ -69,7 +68,6 @@
                           Visibility="Collapsed"
                           Opacity="0.9"/>
                     <Path x:Name="GaugeStopTick"
-                          Stroke="#C9926B"
                           StrokeThickness="2.5"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"

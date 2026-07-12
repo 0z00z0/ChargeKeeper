@@ -61,15 +61,7 @@ internal sealed partial class NameLocationWindow : Window
 
     private void ConfigureChrome()
     {
-        AppWindow.IsShownInSwitchers = false;
-
-        var presenter = OverlappedPresenter.Create();
-        presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
-        presenter.IsResizable   = false;
-        presenter.IsMaximizable = false;
-        presenter.IsMinimizable = false;
-        presenter.IsAlwaysOnTop = true;
-        AppWindow.SetPresenter(presenter);
+        WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);
 
         Root.Width = 300;
         Root.Measure(new Size(300, double.PositiveInfinity));
