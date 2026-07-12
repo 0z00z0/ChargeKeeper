@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <!-- LenovoSmartStandby service start/stop; same version the app pins. -->
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.8" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
   </ItemGroup>
 
   <!-- NOTE: the native LenPower.dll bridge (P/Invoked by LenovoChargeThreshold) is built by
