@@ -74,12 +74,13 @@
              this control existed. -->
         <Border x:Name="SparklineCard"
                 Grid.Row="1"
-                CornerRadius="8"
+                CornerRadius="12"
                 Padding="0,6,0,0"
                 Background="{ThemeResource ControlFillColorDefaultBrush}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition x:Name="CanvasRow" Height="*"/>
+                    <RowDefinition Height="Auto"/>  <!-- SoC stress heat strip (TODO #25) -->
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
@@ -101,7 +102,9 @@
                 <Canvas x:Name="SparklineCanvas" Grid.Row="0" Grid.Column="1"
                         Background="Transparent"
                         SizeChanged="OnCanvasSizeChanged"
-                        DoubleTapped="OnCanvasDoubleTapped"/>
+                        DoubleTapped="OnCanvasDoubleTapped"
+                        PointerMoved="OnCanvasPointerMoved"
+                        PointerExited="OnCanvasPointerExited"/>
 
                 <!-- Right axis: charge power W, auto-scaled to the visible window (min/0/max),
                      always including 0. Populated in code since the range is dynamic. -->
@@ -111,12 +114,29 @@
                     <TextBlock x:Name="RightAxisBottomLabel" Text="—" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
 
+                <!-- SoC "stress" heat strip (TODO #25): a slim gradient bar under the plot, colour-
+                     coding time spent at high SoC (more stressful long-term) vs moderate SoC
+                     (gentler) across the visible window — pop-out only (ShowStressHeatmap), same
+                     "no room in the small popup" reasoning as ShowGapMarkers. Fill (a per-sample-
+                     stop LinearGradientBrush) is built in code-behind every Render() since the
+                     underlying SoC data changes; Visibility is also driven from code so the Auto
+                     row collapses to zero height when hidden, matching how ThresholdSliders does
+                     it elsewhere in this codebase. Column 1 only, aligned exactly with the canvas
+                     above it so the gradient's x-positions line up with the SoC line's samples. -->
+                <Rectangle x:Name="StressHeatmapBar"
+                           Grid.Row="1"
+                           Grid.Column="1"
+                           Height="7"
+                           Margin="0,5,0,1"
+                           RadiusX="3.5"
+                           RadiusY="3.5"/>
+
                 <!-- Time axis: left = age of the OLDEST loaded sample, right = age of the newest
                      (usually "now", but shows an elapsed time instead once sampling has gone
                      quiet for longer than GapThreshold). NOT a fixed span — leading downtime is
                      collapsed by the compressed x-axis, so the left edge can be more recent than
                      the selected GraphTimeScale. Set dynamically in Render(). -->
-                <Grid Grid.Row="1" Grid.Column="1" Margin="7,3,7,6">
+                <Grid Grid.Row="2" Grid.Column="1" Margin="7,3,7,6">
                     <TextBlock x:Name="SparklineStartLabel"
                                Text="—"
                                FontSize="12"
@@ -129,44 +149,64 @@
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
 
-                <!-- Expand affordance: subdued glyph in the card's bottom-right corner cell (the
-                     right-axis column's slice of the time-axis row) — the only spot on the card
-                     that is always empty, so it can never collide with the W-axis labels above it
-                     or the time labels beside it. Padding is kept tighter than the ~4 the glyph
-                     visually wants vertically so the button stays no taller than the time-axis
-                     row and can't grow the card (the small dashboard is sized to the pixel). -->
-                <Button x:Name="ExpandGlyph"
-                        Grid.Row="1"
-                        Grid.Column="2"
-                        Content="⤢"
-                        FontSize="14"
-                        Padding="4,1"
-                        Margin="0,0,2,2"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Bottom"
-                        Background="Transparent"
-                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                        BorderThickness="0"
-                        ToolTipService.ToolTip="Expand"
-                        Click="OnExpandGlyphClick"/>
             </Grid>
         </Border>
 
-        <!-- Compact legend: coloured swatch + label per series. Swatch colours are assigned in
-             code-behind (AppColors), matching how the rest of this codebase applies brushes. -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="14" Margin="4,0,0,0">
-            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
-                <TextBlock Text="SoC" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        <!-- Footer row: compact legend on the left, the expand button on the right — OUTSIDE the
+             plot card entirely, not overlaid on the canvas (per user feedback: an overlay sitting
+             on top of the chart reads as part of the graph and gets lost/obscured behind the
+             lines; a real button in its own row is unambiguous). Two columns so the legend keeps
+             its natural width and the button gets whatever space is left, right-aligned.
+             Glyph: "⛶" (SQUARE FOUR CORNERS) instead of an earlier "⤢" — the diagonal
+             double-headed-arrow glyph is mostly thin strokes with a lot of empty space in its own
+             em-box, so it read as small/faint no matter how large FontSize was pushed (per user
+             follow-up: "the button itself is large, but not the visible symbol"). FontWeight="Bold"
+             (Button Content as a plain string isn't bolded by a bold-ish font automatically) adds
+             extra visual weight. Colours (ExpandGlyphBrush/ExpandGlyphBackgroundBrush — the
+             palette's orange tint) are assigned in code-behind, matching this codebase's existing
+             AppColors-in-code convention. -->
+        <Grid Grid.Row="2" Margin="4,0,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Compact legend: coloured swatch + label per series. Swatch colours are assigned in
+                 code-behind (AppColors), matching how the rest of this codebase applies brushes. -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
+                    <TextBlock Text="SoC" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border x:Name="LegendLimitSwatch" Width="8" Height="8" CornerRadius="4"/>
+                    <TextBlock Text="Limit" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border x:Name="LegendPowerSwatch" Width="8" Height="8" CornerRadius="4"/>
+                    <TextBlock Text="Power" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Border x:Name="LegendLimitSwatch" Width="8" Height="8" CornerRadius="4"/>
-                <TextBlock Text="Limit" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Border x:Name="LegendPowerSwatch" Width="8" Height="8" CornerRadius="4"/>
-                <TextBlock Text="Power" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </StackPanel>
-        </StackPanel>
+
+            <!-- Same footprint as the time-scale buttons (Style below supplies MinWidth/
+                 CornerRadius/BorderThickness/HorizontalContentAlignment; Width/Height pin it
+                 exactly rather than relying on auto-size, since "⛶" and e.g. "15m" measure
+                 differently) — Padding is tighter than the style's own (3 vs. the style's "0,4")
+                 so the glyph reads large within that same box while still keeping a visible gap
+                 from the edges. -->
+            <Button x:Name="ExpandGlyph"
+                    Grid.Column="1"
+                    Style="{StaticResource TimeScaleButtonStyle}"
+                    Content="⛶"
+                    FontSize="18"
+                    FontWeight="Bold"
+                    Padding="3"
+                    Width="36"
+                    Height="28"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Expand"
+                    Click="OnExpandGlyphClick"/>
+        </Grid>
     </Grid>
 </UserControl>

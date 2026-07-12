@@ -1,7 +1,10 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Windows.Devices.Power;
 using Windows.Graphics;
+using Windows.System.Power;
 using ChargeKeeper.Helpers;
+using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
@@ -14,8 +17,12 @@ namespace ChargeKeeper.UI;
 /// (border, no title bar — same chrome as DashboardWindow/AboutWindow) but still resizable, and
 /// dismissed the same way as the tray popup: it closes itself on focus loss. With no title-bar X,
 /// clicking away is the ONLY way to dismiss it — App's singleton recreates it cheaply next time.
-/// When opened from the visible dashboard it animates open, growing from the dashboard's
-/// on-screen rect to its final centred rect (see <see cref="AnimateOpen"/>).
+/// When opened from the visible dashboard it animates open, growing from the dashboard's on-screen
+/// rect to its final centred rect; when dismissed via focus loss it plays the same animation in
+/// reverse, shrinking from wherever it currently is back down into that origin rect before the
+/// window actually closes (see <see cref="AnimateRect"/>). If there was no origin rect to begin
+/// with (dashboard already hidden when opened), there's nothing sensible to retract into, so
+/// dismissal is an instant <see cref="Close"/> as before.
 /// </summary>
 public sealed partial class BatteryHistoryWindow : Window
 {
@@ -24,9 +31,10 @@ public sealed partial class BatteryHistoryWindow : Window
     private const int MinWidth  = 640;
     private const int MinHeight = 420;
 
-    // Open animation: ~10 ms ticks over ~180 ms — long enough to read as the dashboard's graph
-    // growing into a window, short enough to never feel like the window lags the click.
-    private const int AnimDurationMs = 180;
+    // Open/retract animation: ~10 ms ticks over ~340 ms — long enough to actually see the
+    // dashboard's graph grow into (or shrink back out of) the window, short enough to never feel
+    // like it's lagging the click or delaying the user getting to the pop-out.
+    private const int AnimDurationMs = 340;
     private const int AnimTickMs     = 10;
 
     private readonly DispatcherTimer _refreshTimer;
@@ -34,16 +42,36 @@ public sealed partial class BatteryHistoryWindow : Window
 
     // Open-animation geometry, captured in the ctor and consumed once on the FIRST Activated event.
     // The animation clock must start when the window is actually on screen: starting it in the ctor
-    // (before Activate) ran the whole 180 ms out during window realization, so the motion finished
+    // (before Activate) ran the whole duration out during window realization, so the motion finished
     // before the first frame was ever composed and looked like an instant pop.
+    // _originRect is null when the window was opened with no origin (dashboard already hidden) —
+    // that's also the signal at close time that there's nothing to retract into.
     private readonly RectInt32 _finalRect;
-    private RectInt32 _originRect;
+    private readonly RectInt32? _originRect;
     private bool _pendingAnimation;
     private bool _animStarted;
 
-    // Set the moment closing starts. Guards the Deactivated auto-close against re-entering Close()
-    // mid-teardown, and stops a stray animation tick from touching a dead AppWindow after Closed.
+    // Set the moment the Closed event fires (final teardown). Stops a stray animation tick from
+    // touching a dead AppWindow after Closed.
     private bool _closing;
+
+    // Set the moment a focus-loss dismissal begins — either the instant Close() (no origin rect) or
+    // the retract-then-close animation. Guards against a second Deactivated event arriving mid-
+    // retract (the window is still "active enough" to activate/deactivate again during its own
+    // ~340 ms close animation) from starting a second animation or double-calling Close().
+    private bool _dismissing;
+
+    // Set on the FIRST non-Deactivated Activated event this window ever receives. A Deactivated
+    // arriving before that point is spurious, not a real "user clicked away" — it can only mean
+    // the window hasn't actually finished taking focus yet (e.g. Activate() was called but the OS
+    // hasn't delivered the corresponding activation yet). Treating it as a real dismissal was
+    // observed as the pop-out opening and then immediately closing again on a fast double-click.
+    private bool _everActivated;
+
+    // Rated wattage of the connected AC adapter (TODO #41), refreshed alongside the POWER/REMAINING
+    // stats on the same 5 s timer as the graph. This window (not the small dashboard, whose fixed
+    // 340px width can't fit "AC Power (60W charger)") is where the wattage actually shows.
+    private int? _cachedAdapterWattage;
 
     /// <param name="originRect">
     /// The tray dashboard's current on-screen rect (physical px) to animate open from, or null to
@@ -71,9 +99,10 @@ public sealed partial class BatteryHistoryWindow : Window
 
         // Render immediately so the window doesn't show a blank canvas before the first tick.
         HistoryGraph.Render();
+        RefreshStats();
 
         _refreshTimer       = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _refreshTimer.Tick += (_, _) => HistoryGraph.Render();
+        _refreshTimer.Tick += (_, _) => { HistoryGraph.Render(); RefreshStats(); };
         _refreshTimer.Start();
 
         Activated += OnActivated;
@@ -89,8 +118,10 @@ public sealed partial class BatteryHistoryWindow : Window
     /// Two jobs, keyed on activation state:
     /// <list type="bullet">
     /// <item><b>Deactivated</b> → popup-style dismissal mirroring <see cref="DashboardWindow"/>:
-    /// clicking away closes the window. Close, not Hide — App's singleton nulls its reference on
-    /// Closed and recreates it cheaply, and with no title bar there is no other way to dismiss it.</item>
+    /// clicking away dismisses the window. Close, not Hide — App's singleton nulls its reference on
+    /// Closed and recreates it cheaply, and with no title bar there is no other way to dismiss it.
+    /// If an origin rect exists, shrinks the window back into it first (<see cref="AnimateRect"/>)
+    /// and closes once that finishes; otherwise closes instantly, same as before.</item>
     /// <item><b>Activated</b> (first time) → start the open animation, now that the window is
     /// actually on screen at its origin rect.</item>
     /// </list>
@@ -99,16 +130,84 @@ public sealed partial class BatteryHistoryWindow : Window
     {
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
-            if (_closing) return;
-            _closing = true;
-            Close();
+            if (!_everActivated) return;   // spurious pre-activation deactivate — see field doc
+            if (_closing || _dismissing) return;
+            _dismissing = true;
+
+            if (_originRect is { } origin)
+            {
+                // Retract from wherever the window CURRENTLY is — it's resizable, so this may not
+                // be _finalRect — back down into the dashboard's rect, then close.
+                var current = new RectInt32(
+                    AppWindow.Position.X, AppWindow.Position.Y,
+                    AppWindow.Size.Width, AppWindow.Size.Height);
+                AnimateRect(current, origin, Close);
+            }
+            else
+            {
+                // Nothing sensible to retract into — dismiss instantly, as before.
+                Close();
+            }
             return;
         }
 
-        if (_pendingAnimation && !_animStarted)
+        _everActivated = true;
+
+        if (_pendingAnimation && !_animStarted && _originRect is { } openOrigin)
         {
             _animStarted = true;
-            AnimateOpen(_originRect, _finalRect);
+            AnimateRect(openOrigin, _finalRect, HistoryGraph.Render);
+        }
+    }
+
+    /// <summary>
+    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch — same pattern
+    /// as <see cref="DashboardWindow"/>/<see cref="BatteryHistoryGraphControl"/>'s own RunOnUi. An
+    /// exception thrown inside a raw DispatcherQueue.TryEnqueue callback is NOT surfaced to
+    /// Application.UnhandledException — it tears the whole process down as an opaque stowed
+    /// exception with nothing logged anywhere. The wattage read below completes on a background
+    /// thread and touches UI elements afterward; if the window closed in the meantime, catching
+    /// here keeps the app alive instead of crashing it.
+    /// </summary>
+    private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (_closing) return;
+        try { action(); }
+        catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.RunOnUi", ex); }
+    });
+
+    /// <summary>
+    /// Refreshes the POWER/REMAINING stats from a fresh <see cref="BatteryReport"/>, same formatting
+    /// as <see cref="DashboardWindow"/> via <see cref="BatteryStatsFormatter"/>. The adapter wattage
+    /// (TODO #41) is an RPC read, so it's queried off the UI thread and only while actually on AC —
+    /// on battery there's no adapter to ask about.
+    /// </summary>
+    private void RefreshStats()
+    {
+        try
+        {
+            var report = Battery.AggregateBattery.GetReport();
+            bool onAC  = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
+            int  rateMw = report.ChargeRateInMilliwatts ?? 0;
+
+            PowerSourceText.Text   = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, _cachedAdapterWattage);
+            TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
+                report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
+
+            if (onAC)
+                Task.Run(() =>
+                {
+                    int? wattage = ChargerInfoService.GetRatedWattage();
+                    RunOnUi(() =>
+                    {
+                        _cachedAdapterWattage = wattage;
+                        PowerSourceText.Text  = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, wattage);
+                    });
+                });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("BatteryHistoryWindow.RefreshStats", ex);
         }
     }
 
@@ -152,42 +251,53 @@ public sealed partial class BatteryHistoryWindow : Window
     }
 
     /// <summary>
-    /// Grows the window from <paramref name="origin"/> (the tray dashboard's on-screen rect) to
-    /// <paramref name="finalRect"/> on an ease-out curve, so the pop-out reads as the dashboard's
-    /// graph expanding rather than an unrelated window appearing. Started from the first Activated
-    /// event (window on screen), NOT the ctor. No per-tick graph redraws — the control's own
-    /// SizeChanged debounce absorbs the burst of intermediate sizes; one explicit Render() lands
-    /// the final frame.
+    /// Animates the window's <see cref="AppWindow"/> rect from <paramref name="from"/> to
+    /// <paramref name="to"/> on an ease-out curve, then invokes <paramref name="onComplete"/>.
+    /// Shared by both directions: the open-grow animation (dashboard rect → final centred rect,
+    /// started from the first Activated event, NOT the ctor — see the class remarks on why) and the
+    /// close-retract animation (the window's current rect → dashboard rect). The same ease-out
+    /// curve reads well in reverse too: a fast initial shrink that settles gently into the target
+    /// rect, rather than a jarring snap right at the dashboard's edge.
+    /// <para/>
+    /// Any animation already in flight is stopped before starting a new one — e.g. a click-away
+    /// landing mid-open (fast enough to still be growing) must not leave that timer ticking
+    /// alongside a newly-started retract timer, fighting over the same AppWindow.
+    /// <para/>
+    /// No per-tick graph redraws — the control's own SizeChanged debounce absorbs the burst of
+    /// intermediate sizes; callers that care (only the open path) pass a Render() as
+    /// <paramref name="onComplete"/> to land the final frame explicitly.
     /// </summary>
-    private void AnimateOpen(RectInt32 origin, RectInt32 finalRect)
+    private void AnimateRect(RectInt32 from, RectInt32 to, Action onComplete)
     {
-        AppWindow.MoveAndResize(origin);   // ensure we start exactly at the origin rect
+        _animTimer?.Stop();
+        AppWindow.MoveAndResize(from);   // ensure we start exactly at "from"
 
         long startMs = Environment.TickCount64;
-        _animTimer   = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AnimTickMs) };
-        _animTimer.Tick += (_, _) =>
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AnimTickMs) };
+        _animTimer = timer;
+        timer.Tick += (_, _) =>
         {
-            if (_closing) { _animTimer?.Stop(); return; }   // window torn down mid-animation
+            if (_closing) { timer.Stop(); return; }   // window torn down mid-animation
 
             // Wall-clock progress, not per-tick increments — DispatcherTimer ticks can be late
             // under load, and elapsed-time-based t keeps the total duration honest regardless.
             double t = Math.Min(1.0, (Environment.TickCount64 - startMs) / (double)AnimDurationMs);
             if (t >= 1.0)
             {
-                _animTimer!.Stop();
-                AppWindow.MoveAndResize(finalRect);   // snap exactly to target — no rounding drift
-                HistoryGraph.Render();
+                timer.Stop();
+                AppWindow.MoveAndResize(to);   // snap exactly to target — no rounding drift
+                onComplete();
                 return;
             }
 
             double eased = 1 - Math.Pow(1 - t, 3);   // ease-out cubic: fast start, gentle landing
             AppWindow.MoveAndResize(new RectInt32(
-                Lerp(origin.X,      finalRect.X,      eased),
-                Lerp(origin.Y,      finalRect.Y,      eased),
-                Lerp(origin.Width,  finalRect.Width,  eased),
-                Lerp(origin.Height, finalRect.Height, eased)));
+                Lerp(from.X,      to.X,      eased),
+                Lerp(from.Y,      to.Y,      eased),
+                Lerp(from.Width,  to.Width,  eased),
+                Lerp(from.Height, to.Height, eased)));
         };
-        _animTimer.Start();
+        timer.Start();
     }
 
     /// <summary>Integer lerp for the animation rect's components.</summary>

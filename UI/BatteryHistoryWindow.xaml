@@ -15,7 +15,43 @@
     <!-- A frameless, resizable, close-on-blur window (DashboardWindow-style chrome, just bigger)
          hosting the same graph control — "Expand" already got the user here, so ShowExpandButton
          is off (hides the corner glyph and disables double-click-to-expand). -->
-    <Grid Padding="20,16,20,20">
-        <local:BatteryHistoryGraphControl x:Name="HistoryGraph" ShowExpandButton="False"/>
+    <Grid Padding="20,16,20,20" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- 0: POWER/REMAINING stats -->
+            <RowDefinition Height="*"/>     <!-- 1: graph -->
+            <RowDefinition Height="Auto"/>  <!-- 2: battery health panel (TODO #24) -->
+        </Grid.RowDefinitions>
+
+        <!-- Same POWER/REMAINING stats as the small dashboard, just with room to show the adapter's
+             rated wattage ("AC Power (60W charger)") — the small popup's fixed 340px width can't fit
+             that without overflowing, so it stays plain there and shows up here instead. -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="28">
+            <StackPanel Spacing="2">
+                <TextBlock Text="POWER"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           CharacterSpacing="100"/>
+                <TextBlock x:Name="PowerSourceText"
+                           Text="—"
+                           FontSize="13"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </StackPanel>
+            <StackPanel Spacing="2">
+                <TextBlock Text="REMAINING"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           CharacterSpacing="100"/>
+                <TextBlock x:Name="TimeRemainingText"
+                           Text="—"
+                           FontSize="13"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </StackPanel>
+        </StackPanel>
+
+        <local:BatteryHistoryGraphControl x:Name="HistoryGraph" Grid.Row="1" ShowExpandButton="False"/>
+
+        <local:BatteryHealthPanel x:Name="HealthPanel" Grid.Row="2"/>
     </Grid>
 </Window>
