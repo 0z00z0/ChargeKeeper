@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="using:ChargeKeeper.UI"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     mc:Ignorable="d">
 
     <Window.SystemBackdrop>
@@ -50,12 +51,13 @@
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
                     <Path x:Name="GaugeFill"
-                          Stroke="#C9605A"
+                          Stroke="#C9926B"
                           StrokeThickness="10"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
-                    <!-- Charge threshold tick markers — same Terracotta as the medium-gauge tier and
+                    <!-- Charge threshold tick markers — same Terracotta as the low/orange-gauge tier
+                         (TODO #34 moved Terracotta from the old medium tier to the new ≤25% tier) and
                          the history graph's charge-limit line (AppColors.Terracotta), so the "charge
                          limit" concept reads as one colour everywhere on the dashboard. -->
                     <Path x:Name="GaugeStartTick"
@@ -107,7 +109,7 @@
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                 </StackPanel>
                 <StackPanel Spacing="2">
-                    <TextBlock Text="TIME"
+                    <TextBlock Text="REMAINING"
                                FontSize="10"
                                FontWeight="SemiBold"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
@@ -154,7 +156,26 @@
                             <TextBlock Text="Smart Charge"
                                        FontSize="12"
                                        FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                <!-- Rich tooltip: a bold one-line summary, then a longer plain-
+                                     language explanation — a plain-string ToolTip can't carry two
+                                     font weights, so this uses an explicit ToolTip/StackPanel
+                                     instead. MaxWidth keeps the paragraph from stretching edge to
+                                     edge before it wraps. -->
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280" Spacing="6">
+                                            <TextBlock Text="Stops charging once your battery reaches your chosen limit, so it doesn't sit at 100% all day."
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                                Batteries wear out fastest when kept fully charged for long periods — the chemistry inside degrades quicker at high charge levels, especially while powered and warm at the same time, like a laptop plugged in at a desk. Smart Charge keeps your battery in a gentler middle range instead, which can meaningfully extend how many years it lasts before you notice shorter runtime. Need a full charge before a trip? Use "Charge to 100% once" below — it lifts the limit for a single charge and switches back automatically.
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
                             <TextBlock x:Name="SmartChargeDetailText"
                                        Text="—"
                                        FontSize="11"
@@ -167,48 +188,32 @@
                                 VerticalAlignment="Center"/>
                     </Grid>
 
-                    <!-- Threshold sliders — visible when Smart Charge is capable and enabled.
-                         Changes auto-apply (debounced); there is no Apply button.
-                         Min/Max/StepFrequency are set in code-behind (ConfigureSliderRanges):
-                         assigning RangeBase.Minimum via XAML throws a XamlParseException on this
-                         Windows App SDK build. -->
+                    <!-- Threshold range — visible when Smart Charge is capable and enabled.
+                         Changes auto-apply (debounced); there is no Apply button. A single
+                         dual-thumb RangeSelector (CommunityToolkit.WinUI.Controls, MIT license —
+                         see README external-libraries table) replaces the old two separate
+                         sliders: Start% on the left, Stop% on the right of the same track, so the
+                         relationship between them ("charge between X% and Y%") reads as one
+                         control instead of two independent ones. Minimum/Maximum/StepFrequency
+                         are set in code-behind (ConfigureThresholdRange) — assigning them via
+                         XAML throws a XamlParseException on this Windows App SDK build (same
+                         issue the old Slider.Minimum had). -->
                     <StackPanel x:Name="ThresholdSliders"
                                 Spacing="0"
                                 Margin="0,6,0,0"
                                 Visibility="Collapsed">
-                        <!-- Start % -->
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="36"/>
+                                <ColumnDefinition Width="34"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="34"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Start"
+                            <TextBlock Grid.Column="0" x:Name="StartValueText"
                                        FontSize="11" VerticalAlignment="Center"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <Slider Grid.Column="1" x:Name="StartSlider"
+                            <controls:RangeSelector Grid.Column="1" x:Name="ThresholdRange"
                                     Height="28"
-                                    IsThumbToolTipEnabled="False"
-                                    ValueChanged="OnStartSliderChanged"/>
-                            <TextBlock Grid.Column="2" x:Name="StartValueText"
-                                       FontSize="11" VerticalAlignment="Center"
-                                       HorizontalAlignment="Right"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </Grid>
-                        <!-- Stop % -->
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="36"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="34"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Stop"
-                                       FontSize="11" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <Slider Grid.Column="1" x:Name="StopSlider"
-                                    Height="28"
-                                    IsThumbToolTipEnabled="False"
-                                    ValueChanged="OnStopSliderChanged"/>
+                                    ValueChanged="OnThresholdRangeChanged"/>
                             <TextBlock Grid.Column="2" x:Name="StopValueText"
                                        FontSize="11" VerticalAlignment="Center"
                                        HorizontalAlignment="Right"
@@ -243,7 +248,21 @@
                         <TextBlock Text="Smart Standby"
                                    FontSize="12"
                                    FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip>
+                                    <StackPanel MaxWidth="280" Spacing="6">
+                                        <TextBlock Text="Puts your laptop into a deeper sleep after a while of inactivity, instead of the shallow sleep Windows uses by default."
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                            Windows' default "Modern Standby" keeps parts of your laptop lightly active even with the lid closed, so it can check for notifications and updates in the background — convenient, but it slowly drains the battery the whole time, even in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the laptop has been idle for a while, so it loses much less charge overnight or in a bag. It only changes what happens during idle standby — sleeping manually, like closing the lid for a quick break, is unaffected.
+                                        </TextBlock>
+                                    </StackPanel>
+                                </ToolTip>
+                            </ToolTipService.ToolTip>
+                        </TextBlock>
                         <TextBlock x:Name="SmartStandbyDetailText"
                                    Text="—"
                                    FontSize="11"

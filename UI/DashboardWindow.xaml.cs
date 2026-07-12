@@ -1,3 +1,4 @@
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -26,7 +27,11 @@ public sealed partial class DashboardWindow : Window
     // Arc gauge geometry: 100×100 px canvas, 7-o'clock start (135°), 270° sweep.
     private const double GaugeCx         = 50;
     private const double GaugeCy         = 50;
-    private const double GaugeRadius     = 38;
+    // 42 (up from 38): fills more of the 100x100 canvas — the ceiling here is set by the tick
+    // marks, not the arc itself (arc StrokeThickness=10 alone would allow up to 45; ticks add
+    // 6 beyond GaugeRadius at their own 2.5 stroke, so outerR=48 is the largest radius that
+    // still keeps the tick tips a safe ~1px inside the 100px canvas edge).
+    private const double GaugeRadius     = 42;
     private const double GaugeStartAngle = 135;
     private const double GaugeSweep      = 270;
 
@@ -39,7 +44,9 @@ public sealed partial class DashboardWindow : Window
     // When the popup was last hidden — lets the tray click that auto-dismissed it avoid re-showing.
     private DateTime _hiddenAtUtc = DateTime.MinValue;
 
-    // Guards slider ValueChanged handlers from triggering each other recursively.
+    // Guards OnThresholdRangeChanged from reacting to its own programmatic writes — both the
+    // periodic device-value sync (ApplyStatusBadges) and the handler's own min-gap enforcement
+    // set RangeStart/RangeEnd, which would otherwise re-enter the handler and queue a bogus apply.
     private bool _updatingSliders = false;
 
     // True from the first user slider move until the debounced apply completes. While set, the
@@ -57,7 +64,7 @@ public sealed partial class DashboardWindow : Window
     {
         _app = app;
         InitializeComponent();
-        ConfigureSliderRanges();
+        ConfigureThresholdRange();
         ConfigureWindowChrome();
 
         // Track arc never changes — build it once here instead of every refresh tick.
@@ -65,6 +72,14 @@ public sealed partial class DashboardWindow : Window
 
         // The graph control has no reference to App/window-management — it only signals intent.
         HistoryGraph.ExpandRequested += (_, _) => _app.ShowHistoryWindow();
+
+        // A compact 340px popup has no room for the gap-break diagonal strokes + duration pill,
+        // the SoC stress heat strip (TODO #25), or the hover-crosshair readout pill (TODO #27),
+        // without crowding the plot — the bigger pop-out window (which leaves all three at their
+        // default true) is where that detail belongs.
+        HistoryGraph.ShowGapMarkers    = false;
+        HistoryGraph.ShowStressHeatmap = false;
+        HistoryGraph.ShowCrosshair     = false;
 
         _refreshTimer       = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) => Refresh();
@@ -88,26 +103,21 @@ public sealed partial class DashboardWindow : Window
     private bool _closed;
 
     /// <summary>
-    /// Sets the sliders' Minimum/Maximum/StepFrequency from code instead of XAML. Assigning
-    /// <c>RangeBase.Minimum</c> through the XAML type-converter throws a XamlParseException
-    /// ("Failed to assign to property RangeBase.Minimum") at LoadComponent on this Windows App
-    /// SDK build, which crashed the whole dashboard. Direct property assignment bypasses that
-    /// path. Guarded so the value-changed handlers don't run their cross-slider logic or persist
-    /// settings during initialisation.
+    /// Sets the RangeSelector's Minimum/Maximum/StepFrequency from code instead of XAML. Assigning
+    /// them through the XAML type-converter throws a XamlParseException ("Failed to assign to
+    /// property...") at LoadComponent on this Windows App SDK build — the same issue the old
+    /// Slider.Minimum had. Bounds cover the union of the old two sliders' separate ranges
+    /// (Start was 5-95, Stop was 10-100); the min-gap enforcement in OnThresholdRangeChanged keeps
+    /// Start effectively capped at 95 and Stop at a minimum of 10 in practice. Guarded so the
+    /// value-changed handler doesn't queue a bogus apply during initialisation.
     /// </summary>
-    private void ConfigureSliderRanges()
+    private void ConfigureThresholdRange()
     {
         _updatingSliders = true;
-        SetRange(StartSlider,  5,  95, 5);
-        SetRange(StopSlider,  10, 100, 5);
+        ThresholdRange.Maximum       = 100;   // set Maximum first so Minimum never transiently exceeds it
+        ThresholdRange.Minimum       = 5;
+        ThresholdRange.StepFrequency = 5;
         _updatingSliders = false;
-    }
-
-    private static void SetRange(Slider slider, double min, double max, double step)
-    {
-        slider.Maximum       = max;   // set Maximum first so Minimum never transiently exceeds it
-        slider.Minimum       = min;
-        slider.StepFrequency = step;
     }
 
     // ── Public surface ────────────────────────────────────────────────────────
@@ -249,21 +259,25 @@ public sealed partial class DashboardWindow : Window
             }
 
             BatteryPercentText.Text = pct.HasValue ? $"{pct}%" : "--";
-            UpdateGaugeArc(pct ?? 0);
 
-            // Idle and Charging both indicate AC is connected.
+            // Idle and Charging both indicate AC is connected — same expression IconGenerator
+            // uses for the tray icon's blue "on AC" override (App.xaml.cs UpdateTrayIcon), kept
+            // identical here so the gauge and the tray icon agree on when to show blue (TODO #34).
             bool onAC = report.Status is BatteryStatus.Charging or BatteryStatus.Idle;
-            int  mw   = report.ChargeRateInMilliwatts ?? 0;
-            // Append the rate only in its expected direction (charging on AC, draining on battery);
-            // PowerFormat shows mW below 1 W so a small draw never reads as "0 W".
-            string label = onAC ? "AC Power" : "Battery";
-            string? rate = (onAC && mw > 0) || (!onAC && mw < 0) ? PowerFormat.SignedRate(mw) : null;
-            PowerSourceText.Text = rate is null ? label : $"{label}  ·  {rate}";
+            UpdateGaugeArc(pct ?? 0, onAC);
+
+            // Adapter wattage (TODO #41) lives in the pop-out window only now — the small popup's
+            // fixed 340px width can't fit "AC Power (60W charger) · +45 W" without overflowing its
+            // own card. Plain source + rate here; BatteryHistoryWindow shows the wattage.
+            PowerSourceText.Text = BatteryStatsFormatter.FormatPowerSource(
+                onAC, report.ChargeRateInMilliwatts ?? 0, adapterWattage: null);
 
             SetStatusGlyph(report.Status);
 
-            // Time remaining / time to full.
-            TimeRemainingText.Text = ComputeTimeRemaining(report);
+            // Time remaining / time to full — label stays "REMAINING"; the value itself carries the
+            // direction ("~2h 14m to full" vs "~3h remaining") so it's never ambiguous.
+            TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
+                report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
 
             // History sparkline.
             HistoryGraph.Render();
@@ -293,41 +307,6 @@ public sealed partial class DashboardWindow : Window
         StatusGlyph.Text       = glyph;
         StatusGlyph.Foreground = brush;
         ToolTipService.SetToolTip(StatusGlyph, tip);
-    }
-
-    // ── Time remaining ────────────────────────────────────────────────────────
-
-    private static string ComputeTimeRemaining(BatteryReport report)
-    {
-        // Need a non-trivial charge rate and valid capacity values.
-        if (report.ChargeRateInMilliwatts is not { } rate || Math.Abs(rate) < 100)
-            return "—";
-        if (report.RemainingCapacityInMilliwattHours is not { } remaining)
-            return "—";
-
-        if (rate > 0 && report.FullChargeCapacityInMilliwattHours is > 0 and { } full)
-        {
-            // Charging: time to reach full.
-            double h = (full - remaining) / (double)rate;
-            return FormatHours(h);
-        }
-        if (rate < 0)
-        {
-            // Discharging: time until empty.
-            double h = remaining / (double)Math.Abs(rate);
-            return FormatHours(h);
-        }
-        return "—";
-    }
-
-    private static string FormatHours(double h)
-    {
-        if (h <= 0 || double.IsInfinity(h) || double.IsNaN(h)) return "—";
-        if (h > 99) return ">99h";
-        var ts = TimeSpan.FromHours(h);
-        return ts.TotalHours >= 1
-            ? $"~{(int)ts.TotalHours}h {ts.Minutes}m"
-            : $"~{ts.Minutes}m";
     }
 
     // Called on the UI thread after the background read completes.
@@ -375,12 +354,12 @@ public sealed partial class DashboardWindow : Window
         bool showSliders = chargeState is { Capable: true, Enabled: true };
         if (showSliders && !_thresholdEditPending && chargeState!.Start > 0 && chargeState.Stop > 0)
         {
-            _updatingSliders  = true;
-            StartSlider.Value = chargeState.Start;
-            StopSlider.Value  = chargeState.Stop;
+            _updatingSliders = true;
+            ThresholdRange.RangeStart = chargeState.Start;
+            ThresholdRange.RangeEnd   = chargeState.Stop;
             StartValueText.Text = $"{chargeState.Start}%";
             StopValueText.Text  = $"{chargeState.Stop}%";
-            _updatingSliders  = false;
+            _updatingSliders = false;
         }
         ThresholdSliders.Visibility = showSliders ? Visibility.Visible : Visibility.Collapsed;
 
@@ -415,37 +394,34 @@ public sealed partial class DashboardWindow : Window
         indicator.Background = on ? AppColors.IndicatorAccentBrush : AppColors.IndicatorGreyBrush;
     }
 
-    // ── Threshold slider handlers ─────────────────────────────────────────────
+    // ── Threshold range handler ───────────────────────────────────────────────
 
-    private void OnStartSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+    /// <summary>
+    /// Fires whenever either thumb moves. RangeSelector already keeps RangeStart from passing
+    /// RangeEnd (or vice versa) by dragging the other thumb along with it — but that means the two
+    /// can end up EQUAL (zero gap) rather than crossing, which <c>LenovoChargeThreshold.SetThresholds</c>
+    /// rejects outright (<c>start &gt;= stop</c>). This restores the old two-slider behaviour's
+    /// minimum 5-point gap by nudging whichever thumb DIDN'T just move.
+    /// </summary>
+    private void OnThresholdRangeChanged(object sender, RangeChangedEventArgs e)
     {
         if (_updatingSliders) return;
-        int val = (int)e.NewValue;
-        StartValueText.Text = $"{val}%";
-        // Enforce at least a 5% gap between start and stop.
-        if (StopSlider.Value <= val)
-        {
-            _updatingSliders   = true;
-            StopSlider.Value   = Math.Min(val + 5, 100);
-            StopValueText.Text = $"{(int)StopSlider.Value}%";
-            _updatingSliders   = false;
-        }
-        QueueThresholdApply();
-    }
 
-    private void OnStopSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
-    {
-        if (_updatingSliders) return;
-        int val = (int)e.NewValue;
-        StopValueText.Text = $"{val}%";
-        // Enforce at least a 5% gap.
-        if (StartSlider.Value >= val)
+        int start = (int)ThresholdRange.RangeStart;
+        int stop  = (int)ThresholdRange.RangeEnd;
+
+        if (stop - start < 5)
         {
-            _updatingSliders    = true;
-            StartSlider.Value   = Math.Max(val - 5, 5);
-            StartValueText.Text = $"{(int)StartSlider.Value}%";
-            _updatingSliders    = false;
+            _updatingSliders = true;
+            if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+                stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
+            else
+                start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
+            _updatingSliders = false;
         }
+
+        StartValueText.Text = $"{start}%";
+        StopValueText.Text  = $"{stop}%";
         QueueThresholdApply();
     }
 
@@ -461,8 +437,8 @@ public sealed partial class DashboardWindow : Window
     private void CommitThresholds()
     {
         _thresholdApplyTimer.Stop();
-        int start = (int)StartSlider.Value;
-        int stop  = (int)StopSlider.Value;
+        int start = (int)ThresholdRange.RangeStart;
+        int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
         {
             // An explicit slider write supersedes any in-flight "charge to 100 % once": clear the
@@ -507,19 +483,27 @@ public sealed partial class DashboardWindow : Window
 
     // ── Arc gauge ─────────────────────────────────────────────────────────────
 
-    private void UpdateGaugeArc(int percent)
+    /// <summary>
+    /// Colours the arc by charge state (TODO #34): green &gt; 75 %, yellow 26-75 %, orange
+    /// &le; 25 %, with <paramref name="onAC"/> forcing blue regardless of level. The tray icon's
+    /// arc (<see cref="Helpers.IconGenerator"/>) uses the exact same thresholds and the exact same
+    /// hex values (via <see cref="AppColors"/>) so the gauge and the tray icon always agree.
+    /// </summary>
+    private void UpdateGaugeArc(int percent, bool onAC)
     {
         // Track geometry is constant and set in the constructor — only fill changes here.
         GaugeFill.Data = percent > 0
             ? BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep * percent / 100.0)
             : null;
 
-        GaugeFill.Stroke = percent switch
-        {
-            <= 20 => AppColors.GaugeLowBrush,
-            <= 50 => AppColors.GaugeMedBrush,
-            _     => AppColors.GaugeHighBrush
-        };
+        GaugeFill.Stroke = onAC
+            ? AppColors.GaugeChargingBrush
+            : percent switch
+            {
+                > 75 => AppColors.GaugeGreenBrush,
+                > 25 => AppColors.GaugeMedBrush,
+                _    => AppColors.GaugeLowBrush
+            };
     }
 
     /// <summary>
