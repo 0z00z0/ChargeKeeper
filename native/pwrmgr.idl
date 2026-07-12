@@ -5,9 +5,9 @@
 // drive the "Lenovo Power and Battery" (POWERMGR_COMPONENT) system device, which
 // is the same interface Lenovo Vantage uses to read/set battery charge thresholds.
 //
-// Only the procedures this app calls are exercised at runtime (LpcCreateContext,
-// LpcGetChargeThreshold, LpcSetChargeThreshold), but the full proc table is kept so
-// MIDL assigns the correct procedure numbers (RPC dispatches by proc index/offset).
+// Only the procedures this app calls are exercised at runtime (LpcCreateContext, LpcFreeContext,
+// LpcGetChargeThreshold, LpcSetChargeThreshold, and LpcGetAcAdapterWattage), but the full proc
+// table is kept so MIDL assigns the correct procedure numbers (RPC dispatches by proc index/offset).
 
 [
 uuid(af8abfc6-2132-4870-bf8d-bca541ffcf0b),

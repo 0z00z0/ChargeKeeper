@@ -14,4 +14,6 @@ public sealed class LenovoPowerModule : IVendorPowerModule
     public IChargeThresholdProvider ChargeThreshold { get; } = new LenovoChargeThreshold();
 
     public IStandbyProvider Standby { get; } = new LenovoStandby();
+
+    public IChargerInfoProvider ChargerInfo { get; } = new LenovoChargerInfo();
 }

@@ -1,9 +1,10 @@
 /*
  * lenpower.c — thin native bridge to the Lenovo Power Manager local-RPC interface.
  *
- * Exposes two flat, P/Invoke-friendly exports that the managed app calls:
- *   LenGetChargeThreshold — read battery charge start/stop thresholds
- *   LenSetChargeThreshold — write them (start==stop==0 disables, i.e. charge to 100%)
+ * Exposes flat, P/Invoke-friendly exports that the managed app calls:
+ *   LenGetChargeThreshold  — read battery charge start/stop thresholds
+ *   LenSetChargeThreshold  — write them (start==stop==0 disables, i.e. charge to 100%)
+ *   LenGetAcAdapterWattage — read the connected AC adapter's rated wattage
  *
  * The heavy lifting (NDR marshaling, context handles) is done by the MIDL-generated
  * client stub in pwrmgr_c.c. We just compose the ncalrpc binding, create a server
@@ -121,6 +122,36 @@ __declspec(dllexport) int LenSetChargeThreshold(int battery, int start, int stop
         rc = (int)RpcExceptionCode();
     }
     RpcEndExcept
+
+    Disconnect(binding, ctx);
+    return rc;
+}
+
+__declspec(dllexport) int LenGetAcAdapterWattage(int battery, int* capable, int* wattage)
+{
+    RPC_BINDING_HANDLE binding = NULL;
+    void*              ctx     = NULL;
+    int rc = Connect(&binding, &ctx);
+    if (rc) return rc;
+
+    short cap = 0;
+    long  val = 0;
+
+    RpcTryExcept
+    {
+        LpcGetAcAdapterWattage(ctx, (long)battery, &val, &cap);
+    }
+    RpcExcept(EXCEPTION_EXECUTE_HANDLER)
+    {
+        rc = (int)RpcExceptionCode();
+    }
+    RpcEndExcept
+
+    if (!rc)
+    {
+        if (capable) *capable = cap;
+        if (wattage) *wattage = val;
+    }
 
     Disconnect(binding, ctx);
     return rc;

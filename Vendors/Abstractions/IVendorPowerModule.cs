@@ -17,4 +17,7 @@ public interface IVendorPowerModule
 
     /// <summary>Modern-Standby scheduling control.</summary>
     IStandbyProvider Standby { get; }
+
+    /// <summary>Connected AC adapter information (e.g. rated wattage).</summary>
+    IChargerInfoProvider ChargerInfo { get; }
 }
