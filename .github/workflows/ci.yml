@@ -28,8 +28,20 @@ jobs:
       # folder. actions/checkout refuses a `path:` outside the workspace
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead.
-      - name: Clone ZeroZeroBrand (sibling dependency)
-        run: git clone --depth 1 https://github.com/0z00z0/ZeroZeroBrand.git ../ZeroZeroBrand
+      #
+      # PINNED to the exact ZeroZeroBrand commit this app was validated against, so
+      # builds are reproducible and library changes can't break this repo's CI
+      # unnoticed. To bump: sync the local sibling clone, re-run build+tests+the
+      # About window, then update ZEROZEROBRAND_REF here AND in release.yml
+      # (`git -C ..\ZeroZeroBrand rev-parse origin/main` prints the new SHA).
+      # Once ZeroZeroBrand publishes versioned tags/releases, pin a tag instead
+      # (tracked in that repo's issues).
+      - name: Clone ZeroZeroBrand (sibling dependency, pinned)
+        env:
+          ZEROZEROBRAND_REF: d597b79b99b482684e40fded68468d5be70d40df
+        run: |
+          git clone https://github.com/0z00z0/ZeroZeroBrand.git ../ZeroZeroBrand
+          git -C ../ZeroZeroBrand checkout --detach $env:ZEROZEROBRAND_REF
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
