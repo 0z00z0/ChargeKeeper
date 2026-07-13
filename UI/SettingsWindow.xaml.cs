@@ -229,6 +229,46 @@ internal sealed partial class SettingsWindow : Window
         if (tag == "Network") RefreshCurrentNetworkText();
     }
 
+    // ── Preset-picker plumbing (issue #22) ─────────────────────────────────────────
+    // Discrete settings are dropdowns, not spin controls (a NumberBox spinner is impractical for
+    // picking a fixed value). Presets are (label, value) pairs; the underlying int is stored in the
+    // ComboBoxItem's Tag so the display string is never parsed back.
+
+    private static readonly (string Label, int Value)[] StartupDelayPresets =
+        [("None", 0), ("2 s", 2), ("5 s", 5), ("10 s", 10), ("20 s", 20), ("30 s", 30), ("60 s", 60)];
+    private static readonly (string Label, int Value)[] DowntimeGapPresets =
+        [("None", 0), ("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60)];
+    private static readonly (string Label, int Value)[] LowBattPctPresets =
+        [("5 %", 5), ("10 %", 10), ("15 %", 15), ("20 %", 20), ("25 %", 25), ("30 %", 30), ("40 %", 40), ("50 %", 50)];
+    private static readonly (string Label, int Value)[] DrainPctPresets =
+        [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
+
+    /// <summary>
+    /// Populates a preset-picker <see cref="ComboBox"/> with its (label, value) items (each item's
+    /// <see cref="FrameworkElement.Tag"/> holds the int) and selects the one matching
+    /// <paramref name="current"/>. If the stored value is NOT one of the presets (a hand-edited
+    /// settings.json, or a value from an earlier build), it's inserted as a custom entry and
+    /// selected — so a user's stored value is shown, never silently overwritten. Call inside
+    /// <see cref="WithUpdatingSuppressed"/> so populating it doesn't fire the change-commit.
+    /// </summary>
+    private static void LoadPresetCombo(ComboBox combo, (string Label, int Value)[] presets,
+        int current, Func<int, string> formatCustom)
+    {
+        combo.Items.Clear();
+        foreach (var (label, value) in presets)
+            combo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        if (!presets.Any(p => p.Value == current))
+            combo.Items.Insert(0, new ComboBoxItem { Content = formatCustom(current), Tag = current });
+        combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().First(i => (int)i.Tag! == current);
+    }
+
+    /// <summary>Commit half of the preset-picker: read the selected item's int Tag and save it.</summary>
+    private void CommitPresetCombo(ComboBox combo, Action<AppSettings, int> save)
+    {
+        if (_updating || combo.SelectedItem is not ComboBoxItem { Tag: int value }) return;
+        SettingsService.Update(s => save(s, value));
+    }
+
     // ── General ───────────────────────────────────────────────────────────────────
 
     private void LoadGeneral()
@@ -236,19 +276,18 @@ internal sealed partial class SettingsWindow : Window
         var s = SettingsService.Current;
         WithUpdatingSuppressed(() =>
         {
-            StartupDelayBox.Value         = s.StartupDelaySeconds;
+            LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
             IconModeCombo.SelectedIndex   = (int)s.IconMode;
             GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
-            DowntimeGapBox.Value          = s.DowntimeGapMinutes;
+            LoadPresetCombo(DowntimeGapCombo, DowntimeGapPresets, s.DowntimeGapMinutes, v => $"{v} min");
         });
     }
 
-    private void OnStartupDelayChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_updating || double.IsNaN(sender.Value)) return;
-        int seconds = Math.Max(0, (int)sender.Value);
-        SettingsService.Update(s => s.StartupDelaySeconds = seconds);
-    }
+    private void OnStartupDelayChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(StartupDelayCombo, (s, v) => s.StartupDelaySeconds = v);
+
+    private void OnDowntimeGapChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(DowntimeGapCombo, (s, v) => s.DowntimeGapMinutes = v);
 
     private void OnIconModeChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -265,13 +304,6 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.GraphTimeScale = scale);
     }
 
-    private void OnDowntimeGapChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_updating || double.IsNaN(sender.Value)) return;
-        int minutes = Math.Max(0, (int)sender.Value);
-        SettingsService.Update(s => s.DowntimeGapMinutes = minutes);
-    }
-
     // ── Notifications ─────────────────────────────────────────────────────────────
 
     private void LoadNotifications()
@@ -279,12 +311,12 @@ internal sealed partial class SettingsWindow : Window
         var s = SettingsService.Current;
         WithUpdatingSuppressed(() =>
         {
-            LowBattEnabledToggle.IsOn    = s.LowBatteryWarningEnabled;
-            LowBattPctBox.Value          = s.LowBatteryWarningPct;
-            LowBattPctBox.IsEnabled      = s.LowBatteryWarningEnabled;
-            DrainEnabledToggle.IsOn      = s.DrainAnomalyWarningEnabled;
-            DrainPctPerHourBox.Value     = s.DrainAnomalyPercentPerHour;
-            DrainPctPerHourBox.IsEnabled = s.DrainAnomalyWarningEnabled;
+            LowBattEnabledToggle.IsOn      = s.LowBatteryWarningEnabled;
+            LoadPresetCombo(LowBattPctCombo, LowBattPctPresets, s.LowBatteryWarningPct, v => $"{v} %");
+            LowBattPctCombo.IsEnabled      = s.LowBatteryWarningEnabled;
+            DrainEnabledToggle.IsOn        = s.DrainAnomalyWarningEnabled;
+            LoadPresetCombo(DrainPctPerHourCombo, DrainPctPresets, s.DrainAnomalyPercentPerHour, v => $"{v} %/h");
+            DrainPctPerHourCombo.IsEnabled = s.DrainAnomalyWarningEnabled;
         });
     }
 
@@ -292,31 +324,23 @@ internal sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         bool on = LowBattEnabledToggle.IsOn;
-        LowBattPctBox.IsEnabled = on;
+        LowBattPctCombo.IsEnabled = on;
         SettingsService.Update(s => s.LowBatteryWarningEnabled = on);
     }
 
-    private void OnLowBattPctChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_updating || double.IsNaN(sender.Value)) return;
-        int pct = Math.Clamp((int)sender.Value, 1, 100);
-        SettingsService.Update(s => s.LowBatteryWarningPct = pct);
-    }
+    private void OnLowBattPctChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(LowBattPctCombo, (s, v) => s.LowBatteryWarningPct = v);
 
     private void OnDrainEnabledToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
         bool on = DrainEnabledToggle.IsOn;
-        DrainPctPerHourBox.IsEnabled = on;
+        DrainPctPerHourCombo.IsEnabled = on;
         SettingsService.Update(s => s.DrainAnomalyWarningEnabled = on);
     }
 
-    private void OnDrainPctPerHourChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_updating || double.IsNaN(sender.Value)) return;
-        int pct = Math.Clamp((int)sender.Value, 1, 100);
-        SettingsService.Update(s => s.DrainAnomalyPercentPerHour = pct);
-    }
+    private void OnDrainPctPerHourChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(DrainPctPerHourCombo, (s, v) => s.DrainAnomalyPercentPerHour = v);
 
     // ── Smart Charge (presets) ───────────────────────────────────────────────────
 

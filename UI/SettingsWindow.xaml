@@ -32,7 +32,7 @@
             <NavigationViewItem Content="Appearance"       Tag="Appearance"/>
         </NavigationView.MenuItems>
 
-        <ScrollViewer Padding="28,20,28,28" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Padding="20,12,20,16" VerticalScrollBarVisibility="Auto">
             <Grid>
 
                 <!-- ── General ─────────────────────────────────────────────────── -->
@@ -41,11 +41,8 @@
 
                     <controls:SettingsCard Header="Startup delay"
                                             Description="Seconds to wait after sign-in before ChargeKeeper initialises (0 = no delay). Keeps the app off the critical sign-in path.">
-                        <NumberBox x:Name="StartupDelayBox"
-                                   Minimum="0" Maximum="600" SmallChange="5"
-                                   SpinButtonPlacementMode="Compact"
-                                   MinWidth="120"
-                                   ValueChanged="OnStartupDelayChanged"/>
+                        <ComboBox x:Name="StartupDelayCombo" MinWidth="140"
+                                  SelectionChanged="OnStartupDelayChanged"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Tray icon style"
@@ -71,11 +68,8 @@
 
                     <controls:SettingsCard Header="Downtime gap threshold"
                                             Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
-                        <NumberBox x:Name="DowntimeGapBox"
-                                   Minimum="0" Maximum="240" SmallChange="1"
-                                   SpinButtonPlacementMode="Compact"
-                                   MinWidth="120"
-                                   ValueChanged="OnDowntimeGapChanged"/>
+                        <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
+                                  SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
                 </StackPanel>
 
@@ -100,11 +94,8 @@
                     <controls:SettingsCard Header="Low battery warning"
                                             Description="Notify when the battery drops to this level while discharging.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <NumberBox x:Name="LowBattPctBox"
-                                       Minimum="1" Maximum="100" SmallChange="5"
-                                       SpinButtonPlacementMode="Compact"
-                                       MinWidth="110"
-                                       ValueChanged="OnLowBattPctChanged"/>
+                            <ComboBox x:Name="LowBattPctCombo" MinWidth="110"
+                                      SelectionChanged="OnLowBattPctChanged"/>
                             <ToggleSwitch x:Name="LowBattEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnLowBattEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -112,11 +103,8 @@
                     <controls:SettingsCard Header="Overnight-drain warning"
                                             Description="Notify when the battery loses charge faster than this rate across a detected downtime gap.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <NumberBox x:Name="DrainPctPerHourBox"
-                                       Minimum="1" Maximum="100" SmallChange="1"
-                                       SpinButtonPlacementMode="Compact"
-                                       MinWidth="110"
-                                       ValueChanged="OnDrainPctPerHourChanged"/>
+                            <ComboBox x:Name="DrainPctPerHourCombo" MinWidth="110"
+                                      SelectionChanged="OnDrainPctPerHourChanged"/>
                             <ToggleSwitch x:Name="DrainEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnDrainEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
