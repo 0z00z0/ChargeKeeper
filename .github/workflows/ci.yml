@@ -21,7 +21,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting a
       # sibling checkout (..\0z0-shared\src\...) — locally that's a sibling
