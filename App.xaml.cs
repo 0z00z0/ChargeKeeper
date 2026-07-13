@@ -327,6 +327,13 @@ public partial class App : Application
         // TODO #28 — Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled AND a broker
         // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
         _ha = new HomeAssistantService(AppInfo.Version);
+        // Publish live values immediately on every (re)connect — not just after a battery event fires.
+        // Set BEFORE ApplySettings, which may start connecting (and invoke this) right away. Reads
+        // battery-thread fields; a cross-thread read here is benign (stale-by-one-tick at worst) and
+        // returns null before the first reading, so nothing bogus is published.
+        _ha.CurrentStateProvider = () => _lastIconState.Pct < 0
+            ? null
+            : HaStateBuilder.Build(_lastIconState.Pct, _lastRateMW, _lastOnAC, _lastThresholdState, _lastAdapterWattage);
         _ha.ApplySettings(SettingsService.Current);
     }
 

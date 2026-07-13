@@ -25,6 +25,15 @@ internal sealed class HomeAssistantService : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
+    /// <summary>
+    /// Supplies the current live state to publish immediately on every (re)connect, so a connect
+    /// that happens before the first battery tick still shows real values (previously only
+    /// <see cref="_lastStateJson"/> was republished, and that's empty until <see cref="PublishState"/>
+    /// first runs). Returns null before the first battery reading; falls back to
+    /// <see cref="_lastStateJson"/> when null or unset.
+    /// </summary>
+    public Func<HaState?>? CurrentStateProvider { get; set; }
+
     public HomeAssistantService(string swVersion)
     {
         _swVersion = swVersion;
@@ -122,7 +131,16 @@ internal sealed class HomeAssistantService : IDisposable
         foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion))
             await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
-        if (_lastStateJson is { } last)
+        // Publish a FRESH current state right away so a connect before any battery tick still shows
+        // live values. Fall back to the last cached snapshot when no provider is set / it has no
+        // reading yet (both null on a very early first connect → nothing published, as before).
+        if (CurrentStateProvider?.Invoke() is { } current)
+        {
+            string json = HaDiscovery.StatePayload(current);
+            _lastStateJson = json;
+            await PublishAsync(_stateTopic, json, retain: true, ct).ConfigureAwait(false);
+        }
+        else if (_lastStateJson is { } last)
             await PublishAsync(_stateTopic, last, retain: true, ct).ConfigureAwait(false);
     }
 

@@ -4,15 +4,18 @@ using System.Text.Json;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// A single snapshot of the values ChargeKeeper publishes to Home Assistant (TODO #28). Nullable
-/// members are omitted from the MQTT state payload when unknown (e.g. Smart Charge disabled, or a
-/// non-Lenovo laptop with no adapter-wattage reading) so their HA entities read "unknown" rather
-/// than a fabricated 0.
+/// A single snapshot of the values ChargeKeeper publishes to Home Assistant (TODO #28).
+/// <c>SmartChargeEnabled</c> reports whether Smart Charge is actively limiting the charge. When Smart
+/// Charge is off, <c>ChargeStop</c> is 100 (charging is allowed all the way to full) and
+/// <c>ChargeStart</c> is null so its HA entity reads "unknown/unavailable"; when on, both carry the
+/// live thresholds. <c>AdapterWatts</c> is null off AC, and on a non-Lenovo laptop with no
+/// adapter-wattage reading, so its entity reads "unknown" rather than a fabricated 0.
 /// </summary>
 internal readonly record struct HaState(
     int Soc,
     int PowerMw,
     bool OnAc,
+    bool SmartChargeEnabled,
     int? ChargeStart,
     int? ChargeStop,
     int? AdapterWatts);
@@ -86,12 +89,18 @@ internal static class HaDiscovery
             ["value_template"] = "{{ 'ON' if value_json.on_ac else 'OFF' }}",
             ["payload_on"] = "ON", ["payload_off"] = "OFF",
         }),
-        new("charge_start", "sensor", "Smart Charge start", new()
+        new("smart_charge", "binary_sensor", "Smart Charge", new()
+        {
+            ["value_template"] = "{{ 'ON' if value_json.smart_charge else 'OFF' }}",
+            ["payload_on"] = "ON", ["payload_off"] = "OFF",
+            ["icon"] = "mdi:battery-heart-variant",
+        }),
+        new("charge_start", "sensor", "Charge start", new()
         {
             ["unit_of_measurement"] = "%", ["icon"] = "mdi:battery-arrow-up",
             ["value_template"] = "{{ value_json.charge_start }}",
         }),
-        new("charge_stop", "sensor", "Smart Charge stop", new()
+        new("charge_stop", "sensor", "Charge stop", new()
         {
             ["unit_of_measurement"] = "%", ["icon"] = "mdi:battery-arrow-down",
             ["value_template"] = "{{ value_json.charge_stop }}",
@@ -149,17 +158,19 @@ internal static class HaDiscovery
     }
 
     /// <summary>
-    /// The shared state payload. Always-present fields (soc/power/on_ac) plus optional fields only
-    /// when known — an omitted field renders its entity "unknown" in HA, which is the honest state
-    /// for "Smart Charge off" or "no adapter-wattage support".
+    /// The shared state payload. Always-present fields (soc/power/on_ac/smart_charge) plus optional
+    /// fields only when known — an omitted field renders its entity "unknown" in HA. With Smart Charge
+    /// off, <c>charge_stop</c> is still sent as 100 (charging allowed to full) while <c>charge_start</c>
+    /// is omitted (reads "unknown"); <c>adapter_watts</c> is omitted with no adapter-wattage support.
     /// </summary>
     public static string StatePayload(HaState s)
     {
         var payload = new Dictionary<string, object>
         {
-            ["soc"]      = s.Soc,
-            ["power_mw"] = s.PowerMw,
-            ["on_ac"]    = s.OnAc,
+            ["soc"]          = s.Soc,
+            ["power_mw"]     = s.PowerMw,
+            ["on_ac"]        = s.OnAc,
+            ["smart_charge"] = s.SmartChargeEnabled,
         };
         if (s.ChargeStart is { } cs) payload["charge_start"]  = cs;
         if (s.ChargeStop  is { } ce) payload["charge_stop"]   = ce;
