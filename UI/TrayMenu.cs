@@ -64,16 +64,23 @@ internal sealed class TrayMenu
     private MenuFlyoutItem?       _currentLocationItem;
     private MenuFlyoutSubItem?    _addLocationSubmenu;
 
+    // Home Assistant / MQTT (TODO #28).
+    private ToggleMenuFlyoutItem? _haEnabledItem;
+    private MenuFlyoutItem?       _haBrokerItem;
+
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
+    private readonly Action _onHomeAssistantChanged;
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
 
-    public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged)
+    public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
+                    Action onHomeAssistantChanged)
     {
-        _onExit            = onExit;
-        _onIconModeChanged = onIconModeChanged;
+        _onExit                 = onExit;
+        _onIconModeChanged      = onIconModeChanged;
+        _onHomeAssistantChanged = onHomeAssistantChanged;
         Flyout = new MenuFlyout();
 
         foreach (var feature in features)
@@ -121,6 +128,7 @@ internal sealed class TrayMenu
         settingsMenu.Items.Add(BuildDowntimeGapMenu());
         settingsMenu.Items.Add(BuildDrainAnomalyMenu());
         settingsMenu.Items.Add(BuildNetworkProfilesMenu());
+        settingsMenu.Items.Add(BuildHomeAssistantMenu());
         settingsMenu.Items.Add(new MenuFlyoutSeparator());
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Export settings…", Command = new RelayCommand(ExportSettings) });
         settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Import settings…", Command = new RelayCommand(ImportSettings) });
@@ -235,7 +243,9 @@ internal sealed class TrayMenu
         bool    DrainAnomalyEnabled,
         int     DrainAnomalyPercentPerHour,
         bool    NetworkProfilesEnabled,
-        string  CurrentLocationLabel);
+        string  CurrentLocationLabel,
+        bool    HomeAssistantEnabled,
+        string  HomeAssistantBrokerLabel);
 
     private MenuState ReadState()
     {
@@ -263,7 +273,9 @@ internal sealed class TrayMenu
             s.DrainAnomalyWarningEnabled,
             s.DrainAnomalyPercentPerHour,
             s.NetworkProfilesEnabled,
-            DescribeCurrentLocation());
+            DescribeCurrentLocation(),
+            s.HomeAssistantEnabled,
+            DescribeBroker(s));
     }
 
     /// <summary>
@@ -341,6 +353,11 @@ internal sealed class TrayMenu
             _networkProfilesEnabledItem.IsChecked = state.NetworkProfilesEnabled;
         if (_currentLocationItem is not null)
             _currentLocationItem.Text = state.CurrentLocationLabel;
+
+        if (_haEnabledItem is not null)
+            _haEnabledItem.IsChecked = state.HomeAssistantEnabled;
+        if (_haBrokerItem is not null)
+            _haBrokerItem.Text = state.HomeAssistantBrokerLabel;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -638,6 +655,44 @@ internal sealed class TrayMenu
         SettingsService.Update(s => s.NetworkProfilesEnabled = !s.NetworkProfilesEnabled);
         QueueRefresh();
     }
+
+    /// <summary>
+    /// Home Assistant / MQTT submenu (TODO #28): an Enabled toggle plus a read-only broker status
+    /// row. Broker host/credentials are configured in settings.json for now (a proper config screen
+    /// arrives with the Settings window, #19). The toggle starts/stops publishing at runtime via the
+    /// <c>onHomeAssistantChanged</c> callback, which re-applies <c>HomeAssistantService</c>.
+    /// </summary>
+    private MenuFlyoutSubItem BuildHomeAssistantMenu()
+    {
+        var sub = new MenuFlyoutSubItem { Text = "Home Assistant" };
+
+        _haEnabledItem = new ToggleMenuFlyoutItem
+        {
+            Text    = "Publish to Home Assistant",
+            Command = new RelayCommand(ToggleHomeAssistantEnabled),
+        };
+        sub.Items.Add(_haEnabledItem);
+        sub.Items.Add(new MenuFlyoutSeparator());
+
+        // Status-only row (text set from the MenuState snapshot in ApplyState, like Network profiles).
+        _haBrokerItem = new MenuFlyoutItem { IsEnabled = false };
+        sub.Items.Add(_haBrokerItem);
+
+        return sub;
+    }
+
+    private void ToggleHomeAssistantEnabled()
+    {
+        SettingsService.Update(s => s.HomeAssistantEnabled = !s.HomeAssistantEnabled);
+        _onHomeAssistantChanged();   // re-apply to HomeAssistantService: start/stop publishing now
+        QueueRefresh();
+    }
+
+    // "Broker: 10.0.20.22:1883", or a nudge to configure it when no host is set yet.
+    private static string DescribeBroker(AppSettings s) =>
+        string.IsNullOrWhiteSpace(s.MqttBrokerHost)
+            ? "Broker: not set — edit settings.json"
+            : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
 
     /// <summary>
     /// "Add configuration for this network → &lt;preset&gt;": fingerprints the CURRENT network,

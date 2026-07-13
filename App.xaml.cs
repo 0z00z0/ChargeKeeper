@@ -353,7 +353,8 @@ public partial class App : Application
             new SmartStandbyFeature(),
             new AutoStartFeature(),
         ];
-        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh);
+        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh,
+            onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current));
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());
@@ -558,16 +559,10 @@ public partial class App : Application
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
             // ── Home Assistant publish (TODO #28) ─────────────────────────────
-            // No-op unless the MQTT publisher is enabled+connected; threshold/adapter fields are
-            // omitted (→ HA "unknown") when Smart Charge is off / no wattage support.
-            var th = _lastThresholdState;
-            _ha?.PublishState(new HaState(
-                Soc:          pct,
-                PowerMw:      _lastRateMW,
-                OnAc:         charging,
-                ChargeStart:  th is { Capable: true, Enabled: true, Start: > 0 } ? th.Start : null,
-                ChargeStop:   th is { Capable: true, Enabled: true, Stop:  > 0 } ? th.Stop  : null,
-                AdapterWatts: _lastAdapterWattage));
+            // No-op unless the MQTT publisher is enabled+connected. HaStateBuilder gates which
+            // fields are known (thresholds only when Smart Charge is on; wattage only on AC) so
+            // that mapping stays unit-tested.
+            _ha?.PublishState(HaStateBuilder.Build(pct, _lastRateMW, charging, _lastThresholdState, _lastAdapterWattage));
 
             // ── Toast: AC connected ───────────────────────────────────────────
             if (_lastBatteryStatus == BatteryStatus.Discharging &&
