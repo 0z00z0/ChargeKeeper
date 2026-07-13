@@ -126,16 +126,16 @@ rest of the app (Smart Standby, auto-start, battery gauge) works fine without it
 - .NET 10 SDK
 - A C++ toolset (Visual Studio / Build Tools with **"Desktop development with C++"**) to build the
   native Smart Charge bridge (`native/`) — only needed once
-- A sibling clone of [ZeroZeroBrand](https://github.com/0z00z0/ZeroZeroBrand) (shared ZeroZero
-  Software branding components — see [Shared components](#shared-components) below)
+- A sibling clone of [0z0-shared](https://github.com/0z00z0/0z0-shared) (shared ZeroZero
+  Software components — see [Shared components](#shared-components) below)
 
 ## Build from source
 
 ```powershell
-# 0. Clone this repo AND the shared branding library as siblings (the csproj references
-#    ..\ZeroZeroBrand\src\ZeroZero.Brand.WinUI by relative path).
+# 0. Clone this repo AND the shared components library as siblings (the csproj references
+#    ..\0z0-shared\src\ZeroZero.Brand.WinUI by relative path).
 git clone https://github.com/0z00z0/ChargeKeeper.git
-git clone https://github.com/0z00z0/ZeroZeroBrand.git
+git clone https://github.com/0z00z0/0z0-shared.git
 cd ChargeKeeper
 
 # 1. Build the native Smart Charge bridge (LenPower.dll). One-time, needs the C++ toolset.
@@ -213,8 +213,8 @@ are planned; today configuration is via this file.
 
 ## Shared components
 
-The **About** window comes from [ZeroZeroBrand](https://github.com/0z00z0/ZeroZeroBrand)
-(`ZeroZero.Brand.WinUI.BrandAboutWindow`, MIT) — the shared branding library used across ZeroZero
+The **About** window comes from [0z0-shared](https://github.com/0z00z0/0z0-shared)
+(`ZeroZero.Brand.WinUI.BrandAboutWindow`, MIT) — the shared components library used across ZeroZero
 Software apps, referenced as a sibling-folder `ProjectReference` (no NuGet package yet). How the
 integration works:
 

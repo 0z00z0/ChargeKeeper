@@ -67,7 +67,7 @@
          references a WinUI library (ZeroZero.Brand.WinUI), so its BrandAboutWindow.xaml lands in
          Tests\bin — without this Remove the publish's XAML compiler picks up that copy, generates
          a BrandAboutWindow.g.i.cs, and it collides with the real referenced type (CS0436 + CS1729).
-         Harmless before the ZeroZeroBrand reference existed (no external .xaml sat in Tests\bin). -->
+         Harmless before the 0z0-shared reference existed (no external .xaml sat in Tests\bin). -->
     <Page Remove="Tests\**" />
     <ApplicationDefinition Remove="Tests\**" />
   </ItemGroup>
@@ -127,11 +127,12 @@
 
   <!-- Shared ZeroZero Software branding: the About window comes from here instead of a
        hand-rolled UI/AboutWindow. Plain sibling-folder ProjectReference (no NuGet feed yet) — the
-       CI workflows git-clone 0z00z0/ZeroZeroBrand beside this repo, PINNED to an exact commit
-       (ZEROZEROBRAND_REF in ci.yml/release.yml), so builds are reproducible; local dev uses the
-       live sibling folder. Integration contract documented in README "Shared components". -->
+       CI workflows git-clone 0z00z0/0z0-shared beside this repo, PINNED to an exact commit
+       (SHARED_REF in ci.yml/release.yml), so builds are reproducible; local dev uses the live
+       sibling folder. (The repo/folder was renamed ZeroZeroBrand → 0z0-shared 2026-07-13; project
+       name ZeroZero.Brand.WinUI is unchanged.) Integration contract documented in README. -->
   <ItemGroup>
-    <ProjectReference Include="..\ZeroZeroBrand\src\ZeroZero.Brand.WinUI\ZeroZero.Brand.WinUI.csproj" />
+    <ProjectReference Include="..\0z0-shared\src\ZeroZero.Brand.WinUI\ZeroZero.Brand.WinUI.csproj" />
   </ItemGroup>
 
   <!--

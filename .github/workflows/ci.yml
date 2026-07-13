@@ -24,24 +24,24 @@ jobs:
         uses: actions/checkout@v4
 
       # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting a
-      # sibling checkout (..\ZeroZeroBrand\src\...) — locally that's a sibling
+      # sibling checkout (..\0z0-shared\src\...) — locally that's a sibling
       # folder. actions/checkout refuses a `path:` outside the workspace
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
-      # directly beside this checkout instead.
+      # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # PINNED to the exact ZeroZeroBrand commit this app was validated against, so
+      # PINNED to the exact 0z0-shared commit this app was validated against, so
       # builds are reproducible and library changes can't break this repo's CI
       # unnoticed. To bump: sync the local sibling clone, re-run build+tests+the
-      # About window, then update ZEROZEROBRAND_REF here AND in release.yml
-      # (`git -C ..\ZeroZeroBrand rev-parse origin/main` prints the new SHA).
-      # Once ZeroZeroBrand publishes versioned tags/releases, pin a tag instead
+      # About window, then update SHARED_REF here AND in release.yml
+      # (`git -C ..\0z0-shared rev-parse origin/main` prints the new SHA).
+      # Once 0z0-shared publishes versioned tags/releases, pin a tag instead
       # (tracked in that repo's issues).
-      - name: Clone ZeroZeroBrand (sibling dependency, pinned)
+      - name: Clone 0z0-shared (sibling dependency, pinned)
         env:
-          ZEROZEROBRAND_REF: d597b79b99b482684e40fded68468d5be70d40df
+          SHARED_REF: 2d89d1050f88eeaa7d64915270522cc30f3c314c
         run: |
-          git clone https://github.com/0z00z0/ZeroZeroBrand.git ../ZeroZeroBrand
-          git -C ../ZeroZeroBrand checkout --detach $env:ZEROZEROBRAND_REF
+          git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
+          git -C ../0z0-shared checkout --detach $env:SHARED_REF
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4

@@ -38,19 +38,19 @@ jobs:
           fetch-depth: 0
 
       # ProjectReference to ZeroZero.Brand.WinUI uses a relative path expecting a
-      # sibling checkout (..\ZeroZeroBrand\src\...) — locally that's a sibling
+      # sibling checkout (..\0z0-shared\src\...) — locally that's a sibling
       # folder. actions/checkout refuses a `path:` outside the workspace
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
-      # directly beside this checkout instead.
+      # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # PINNED to the exact ZeroZeroBrand commit this app was validated against —
+      # PINNED to the exact 0z0-shared commit this app was validated against —
       # keep the SHA in sync with ci.yml (bump procedure documented there).
-      - name: Clone ZeroZeroBrand (sibling dependency, pinned)
+      - name: Clone 0z0-shared (sibling dependency, pinned)
         env:
-          ZEROZEROBRAND_REF: d597b79b99b482684e40fded68468d5be70d40df
+          SHARED_REF: 2d89d1050f88eeaa7d64915270522cc30f3c314c
         run: |
-          git clone https://github.com/0z00z0/ZeroZeroBrand.git ../ZeroZeroBrand
-          git -C ../ZeroZeroBrand checkout --detach $env:ZEROZEROBRAND_REF
+          git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
+          git -C ../0z0-shared checkout --detach $env:SHARED_REF
 
       # ── 2. Resolve version string ────────────────────────────────────────────
       # Tag-triggered: strip the leading 'v'.
