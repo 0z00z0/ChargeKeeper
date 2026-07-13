@@ -744,9 +744,24 @@ internal sealed partial class SettingsWindow : Window
         {
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PresetName = presetName;
         });
-        var rules = SettingsService.Current.NetworkLocationRules;
-        if (index < rules.Count)
-            expander.Description = DescribeRulePresetSummary(rules[index]);
+        var s0 = SettingsService.Current;
+        var rules = s0.NetworkLocationRules;
+        if (index >= rules.Count) return;
+        expander.Description = DescribeRulePresetSummary(rules[index]);
+
+        // If this rule is for the network we're currently on, apply the newly-chosen preset to the
+        // device right away (decided #19 follow-up — the active network's profile takes effect
+        // immediately when you change it).
+        if (s0.NetworkProfilesEnabled && rules[index].Matches(CurrentLocation()))
+            _menu.ApplyPresetByName(presetName);
+    }
+
+    // Current network location for the immediate-apply checks — LastKnown is the cheap cached
+    // value; fall back to a live read only when it hasn't resolved yet.
+    private static NetworkLocation CurrentLocation()
+    {
+        var loc = NetworkLocationService.LastKnown;
+        return loc.IsEmpty ? NetworkLocationService.DetectCurrent() : loc;
     }
 
     private void DeleteNetworkRule(int index)
@@ -762,12 +777,9 @@ internal sealed partial class SettingsWindow : Window
     /// "Add profile for this network…": fingerprints the CURRENT network, prompts for a friendly
     /// name via the existing <see cref="NameLocationWindow"/> (reused rather than rebuilt — see
     /// the issue's acceptance criteria), and appends a new rule defaulting to the currently active
-    /// preset (or the first preset, or none). Unlike the old tray-menu flow this does NOT also
-    /// immediately push the preset to the device: the assignment here is a default guess the user
-    /// can change via the row's own Preset dropdown before it ever takes effect, whereas the old
-    /// flow's "add configuration for this network → &lt;preset&gt;" menu item WAS an explicit
-    /// preset choice at add time. A deliberate, minor behaviour change — see the implementation
-    /// notes for TODO #19.
+    /// preset (or the first preset, or none), and — since the rule is for the network you're on
+    /// right now — applies that preset to the device immediately, matching the old tray flow
+    /// (decided #19 follow-up).
     /// </summary>
     private async void OnAddNetworkRule(object sender, RoutedEventArgs e)
     {
@@ -801,6 +813,11 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildNetworkRuleRows();
         RefreshCurrentNetworkText();
+
+        // The rule is for the network we're on right now, so apply its preset to the device
+        // immediately (decided #19 follow-up — matches the old tray "add configuration → preset"
+        // flow). No-op if the preset name is blank.
+        _menu.ApplyPresetByName(defaultPreset);
     }
 
     // ── Home Assistant ────────────────────────────────────────────────────────────

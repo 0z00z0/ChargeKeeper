@@ -377,6 +377,19 @@ internal sealed class TrayMenu
             finally { QueueRefresh(); }
         });
 
+    /// <summary>
+    /// Applies the preset with the given name — the Settings window's network-profile editor calls
+    /// this so a profile added/edited for the network you're currently on takes effect immediately
+    /// (TODO #19/#22). Delegates to <see cref="ApplyPreset"/> so the device write + ActivePreset +
+    /// reconcile stay in one place; no-op when the name is blank or matches no preset.
+    /// </summary>
+    public void ApplyPresetByName(string presetName)
+    {
+        if (string.IsNullOrWhiteSpace(presetName)) return;
+        var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == presetName);
+        if (preset is not null) ApplyPreset(preset);
+    }
+
     // No explicit QueueRefresh here: Activate/Cancel settle asynchronously and fire
     // StateChanged when done — which is subscribed to QueueRefresh in the constructor.
     // Refreshing before they settle would only capture the not-yet-changed state.
