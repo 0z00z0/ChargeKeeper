@@ -342,16 +342,14 @@ internal sealed class TrayMenu
         AddPresetItems(_presetsSubmenu);
     }
 
-    // Single source for how a preset renders as a menu label, so the Presets submenu never drifts
-    // from the format the Settings window shows for the same preset (TODO #19).
-    private static string PresetLabel(ThresholdPreset p) => $"{p.Name}  ({p.Start}–{p.Stop} %)";
-
     private void AddPresetItems(MenuFlyoutSubItem sub)
     {
         foreach (var preset in SettingsService.Current.Presets)
         {
             var p    = preset; // local copy for lambda capture
-            var item = new ToggleMenuFlyoutItem { Text = PresetLabel(p) };
+            // p.Label is the single shared formatter (ThresholdPreset.FormatLabel), so this menu
+            // label never drifts from what the Settings window shows for the same preset (TODO #19).
+            var item = new ToggleMenuFlyoutItem { Text = p.Label };
             item.Command = new RelayCommand(() => ApplyPreset(p));
             _presetItems.Add((item, p));
             sub.Items.Add(item);
@@ -364,17 +362,10 @@ internal sealed class TrayMenu
             try
             {
                 // A preset IS an explicit threshold choice — it supersedes an in-flight
-                // "charge to 100 % once" override. Clear the override state FIRST and WITHOUT
-                // reverting (Deactivate, not Cancel): the preset thresholds below are the new
-                // truth, and an armed auto-revert would otherwise clobber them with the
-                // pre-override values as soon as the battery next reports full.
-                TravelOverrideService.Deactivate();
-
-                // Writing valid non-zero thresholds IS how the interface enables Smart Charge, so
-                // SetThresholds alone both enables and sets. A preceding SetEnabled(true) would only
-                // do a throwaway write of default/old values that this call immediately overwrites —
-                // and briefly commit those wrong thresholds to firmware in between.
-                bool ok = ChargeThresholdService.SetThresholds(preset.Start, preset.Stop);
+                // "charge to 100 % once" override. ApplyExplicitThresholds owns the load-bearing
+                // Deactivate-first-then-write ordering (shared with the dashboard slider and the
+                // Settings window) so it can't drift between the three call sites.
+                bool ok = TravelOverrideService.ApplyExplicitThresholds(preset.Start, preset.Stop);
                 if (ok)
                     // Update() (not "Current.ActivePreset = x; Save();") — this spans the RPC call
                     // above, so a concurrent "Reload settings from disk" could otherwise swap
@@ -472,7 +463,7 @@ internal sealed class TrayMenu
 
     // ── About / updates ─────────────────────────────────────────────────────
 
-    private const string AppName = "ChargeKeeper";
+    private const string AppName = AppInfo.Name;
 
     private void ShowAbout()
     {

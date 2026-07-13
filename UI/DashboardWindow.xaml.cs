@@ -454,13 +454,10 @@ public sealed partial class DashboardWindow : Window
         int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
         {
-            // An explicit slider write supersedes any in-flight "charge to 100 % once": clear the
-            // override WITHOUT reverting (Deactivate, not Cancel) so its armed auto-revert can't
-            // later clobber these fresh values with the pre-override thresholds. No-op when no
-            // override is active — defence in depth that keeps the "explicit threshold cancels the
-            // override" rule consistent with the presets path.
-            TravelOverrideService.Deactivate();
-            bool ok = ChargeThresholdService.SetThresholds(start, stop);
+            // An explicit slider write supersedes any in-flight "charge to 100 % once".
+            // ApplyExplicitThresholds owns the shared Deactivate-first-then-write ordering so it
+            // stays consistent with the presets path (see TravelOverrideService).
+            bool ok = TravelOverrideService.ApplyExplicitThresholds(start, stop);
             RunOnUi(() =>
             {
                 if (ok)

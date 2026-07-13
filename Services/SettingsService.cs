@@ -14,6 +14,16 @@ internal sealed class ThresholdPreset
     public ThresholdPreset() { }
     public ThresholdPreset(string name, int start, int stop)
         { Name = name; Start = start; Stop = stop; }
+
+    /// <summary>
+    /// How a preset renders as a one-line label — the single source shared by the tray Presets
+    /// submenu (<c>TrayMenu.PresetLabel</c>) and the Settings window's preset rows so the two can't
+    /// drift. Static overload for callers holding not-yet-committed name/start/stop values.
+    /// </summary>
+    public static string FormatLabel(string name, int start, int stop) => $"{name}  ({start}–{stop} %)";
+
+    /// <summary>This preset rendered via <see cref="FormatLabel(string,int,int)"/>.</summary>
+    public string Label => FormatLabel(Name, Start, Stop);
 }
 
 /// <summary>Tray icon rendering mode.</summary>

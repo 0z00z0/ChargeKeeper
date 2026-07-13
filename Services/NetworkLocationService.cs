@@ -189,9 +189,9 @@ internal static class NetworkLocationService
         {
             // FindPrimaryAdapter itself enumerates interfaces (GetAllNetworkInterfaces) and touches
             // adapter properties, which can throw NetworkInformationException during the very
-            // dock/undock race this catch exists for — so it must be INSIDE the try, or the two
-            // synchronous UI callers (DescribeCurrentLocation, AddLocationConfigurationAsync) get
-            // an unguarded exception. (Evaluate wraps its own call, but they don't.)
+            // dock/undock race this catch exists for — so it must be INSIDE the try, or the
+            // synchronous UI caller (SettingsWindow.OnAddNetworkRule, "Add profile for this
+            // network") gets an unguarded exception. (Evaluate wraps its own call, but it doesn't.)
             var primary = FindPrimaryAdapter();
             if (primary is null) return default;
 

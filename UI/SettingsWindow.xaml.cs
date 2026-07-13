@@ -51,7 +51,7 @@ namespace ChargeKeeper.UI;
 /// </summary>
 internal sealed partial class SettingsWindow : Window
 {
-    private const string AppName = "ChargeKeeper";
+    private const string AppName = AppInfo.Name;
     private const int DefaultWidth  = 820;
     private const int DefaultHeight = 640;
 
@@ -82,6 +82,7 @@ internal sealed partial class SettingsWindow : Window
         ConfigureWindowChrome();
 
         RefreshAllSections();
+        WireHaBrokerFieldEditHandlers();
 
         Nav.SelectedItem = Nav.MenuItems[0];
         ShowSection("General");
@@ -164,10 +165,7 @@ internal sealed partial class SettingsWindow : Window
             s.SettingsWindowHeight = size.Height;
         });
 
-        // Stop every outstanding preset-row debounce timer — otherwise a still-armed one fires
-        // ~700ms later against a torn-down window (see the field's own doc comment).
-        foreach (var t in _presetDebounceTimers) t.Stop();
-        _presetDebounceTimers.Clear();
+        StopAllPresetDebounceTimers();
     }
 
     /// <summary>
@@ -182,6 +180,32 @@ internal sealed partial class SettingsWindow : Window
         try { action(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.RunOnUi", ex); }
     });
+
+    /// <summary>
+    /// Runs <paramref name="apply"/> (a batch of programmatic control assignments) with the
+    /// <see cref="_updating"/> re-entrancy guard raised, always lowering it in a <c>finally</c>.
+    /// Every LoadXxx() must go through here: a bare <c>_updating = true; …; _updating = false;</c>
+    /// pair leaves the flag stuck true if any assignment throws, silently disabling every future
+    /// edit commit in the window.
+    /// </summary>
+    private void WithUpdatingSuppressed(Action apply)
+    {
+        _updating = true;
+        try { apply(); }
+        finally { _updating = false; }
+    }
+
+    /// <summary>
+    /// Stops and forgets every outstanding preset-row debounce timer — called both when the rows
+    /// are discarded (<see cref="RebuildPresetRows"/>) and when the window closes
+    /// (<see cref="OnClosed"/>), so a still-armed timer can't fire ~700 ms later against a
+    /// detached row or a torn-down window (see the <see cref="_presetDebounceTimers"/> comment).
+    /// </summary>
+    private void StopAllPresetDebounceTimers()
+    {
+        foreach (var t in _presetDebounceTimers) t.Stop();
+        _presetDebounceTimers.Clear();
+    }
 
     // ── Navigation ────────────────────────────────────────────────────────────────
 
@@ -210,12 +234,13 @@ internal sealed partial class SettingsWindow : Window
     private void LoadGeneral()
     {
         var s = SettingsService.Current;
-        _updating = true;
-        StartupDelayBox.Value       = s.StartupDelaySeconds;
-        IconModeCombo.SelectedIndex = (int)s.IconMode;
-        GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
-        DowntimeGapBox.Value         = s.DowntimeGapMinutes;
-        _updating = false;
+        WithUpdatingSuppressed(() =>
+        {
+            StartupDelayBox.Value         = s.StartupDelaySeconds;
+            IconModeCombo.SelectedIndex   = (int)s.IconMode;
+            GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
+            DowntimeGapBox.Value          = s.DowntimeGapMinutes;
+        });
     }
 
     private void OnStartupDelayChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -252,14 +277,15 @@ internal sealed partial class SettingsWindow : Window
     private void LoadNotifications()
     {
         var s = SettingsService.Current;
-        _updating = true;
-        LowBattEnabledToggle.IsOn = s.LowBatteryWarningEnabled;
-        LowBattPctBox.Value       = s.LowBatteryWarningPct;
-        LowBattPctBox.IsEnabled   = s.LowBatteryWarningEnabled;
-        DrainEnabledToggle.IsOn   = s.DrainAnomalyWarningEnabled;
-        DrainPctPerHourBox.Value  = s.DrainAnomalyPercentPerHour;
-        DrainPctPerHourBox.IsEnabled = s.DrainAnomalyWarningEnabled;
-        _updating = false;
+        WithUpdatingSuppressed(() =>
+        {
+            LowBattEnabledToggle.IsOn    = s.LowBatteryWarningEnabled;
+            LowBattPctBox.Value          = s.LowBatteryWarningPct;
+            LowBattPctBox.IsEnabled      = s.LowBatteryWarningEnabled;
+            DrainEnabledToggle.IsOn      = s.DrainAnomalyWarningEnabled;
+            DrainPctPerHourBox.Value     = s.DrainAnomalyPercentPerHour;
+            DrainPctPerHourBox.IsEnabled = s.DrainAnomalyWarningEnabled;
+        });
     }
 
     private void OnLowBattEnabledToggled(object sender, RoutedEventArgs e)
@@ -296,8 +322,6 @@ internal sealed partial class SettingsWindow : Window
 
     private void LoadSmartCharge() => RebuildPresetRows();   // also (re)populates UnknownPresetCombo
 
-    private static string PresetSummaryLabel(string name, int start, int stop) => $"{name}  ({start}–{stop} %)";
-
     /// <summary>
     /// The Fluent "critical" system brush for the preset editor's inline validation error text.
     /// Looked up by key via <see cref="ResourceDictionary.TryGetValue"/> rather than the plain
@@ -317,8 +341,7 @@ internal sealed partial class SettingsWindow : Window
         // that's still settling on one row can't fire after this method returns and commit a
         // stale value on top of (or, if renamed away, silently fail to find) whatever the fresh
         // rebuild shows.
-        foreach (var t in _presetDebounceTimers) t.Stop();
-        _presetDebounceTimers.Clear();
+        StopAllPresetDebounceTimers();
 
         PresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.Presets;
@@ -335,7 +358,7 @@ internal sealed partial class SettingsWindow : Window
         else
         {
             foreach (var preset in presets)
-                PresetsListPanel.Children.Add(BuildPresetRow(preset.Name));
+                PresetsListPanel.Children.Add(BuildPresetRow(preset));
         }
 
         RefreshUnknownPresetCombo();
@@ -348,16 +371,16 @@ internal sealed partial class SettingsWindow : Window
     /// Minimum/Maximum can be set imperatively right after construction — required on this WinUI
     /// build regardless of XAML vs. code (see the RangeSelector remarks below); building the whole
     /// row this way just avoids a second, DataTemplate-specific place to remember that rule.
-    /// Keyed by the preset's NAME (not the mutable <see cref="ThresholdPreset"/> reference) so a
-    /// concurrent <see cref="SettingsService.Reload"/> swapping <see cref="SettingsService.Current"/>
-    /// out from under an open row can't leave this closure pointing at an orphaned object — every
-    /// commit re-looks-up the live preset by name at commit time.
+    /// The row's commit closures key off the preset's NAME (captured as a string), not the passed
+    /// <see cref="ThresholdPreset"/> reference — the object supplies only the initial display values,
+    /// while a concurrent <see cref="SettingsService.Reload"/> swapping
+    /// <see cref="SettingsService.Current"/> out from under an open row can't leave a closure pointing
+    /// at an orphaned object, because every commit re-looks-up the live preset by name at commit time.
     /// </summary>
-    private SettingsExpander BuildPresetRow(string presetName)
+    private SettingsExpander BuildPresetRow(ThresholdPreset preset)
     {
-        var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == presetName);
+        string presetName = preset.Name;
         var expander = new SettingsExpander { Header = presetName };
-        if (preset is null) return expander;   // defensive — row list is rebuilt right after any removal
 
         var nameBox = new TextBox { Text = preset.Name, MinWidth = 220 };
 
@@ -398,7 +421,7 @@ internal sealed partial class SettingsWindow : Window
         footer.Children.Add(errorText);
         footer.Children.Add(deleteBtn);
 
-        expander.Header = PresetSummaryLabel(preset.Name, preset.Start, preset.Stop);
+        expander.Header = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop);
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",                              Content = nameBox },
@@ -449,7 +472,8 @@ internal sealed partial class SettingsWindow : Window
         int start = (int)range.RangeStart;
         int stop  = (int)range.RangeEnd;
 
-        var otherNames = SettingsService.Current.Presets.Select(p => p.Name);
+        var cur = SettingsService.Current;
+        var otherNames = cur.Presets.Select(p => p.Name);
         string? error = PresetEditValidator.Validate(newName, start, stop, otherNames, originalName);
         if (error is not null)
         {
@@ -460,7 +484,7 @@ internal sealed partial class SettingsWindow : Window
         errorText.Visibility = Visibility.Collapsed;
 
         bool renamed   = newName != originalName;
-        bool wasActive = SettingsService.Current.ActivePreset == originalName;
+        bool wasActive = cur.ActivePreset == originalName;
 
         SettingsService.Update(s =>
         {
@@ -481,7 +505,7 @@ internal sealed partial class SettingsWindow : Window
         // Push to the device immediately only when this preset is (still) the active one — editing
         // a preset that ISN'T active must not touch the device (reconcile contract, section C).
         if (wasActive)
-            PushThresholdsToDevice(start, stop, errorText);
+            PushThresholdsToDevice(start, stop);
 
         if (renamed)
         {
@@ -494,37 +518,30 @@ internal sealed partial class SettingsWindow : Window
         }
         else
         {
-            expander.Header = PresetSummaryLabel(newName, start, stop);
+            expander.Header = ThresholdPreset.FormatLabel(newName, start, stop);
         }
 
         _menu.ReconcileFromExternalChange();
     }
 
     /// <summary>
-    /// Pushes thresholds to the device off the UI thread — same sequence as the tray's own
-    /// <c>TrayMenu.ApplyPreset</c>: deactivate any in-flight "charge to 100% once" override FIRST
-    /// (an armed auto-revert would otherwise silently overwrite this edit with its pre-override
-    /// snapshot once the battery next reports full), then write the thresholds. On failure, the
-    /// row's own validation-error text is reused to surface it — silently discarding a device
-    /// write failure would leave settings.json/tray/window all claiming a value that was never
-    /// actually applied. <paramref name="errorText"/> may already belong to a discarded row by the
-    /// time this completes (e.g. a rename triggered a full rebuild); RunOnUi still touches it
-    /// harmlessly in that case, it just won't be visible — an acceptable degradation rather than
-    /// re-locating the row, since the far more common case (a plain threshold edit, no rename)
-    /// keeps the same row live throughout.
+    /// Pushes thresholds to the device off the UI thread via the shared
+    /// <see cref="TravelOverrideService.ApplyExplicitThresholds"/> primitive (which deactivates any
+    /// in-flight "charge to 100% once" override first). A write failure is surfaced with a TOAST,
+    /// not the preset row's inline error text: by the time this async write completes the row may
+    /// already be gone (a rename triggers a full rebuild, and the delete-fallback path has no row
+    /// at all), so a row-bound error could silently vanish exactly when it matters — the whole
+    /// point of reporting the failure. Silently discarding it would leave settings.json/tray/window
+    /// all claiming a value the device never accepted.
     /// </summary>
-    private void PushThresholdsToDevice(int start, int stop, TextBlock errorText) => Task.Run(() =>
+    private void PushThresholdsToDevice(int start, int stop) => Task.Run(() =>
     {
         try
         {
-            TravelOverrideService.Deactivate();
-            bool ok = ChargeThresholdService.SetThresholds(start, stop);
-            if (!ok)
-                RunOnUi(() =>
-                {
-                    errorText.Text = "Saved, but the device didn't accept these values — check the driver.";
-                    errorText.Visibility = Visibility.Visible;
-                });
+            if (!TravelOverrideService.ApplyExplicitThresholds(start, stop))
+                RunOnUi(() => NativeMethods.Warn(
+                    "Saved, but the device didn't accept these thresholds — check the Lenovo driver.",
+                    AppName));
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.PushThresholdsToDevice", ex); }
     });
@@ -533,25 +550,17 @@ internal sealed partial class SettingsWindow : Window
     {
         var s0 = SettingsService.Current;
         bool wasActive = s0.ActivePreset == name;
-        string? fallback = s0.Presets.Select(p => p.Name).FirstOrDefault(n => n != name);
-        var fallbackPreset = fallback is null ? null : s0.Presets.FirstOrDefault(p => p.Name == fallback);
+        var fallbackPreset = s0.Presets.FirstOrDefault(p => p.Name != name);
+        string? fallback = fallbackPreset?.Name;
 
         SettingsService.Update(s => PresetCascade.Delete(s, name, fallback));
 
         // The tray's Presets submenu will show the fallback checked (via ReconcileFromExternalChange
         // below) the moment this returns — push its thresholds to the device too, or the physical
         // battery keeps running the just-deleted preset's values while every UI surface claims the
-        // fallback is active.
+        // fallback is active. Same primitive (and same toast-on-failure) as an ordinary edit.
         if (wasActive && fallbackPreset is not null)
-            Task.Run(() =>
-            {
-                try
-                {
-                    TravelOverrideService.Deactivate();
-                    ChargeThresholdService.SetThresholds(fallbackPreset.Start, fallbackPreset.Stop);
-                }
-                catch (Exception ex) { AppLog.Error("SettingsWindow.DeletePreset", ex); }
-            });
+            PushThresholdsToDevice(fallbackPreset.Start, fallbackPreset.Stop);
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
@@ -574,26 +583,27 @@ internal sealed partial class SettingsWindow : Window
 
     private void RefreshUnknownPresetCombo()
     {
-        const string doNothing = "Do nothing";
+        const string doNothing = PresetEditValidator.UnknownNetworkSentinel;
         var s = SettingsService.Current;
 
-        _updating = true;
-        UnknownPresetCombo.Items.Clear();
-        UnknownPresetCombo.Items.Add(doNothing);
-        foreach (var p in s.Presets) UnknownPresetCombo.Items.Add(p.Name);
+        WithUpdatingSuppressed(() =>
+        {
+            UnknownPresetCombo.Items.Clear();
+            UnknownPresetCombo.Items.Add(doNothing);
+            foreach (var p in s.Presets) UnknownPresetCombo.Items.Add(p.Name);
 
-        UnknownPresetCombo.SelectedItem =
-            s.UnknownNetworkPresetName is { } name && s.Presets.Any(p => p.Name == name)
-                ? name
-                : doNothing;
-        _updating = false;
+            UnknownPresetCombo.SelectedItem =
+                s.UnknownNetworkPresetName is { } name && s.Presets.Any(p => p.Name == name)
+                    ? name
+                    : doNothing;
+        });
     }
 
     private void OnUnknownPresetChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updating) return;
         string? selected = UnknownPresetCombo.SelectedItem as string;
-        string? presetName = selected is null or "Do nothing" ? null : selected;
+        string? presetName = selected is null || selected == PresetEditValidator.UnknownNetworkSentinel ? null : selected;
         SettingsService.Update(s => s.UnknownNetworkPresetName = presetName);
     }
 
@@ -601,9 +611,7 @@ internal sealed partial class SettingsWindow : Window
 
     private void LoadNetwork()
     {
-        _updating = true;
-        NetworkEnabledToggle.IsOn = SettingsService.Current.NetworkProfilesEnabled;
-        _updating = false;
+        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = SettingsService.Current.NetworkProfilesEnabled);
         RefreshCurrentNetworkText();
         RebuildNetworkRuleRows();
     }
@@ -635,8 +643,9 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
+        var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i));
+            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames));
     }
 
     private static string DescribeMatchKey(NetworkLocationRule rule)
@@ -656,17 +665,13 @@ internal sealed partial class SettingsWindow : Window
     /// rules could in principle share a name — index is unambiguous as long as every mutation
     /// rebuilds the whole list afterwards (which every commit path below does).
     /// </summary>
-    private SettingsExpander BuildNetworkRuleRow(int index)
+    private SettingsExpander BuildNetworkRuleRow(int index, NetworkLocationRule rule, List<string> presetNames)
     {
-        var rules = SettingsService.Current.NetworkLocationRules;
         var expander = new SettingsExpander();
-        if (index < 0 || index >= rules.Count) return expander;
-        var rule = rules[index];
 
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
         var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
-        var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
         foreach (var n in presetNames) presetCombo.Items.Add(n);
         presetCombo.SelectedItem = presetNames.Contains(rule.PresetName) ? rule.PresetName : null;
 
@@ -768,9 +773,7 @@ internal sealed partial class SettingsWindow : Window
             s.NetworkProfilesEnabled = true;   // configuring a location implies wanting the feature on
         });
 
-        _updating = true;
-        NetworkEnabledToggle.IsOn = true;
-        _updating = false;
+        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
 
         RebuildNetworkRuleRows();
         RefreshCurrentNetworkText();
@@ -781,16 +784,37 @@ internal sealed partial class SettingsWindow : Window
     private void LoadHomeAssistant()
     {
         var s = SettingsService.Current;
-        _updating = true;
-        HaEnabledToggle.IsOn = s.HomeAssistantEnabled;
-        HaHostBox.Text       = s.MqttBrokerHost;
-        HaPortBox.Value      = s.MqttBrokerPort;
-        HaUsernameBox.Text   = s.MqttUsername;
-        HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
-        HaTlsToggle.IsOn     = s.MqttUseTls;
-        HaPrefixBox.Text     = s.MqttDiscoveryPrefix;
-        _updating = false;
+        WithUpdatingSuppressed(() =>
+        {
+            HaEnabledToggle.IsOn   = s.HomeAssistantEnabled;
+            HaHostBox.Text         = s.MqttBrokerHost;
+            HaPortBox.Value        = s.MqttBrokerPort;
+            HaUsernameBox.Text     = s.MqttUsername;
+            HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
+            HaTlsToggle.IsOn       = s.MqttUseTls;
+            HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
+        });
+        // A re-sync (reopen / tray Reload) discards any un-applied broker edit, so a leftover
+        // "Applied." from a previous session must not linger asserting stale values are live.
+        HaAppliedText.Visibility = Visibility.Collapsed;
         RefreshHaBrokerStatusText();
+    }
+
+    /// <summary>
+    /// Hides the "Applied." confirmation the moment any broker field is edited — under the batch
+    /// save model those edits are NOT live until the next Apply click, so the label would
+    /// otherwise keep (falsely) asserting the shown values are the ones in effect. Wired once from
+    /// the constructor; the six broker controls have no other change handlers by design.
+    /// </summary>
+    private void WireHaBrokerFieldEditHandlers()
+    {
+        void Hide() => HaAppliedText.Visibility = Visibility.Collapsed;
+        HaHostBox.TextChanged         += (_, _) => Hide();
+        HaUsernameBox.TextChanged     += (_, _) => Hide();
+        HaPrefixBox.TextChanged       += (_, _) => Hide();
+        HaPortBox.ValueChanged        += (_, _) => Hide();
+        HaPasswordBox.PasswordChanged += (_, _) => Hide();
+        HaTlsToggle.Toggled           += (_, _) => Hide();
     }
 
     // HomeAssistantEnabled is NOT one of the batched broker fields (see the save-model doc comment
@@ -847,9 +871,7 @@ internal sealed partial class SettingsWindow : Window
 
     private void LoadAppearance()
     {
-        _updating = true;
-        UseNewStylingToggle.IsOn = SettingsService.Current.UseNewStyling;
-        _updating = false;
+        WithUpdatingSuppressed(() => UseNewStylingToggle.IsOn = SettingsService.Current.UseNewStyling);
     }
 
     // No consumer yet (TODO #45) — persists the toggle only, per the issue's explicit scope.

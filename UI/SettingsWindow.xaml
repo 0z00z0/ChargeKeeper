@@ -37,7 +37,7 @@
 
                 <!-- ── General ─────────────────────────────────────────────────── -->
                 <StackPanel x:Name="GeneralPanel" Spacing="4">
-                    <TextBlock Text="General" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="General" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Startup delay"
                                             Description="Seconds to wait after sign-in before ChargeKeeper initialises (0 = no delay). Keeps the app off the critical sign-in path.">
@@ -81,9 +81,9 @@
 
                 <!-- ── Smart Charge (presets) ──────────────────────────────────── -->
                 <StackPanel x:Name="SmartChargePanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Smart Charge" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="Smart Charge" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <TextBlock Text="Presets" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,4" Opacity="0.85"/>
+                    <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,16"/>
 
@@ -95,7 +95,7 @@
 
                 <!-- ── Notifications ────────────────────────────────────────────── -->
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Notifications" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="Notifications" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Low battery warning"
                                             Description="Notify when the battery drops to this level while discharging.">
@@ -124,7 +124,7 @@
 
                 <!-- ── Network ──────────────────────────────────────────────────── -->
                 <StackPanel x:Name="NetworkPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Network" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="Network" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Enable network profiles"
                                             Description="Automatically apply a preset when the detected network location changes. Matching is by adapter MAC address and/or IP subnet only — never by Wi-Fi network name.">
@@ -135,21 +135,21 @@
                         <TextBlock x:Name="CurrentNetworkText" Text="—" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Profiles" FontSize="13" FontWeight="SemiBold" Margin="0,12,0,4" Opacity="0.85"/>
+                    <TextBlock Text="Profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
                     <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
                     <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <!-- ── Home Assistant ───────────────────────────────────────────── -->
                 <StackPanel x:Name="HomeAssistantPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Home Assistant" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="Home Assistant" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Publish to Home Assistant"
                                             Description="Publishes battery/charge state to an MQTT broker using Home Assistant's MQTT-discovery convention. Applies immediately.">
                         <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Broker" FontSize="13" FontWeight="SemiBold" Margin="0,12,0,4" Opacity="0.85"/>
+                    <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
                     <TextBlock Text="Broker fields below are staged locally and only take effect when you click Apply — so the MQTT connection reconnects once per Apply, not per keystroke."
                                TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
 
@@ -184,7 +184,7 @@
 
                 <!-- ── Appearance ───────────────────────────────────────────────── -->
                 <StackPanel x:Name="AppearancePanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Appearance" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Use new styling"
                                             Description="Experimental new visual style (TODO #45). No effect yet — reserved for a future update.">

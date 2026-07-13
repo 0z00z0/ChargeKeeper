@@ -103,6 +103,24 @@ internal static class TravelOverrideService
     }
 
     /// <summary>
+    /// Writes an explicit new charge threshold to the device, superseding any in-flight override —
+    /// the single primitive every "apply an explicit Start/Stop" caller (a preset apply, a
+    /// dashboard slider commit, a Settings-window preset edit) funnels through, so the load-bearing
+    /// ORDERING lives in exactly one place. <see cref="Deactivate"/> runs FIRST, before the write:
+    /// an armed "charge to 100 % once" auto-revert would otherwise fire between the write and the
+    /// deactivation and clobber the new thresholds with the pre-override snapshot at the next full
+    /// charge. Writing valid non-zero thresholds is itself how Smart Charge is enabled, so no
+    /// preceding <see cref="ChargeThresholdService.SetEnabled"/> is needed (it would only commit
+    /// throwaway values to firmware first). Returns the vendor write's success flag; runs on the
+    /// caller's thread (callers already wrap it in their own <c>Task.Run</c> since the RPC blocks).
+    /// </summary>
+    public static bool ApplyExplicitThresholds(int start, int stop)
+    {
+        Deactivate();
+        return ChargeThresholdService.SetThresholds(start, stop);
+    }
+
+    /// <summary>
     /// The state-clearing half of a deactivate/revert: drop the persisted override flag and the
     /// saved revert thresholds, then fire <see cref="StateChanged"/>. Shared by <see cref="Deactivate"/>
     /// (clear only) and <see cref="ApplyRevert"/> (restore thresholds THEN clear) so a future added

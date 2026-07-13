@@ -28,11 +28,15 @@ internal static class PresetEditValidator
     internal const int MaxThreshold = 100;
 
     /// <summary>
-    /// Names reserved by the UI itself — see <c>SettingsWindow.RefreshUnknownPresetCombo</c>'s
-    /// "Do nothing" sentinel entry in the unknown-network-preset picker. A preset actually named
-    /// this would be indistinguishable from that sentinel and could never be selected there.
+    /// The unknown-network-preset picker's "route nowhere" sentinel entry (see
+    /// <c>SettingsWindow.RefreshUnknownPresetCombo</c>). Defined here — the single source both the
+    /// combo and the reserved-name check below read — so a preset can never be named the same as
+    /// the live sentinel string and become indistinguishable from it in that picker.
     /// </summary>
-    private static readonly string[] ReservedNames = ["Do nothing"];
+    internal const string UnknownNetworkSentinel = "Do nothing";
+
+    /// <summary>Names reserved by the UI itself and rejected for a preset.</summary>
+    private static readonly string[] ReservedNames = [UnknownNetworkSentinel];
 
     /// <summary>
     /// Validates a preset's name/thresholds before it is written to

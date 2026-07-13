@@ -32,6 +32,21 @@
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             </Style>
+
+            <!-- SettingsWindow (TODO #19) section + sub-section headers. Same extraction rationale
+                 as the stat styles above: these TextBlock property sets were pasted per-section.
+                 SectionHeaderStyle carries the uniform bottom margin; SubHeaderStyle leaves Margin
+                 inline since it varies between the first sub-header and the later ones. -->
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="20"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Margin" Value="0,0,0,12"/>
+            </Style>
+            <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Opacity" Value="0.85"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
