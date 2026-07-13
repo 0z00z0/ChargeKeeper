@@ -272,9 +272,10 @@ internal sealed class TrayMenu
     /// read) over a fresh <see cref="NetworkLocationService.DetectCurrent"/>: this runs inside
     /// <see cref="ReadState"/> on EVERY menu open, and a full adapter enumeration + routing-table
     /// P/Invoke there is wasted work when LocationChanged → QueueRefresh already keeps the row
-    /// current. Falls back to a live read only when LastKnown is empty — the service isn't running
-    /// (profiles disabled) or hasn't resolved yet — where a stale "no network detected" would
-    /// mislead. Safe off the UI thread either way.
+    /// current. Falls back to a live read only when LastKnown is empty — the first post-Start()
+    /// evaluation hasn't resolved yet (the service runs unconditionally, so "profiles disabled" is
+    /// NOT a reason it's empty) or the machine is genuinely offline — where showing a stale "no
+    /// network detected" during that resolve gap would mislead. Safe off the UI thread either way.
     /// </summary>
     private static string DescribeCurrentLocation()
     {
@@ -791,7 +792,7 @@ internal sealed class TrayMenu
                 [
                     new ExternalLibrary("H.NotifyIcon.WinUI", "HavenDV", "System-tray icon + native context menu for WinUI 3", "MIT", "https://github.com/HavenDV/H.NotifyIcon"),
                     new ExternalLibrary("TaskScheduler", "David Hall", "Managed wrapper over the Windows Task Scheduler API (auto-start)", "MIT", "https://github.com/dahall/TaskScheduler"),
-                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
+                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
                 ],
             },
             // Reuses this class's own CheckForUpdatesAsync (below) rather than duplicating a second
@@ -853,7 +854,7 @@ internal sealed class TrayMenu
                                 // Launch installer, then exit so no elevated process remains for
                                 // the installer to kill (which would need its own UAC prompt).
                                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                                Flyout.DispatcherQueue.TryEnqueue(() => _onExit());
+                                Flyout.DispatcherQueue?.TryEnqueue(() => _onExit());
                             }
                             catch (Exception ex)
                             {

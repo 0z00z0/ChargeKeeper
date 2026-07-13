@@ -25,7 +25,7 @@ internal static class IconGenerator
     // vector), redrawn natively per frame from a 256-unit reference canvas.
     private static readonly Color BodyLight  = Color.FromArgb(0x7B, 0x8C, 0xFF); // purple (gradient start)
     private static readonly Color BodyDark   = Color.FromArgb(0x3F, 0x5B, 0xE0); // indigo (gradient end)
-    private static readonly Color LimitAmber = Color.FromArgb(0xD8, 0xA6, 0x57); // charge-limit line
+    private static readonly Color LimitAmber = FromPacked(GaugePalette.Amber);   // charge-limit line (== brand amber)
 
     // ── Arc fill colours — charge state (TODO #34) ────────────────────────────
     // System.Drawing has no shared type with WinUI's Windows.UI.Color, but packed ARGB bytes cross
@@ -38,6 +38,17 @@ internal static class IconGenerator
     private static readonly Color FillCharging = FromPacked(GaugePalette.SteelBlue);   // on AC
 
     private static Color FromPacked(uint argb) => Color.FromArgb(unchecked((int)argb));
+
+    // Charge-state fill colour shared by BOTH tray renderers (arc + numeric) and matching the
+    // dashboard gauge via GaugePalette — one switch so the two icon modes can't drift on tiers.
+    private static Color FillFor(int percent, bool charging) => charging
+        ? FillCharging
+        : percent switch
+        {
+            > GaugePalette.GreenAbovePct   => FillGreen,
+            > GaugePalette.LowAtOrBelowPct => FillYellow,
+            _                              => FillOrange,
+        };
 
     /// <summary>
     /// Generates a multi-size ICO file and returns its path.
@@ -106,13 +117,7 @@ internal static class IconGenerator
         // the shared palette, so a discharging battery at low charge showed a jarring saturated
         // red/orange here instead of the muted Terracotta everywhere else in the app — reusing the
         // same Fill* constants and GaugePalette cutoffs as RenderBatteryBitmap fixes that.
-        Color bg = percent switch
-        {
-            > GaugePalette.GreenAbovePct   => FillGreen,
-            > GaugePalette.LowAtOrBelowPct => FillYellow,
-            _    => FillOrange,
-        };
-        if (charging) bg = FillCharging;
+        Color bg = FillFor(percent, charging);
 
         int margin = Math.Max(1, (int)Math.Round(size * MarginFraction));
         var rect   = new Rectangle(margin, margin, size - margin * 2 - 1, size - margin * 2 - 1);
@@ -240,13 +245,7 @@ internal static class IconGenerator
             // LowAtOrBelowPct, amber between, charging/on-AC forces blue. Values are the muted
             // shared palette (GaugePalette → same bytes AppColors builds from), not a vivid
             // traffic-light scheme — the gauge and this icon are consistent structurally.
-            Color fillColor = percent switch
-            {
-                > 75 => FillGreen,
-                > 25 => FillYellow,
-                _    => FillOrange,
-            };
-            if (charging) fillColor = FillCharging;
+            Color fillColor = FillFor(percent, charging);
 
             // Thin dark halo just behind the coloured fill (slightly wider stroke, drawn first)
             // so the arc keeps a crisp edge on a light/white taskbar now that there's no dark

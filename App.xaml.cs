@@ -434,6 +434,12 @@ public partial class App : Application
         // teardown be correlated with a power event (see the self-heal notes at the top).
         AppLog.Info($"PowerModeChanged: {e.Mode}.");
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+
+        // A charger swap while asleep produces no AC→battery transition to invalidate on, so drop
+        // the cached adapter wattage on resume too — the next on-AC read re-queries whatever's
+        // attached now (TODO #41).
+        ChargerInfoService.Invalidate();
+
         // On resume the shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated,
         // so H.NotifyIcon's built-in recovery never fires. A plain ForceCreate() can't help here:
         // its Create() early-returns while the library still believes the icon exists. Force a real

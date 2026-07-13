@@ -52,6 +52,12 @@ public sealed partial class DashboardWindow : Window
     // (otherwise an in-progress edit snaps back before it's applied).
     private bool _thresholdEditPending = false;
 
+    // Monotonic edit counter: bumped on every slider change so a debounced apply that completes
+    // AFTER a newer edit has started can tell it's stale and must NOT clear the edit-pending freeze
+    // (which would let Refresh() snap the sliders back and the newer edit then commit the reverted
+    // values — a silently-lost adjustment).
+    private int _thresholdEditGeneration;
+
     // Debounces auto-apply: each slider move restarts it; it fires once the user pauses.
     private readonly DispatcherTimer _thresholdApplyTimer;
 
@@ -434,6 +440,7 @@ public sealed partial class DashboardWindow : Window
     private void QueueThresholdApply()
     {
         _thresholdEditPending = true;   // freezes the periodic refresh from reverting the sliders
+        _thresholdEditGeneration++;     // supersede any in-flight commit's claim to clear that freeze
         _thresholdApplyTimer.Stop();
         _thresholdApplyTimer.Start();
     }
@@ -442,6 +449,7 @@ public sealed partial class DashboardWindow : Window
     private void CommitThresholds()
     {
         _thresholdApplyTimer.Stop();
+        int gen   = _thresholdEditGeneration;   // this apply's edit; a newer drag bumps it
         int start = (int)ThresholdRange.RangeStart;
         int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
@@ -466,9 +474,14 @@ public sealed partial class DashboardWindow : Window
                 {
                     SmartChargeDetailText.Text = "Error — check driver";
                 }
-                // Edit is done; let the next refresh resync (device now matches the sliders).
-                _thresholdEditPending = false;
-                Refresh();
+                // Only release the edit freeze if no newer edit started while this apply was in
+                // flight; otherwise Refresh() snaps the sliders back to this superseded value and
+                // the newer edit's debounced commit then reads (and re-applies) the revert.
+                if (gen == _thresholdEditGeneration)
+                {
+                    _thresholdEditPending = false;
+                    Refresh();
+                }
             });
         });
     }

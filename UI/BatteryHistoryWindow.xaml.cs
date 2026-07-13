@@ -193,9 +193,11 @@ public sealed partial class BatteryHistoryWindow : Window
             if (onAC && watts is null)
                 Task.Run(() =>
                 {
-                    int? wattage = ChargerInfoService.GetRatedWattage();
-                    if (wattage is not null)
-                        RunOnUi(() => PowerSourceText.Text = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, wattage));
+                    // Warm the cache off-thread; on success re-enter RefreshStats (now the no-RPC
+                    // warm path) so the repaint reads a FRESH report rather than the onAC/rateMw
+                    // captured before the RPC — which could be seconds stale if AC changed meanwhile.
+                    if (ChargerInfoService.GetRatedWattage() is not null)
+                        RunOnUi(RefreshStats);
                 });
         }
         catch (Exception ex)
