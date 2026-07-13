@@ -182,6 +182,34 @@ packages). The only **non-Microsoft** dependencies are:
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
 | [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
+| [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the Home Assistant integration | MIT |
+
+## Home Assistant (MQTT)
+
+ChargeKeeper can publish to [Home Assistant](https://www.home-assistant.io/) over MQTT using HA's
+**auto-discovery** — no YAML on the HA side. When enabled it connects to your broker and creates a
+single **ChargeKeeper** device with entities for battery %, charge power (W), on-AC, the Smart Charge
+start/stop thresholds, and the adapter rating; an availability topic (with a Last-Will) marks it
+offline if the app stops.
+
+It is **off by default** and never touches the network until you both enable it and set a broker
+host. Configure it in `%AppData%\ChargeKeeper\settings.json` (create the keys if absent, then restart
+ChargeKeeper):
+
+```jsonc
+{
+  "HomeAssistantEnabled": true,
+  "MqttBrokerHost": "homeassistant.local",   // or the broker IP
+  "MqttBrokerPort": 1883,
+  "MqttUsername": "your-mqtt-user",
+  "MqttPassword": "your-mqtt-password",       // stored locally, same as any MQTT client
+  "MqttUseTls": false,
+  "MqttDiscoveryPrefix": "homeassistant"      // must match HA's MQTT discovery prefix
+}
+```
+
+The password lives only in your own local settings file. A tray toggle and an in-app config screen
+are planned; today configuration is via this file.
 
 ## Shared components
 

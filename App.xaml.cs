@@ -326,7 +326,14 @@ public partial class App : Application
         StartHistorySampling();
         ScheduleUpdateCheck();
         NetworkLocationService.Start();   // TODO #31 — TrayMenu subscribes to LocationChanged for the auto-apply reaction
+
+        // TODO #28 — Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled AND a broker
+        // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
+        _ha = new HomeAssistantService(AppInfo.Version);
+        _ha.ApplySettings(SettingsService.Current);
     }
+
+    private HomeAssistantService? _ha;
 
     // ── Tray icon ─────────────────────────────────────────────────────────────
 
@@ -549,6 +556,18 @@ public partial class App : Application
             // ChargerInfoService, so per-event calls here are cheap after the first.
             _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
+
+            // ── Home Assistant publish (TODO #28) ─────────────────────────────
+            // No-op unless the MQTT publisher is enabled+connected; threshold/adapter fields are
+            // omitted (→ HA "unknown") when Smart Charge is off / no wattage support.
+            var th = _lastThresholdState;
+            _ha?.PublishState(new HaState(
+                Soc:          pct,
+                PowerMw:      _lastRateMW,
+                OnAc:         charging,
+                ChargeStart:  th is { Capable: true, Enabled: true, Start: > 0 } ? th.Start : null,
+                ChargeStop:   th is { Capable: true, Enabled: true, Stop:  > 0 } ? th.Stop  : null,
+                AdapterWatts: _lastAdapterWattage));
 
             // ── Toast: AC connected ───────────────────────────────────────────
             if (_lastBatteryStatus == BatteryStatus.Discharging &&
@@ -836,6 +855,7 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
+        _ha?.Dispose();   // goes offline in HA but keeps the retained discovery (device persists)
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();
