@@ -119,6 +119,38 @@ internal sealed class AppSettings
     /// </summary>
     public NetworkLocationRule? FindNetworkRule(NetworkLocation location) =>
         NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
+
+    // ── Home Assistant / MQTT (TODO #28) ────────────────────────────────────────
+    /// <summary>
+    /// Master on/off for the MQTT publisher. Off by default and inert until the user both enables it
+    /// AND fills in a broker host — ChargeKeeper never touches the network otherwise.
+    /// </summary>
+    public bool HomeAssistantEnabled { get; set; } = false;
+
+    /// <summary>MQTT broker hostname/IP (e.g. the Home Assistant host). Empty = feature inactive.</summary>
+    public string MqttBrokerHost { get; set; } = "";
+
+    /// <summary>MQTT broker port. 1883 plaintext / 8883 TLS by convention.</summary>
+    public int MqttBrokerPort { get; set; } = 1883;
+
+    /// <summary>MQTT username (blank for an anonymous broker).</summary>
+    public string MqttUsername { get; set; } = "";
+
+    /// <summary>
+    /// MQTT password (blank for an anonymous broker). Stored in the user's own local settings.json,
+    /// same as any MQTT client's config — it is the user's broker credential, entered by the user.
+    /// </summary>
+    public string MqttPassword { get; set; } = "";
+
+    /// <summary>Use TLS for the broker connection (port is usually 8883 then).</summary>
+    public bool MqttUseTls { get; set; } = false;
+
+    /// <summary>
+    /// Home Assistant MQTT-discovery topic prefix — must match HA's configured prefix (default
+    /// "homeassistant"). Discovery config topics are published under this; entity state under
+    /// "chargekeeper/&lt;node&gt;/…".
+    /// </summary>
+    public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
 }
 
 /// <summary>
