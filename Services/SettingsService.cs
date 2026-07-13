@@ -164,9 +164,7 @@ internal sealed class AppSettings
 /// </summary>
 internal static class SettingsService
 {
-    private static readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ChargeKeeper", "settings.json");
+    private static readonly string _path = AppPaths.DataFile("settings.json");
 
     private static readonly Lock          _lock = new();
     private static          AppSettings?  _current;

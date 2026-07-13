@@ -130,8 +130,8 @@ public partial class App : Application
         try
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var oldDir  = Path.Combine(appData, "LenovoPowerTray");
-            var newDir  = Path.Combine(appData, "ChargeKeeper");
+            var oldDir  = Path.Combine(appData, "LenovoPowerTray");   // legacy name — kept as-is
+            var newDir  = AppPaths.DataDir;
             if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return;
 
             Directory.Move(oldDir, newDir);
@@ -196,9 +196,7 @@ public partial class App : Application
     {
         try
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "ChargeKeeper", "relaunch-history.txt");
+            var path = AppPaths.DataFile("relaunch-history.txt");
 
             var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
             var recent = new List<long>();
@@ -270,9 +268,7 @@ public partial class App : Application
         // running yet" window this app's history has repeatedly had trouble with.
         _ = Task.Run(() =>
         {
-            string dumpDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "ChargeKeeper", "dumps");
+            string dumpDir = AppPaths.DataFile("dumps");
             CrashDumps.TryRegisterLocalDumps(dumpDir);
             CrashDumps.TryRegisterSilentExitMonitor(dumpDir);
             WatchdogTask.TryEnsureTasks();

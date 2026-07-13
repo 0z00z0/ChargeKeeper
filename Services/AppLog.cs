@@ -8,9 +8,7 @@ namespace ChargeKeeper.Services;
 /// </summary>
 internal static class AppLog
 {
-    private static readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ChargeKeeper", "app.log");
+    private static readonly string _path = AppPaths.DataFile("app.log");
 
     private static readonly Lock _lock = new();
     private static bool _dirEnsured;

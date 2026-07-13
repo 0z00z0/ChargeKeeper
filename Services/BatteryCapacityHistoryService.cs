@@ -21,20 +21,20 @@ internal readonly record struct CapacitySample(DateTime AtUtc, int FullChargeMwh
 /// </summary>
 internal static class BatteryCapacityHistoryService
 {
-    private static readonly string _defaultPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ChargeKeeper", "capacity-history.csv");
-    private static string _path = _defaultPath;
+    // All raw file I/O (path build, dir-ensure-once, append, read-last) lives in the shared
+    // CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse and the
+    // once-a-day cache below). Every store call happens under _lock, the same lock that guards that
+    // cache — see CsvSampleStore's remarks on why it holds no lock of its own.
+    private static readonly CsvSampleStore _store = new("capacity-history.csv");
 
     private static readonly Lock _lock = new();
-    private static bool _dirEnsured;
 
     // Cached so a call on every battery event (which can fire many times an hour) doesn't re-open
     // and re-scan the file after the first successful write each day.
     private static DateTime? _lastRecordedDateLocal;
 
     /// <summary>Path to the CSV file — surfaced in UI/logs for backup/inspection if ever needed.</summary>
-    public static string FilePath => _path;
+    public static string FilePath => _store.FilePath;
 
     /// <summary>
     /// TEST-ONLY seam: points the service at an isolated file and resets all in-memory state, same
@@ -45,8 +45,7 @@ internal static class BatteryCapacityHistoryService
     {
         lock (_lock)
         {
-            _path = path;
-            _dirEnsured = false;
+            _store.UseTestPath(path);
             _lastRecordedDateLocal = null;
         }
     }
@@ -68,18 +67,13 @@ internal static class BatteryCapacityHistoryService
 
             try
             {
-                if (!_dirEnsured)
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                    _dirEnsured = true;
-                }
-
                 // First check this process makes: also look at the FILE's last line, not just the
                 // in-memory cache — a same-day app restart must not duplicate a row a previous
-                // process already wrote before exiting.
-                if (_lastRecordedDateLocal is null && File.Exists(_path))
+                // process already wrote before exiting. (ReadLastLine returns null when the file
+                // doesn't exist yet, same as the old File.Exists guard.)
+                if (_lastRecordedDateLocal is null)
                 {
-                    var lastLine = File.ReadLines(_path).LastOrDefault();
+                    var lastLine = _store.ReadLastLine();
                     if (lastLine is not null && TryParse(lastLine, out var last) &&
                         last.AtUtc.ToLocalTime().Date == today)
                     {
@@ -89,7 +83,7 @@ internal static class BatteryCapacityHistoryService
                 }
 
                 var sample = new CapacitySample(DateTime.UtcNow, fullChargeMwh, designMwh);
-                File.AppendAllText(_path, Format(sample) + "\n");
+                _store.AppendLine(Format(sample));   // ensures the directory on first write
                 _lastRecordedDateLocal = today;
             }
             catch (Exception ex)
@@ -113,10 +107,9 @@ internal static class BatteryCapacityHistoryService
             var result = new List<CapacitySample>();
             try
             {
-                if (File.Exists(_path))
-                    foreach (var line in File.ReadLines(_path))
-                        if (TryParse(line, out var s))
-                            result.Add(s);
+                foreach (var line in _store.ReadAllLines())
+                    if (TryParse(line, out var s))
+                        result.Add(s);
             }
             catch (Exception ex)
             {

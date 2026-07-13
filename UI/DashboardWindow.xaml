@@ -96,26 +96,16 @@
             <!-- Right side stats -->
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="POWER"
-                               FontSize="10"
-                               FontWeight="SemiBold"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               CharacterSpacing="100"/>
+                    <TextBlock Text="POWER" Style="{StaticResource StatLabelStyle}"/>
                     <TextBlock x:Name="PowerSourceText"
                                Text="—"
-                               FontSize="13"
-                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                               Style="{StaticResource StatValueStyle}"/>
                 </StackPanel>
                 <StackPanel Spacing="2">
-                    <TextBlock Text="REMAINING"
-                               FontSize="10"
-                               FontWeight="SemiBold"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               CharacterSpacing="100"/>
+                    <TextBlock Text="REMAINING" Style="{StaticResource StatLabelStyle}"/>
                     <TextBlock x:Name="TimeRemainingText"
                                Text="—"
-                               FontSize="13"
-                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                               Style="{StaticResource StatValueStyle}"/>
                 </StackPanel>
             </StackPanel>
         </Grid>

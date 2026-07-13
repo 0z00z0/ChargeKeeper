@@ -41,10 +41,12 @@ internal static class BatteryHistoryService
     // ~3%/hour) further filters before ever toasting.
     private static readonly TimeSpan MinGapForAnomalyCheck = TimeSpan.FromSeconds(SampleIntervalSeconds * 3);
 
-    private static readonly string _defaultPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ChargeKeeper", "history.csv");
-    private static string _path = _defaultPath;
+    // All raw file I/O (path build, dir-ensure-once, append, read-all, read-last) lives in the
+    // shared CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse, the
+    // windowing, pruning, and gap-detection state below). Every store call happens under _lock, the
+    // same lock that guards that in-memory state — see CsvSampleStore's remarks on why it holds no
+    // lock of its own.
+    private static readonly CsvSampleStore _store = new("history.csv");
 
     private static readonly Lock _lock = new();
 
@@ -52,7 +54,6 @@ internal static class BatteryHistoryService
     private static readonly List<BatterySample> _window = [];
     private static TimeSpan _windowSpan = TimeSpan.FromHours(1);
     private static bool _pruned;
-    private static bool _dirEnsured;
 
     // Last sample actually persisted to the file, tracked independently of the (span-limited)
     // _window so downtime-gap detection (TODO #26) still works when the gap is LONGER than the
@@ -65,7 +66,7 @@ internal static class BatteryHistoryService
     private static bool _lastPersistedLoaded;
 
     /// <summary>Path to the CSV history file — can be surfaced in the UI for backup/inspection.</summary>
-    public static string FilePath => _path;
+    public static string FilePath => _store.FilePath;
 
     /// <summary>The time span currently loaded into memory (set by the last <see cref="LoadWindow"/> call).</summary>
     public static TimeSpan CurrentSpan { get { lock (_lock) return _windowSpan; } }
@@ -79,11 +80,10 @@ internal static class BatteryHistoryService
     {
         lock (_lock)
         {
-            _path = path;
+            _store.UseTestPath(path);
             _window.Clear();
             _windowSpan = TimeSpan.FromHours(1);
             _pruned = false;
-            _dirEnsured = false;
             _lastPersisted = null;
             _lastPersistedLoaded = false;
         }
@@ -121,12 +121,7 @@ internal static class BatteryHistoryService
 
             try
             {
-                if (!_dirEnsured)
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                    _dirEnsured = true;
-                }
-                File.AppendAllText(_path, Format(sample) + "\n");
+                _store.AppendLine(Format(sample));
             }
             catch (Exception ex)
             {
@@ -159,18 +154,17 @@ internal static class BatteryHistoryService
             var cutoff = DateTime.UtcNow - window;
             try
             {
-                if (File.Exists(_path))
-                    foreach (var line in File.ReadLines(_path))
-                        if (TryParse(line, out var s))
-                        {
-                            // Seed gap-detection's last-persisted sample from the newest row overall
-                            // (rows are appended in time order) — NOT just rows inside the window, or
-                            // an overnight gap (where every row is older than the cutoff) would leave
-                            // it unseeded. Piggybacks on this single file read instead of Record
-                            // re-reading the file itself.
-                            _lastPersisted = s;
-                            if (s.AtUtc >= cutoff) _window.Add(s);
-                        }
+                foreach (var line in _store.ReadAllLines())
+                    if (TryParse(line, out var s))
+                    {
+                        // Seed gap-detection's last-persisted sample from the newest row overall
+                        // (rows are appended in time order) — NOT just rows inside the window, or
+                        // an overnight gap (where every row is older than the cutoff) would leave
+                        // it unseeded. Piggybacks on this single file read instead of Record
+                        // re-reading the file itself.
+                        _lastPersisted = s;
+                        if (s.AtUtc >= cutoff) _window.Add(s);
+                    }
                 _lastPersistedLoaded = true;
             }
             catch (Exception ex)
@@ -208,9 +202,8 @@ internal static class BatteryHistoryService
     {
         try
         {
-            if (!File.Exists(_path)) return null;
             BatterySample? last = null;
-            foreach (var line in File.ReadLines(_path))
+            foreach (var line in _store.ReadAllLines())
                 if (TryParse(line, out var s))
                     last = s;
             return last;
@@ -226,11 +219,10 @@ internal static class BatteryHistoryService
     {
         try
         {
-            if (!File.Exists(_path)) return;
             var cutoff = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
             var kept = new List<string>();
             int droppedCount = 0;
-            foreach (var line in File.ReadLines(_path))
+            foreach (var line in _store.ReadAllLines())   // empty when the file doesn't exist yet
             {
                 if (!TryParse(line, out var s)) continue;   // skip blank/corrupt lines
                 if (s.AtUtc >= cutoff) kept.Add(line);
@@ -238,9 +230,12 @@ internal static class BatteryHistoryService
             }
             if (droppedCount > 0)
             {
-                var tmp = _path + ".tmp";
+                // Rewrite in place via a temp file + atomic move — a whole-file rewrite that stays a
+                // BatteryHistoryService concern (the append-only store offers no rewrite op).
+                var path = _store.FilePath;
+                var tmp = path + ".tmp";
                 File.WriteAllLines(tmp, kept);
-                File.Move(tmp, _path, overwrite: true);
+                File.Move(tmp, path, overwrite: true);
                 AppLog.Info($"History pruned: dropped {droppedCount} row(s) older than {RetentionDays}d, {kept.Count} kept.");
             }
         }

@@ -41,9 +41,7 @@ internal static class WatchdogTask
     // Bumping the def version forces a rewrite of both task definitions on next startup.
     private const string DefStamp = "[ChargeKeeper def-v1]";
 
-    private static string HoldMarkerPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ChargeKeeper", "watchdog-hold.marker");
+    private static string HoldMarkerPath => AppPaths.DataFile("watchdog-hold.marker");
 
     internal static bool HoldMarkerExists => File.Exists(HoldMarkerPath);
 

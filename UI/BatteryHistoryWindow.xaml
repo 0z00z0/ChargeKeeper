@@ -27,26 +27,16 @@
              that without overflowing, so it stays plain there and shows up here instead. -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="28">
             <StackPanel Spacing="2">
-                <TextBlock Text="POWER"
-                           FontSize="10"
-                           FontWeight="SemiBold"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                           CharacterSpacing="100"/>
+                <TextBlock Text="POWER" Style="{StaticResource StatLabelStyle}"/>
                 <TextBlock x:Name="PowerSourceText"
                            Text="—"
-                           FontSize="13"
-                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                           Style="{StaticResource StatValueStyle}"/>
             </StackPanel>
             <StackPanel Spacing="2">
-                <TextBlock Text="REMAINING"
-                           FontSize="10"
-                           FontWeight="SemiBold"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                           CharacterSpacing="100"/>
+                <TextBlock Text="REMAINING" Style="{StaticResource StatLabelStyle}"/>
                 <TextBlock x:Name="TimeRemainingText"
                            Text="—"
-                           FontSize="13"
-                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                           Style="{StaticResource StatValueStyle}"/>
             </StackPanel>
         </StackPanel>
 

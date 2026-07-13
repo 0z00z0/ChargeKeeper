@@ -23,15 +23,11 @@
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="BATTERY HEALTH"
-                       FontSize="10"
-                       FontWeight="SemiBold"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                       CharacterSpacing="100"/>
+                       Style="{StaticResource StatLabelStyle}"/>
 
             <TextBlock x:Name="SummaryText" Grid.Row="1"
                        Text="Gathering data…"
-                       FontSize="13"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                       Style="{StaticResource StatValueStyle}"
                        TextWrapping="Wrap"/>
 
             <!-- Solid line = actual logged FullChargeCapacity; dashed continuation = a simple
