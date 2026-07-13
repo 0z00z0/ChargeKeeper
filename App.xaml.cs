@@ -20,6 +20,7 @@ public partial class App : Application
     private TaskbarIcon?         _trayIcon;
     private DashboardWindow?     _dashboard;
     private BatteryHistoryWindow? _historyWindow;
+    private SettingsWindow?      _settings;
     private TrayMenu?            _menu;
 
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
@@ -349,8 +350,8 @@ public partial class App : Application
             new SmartStandbyFeature(),
             new AutoStartFeature(),
         ];
-        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh,
-            onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current));
+        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow);
+        _menu.OnExternalReload     = () => _settings?.RefreshAllSections();
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());
@@ -831,6 +832,38 @@ public partial class App : Application
         _historyWindow = new BatteryHistoryWindow(origin);
         _historyWindow.Closed += (_, _) => _historyWindow = null;
         _historyWindow.Activate();
+    }
+
+    // ── Settings window (TODO #19) ────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the Settings window, or focuses it if already open. Single reusable instance — same
+    /// lazy-create-once-then-Activate singleton pattern as <see cref="ShowHistoryWindow"/>, but
+    /// (unlike that window and the dashboard) this one is a normal titled/resizable window that
+    /// stays open until the user closes it, not a popup that dismisses on focus loss. Guards
+    /// creation the same way <see cref="ToggleDashboard"/> does: a failure here must not take down
+    /// the tray app.
+    /// </summary>
+    private void ShowSettingsWindow()
+    {
+        try
+        {
+            if (_settings is not null)
+            {
+                _settings.RefreshAllSections();   // pick up any change made while it sat in the background
+                _settings.Activate();
+                return;
+            }
+
+            _settings = new SettingsWindow(_menu!, onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current));
+            _settings.Closed += (_, _) => _settings = null;
+            _settings.Activate();
+        }
+        catch (Exception ex)
+        {
+            LogCrash("ShowSettingsWindow", ex);
+            _settings = null;   // drop the half-built window so the next click retries cleanly
+        }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────

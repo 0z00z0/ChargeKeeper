@@ -160,6 +160,25 @@ internal static class NetworkLocationService
     }
 
     /// <summary>
+    /// Formats a human-readable "current network" status line — the matching rule's name, or a
+    /// fallback when nothing matches / nothing is detected. Shared (TODO #19) by the Settings
+    /// window's Network section; originally lived on TrayMenu when it had its own "Current: …"
+    /// status row, before that row moved into the Settings window. Prefers <see cref="LastKnown"/>
+    /// over a fresh <see cref="DetectCurrent"/>: a full adapter enumeration + routing-table
+    /// P/Invoke is wasted work when <see cref="LocationChanged"/> already keeps callers current.
+    /// Falls back to a live read only when LastKnown is empty — the first post-<see cref="Start"/>
+    /// evaluation hasn't resolved yet, or the machine is genuinely offline. Safe off the UI thread.
+    /// </summary>
+    public static string DescribeCurrentLocation()
+    {
+        var location = LastKnown;
+        if (location.IsEmpty) location = DetectCurrent();
+        if (location.IsEmpty) return "No network detected";
+        var rule = SettingsService.Current.FindNetworkRule(location);
+        return rule is not null ? rule.Name : "Unrecognised network";
+    }
+
+    /// <summary>
     /// Reads the current location synchronously. Used both by the change-detection path above and
     /// directly by the tray's "Add configuration for this network" command, which needs an
     /// up-to-the-moment reading rather than whatever the last debounced event happened to capture.

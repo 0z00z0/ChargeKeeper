@@ -30,9 +30,19 @@ namespace ChargeKeeper.UI;
 ///
 /// <para>
 /// Visual language: every STATEFUL item is a <see cref="ToggleMenuFlyoutItem"/> whose check
-/// mark reflects the snapshot (features, presets, travel override, icon mode, low-battery,
-/// startup delay); every ACTION is a plain text item (Export/Import, About…, Exit). No regular
-/// item carries an icon — the only emoji is the transient "⬆ Update available" alert badge.
+/// mark reflects the snapshot (features, presets, travel override, icon mode); every ACTION is
+/// a plain text item (Settings…, About…, Exit). No regular item carries an icon — the only
+/// emoji is the transient "⬆ Update available" alert badge.
+/// </para>
+///
+/// <para>
+/// TODO #19: this menu used to also carry a 4-level-deep Settings ▸ Network profiles ▸ Add
+/// configuration ▸ &lt;preset&gt; tree covering every configurable setting (low-battery %,
+/// startup delay, downtime gap, drain-anomaly %, network profiles/rules, Home Assistant/MQTT).
+/// All of that moved into <c>UI.SettingsWindow</c> (opened via the "Settings…" item below), so
+/// this menu now carries only glanceable status + quick toggles, at most one level deep
+/// (Presets ▸). Network-location auto-apply (<see cref="OnNetworkLocationChanged"/>) is NOT a
+/// menu item and stays wired here regardless — it is a background reaction, not UI.
 /// </para>
 /// </summary>
 internal sealed class TrayMenu
@@ -51,36 +61,30 @@ internal sealed class TrayMenu
     private MenuFlyoutSubItem?    _presetsSubmenu;
     private BrandAboutWindow?     _aboutWindow;
 
-    // Settings submenu state (radio-style items synced in RefreshState).
-    private ToggleMenuFlyoutItem? _lowBattEnabledItem;
-    private readonly List<(ToggleMenuFlyoutItem Item, int Pct)>     _lowBattPctItems    = [];
-    private readonly List<(ToggleMenuFlyoutItem Item, int Seconds)> _startupDelayItems  = [];
-    private readonly List<(ToggleMenuFlyoutItem Item, int Minutes)> _downtimeGapItems   = [];
-    private ToggleMenuFlyoutItem? _drainAnomalyEnabledItem;
-    private readonly List<(ToggleMenuFlyoutItem Item, int PercentPerHour)> _drainAnomalyItems = [];
-
-    // Network profiles (TODO #31).
-    private ToggleMenuFlyoutItem? _networkProfilesEnabledItem;
-    private MenuFlyoutItem?       _currentLocationItem;
-    private MenuFlyoutSubItem?    _addLocationSubmenu;
-
-    // Home Assistant / MQTT (TODO #28).
-    private ToggleMenuFlyoutItem? _haEnabledItem;
-    private MenuFlyoutItem?       _haBrokerItem;
-
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
-    private readonly Action _onHomeAssistantChanged;
+    private readonly Action _onOpenSettings;
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
 
+    /// <summary>
+    /// Set by <c>App</c> to <c>() =&gt; _settings?.RefreshAllSections()</c> — lets an external
+    /// settings replacement (Reload/Import, from <see cref="ApplySettingsLoadResult"/>) reach an
+    /// already-open Settings window. Without this hook the window's own doc comment claim (that it
+    /// resyncs after a background reload) would be false: nothing else can see the window instance,
+    /// since the reference only runs the other way (Settings window holds a TrayMenu, not vice
+    /// versa). Property rather than a constructor parameter so it can be wired after both objects
+    /// exist, and null (no-op) whenever the window isn't currently open.
+    /// </summary>
+    public Action? OnExternalReload { get; set; }
+
     public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
-                    Action onHomeAssistantChanged)
+                    Action onOpenSettings)
     {
-        _onExit                 = onExit;
-        _onIconModeChanged      = onIconModeChanged;
-        _onHomeAssistantChanged = onHomeAssistantChanged;
+        _onExit            = onExit;
+        _onIconModeChanged = onIconModeChanged;
+        _onOpenSettings    = onOpenSettings;
         Flyout = new MenuFlyout();
 
         foreach (var feature in features)
@@ -112,35 +116,26 @@ internal sealed class TrayMenu
             }
         }
 
-        // ── Settings submenu ─────────────────────────────────────────────────
+        // ── Quick toggles + Settings entry point (TODO #19) ─────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
-
-        var settingsMenu = new MenuFlyoutSubItem { Text = "Settings" };
 
         _iconModeItem = new ToggleMenuFlyoutItem
         {
             Text    = "Numeric % icon",
             Command = new RelayCommand(ToggleIconMode),
         };
-        settingsMenu.Items.Add(_iconModeItem);
-        settingsMenu.Items.Add(BuildLowBatteryMenu());
-        settingsMenu.Items.Add(BuildStartupDelayMenu());
-        settingsMenu.Items.Add(BuildDowntimeGapMenu());
-        settingsMenu.Items.Add(BuildDrainAnomalyMenu());
-        settingsMenu.Items.Add(BuildNetworkProfilesMenu());
-        settingsMenu.Items.Add(BuildHomeAssistantMenu());
-        settingsMenu.Items.Add(new MenuFlyoutSeparator());
-        settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Export settings…", Command = new RelayCommand(ExportSettings) });
-        settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Import settings…", Command = new RelayCommand(ImportSettings) });
-        settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Open settings file", Command = new RelayCommand(OpenSettingsFile) });
-        settingsMenu.Items.Add(new MenuFlyoutItem { Text = "Reload settings from disk", Command = new RelayCommand(ReloadSettings) });
-        settingsMenu.Items.Add(new MenuFlyoutSeparator());
-        settingsMenu.Items.Add(new MenuFlyoutItem
+        Flyout.Items.Add(_iconModeItem);
+
+        Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
+        Flyout.Items.Add(new MenuFlyoutItem { Text = "Open settings folder", Command = new RelayCommand(OpenSettingsFile) });
+        Flyout.Items.Add(new MenuFlyoutItem { Text = "Reload settings from file", Command = new RelayCommand(ReloadSettings) });
+
+        Flyout.Items.Add(new MenuFlyoutSeparator());
+        Flyout.Items.Add(new MenuFlyoutItem
         {
             Text    = "Check for updates",
             Command = new RelayCommand(() => _ = CheckForUpdatesAsync()),
         });
-        Flyout.Items.Add(settingsMenu);
 
         // ── About / Exit ──────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
@@ -157,7 +152,9 @@ internal sealed class TrayMenu
         // Network-location auto-apply (TODO #31) — fires on a background thread (same as
         // TravelOverrideService.StateChanged above); OnNetworkLocationChanged marshals via
         // ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed, same
-        // "lives for the whole process" reasoning.
+        // "lives for the whole process" reasoning. Not a menu item (TODO #19 moved the Network
+        // profiles submenu into SettingsWindow) — this is a background reaction that stays wired
+        // here regardless of what the menu itself shows.
         NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
 
         // QueueRefresh, not RefreshState: the initial state read (ReadState) does a Lenovo RPC +
@@ -200,6 +197,28 @@ internal sealed class TrayMenu
     public void RefreshState() => ApplyState(ReadState());
 
     /// <summary>
+    /// Silent resync for a settings change made OUTSIDE the tray menu itself — i.e. from
+    /// <c>UI.SettingsWindow</c> (TODO #19). Extracted from <see cref="ApplySettingsLoadResult"/>
+    /// (Reload keeps its own toast; the Settings window calls this bare — showing a toast on top
+    /// of the very window the user is looking at would be noise). Refreshes exactly what a
+    /// settings edit can invalidate: the icon-mode callback (in case IconMode changed), the
+    /// Presets submenu (its items close over <see cref="ThresholdPreset"/> objects, which a
+    /// rename/delete/add can replace wholesale — see <see cref="RebuildPresetsSubmenu"/>), and
+    /// every other item's check marks/availability via <see cref="RefreshState"/>.
+    /// </summary>
+    public void ReconcileFromExternalChange()
+    {
+        _onIconModeChanged();
+        RebuildPresetsSubmenu();
+        // QueueRefresh, not RefreshState: ReadState() does a Lenovo RPC + SCM query + Task
+        // Scheduler COM connect (see the constructor's own reasoning above), and this method is
+        // now called on every Settings-window preset edit/add/delete, not just the rare menu-open
+        // or Reload path — calling the synchronous version here would freeze the UI thread on
+        // every such edit.
+        QueueRefresh();
+    }
+
+    /// <summary>
     /// The funnel every state mutation ends in: captures a fresh <see cref="MenuState"/> OFF the
     /// UI thread (the feature reads go through the Lenovo RPC bridge — same off-thread-read
     /// pattern as <c>DashboardWindow.Refresh</c>) and marshals one <see cref="ApplyState"/> back
@@ -235,17 +254,7 @@ internal sealed class TrayMenu
         IReadOnlyList<(bool Available, bool Enabled)> Features,   // aligned with _toggles
         string? ActivePreset,
         bool    TravelOverrideActive,
-        bool    NumericIcon,
-        bool    LowBatteryEnabled,
-        int     LowBatteryPct,
-        int     StartupDelaySeconds,
-        int     DowntimeGapMinutes,
-        bool    DrainAnomalyEnabled,
-        int     DrainAnomalyPercentPerHour,
-        bool    NetworkProfilesEnabled,
-        string  CurrentLocationLabel,
-        bool    HomeAssistantEnabled,
-        string  HomeAssistantBrokerLabel);
+        bool    NumericIcon);
 
     private MenuState ReadState()
     {
@@ -265,37 +274,7 @@ internal sealed class TrayMenu
             features,
             s.ActivePreset,
             TravelOverrideService.IsActive,
-            s.IconMode == TrayIconMode.Numeric,
-            s.LowBatteryWarningEnabled,
-            s.LowBatteryWarningPct,
-            s.StartupDelaySeconds,
-            s.DowntimeGapMinutes,
-            s.DrainAnomalyWarningEnabled,
-            s.DrainAnomalyPercentPerHour,
-            s.NetworkProfilesEnabled,
-            DescribeCurrentLocation(),
-            s.HomeAssistantEnabled,
-            DescribeBroker(s));
-    }
-
-    /// <summary>
-    /// Formats the "Current: …" status row for the Network profiles submenu. Prefers the service's
-    /// last debounced reading (<see cref="NetworkLocationService.LastKnown"/>, a lock-guarded field
-    /// read) over a fresh <see cref="NetworkLocationService.DetectCurrent"/>: this runs inside
-    /// <see cref="ReadState"/> on EVERY menu open, and a full adapter enumeration + routing-table
-    /// P/Invoke there is wasted work when LocationChanged → QueueRefresh already keeps the row
-    /// current. Falls back to a live read only when LastKnown is empty — the first post-Start()
-    /// evaluation hasn't resolved yet (the service runs unconditionally, so "profiles disabled" is
-    /// NOT a reason it's empty) or the machine is genuinely offline — where showing a stale "no
-    /// network detected" during that resolve gap would mislead. Safe off the UI thread either way.
-    /// </summary>
-    private static string DescribeCurrentLocation()
-    {
-        var location = NetworkLocationService.LastKnown;
-        if (location.IsEmpty) location = NetworkLocationService.DetectCurrent();
-        if (location.IsEmpty) return "Current: no network detected";
-        var rule = SettingsService.Current.FindNetworkRule(location);
-        return rule is not null ? $"Current: {rule.Name}" : "Current: unrecognised network";
+            s.IconMode == TrayIconMode.Numeric);
     }
 
     private void ApplyState(MenuState state)
@@ -334,30 +313,6 @@ internal sealed class TrayMenu
 
         if (_iconModeItem is not null)
             _iconModeItem.IsChecked = state.NumericIcon;
-
-        // Settings submenu radio-style items.
-        if (_lowBattEnabledItem is not null)
-            _lowBattEnabledItem.IsChecked = state.LowBatteryEnabled;
-        foreach (var (item, pct) in _lowBattPctItems)
-            item.IsChecked = pct == state.LowBatteryPct;
-        foreach (var (item, secs) in _startupDelayItems)
-            item.IsChecked = secs == state.StartupDelaySeconds;
-        foreach (var (item, minutes) in _downtimeGapItems)
-            item.IsChecked = minutes == state.DowntimeGapMinutes;
-        if (_drainAnomalyEnabledItem is not null)
-            _drainAnomalyEnabledItem.IsChecked = state.DrainAnomalyEnabled;
-        foreach (var (item, pctPerHour) in _drainAnomalyItems)
-            item.IsChecked = pctPerHour == state.DrainAnomalyPercentPerHour;
-
-        if (_networkProfilesEnabledItem is not null)
-            _networkProfilesEnabledItem.IsChecked = state.NetworkProfilesEnabled;
-        if (_currentLocationItem is not null)
-            _currentLocationItem.Text = state.CurrentLocationLabel;
-
-        if (_haEnabledItem is not null)
-            _haEnabledItem.IsChecked = state.HomeAssistantEnabled;
-        if (_haBrokerItem is not null)
-            _haBrokerItem.Text = state.HomeAssistantBrokerLabel;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -370,14 +325,14 @@ internal sealed class TrayMenu
     }
 
     /// <summary>
-    /// Clears and re-adds the Presets submenu's items from the (possibly just-reloaded/imported)
+    /// Clears and re-adds the Presets submenu's items from the (possibly just-edited/reloaded)
     /// live settings. <see cref="RefreshState"/> alone is NOT enough for this submenu: it only
     /// toggles IsChecked on the EXISTING items, which still close over the ThresholdPreset objects
-    /// captured when the menu was built — after an out-of-band edit to settings.json (the exact
-    /// scenario "Reload settings from disk" exists for), those closures would keep applying the
-    /// stale, pre-edit Start/Stop values. Call after any operation that can replace
-    /// <see cref="SettingsService.Current"/> wholesale (<see cref="SettingsService.Reload"/>,
-    /// <see cref="SettingsService.Import"/>).
+    /// captured when the menu was built — after an out-of-band edit to settings.json, or an edit
+    /// made in <c>UI.SettingsWindow</c> (TODO #19), those closures would keep applying the stale
+    /// pre-edit Start/Stop values. Call after any operation that can replace the live Presets list
+    /// wholesale (<see cref="SettingsService.Reload"/> via <see cref="ApplySettingsLoadResult"/>,
+    /// or any Settings-window commit via <see cref="ReconcileFromExternalChange"/>).
     /// </summary>
     private void RebuildPresetsSubmenu()
     {
@@ -387,8 +342,8 @@ internal sealed class TrayMenu
         AddPresetItems(_presetsSubmenu);
     }
 
-    // Single source for how a preset renders as a menu label, so the Presets and Add-location
-    // submenus can't drift on format.
+    // Single source for how a preset renders as a menu label, so the Presets submenu never drifts
+    // from the format the Settings window shows for the same preset (TODO #19).
     private static string PresetLabel(ThresholdPreset p) => $"{p.Name}  ({p.Start}–{p.Stop} %)";
 
     private void AddPresetItems(MenuFlyoutSubItem sub)
@@ -450,285 +405,11 @@ internal sealed class TrayMenu
         QueueRefresh();
     }
 
-    // ── Settings submenus (low-battery warning, startup delay, export/import) ──
-
-    private MenuFlyoutSubItem BuildLowBatteryMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Low battery warning" };
-
-        _lowBattEnabledItem = new ToggleMenuFlyoutItem
-        {
-            Text    = "Enabled",
-            Command = new RelayCommand(ToggleLowBatteryEnabled),
-        };
-        sub.Items.Add(_lowBattEnabledItem);
-        sub.Items.Add(new MenuFlyoutSeparator());
-
-        foreach (var pct in new[] { 10, 15, 20, 25, 30 })
-        {
-            var p    = pct; // capture
-            var item = new ToggleMenuFlyoutItem
-            {
-                Text    = $"Warn at {p}%",
-                Command = new RelayCommand(() => SetLowBatteryPct(p)),
-            };
-            _lowBattPctItems.Add((item, p));
-            sub.Items.Add(item);
-        }
-        return sub;
-    }
-
-    private MenuFlyoutSubItem BuildStartupDelayMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Startup delay" };
-        foreach (var (label, secs) in new[] { ("Off", 0), ("5 seconds", 5), ("10 seconds", 10), ("30 seconds", 30), ("60 seconds", 60) })
-        {
-            var s    = secs; // capture
-            var item = new ToggleMenuFlyoutItem
-            {
-                Text    = label,
-                Command = new RelayCommand(() => SetStartupDelay(s)),
-            };
-            _startupDelayItems.Add((item, s));
-            sub.Items.Add(item);
-        }
-        return sub;
-    }
-
-    private void ToggleLowBatteryEnabled()
-    {
-        SettingsService.Update(s => s.LowBatteryWarningEnabled = !s.LowBatteryWarningEnabled);
-        QueueRefresh();
-    }
-
-    private void SetLowBatteryPct(int pct)
-    {
-        SettingsService.Update(s =>
-        {
-            s.LowBatteryWarningPct     = pct;
-            s.LowBatteryWarningEnabled = true; // choosing a level implies "on"
-        });
-        QueueRefresh();
-    }
-
-    private void SetStartupDelay(int seconds)
-    {
-        SettingsService.Update(s => s.StartupDelaySeconds = seconds);
-        QueueRefresh();
-    }
-
-    /// <summary>
-    /// How long a hole in the sample timeline must be before the history graph
-    /// (<c>BatteryHistoryGraphControl</c>) registers it as a downtime gap and draws a compressed-
-    /// axis break instead of a connecting line — e.g. so a brief app-reinstall restart doesn't get
-    /// flagged. "None" (0) disables gap detection entirely rather than meaning a literal
-    /// zero-minute threshold (see <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>).
-    /// </summary>
-    private MenuFlyoutSubItem BuildDowntimeGapMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Downtime gap threshold" };
-        foreach (var (label, minutes) in new[] { ("None", 0), ("1 minute", 1), ("5 minutes", 5), ("15 minutes", 15), ("30 minutes", 30) })
-        {
-            var m    = minutes; // capture
-            var item = new ToggleMenuFlyoutItem
-            {
-                Text    = label,
-                Command = new RelayCommand(() => SetDowntimeGapMinutes(m)),
-            };
-            _downtimeGapItems.Add((item, m));
-            sub.Items.Add(item);
-        }
-        return sub;
-    }
-
-    private void SetDowntimeGapMinutes(int minutes)
-    {
-        SettingsService.Update(s => s.DowntimeGapMinutes = minutes);
-        QueueRefresh();
-    }
-
-    /// <summary>
-    /// Overnight-drain anomaly warning (TODO #26): toast when the battery loses charge faster than
-    /// this rate across a detected downtime gap (see <see cref="SettingsService.AppSettings.DrainAnomalyPercentPerHour"/>).
-    /// Same "Enabled" + rate-list shape as <see cref="BuildLowBatteryMenu"/>.
-    /// </summary>
-    private MenuFlyoutSubItem BuildDrainAnomalyMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Overnight-drain warning" };
-
-        _drainAnomalyEnabledItem = new ToggleMenuFlyoutItem
-        {
-            Text    = "Enabled",
-            Command = new RelayCommand(ToggleDrainAnomalyEnabled),
-        };
-        sub.Items.Add(_drainAnomalyEnabledItem);
-        sub.Items.Add(new MenuFlyoutSeparator());
-
-        foreach (var pctPerHour in new[] { 2, 3, 5, 10 })
-        {
-            var p    = pctPerHour; // capture
-            var item = new ToggleMenuFlyoutItem
-            {
-                Text    = $"Warn above {p}%/hour",
-                Command = new RelayCommand(() => SetDrainAnomalyPercentPerHour(p)),
-            };
-            _drainAnomalyItems.Add((item, p));
-            sub.Items.Add(item);
-        }
-        return sub;
-    }
-
-    private void ToggleDrainAnomalyEnabled()
-    {
-        SettingsService.Update(s => s.DrainAnomalyWarningEnabled = !s.DrainAnomalyWarningEnabled);
-        QueueRefresh();
-    }
-
-    private void SetDrainAnomalyPercentPerHour(int pctPerHour)
-    {
-        SettingsService.Update(s =>
-        {
-            s.DrainAnomalyPercentPerHour = pctPerHour;
-            s.DrainAnomalyWarningEnabled = true; // choosing a level implies "on"
-        });
-        QueueRefresh();
-    }
-
-    // ── Network profiles (TODO #31) ─────────────────────────────────────────────
-
-    /// <summary>
-    /// Note on "right-click": the original request described right-click context menus for these
-    /// two actions, but H.NotifyIcon's native popup (built fresh from this Flyout on every
-    /// right-click — see the class doc comment) has no nested-right-click surface to hang a second
-    /// context menu off of, and neither does anything else in this app's UI today. Same
-    /// functionality, reached via ordinary left-click commands in this submenu instead — the
-    /// established idiom for every other action here (toggle icon mode, presets, etc.).
-    /// </summary>
-    private MenuFlyoutSubItem BuildNetworkProfilesMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Network profiles" };
-
-        _networkProfilesEnabledItem = new ToggleMenuFlyoutItem
-        {
-            Text    = "Enabled",
-            Command = new RelayCommand(ToggleNetworkProfilesEnabled),
-        };
-        sub.Items.Add(_networkProfilesEnabledItem);
-        sub.Items.Add(new MenuFlyoutSeparator());
-
-        // Status-only row (IsEnabled false so it reads as informational, not clickable); text is
-        // set from the MenuState snapshot in ApplyState, like every other item here.
-        _currentLocationItem = new MenuFlyoutItem { IsEnabled = false };
-        sub.Items.Add(_currentLocationItem);
-
-        _addLocationSubmenu = new MenuFlyoutSubItem { Text = "Add configuration for this network" };
-        RebuildAddLocationSubmenu();
-        sub.Items.Add(_addLocationSubmenu);
-
-        return sub;
-    }
-
-    /// <summary>
-    /// Clears and re-adds the "Add configuration" submenu's per-preset items from the (possibly
-    /// just-reloaded/imported) live Presets list — same reason and same pattern as
-    /// <see cref="RebuildPresetsSubmenu"/>: RefreshState alone only toggles IsChecked on existing
-    /// items, which would otherwise keep closing over stale ThresholdPreset objects after an
-    /// out-of-band settings edit.
-    /// </summary>
-    private void RebuildAddLocationSubmenu()
-    {
-        if (_addLocationSubmenu is null) return;
-        _addLocationSubmenu.Items.Clear();
-        foreach (var preset in SettingsService.Current.Presets)
-        {
-            var p = preset; // local copy for lambda capture
-            _addLocationSubmenu.Items.Add(new MenuFlyoutItem
-            {
-                Text    = PresetLabel(p),
-                Command = new RelayCommand(() => _ = AddLocationConfigurationAsync(p)),
-            });
-        }
-    }
-
-    private void ToggleNetworkProfilesEnabled()
-    {
-        SettingsService.Update(s => s.NetworkProfilesEnabled = !s.NetworkProfilesEnabled);
-        QueueRefresh();
-    }
-
-    /// <summary>
-    /// Home Assistant / MQTT submenu (TODO #28): an Enabled toggle plus a read-only broker status
-    /// row. Broker host/credentials are configured in settings.json for now (a proper config screen
-    /// arrives with the Settings window, #19). The toggle starts/stops publishing at runtime via the
-    /// <c>onHomeAssistantChanged</c> callback, which re-applies <c>HomeAssistantService</c>.
-    /// </summary>
-    private MenuFlyoutSubItem BuildHomeAssistantMenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Home Assistant" };
-
-        _haEnabledItem = new ToggleMenuFlyoutItem
-        {
-            Text    = "Publish to Home Assistant",
-            Command = new RelayCommand(ToggleHomeAssistantEnabled),
-        };
-        sub.Items.Add(_haEnabledItem);
-        sub.Items.Add(new MenuFlyoutSeparator());
-
-        // Status-only row (text set from the MenuState snapshot in ApplyState, like Network profiles).
-        _haBrokerItem = new MenuFlyoutItem { IsEnabled = false };
-        sub.Items.Add(_haBrokerItem);
-
-        return sub;
-    }
-
-    private void ToggleHomeAssistantEnabled()
-    {
-        SettingsService.Update(s => s.HomeAssistantEnabled = !s.HomeAssistantEnabled);
-        _onHomeAssistantChanged();   // re-apply to HomeAssistantService: start/stop publishing now
-        QueueRefresh();
-    }
-
-    // "Broker: 10.0.20.22:1883", or a nudge to configure it when no host is set yet.
-    private static string DescribeBroker(AppSettings s) =>
-        string.IsNullOrWhiteSpace(s.MqttBrokerHost)
-            ? "Broker: not set — edit settings.json"
-            : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
-
-    /// <summary>
-    /// "Add configuration for this network → &lt;preset&gt;": fingerprints the CURRENT network,
-    /// prompts for a friendly name (pre-filled from the WiFi SSID or adapter name when available),
-    /// and saves a new rule mapping that fingerprint to the chosen preset. Also applies the preset
-    /// immediately — the user just told the app "this network wants this threshold", and since
-    /// they're on that network right now, waiting for the NEXT location change (which won't happen
-    /// again until they actually move) would just look like nothing happened.
-    /// </summary>
-    private async Task AddLocationConfigurationAsync(ThresholdPreset preset)
-    {
-        var location = NetworkLocationService.DetectCurrent();
-        if (location.IsEmpty)
-        {
-            NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
-            return;
-        }
-
-        string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-        string? name = await new NameLocationWindow(suggested).ShowAsync();
-        if (name is null) return; // cancelled
-
-        SettingsService.Update(s =>
-        {
-            s.NetworkLocationRules.Add(new NetworkLocationRule
-            {
-                Name       = name,
-                AdapterMac = location.AdapterMac,
-                IpCidr     = location.IpCidr,
-                PresetName = preset.Name,
-            });
-            s.NetworkProfilesEnabled = true; // configuring a location implies wanting the feature on
-        });
-
-        ApplyPreset(preset); // applies + QueueRefresh internally
-    }
+    // ── Network-location auto-apply (TODO #31) ──────────────────────────────────
+    // Not a menu item — see the class doc comment and the constructor's subscription. Configuring
+    // WHICH rule maps to which preset now happens entirely in UI.SettingsWindow (TODO #19); this
+    // stays here because it is the live reaction to NetworkLocationService.LocationChanged, which
+    // TrayMenu already owns the lifetime/subscription of.
 
     /// <summary>
     /// Auto-apply on detected location change (TODO #31). Fires on whatever thread
@@ -755,64 +436,32 @@ internal sealed class TrayMenu
                 return;
             }
         }
-        QueueRefresh(); // still resync the "Current: …" status row even when nothing was applied
-    }
-
-    private void ExportSettings()
-    {
-        // No owner window needed — the tray menu has no HWND; Win32 dialogs accept NULL owner.
-        var path = NativeMethods.ShowSaveFileDialog(IntPtr.Zero, "Export ChargeKeeper settings",
-            "ChargeKeeper-settings.json", "json",
-            "Settings JSON (*.json)|*.json|All files (*.*)|*.*");
-        if (path is null) return;
-        try
-        {
-            SettingsService.Export(path);
-            NativeMethods.Info("Settings exported.", AppName);
-        }
-        catch (Exception ex)
-        {
-            NativeMethods.Warn($"Export failed:\n{ex.Message}", AppName);
-        }
+        QueueRefresh(); // still resync check marks even when nothing was applied
     }
 
     /// <summary>
     /// Re-reads settings.json from disk without restarting the app (e.g. after a manual edit, or a
     /// file synced in from another machine) — same purpose as HyperVManagerTray's "Reload config
-    /// from disk", but read-only against the canonical file rather than adopting an arbitrary path
-    /// like <see cref="ImportSettings"/> does.
+    /// from disk", but read-only against the canonical file rather than adopting an arbitrary path.
     /// </summary>
     private void ReloadSettings() =>
         ApplySettingsLoadResult(SettingsService.Reload(),
             "Settings reloaded from disk.",
             "Could not reload settings — the file is missing or invalid.");
 
-    private void ImportSettings()
-    {
-        var path = NativeMethods.ShowOpenFileDialog(IntPtr.Zero, "Import ChargeKeeper settings",
-            "json", "Settings JSON (*.json)|*.json|All files (*.*)|*.*");
-        if (path is null) return;
-
-        ApplySettingsLoadResult(SettingsService.Import(path),
-            "Settings imported.",
-            "Could not import settings — the file is missing or invalid.");
-    }
-
     /// <summary>
-    /// Shared success/failure handling for the two commands that can replace
-    /// <see cref="SettingsService.Current"/> wholesale (Reload, Import): on success, refreshes
-    /// everything built from a one-time snapshot of the old settings — icon mode, the menu's
-    /// check marks, AND the Presets submenu (which <see cref="RefreshState"/> alone does not
-    /// rebuild, see <see cref="RebuildPresetsSubmenu"/>) — then confirms via a toast either way.
+    /// Success/failure handling for <see cref="ReloadSettings"/>, the one remaining command that
+    /// can replace <see cref="SettingsService.Current"/> wholesale (TODO #19 removed the other,
+    /// Import): on success, delegates to <see cref="ReconcileFromExternalChange"/> for the silent
+    /// resync, then confirms via a toast either way — unlike the Settings window's own commits,
+    /// Reload has no "same window" to make a toast redundant.
     /// </summary>
     private void ApplySettingsLoadResult(bool ok, string successMessage, string failureMessage)
     {
         if (ok)
         {
-            _onIconModeChanged();       // icon mode takes effect immediately
-            RebuildPresetsSubmenu();    // stale closures over the old Presets list, not just stale IsChecked
-            RebuildAddLocationSubmenu(); // same staleness risk — its items also close over ThresholdPreset objects
-            RefreshState();             // resync the remaining menu check marks
+            ReconcileFromExternalChange();
+            OnExternalReload?.Invoke();   // resync an already-open Settings window, if any
             NativeMethods.Info(successMessage, AppName);
         }
         else
@@ -842,12 +491,14 @@ internal sealed class TrayMenu
                 Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
                 RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
                 // Keep this list in sync with the README's "External libraries" table (memory
-                // preference) — same three non-Microsoft NuGet dependencies.
+                // preference) — same non-Microsoft NuGet dependencies.
                 ExternalLibraries =
                 [
                     new ExternalLibrary("H.NotifyIcon.WinUI", "HavenDV", "System-tray icon + native context menu for WinUI 3", "MIT", "https://github.com/HavenDV/H.NotifyIcon"),
                     new ExternalLibrary("TaskScheduler", "David Hall", "Managed wrapper over the Windows Task Scheduler API (auto-start)", "MIT", "https://github.com/dahall/TaskScheduler"),
                     new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
+                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.SettingsControls", ".NET Foundation", "SettingsCard/SettingsExpander rows (Settings window)", "MIT", "https://github.com/CommunityToolkit/Windows"),
+                    new ExternalLibrary("WinUIEx", "Morten Nielsen", "WinUI 3 window helper extensions (Settings window placement)", "MIT", "https://github.com/dotMorten/WinUIEx"),
                     new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the Home Assistant integration", "MIT", "https://github.com/dotnet/MQTTnet"),
                 ],
             },

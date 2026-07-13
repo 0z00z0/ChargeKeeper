@@ -33,7 +33,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 {
     // A hole in the timeline bigger than this is treated as downtime (app was closed/crashed)
     // rather than just a slightly-late sample, and gets a gap marker instead of a connecting line.
-    // User-configurable (tray Settings → "Downtime gap threshold", BuildDowntimeGapMenu) via
+    // User-configurable (Settings window → General → "Downtime gap threshold", TODO #19) via
     // SettingsService.Current.DowntimeGapMinutes, so this can't be a cached `static readonly`
     // computed once at type-init the way it used to be (TimeSpan.FromSeconds(
     // BatteryHistoryService.SampleIntervalSeconds * 3), ~1 minute) — it must react to the setting

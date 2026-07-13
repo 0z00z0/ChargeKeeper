@@ -151,6 +151,29 @@ internal sealed class AppSettings
     /// "chargekeeper/&lt;node&gt;/…".
     /// </summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
+
+    // ── Settings window (TODO #19) ──────────────────────────────────────────────
+    /// <summary>
+    /// Last on-screen position/size of the Settings window, in physical pixels — restored on next
+    /// open, ignored/clamped if it would land off every current monitor (e.g. a monitor was
+    /// unplugged). Null until the window has been closed at least once. WinUIEx's own
+    /// PersistenceId is NOT used here: it stores through Windows.Storage.ApplicationData, which is
+    /// unavailable to this unpackaged app — persisting through settings.json instead keeps it
+    /// consistent with every other piece of app state.
+    /// </summary>
+    public int? SettingsWindowX      { get; set; }
+    public int? SettingsWindowY      { get; set; }
+    public int? SettingsWindowWidth  { get; set; }
+    public int? SettingsWindowHeight { get; set; }
+
+    // ── Appearance (TODO #45) ────────────────────────────────────────────────────
+    /// <summary>
+    /// Switches to a new visual style once TODO #45 lands. Currently a no-op: the Settings
+    /// window's Appearance section exposes and persists this toggle, but nothing reads it yet —
+    /// scoped that way deliberately (see GitHub issue #19), rather than inventing a styling system
+    /// this app has no other use for yet.
+    /// </summary>
+    public bool UseNewStyling { get; set; } = false;
 }
 
 /// <summary>
@@ -241,40 +264,16 @@ internal static class SettingsService
 
     /// <summary>
     /// Re-reads settings.json from disk into <see cref="Current"/>, discarding any in-memory
-    /// changes that were never saved — the "Reload settings from disk" menu command, for picking
+    /// changes that were never saved — the "Reload settings from file" menu command, for picking
     /// up an out-of-band edit (e.g. a manually-edited file, or one synced in from another machine
-    /// via roaming/OneDrive) without restarting the app. Unlike <see cref="Import"/>, this never
-    /// writes back to <see cref="FilePath"/> — it's a read-only refresh of the canonical file, not
-    /// a load-from-elsewhere-and-adopt. Leaves <see cref="Current"/> untouched and returns false on
-    /// a missing or invalid file.
+    /// via roaming/OneDrive) without restarting the app. Never writes back to <see cref="FilePath"/> —
+    /// it's a read-only refresh of the canonical file. Leaves <see cref="Current"/> untouched and
+    /// returns false on a missing or invalid file.
     /// </summary>
     public static bool Reload()
     {
         if (ReadFile(_path) is not { } loaded) return false;
         lock (_lock) { _current = loaded; }
-        return true;
-    }
-
-    /// <summary>Writes the current settings to an arbitrary path (Export). Throws on I/O error.</summary>
-    public static void Export(string path)
-    {
-        lock (_lock)
-            File.WriteAllText(path, JsonSerializer.Serialize(_current ?? new AppSettings(), _opts));
-    }
-
-    /// <summary>
-    /// Loads settings from an arbitrary path and makes them the live, persisted settings (Import).
-    /// Returns false on a missing/invalid file. The caller is responsible for refreshing any UI
-    /// that reflects settings (the dashboard re-reads on the next show; icon mode via ForceIconRefresh).
-    /// </summary>
-    public static bool Import(string path)
-    {
-        if (ReadFile(path) is not { } loaded) return false;
-        lock (_lock)
-        {
-            _current = loaded;
-            Save();   // persist the imported settings to the canonical location
-        }
         return true;
     }
 }

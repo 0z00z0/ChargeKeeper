@@ -14,30 +14,38 @@ Two power features, without opening the slow Lenovo Vantage app:
 - **Smart Standby** — Modern Standby scheduling, via the `LenovoSmartStandby` Windows service
 
 Left-click the tray icon for a battery dashboard (arc gauge with live % and charge-rate, threshold
-tick markers, adjustable start/stop sliders); right-click for quick toggles plus a launch-at-startup
-option. The tray icon itself shows a live battery-level arc, colour-coded green/orange/red — or,
-optionally, the battery percentage as a number.
+tick markers, adjustable start/stop sliders); right-click for quick toggles, presets, and
+**Settings…** (opens the full configuration window). The tray icon itself shows a live
+battery-level arc, colour-coded green/orange/red — or, optionally, the battery percentage as a
+number.
 
 ### Features
 
-- **Threshold presets** — named charging profiles (**Daily** 60–80%, **Travel** 80–100%) from the
-  tray right-click **Presets** submenu.
+- **Threshold presets** — named charging profiles (**Daily** 60–80%, **Travel** 80–100%), added/
+  renamed/deleted from the **Settings** window's Smart Charge section, quick-applied from the tray
+  right-click **Presets** submenu.
 - **Charge to 100% once (travel override)** — a tray menu item that temporarily lifts the charge
   threshold for one cycle, then auto-restores it once the battery reaches full. Survives an app
   restart mid-charge.
-- **Custom low-battery warning** — a toast at a user-set battery % while discharging (Settings).
+- **Network-aware presets** — automatically apply a preset when the detected network location
+  (adapter MAC + IP subnet — never Wi-Fi network name) changes, e.g. a different preset at the
+  office dock vs. on the road. Configured in the Settings window's Network section.
+- **Custom low-battery warning** — a toast at a user-set battery % while discharging (Settings
+  window → Notifications).
 - **Time remaining / time to full** — the dashboard shows estimated time-to-full (charging) or
   time-remaining (discharging).
 - **Battery % history graph** — a persistent graph of recent battery level in the dashboard,
   with selectable time scales.
-- **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings).
+- **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings
+  window → General).
 - **Numeric % tray icon** — show the battery percentage as a number instead of the arc gauge
-  (toggle in the tray menu and dashboard).
-- **Settings persistence + Export/Import** — settings are stored as human-readable JSON at
-  `%AppData%\ChargeKeeper\settings.json`. The dashboard's **Settings** section has **Export…** /
-  **Import…** buttons (Win32 file dialogs, which work in this elevated app) and an **Open file**
-  link. Settings are portable across machines by copying this file; automatic cloud sync is not yet
-  implemented.
+  (toggle in the tray menu, dashboard, and Settings window).
+- **Settings window** — a proper titled window (tray icon → **Settings…**) with a General/Smart
+  Charge/Notifications/Network/Home Assistant/Appearance sidebar, replacing the old nested tray
+  submenus. Settings are stored as human-readable JSON at `%AppData%\ChargeKeeper\settings.json`
+  (tray icon → **Open settings folder**); an out-of-band edit to that file can be picked up without
+  restarting via tray icon → **Reload settings from file**. Settings are portable across machines by
+  copying this file; automatic cloud sync is not yet implemented.
 
 > ### ⚠️ 100% vibe coded
 > This project was written **entirely by an AI assistant ("vibe coded")** through natural-language
@@ -182,6 +190,8 @@ packages). The only **non-Microsoft** dependencies are:
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
 | [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
+| [CommunityToolkit.WinUI.Controls.SettingsControls](https://github.com/CommunityToolkit/Windows) | .NET Foundation | SettingsCard/SettingsExpander rows (Settings window) | MIT |
+| [WinUIEx](https://github.com/dotMorten/WinUIEx) | Morten Nielsen | WinUI 3 window helper extensions (Settings window placement) | MIT |
 | [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the Home Assistant integration | MIT |
 
 ## Home Assistant (MQTT)
@@ -193,8 +203,13 @@ start/stop thresholds, and the adapter rating; an availability topic (with a Las
 offline if the app stops.
 
 It is **off by default** and never touches the network until you both enable it and set a broker
-host. Configure it in `%AppData%\ChargeKeeper\settings.json` (create the keys if absent, then restart
-ChargeKeeper):
+host. Configure it from the tray icon → **Settings…** → **Home Assistant** — the enabled toggle
+applies immediately, and the broker host/port/username/password/TLS/discovery-prefix fields commit
+as a batch behind an **Apply** button (so the MQTT connection reconnects once per Apply, not per
+keystroke). The password is never logged or shown in any toast.
+
+Settings can also be edited directly in `%AppData%\ChargeKeeper\settings.json` (tray icon → **Open
+settings folder**), then picked up without restarting via tray icon → **Reload settings from file**:
 
 ```jsonc
 {
@@ -208,8 +223,7 @@ ChargeKeeper):
 }
 ```
 
-The password lives only in your own local settings file. A tray toggle and an in-app config screen
-are planned; today configuration is via this file.
+The password lives only in your own local settings file.
 
 ## Shared components
 

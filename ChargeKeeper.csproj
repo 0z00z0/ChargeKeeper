@@ -116,6 +116,9 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.2.251219" />
+    <!-- Same toolkit family/version as RangeSelector above (TODO #19 spec: do not bump/mismatch) —
+         SettingsCard/SettingsExpander rows for the Settings window. -->
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
@@ -123,6 +126,12 @@
     <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
     <PackageReference Include="TaskScheduler" Version="2.12.2" />
+    <!-- Pinned exact (not floating) per TODO #19 spec — latest stable 2.9.x as of 2026-07-13.
+         Used for WindowExtensions.CenterOnScreen on the new Settings window; NOT for WindowEx or
+         PersistenceId (the latter persists via Windows.Storage.ApplicationData, unavailable to
+         this unpackaged app — the Settings window's rect persists through SettingsService/JSON
+         instead, like everything else in this app). -->
+    <PackageReference Include="WinUIEx" Version="2.9.2" />
   </ItemGroup>
 
   <!-- Shared ZeroZero Software branding: the About window comes from here instead of a
