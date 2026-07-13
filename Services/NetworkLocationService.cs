@@ -47,11 +47,30 @@ internal readonly record struct NetworkLocation(string? AdapterMac, string? IpCi
 }
 
 /// <summary>
+/// The minimal projection of a live <see cref="NetworkInterface"/> that
+/// <see cref="NetworkLocationService.SelectPrimary"/> needs to pick the primary adapter — pulled
+/// out as a tiny record so that selection heuristic stays a pure, unit-testable function (house
+/// style; see <see cref="HaStateBuilder"/>/<c>PresetEditValidator</c>). <see cref="IPv4Index"/> is
+/// the adapter's IPv4 interface index (compared against <c>GetBestInterface</c>'s answer);
+/// <see cref="IsVirtual"/> is only a last-resort fallback tiebreaker, NEVER a reason to drop the
+/// routing-table winner (issue #21). <see cref="Adapter"/> refers back to the live interface the
+/// caller ultimately returns; it is null in tests, which exercise the decision on the value fields
+/// alone.
+/// </summary>
+internal sealed record AdapterCandidate(
+    int IPv4Index,
+    bool IsVirtual,
+    NetworkInterfaceType Type,
+    NetworkInterface? Adapter = null);
+
+/// <summary>
 /// Detects the current network location (TODO #31) via the OS's own routing table — the same
 /// underlying approach HyperVManagerTray already uses for its VM-network-switching feature
 /// (`Services/AdapterMatcher.cs` there, read for reference only, not shared code — see that
-/// project's own notes on why the two apps don't share a library for this). Adapted here without
-/// that app's Hyper-V-bridge-specific fallback logic, which has no equivalent in this app.
+/// project's own notes on why the two apps don't share a library for this). Like that app it
+/// follows Windows' own routing table (<c>GetBestInterface</c>) authoritatively — including a
+/// "vEthernet (…)" Hyper-V external-switch bridge that carries the default route, which an earlier
+/// <c>!Description.Contains("Virtual")</c> candidate filter here wrongly dropped (issue #21).
 /// <para>
 /// Fingerprints the PRIMARY adapter (the one Windows' own routing table says traffic actually goes
 /// through, via <c>GetBestInterface</c>) by MAC address and IP subnet (CIDR) rather than by WiFi
@@ -213,34 +232,82 @@ internal static class NetworkLocationService
     }
 
     // Mirrors HyperVManagerTray's AdapterMatcher.PrimaryAdapter: ask Windows' own routing table
-    // which adapter traffic actually goes through, preferring wired over wireless when that answer
-    // is ambiguous — Wi-Fi 6E can report a higher link speed than Gigabit Ethernet, so speed alone
-    // would incorrectly prefer wireless when docked.
+    // (GetBestInterface) which adapter traffic actually goes through. The candidate set is EVERY Up
+    // adapter that owns a usable IPv4 address — deliberately NOT restricted to Ethernet/Wireless
+    // types or to non-"Virtual" descriptions: on a Hyper-V external switch the routable IP + default
+    // route live on a "vEthernet (…)" Hyper-V Virtual Ethernet Adapter while the bridged physical NIC
+    // keeps no IP of its own, so the old "drop anything named Virtual" filter detected nothing at all
+    // (issue #21). The pure selection heuristic lives in SelectPrimary (unit-tested); this method
+    // only enumerates the live adapters and projects each usable one to an AdapterCandidate.
     private static NetworkInterface? FindPrimaryAdapter()
     {
         var candidates = NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up)
-            .Where(n => n.NetworkInterfaceType is NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211)
-            .Where(n => !n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+            .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
+            .Where(HasUsableIPv4)
+            .Select(n => new AdapterCandidate(
+                IPv4InterfaceIndex(n),
+                n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase),
+                n.NetworkInterfaceType,
+                n))
             .ToList();
-        if (candidates.Count == 0) return null;
-        if (candidates.Count == 1) return candidates[0];
 
-        uint bestIndex = GetBestInterfaceIndex();
+        return SelectPrimary(candidates, GetBestInterfaceIndex())?.Adapter;
+    }
+
+    /// <summary>
+    /// Pure selection heuristic behind <see cref="FindPrimaryAdapter"/>, extracted so the #21
+    /// bridge-vs-physical decision is unit-testable without live adapters (house style — see
+    /// <see cref="HaStateBuilder"/>/<c>PresetEditValidator</c>). The authoritative pick is the
+    /// candidate whose IPv4 interface index equals <paramref name="bestIndex"/> — what Windows'
+    /// routing table (<c>GetBestInterface</c>) says traffic actually uses — which correctly selects
+    /// a "vEthernet (…)" Hyper-V bridge over the IP-less physical NIC. Only when GetBestInterface is
+    /// unavailable (<paramref name="bestIndex"/> == 0) or names no candidate does it fall back to a
+    /// preference order in which "Virtual" is merely a last-resort tiebreaker: physical Ethernet,
+    /// then physical Wi-Fi, then any Ethernet-type (this covers the bridge), then anything usable —
+    /// and that fallback NEVER overrides the routing-table winner above.
+    /// </summary>
+    internal static AdapterCandidate? SelectPrimary(IReadOnlyList<AdapterCandidate> candidates, uint bestIndex)
+    {
+        if (candidates.Count == 0) return null;
+
         if (bestIndex != 0)
         {
-            var byIndex = candidates.FirstOrDefault(n => IPv4Index(n) == bestIndex);
+            var byIndex = candidates.FirstOrDefault(c => c.IPv4Index == bestIndex);
             if (byIndex is not null) return byIndex;
         }
 
-        return candidates.FirstOrDefault(n => n.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
-               ?? candidates[0];
+        return candidates.FirstOrDefault(c => !c.IsVirtual && c.Type == NetworkInterfaceType.Ethernet)
+            ?? candidates.FirstOrDefault(c => !c.IsVirtual && c.Type == NetworkInterfaceType.Wireless80211)
+            ?? candidates.FirstOrDefault(c => c.Type == NetworkInterfaceType.Ethernet)
+            ?? candidates[0];
     }
 
-    private static uint IPv4Index(NetworkInterface n)
+    // True when the adapter owns an IPv4 unicast address usable as a real connection — excludes
+    // loopback and 169.254.x.x APIPA/link-local (a NIC holding only an APIPA address is "up" but has
+    // no working network). try/catch → false: GetIPProperties can throw during the very dock/undock
+    // race DetectCurrent's catch exists for, in which case the adapter simply isn't a candidate.
+    private static bool HasUsableIPv4(NetworkInterface n)
     {
-        try { return (uint)(n.GetIPProperties().GetIPv4Properties()?.Index ?? -1); }
-        catch { return uint.MaxValue; }
+        try { return n.GetIPProperties().UnicastAddresses.Any(a => IsUsableIPv4(a.Address)); }
+        catch { return false; }
+    }
+
+    private static bool IsUsableIPv4(IPAddress addr)
+    {
+        if (addr.AddressFamily != AddressFamily.InterNetwork) return false;
+        if (IPAddress.IsLoopback(addr)) return false;
+        var b = addr.GetAddressBytes();
+        return !(b[0] == 169 && b[1] == 254);   // 169.254.0.0/16 APIPA / link-local
+    }
+
+    // The adapter's IPv4 interface index (what GetBestInterface returns), or -1 when it has no IPv4
+    // properties or the read races an adapter removal — a value that can never equal a real
+    // bestIndex, so such a candidate is only ever chosen by the fallback, never the routing match.
+    private static int IPv4InterfaceIndex(NetworkInterface n)
+    {
+        try { return n.GetIPProperties().GetIPv4Properties()?.Index ?? -1; }
+        catch { return -1; }
     }
 
     private static uint GetBestInterfaceIndex()
