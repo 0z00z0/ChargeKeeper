@@ -744,16 +744,14 @@ internal sealed partial class SettingsWindow : Window
         {
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PresetName = presetName;
         });
-        var s0 = SettingsService.Current;
-        var rules = s0.NetworkLocationRules;
+        var rules = SettingsService.Current.NetworkLocationRules;
         if (index >= rules.Count) return;
         expander.Description = DescribeRulePresetSummary(rules[index]);
 
-        // If this rule is for the network we're currently on, apply the newly-chosen preset to the
-        // device right away (decided #19 follow-up — the active network's profile takes effect
-        // immediately when you change it).
-        if (s0.NetworkProfilesEnabled && rules[index].Matches(CurrentLocation()))
-            _menu.ApplyPresetByName(presetName);
+        // Apply the profile that now wins for the network we're currently on so the edit to the
+        // active network's rule takes effect immediately (decided #19 follow-up). No-op if this
+        // rule is shadowed by an earlier one, or matches no current network.
+        ApplyWinningProfile(CurrentLocation());
     }
 
     // Current network location for the immediate-apply checks — LastKnown is the cheap cached
@@ -762,6 +760,21 @@ internal sealed partial class SettingsWindow : Window
     {
         var loc = NetworkLocationService.LastKnown;
         return loc.IsEmpty ? NetworkLocationService.DetectCurrent() : loc;
+    }
+
+    /// <summary>
+    /// Applies the preset of whatever rule currently WINS for <paramref name="location"/> —
+    /// resolved via <see cref="AppSettings.FindNetworkRule"/> (FIRST match), exactly as the tray's
+    /// own network-profile auto-apply does. Using the same resolution as the reconcile is what keeps
+    /// an immediate apply from disagreeing with — and being reverted by — the next NetworkChange
+    /// (the bug an earlier "any rule that Matches" check would have caused with overlapping rules).
+    /// No-op when profiles are off or no rule matches.
+    /// </summary>
+    private void ApplyWinningProfile(NetworkLocation location)
+    {
+        var s = SettingsService.Current;
+        if (!s.NetworkProfilesEnabled) return;
+        if (s.FindNetworkRule(location) is { } rule) _menu.ApplyPresetByName(rule.PresetName);
     }
 
     private void DeleteNetworkRule(int index)
@@ -814,10 +827,12 @@ internal sealed partial class SettingsWindow : Window
         RebuildNetworkRuleRows();
         RefreshCurrentNetworkText();
 
-        // The rule is for the network we're on right now, so apply its preset to the device
-        // immediately (decided #19 follow-up — matches the old tray "add configuration → preset"
-        // flow). No-op if the preset name is blank.
-        _menu.ApplyPresetByName(defaultPreset);
+        // Apply the profile that now wins for this network — usually the rule just added, unless an
+        // earlier rule already shadows it — using the SAME first-match resolution the tray
+        // auto-apply uses, so the immediate write agrees with the next reconcile instead of being
+        // reverted by it (decided #19 follow-up; matches the old tray "add configuration → preset"
+        // flow). Reuses the fresh `location` detected above.
+        ApplyWinningProfile(location);
     }
 
     // ── Home Assistant ────────────────────────────────────────────────────────────
