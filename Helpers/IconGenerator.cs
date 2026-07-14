@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using ChargeKeeper.Services;
 
 namespace ChargeKeeper.Helpers;
@@ -17,8 +18,34 @@ internal static class IconGenerator
     private const float CornerRadiusFraction = 0.18f; // rounded-square corner radius
     private const float MarginFraction        = 0.04f; // gap from icon edge to background square
 
-    // Sizes baked into the .ico — covers 100/125/150/200% tray DPI without upscaling.
+    // Sizes baked into the STATIC on-disk .ico — covers 100/125/150/200% tray DPI without upscaling.
+    // The LIVE icon renders only the current tray slot size instead (see RenderBatteryIcon).
     private static readonly int[] IconSizes = [32, 24, 20, 16];
+
+    // SM_CXSMICON — the shell's small-icon (notification-area) width in pixels for the current DPI.
+    private const int SM_CXSMICON = 49;
+
+    // Classic DllImport (not the LibraryImport source generator) so this stays local to
+    // IconGenerator without forcing <AllowUnsafeBlocks> on the whole project. Kept here rather than
+    // in NativeMethods because it's used only by the tray-icon renderer.
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    /// <summary>
+    /// The tray slot size the shell will actually display, snapped to a sane range. Used to render
+    /// the LIVE icon at exactly one size rather than the four the static .ico bakes in — the shell
+    /// only ever shows one, so rendering the other three every state change was wasted GDI work.
+    /// Falls back to 16 (100% DPI small icon) if the metric is unavailable.
+    /// </summary>
+    private static int CurrentTraySlotSize()
+    {
+        int size;
+        try { size = GetSystemMetrics(SM_CXSMICON); }
+        catch { size = 0; }
+        // Clamp defensively: a bogus 0 (metric unavailable) or an absurd value must not yield a
+        // giant/empty bitmap. 16..64 covers 100%..400% small-icon DPI.
+        return size is >= 16 and <= 64 ? size : 16;
+    }
 
     // ── ChargeKeeper "Guarded Battery" brand palette ──────────────────────────
     // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
@@ -70,21 +97,21 @@ internal static class IconGenerator
     }
 
     /// <summary>
-    /// Renders a live battery-level tray icon as a multi-resolution <see cref="System.Drawing.Icon"/>
-    /// (one native frame per <see cref="IconSizes"/> entry — see <see cref="WriteMultiSizeIco"/>).
+    /// Renders a live battery-level tray icon as a single-frame <see cref="System.Drawing.Icon"/>
+    /// natively at the current tray-slot size (see <see cref="WriteIco"/> / <see cref="CurrentTraySlotSize"/>).
     /// When <paramref name="mode"/> is <see cref="TrayIconMode.Numeric"/> the icon shows a
     /// large percentage number on a colour-coded background instead of an arc gauge.
     /// The returned icon owns an independent, data-backed handle, so the caller can safely
     /// <see cref="System.Drawing.Icon.Dispose"/> it once a newer icon replaces it.
     /// </summary>
     /// <remarks>
-    /// Previously rendered a single 32×32 frame and let the shell downscale it to the actual
-    /// tray slot size (commonly 16px, sometimes 20/24 at higher DPI). A thin (~6px at 32px)
-    /// semi-transparent stroke loses most of its contrast under that generic bitmap scaling,
-    /// especially the low-battery tier's already-muted Terracotta sitting right next to the
-    /// translucent grey track/halo — the net effect reads as a washed-out grey ring rather than
-    /// a recognisable colour. Rendering each size natively (same approach <see cref="SaveAsIco"/>
-    /// already used for the static brand icon) avoids that entirely.
+    /// Renders at exactly the current tray slot size (<see cref="CurrentTraySlotSize"/>) rather than
+    /// baking all four <see cref="IconSizes"/> the way the static on-disk icon does: the shell only
+    /// ever displays one slot, so the other three frames were rendered and PNG-encoded on every
+    /// state change for nothing. Rendering natively at the real slot size (instead of an earlier
+    /// approach that rendered one 32px frame and let the shell downscale it — which washed out the
+    /// thin ~6px semi-transparent arc stroke, especially the low-battery Terracotta) keeps the
+    /// colour crisp while doing a quarter of the work.
     /// </remarks>
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc)
@@ -94,7 +121,7 @@ internal static class IconGenerator
             : RenderBatteryBitmap(size, percent, charging);
 
         using var ms = new MemoryStream();
-        WriteMultiSizeIco(ms, Render);
+        WriteIco(ms, Render, [CurrentTraySlotSize()]);
         ms.Position = 0;
         return new System.Drawing.Icon(ms);  // owns its data + handle; safe to dispose
     }
@@ -311,17 +338,17 @@ internal static class IconGenerator
     }
 
     /// <summary>
-    /// Writes a valid ICO to <paramref name="stream"/> with one PNG-compressed frame per size in
-    /// <see cref="IconSizes"/>, each rendered natively via <paramref name="render"/> (no
-    /// downscaling from a single larger frame) so small sizes stay sharp — the shell picks
-    /// whichever entry best matches the actual tray/DPI slot instead of scaling one frame itself.
-    /// PNG-in-ICO is supported by Windows Vista and later. Shared by <see cref="SaveAsIco"/> (the
-    /// static brand icon, written to a file) and <see cref="RenderBatteryIcon"/> (the live
-    /// arc/numeric icon, built in memory on every state change).
+    /// Writes a valid ICO to <paramref name="stream"/> with one PNG-compressed frame per entry in
+    /// <paramref name="sizes"/>, each rendered natively via <paramref name="render"/> (no
+    /// downscaling from a single larger frame) so every size stays sharp. PNG-in-ICO is supported by
+    /// Windows Vista and later. Shared by <see cref="SaveAsIco"/> (the static brand icon → all four
+    /// <see cref="IconSizes"/>, written to a file) and <see cref="RenderBatteryIcon"/> (the live
+    /// arc/numeric icon → the single current tray-slot size, built in memory on every state change).
+    /// Each size must fit in a byte (0 means 256); the callers only ever pass 16..64.
     /// </summary>
-    private static void WriteMultiSizeIco(Stream stream, Func<int, Bitmap> render)
+    private static void WriteIco(Stream stream, Func<int, Bitmap> render, int[] sizes)
     {
-        var frames = Array.ConvertAll(IconSizes, s =>
+        var frames = Array.ConvertAll(sizes, s =>
         {
             using var bmp = render(s);
             using var ms  = new MemoryStream();
@@ -332,16 +359,16 @@ internal static class IconGenerator
         using var bw = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
 
         // ICO file header (6 bytes)
-        bw.Write((short)0);                // reserved — must be 0
-        bw.Write((short)1);                // type: 1 = icon
-        bw.Write((short)IconSizes.Length); // number of images
+        bw.Write((short)0);             // reserved — must be 0
+        bw.Write((short)1);             // type: 1 = icon
+        bw.Write((short)sizes.Length);  // number of images
 
         // Directory entries (16 bytes each); image data starts after header + directory.
-        int dataOffset = 6 + IconSizes.Length * 16;
-        for (int i = 0; i < IconSizes.Length; i++)
+        int dataOffset = 6 + sizes.Length * 16;
+        for (int i = 0; i < sizes.Length; i++)
         {
-            bw.Write((byte)IconSizes[i]);  // width  (0 means 256)
-            bw.Write((byte)IconSizes[i]);  // height (0 means 256)
+            bw.Write((byte)sizes[i]);      // width  (0 means 256)
+            bw.Write((byte)sizes[i]);      // height (0 means 256)
             bw.Write((byte)0);             // colour count (0 = true colour)
             bw.Write((byte)0);             // reserved
             bw.Write((short)1);            // colour planes
@@ -361,6 +388,6 @@ internal static class IconGenerator
     private static void SaveAsIco(string filePath)
     {
         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-        WriteMultiSizeIco(fs, RenderIconBitmap);
+        WriteIco(fs, RenderIconBitmap, IconSizes);
     }
 }
