@@ -132,18 +132,31 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Returns the given rect IF it overlaps at least one currently-connected monitor's work
-    /// area, else null — guards against restoring a saved Settings-window position from a monitor
-    /// that has since been disconnected (e.g. a laptop undocked from a multi-monitor desk).
+    /// Returns the saved rect adjusted to sit FULLY on a currently-connected monitor whose work
+    /// area contains the window's title bar, or null if no monitor does (→ caller re-centers).
+    /// A mere-overlap test isn't enough: a window closed while docked on a second monitor (saved at
+    /// e.g. x=2160) and reopened on just the laptop screen would restore almost entirely off-screen
+    /// with its title bar unreachable — "the Settings window doesn't appear". So we require a
+    /// grabbable slice of the title bar to be on a monitor, then clamp the whole rect inside that
+    /// monitor's work area (shrinking it if it's larger) so it's always visible and movable.
     /// </summary>
     private static RectInt32? ClampToVisibleMonitor(int x, int y, int w, int h)
     {
         foreach (var display in DisplayArea.FindAll())
         {
             var wa = display.WorkArea;
-            bool overlaps = x < wa.X + wa.Width && x + w > wa.X &&
-                            y < wa.Y + wa.Height && y + h > wa.Y;
-            if (overlaps) return new RectInt32(x, y, w, h);
+            // A point well inside the title bar must land on this monitor's work area.
+            int anchorX = x + Math.Min(w / 2, 120);
+            int anchorY = y + 16;
+            bool titleBarReachable = anchorX >= wa.X && anchorX < wa.X + wa.Width &&
+                                     anchorY >= wa.Y && anchorY < wa.Y + wa.Height;
+            if (!titleBarReachable) continue;
+
+            int cw = Math.Min(w, wa.Width);
+            int ch = Math.Min(h, wa.Height);
+            int cx = Math.Clamp(x, wa.X, wa.X + wa.Width  - cw);
+            int cy = Math.Clamp(y, wa.Y, wa.Y + wa.Height - ch);
+            return new RectInt32(cx, cy, cw, ch);
         }
         return null;
     }
