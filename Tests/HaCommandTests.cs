@@ -55,11 +55,25 @@ public class HaCommandTests
     }
 
     [Fact]
-    public void TryParse_ChargeToFull_AcceptsAnyNonEmptyPress()
+    public void TryParse_ChargeToFull_RequiresExactPressPayload()
     {
+        // Only the exact discovery payload_press ("PRESS") may fire the kick-to-100% command — a
+        // stray or retained payload must not (issue #30 review).
         Assert.True(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, HaCommand.ButtonPress, out var cmd));
         Assert.Equal(HaCommandKind.ChargeToFull, cmd.Kind);
-        Assert.False(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, "", out _));
+        Assert.True(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, "  PRESS  ", out _));  // trimmed
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("press")]      // wrong case
+    [InlineData("Press")]
+    [InlineData("ON")]
+    [InlineData("1")]
+    [InlineData("garbage")]
+    public void TryParse_ChargeToFull_RejectsAnythingButPress(string payload)
+    {
+        Assert.False(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, payload, out _));
     }
 
     [Fact]
