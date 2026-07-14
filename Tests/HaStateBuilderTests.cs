@@ -112,6 +112,53 @@ public class HaStateBuilderTests
     }
 
     [Fact]
+    public void Build_FullSoc_ButDischarging_ReadsNotCharging_NotFull()
+    {
+        // 100 % while actually on battery (just unplugged) is NOT "Full" — Full requires AC (review).
+        var s = Build(soc: 100, status: BatteryStatus.Discharging, rateMw: -8000, onAc: false);
+        Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
+    }
+
+    // ── Issue #30 review: fresh-state overlay after a command ─────────────────────
+
+    [Fact]
+    public void ApplyChargeControl_OverridesChargeFields_KeepsBatteryFields()
+    {
+        // A base snapshot with STALE Smart Charge off/100 …
+        var baseState = Build(soc: 66, rateMw: 30000, onAc: true, status: BatteryStatus.Charging,
+            threshold: new ChargeThresholdState(Capable: true, Enabled: false, Start: 0, Stop: 0),
+            activePreset: "Travel");
+        Assert.False(baseState.SmartChargeEnabled);
+
+        // … overlaid with a FRESH read showing Smart Charge on 70–90 and a new active preset.
+        var updated = HaStateBuilder.ApplyChargeControl(
+            baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 70, Stop: 90), "Daily");
+
+        // Charge-control fields reflect the fresh read …
+        Assert.True(updated.SmartChargeEnabled);
+        Assert.Equal(70, updated.ChargeStart);
+        Assert.Equal(90, updated.ChargeStop);
+        Assert.Equal("Daily", updated.ActivePreset);
+        // … while the battery fields are carried over untouched from the base snapshot.
+        Assert.Equal(66, updated.Soc);
+        Assert.Equal(30000, updated.PowerMw);
+        Assert.True(updated.OnAc);
+        Assert.Equal(baseState.BatteryState, updated.BatteryState);
+    }
+
+    [Fact]
+    public void ApplyChargeControl_FreshOff_ReportsStop100_StartOmitted()
+    {
+        var baseState = Build(threshold: new ChargeThresholdState(true, true, 60, 80));
+        var updated = HaStateBuilder.ApplyChargeControl(
+            baseState, new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80), null);
+        Assert.False(updated.SmartChargeEnabled);
+        Assert.Null(updated.ChargeStart);
+        Assert.Equal(100, updated.ChargeStop);
+        Assert.Null(updated.ActivePreset);
+    }
+
+    [Fact]
     public void Build_PassesThroughLowPowerModeAndActivePreset()
     {
         var s = Build(lowPowerMode: true, activePreset: "Daily");

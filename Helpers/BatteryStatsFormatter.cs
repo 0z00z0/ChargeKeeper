@@ -53,11 +53,27 @@ internal static class BatteryStatsFormatter
         if (chargeRateMw is not { } rate || Math.Abs(rate) < 100) return "—";
         if (remainingMwh is not { } remaining) return "—";
 
-        if (rate > 0 && fullChargeMwh is > 0 and { } full)
-            return FormatHours((full - remaining) / (double)rate, chargingDirection: true);
+        if (rate > 0)
+            return HoursToFull(rate, remainingMwh, fullChargeMwh) is { } h
+                ? FormatHours(h, chargingDirection: true) : "—";
         if (rate < 0)
             return FormatHours(remaining / (double)Math.Abs(rate), chargingDirection: false);
         return "—";
+    }
+
+    /// <summary>
+    /// Hours until full while charging at a meaningful (&gt;=100 mW) rate; null otherwise. The single
+    /// numeric time-to-full source shared by the REMAINING stat text (above) and the Home Assistant
+    /// <c>remaining_charge_time</c> sensor (<see cref="ChargeKeeper.Services.HaStateBuilder"/>), so the
+    /// two can't drift on the rate guard. Pure, so it's unit-tested directly.
+    /// </summary>
+    internal static double? HoursToFull(int chargeRateMw, int? remainingMwh, int? fullChargeMwh)
+    {
+        if (chargeRateMw < 100) return null;
+        if (remainingMwh is not { } remaining || fullChargeMwh is not > 0) return null;
+        double h = (fullChargeMwh.Value - remaining) / (double)chargeRateMw;
+        if (h <= 0 || double.IsInfinity(h) || double.IsNaN(h)) return null;
+        return h;
     }
 
     // Internal (not private) so unit tests can verify the hour/minute formatting and boundary
