@@ -1,3 +1,6 @@
+using System.Globalization;
+using ChargeKeeper.Helpers;
+
 namespace ChargeKeeper.Services;
 
 /// <summary>
@@ -35,8 +38,6 @@ internal static class AppLog
     private static readonly Lock _lock = new();
     private static bool _dirEnsured;
 
-    private const int MaxAttempts = 5;
-
     /// <summary>
     /// Number of lines that could not be written to their target file after exhausting retries
     /// (each such line was spilled to the per-process fallback file instead, best-effort). Exposed
@@ -62,9 +63,12 @@ internal static class AppLog
         lock (_lock)
         {
             if (_dirEnsured) return;
-            try { Directory.CreateDirectory(Path.GetDirectoryName(_path)!); }
-            catch { /* best-effort; the write below fails harmlessly too if this didn't work */ }
-            _dirEnsured = true;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+                _dirEnsured = true;   // latch only on success — a transient failure retries next call
+            }
+            catch { /* best-effort; SafeFileAppend below fails fast and spills to the fallback file */ }
         }
     }
 
@@ -76,42 +80,27 @@ internal static class AppLog
     /// </summary>
     internal static void WriteLine(string path, string level, string message)
     {
-        var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {level} {message}\n\n";
+        // InvariantCulture: the timestamp is machine-facing log data. The old `DateTime.Now:u` format
+        // was always invariant; a custom format string renders under the thread culture by default,
+        // which would stamp a non-Gregorian year or native digits on some locales (#34 review).
+        var line = $"[{DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture)}] {level} {message}\n\n";
 
-        for (var attempt = 0; attempt < MaxAttempts; attempt++)
+        // Serialise this process's own writers under _lock: .NET's FileMode.Append is NOT atomic
+        // across concurrent handles (it seeks to EOF then writes), so two threads appending at once
+        // would race and lose a line. FileShare.ReadWrite inside SafeFileAppend still lets a SIBLING
+        // ChargeKeeper process append without a sharing-violation throw (the #34 root cause), and the
+        // bounded retry rides out that cross-process contention.
+        lock (_lock)
         {
-            try
-            {
-                lock (_lock)
-                {
-                    using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                    using var writer = new StreamWriter(stream);
-                    writer.Write(line);
-                }
+            if (SafeFileAppend.TryAppend(path, line))
                 return;
-            }
-            catch (IOException)
-            {
-                // Transient sharing/locking collision (e.g. a sibling process's own append is
-                // mid-flight, or AV briefly holds the handle) — worth a short bounded retry.
-                if (attempt < MaxAttempts - 1)
-                    Thread.Sleep(15 * (attempt + 1));
-            }
-            catch
-            {
-                // Non-IO failure (e.g. UnauthorizedAccessException, PathTooLongException) — retrying
-                // won't help; fall straight through to the drop-handling below.
-                break;
-            }
-        }
 
-        // Every attempt failed: don't let the line vanish silently like the old catch{} did.
-        Interlocked.Increment(ref _droppedWriteCount);
-        System.Diagnostics.Debug.WriteLine($"AppLog: failed to write to '{path}' after {MaxAttempts} attempt(s): {line}");
-        try
-        {
-            File.AppendAllText(path + $".fallback-{Environment.ProcessId}.log", line);
+            // Every attempt failed: don't let the line vanish silently like the old catch{} did —
+            // count it and spill to a best-effort per-process fallback file (share-safe too, not the
+            // old deny-write File.AppendAllText) so a genuine failure is observable, not a black hole.
+            _droppedWriteCount++;
+            System.Diagnostics.Debug.WriteLine($"AppLog: failed to write to '{path}': {line}");
+            SafeFileAppend.TryAppend(path + $".fallback-{Environment.ProcessId}.log", line);
         }
-        catch { /* logging must never throw */ }
     }
 }
