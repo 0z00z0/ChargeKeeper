@@ -152,10 +152,22 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private IReadOnlyList<double>?        _hoverXs;
     private Func<double, double>?         _hoverProjectYPct;
 
-    // The specific elements the crosshair itself owns (line, dot, pill) — tracked so each pointer
-    // move can remove exactly those without touching the real chart underneath them (a full
-    // SparklineCanvas.Children.Clear() would wipe the actual series too).
-    private readonly List<UIElement> _crosshairElements = [];
+    // The crosshair's three elements (vertical trace line, dot on the SoC line, readout pill) are
+    // built ONCE and then repositioned/retexted on each pointer move rather than reallocated — at
+    // 60-120 moves/second the old rebuild-and-replace churned four UIElements plus a string format
+    // every move. They're plain fields (not a list) so a move can update each in place. Render()'s
+    // SparklineCanvas.Children.Clear() removes them from the tree along with the series, so
+    // _crosshairAttached tracks whether they currently need re-adding.
+    private Microsoft.UI.Xaml.Shapes.Line?    _crosshairLine;
+    private Microsoft.UI.Xaml.Shapes.Ellipse? _crosshairDot;
+    private Border?                            _crosshairPill;
+    private TextBlock?                         _crosshairPillText;
+    private bool                              _crosshairAttached;
+
+    // Index of the sample the crosshair is currently tracing, so a pointer move that stays nearest
+    // to the same sample can short-circuit without touching the visual tree at all. -1 = none
+    // (also reset by Render(), since a fresh render invalidates the cached x-positions).
+    private int _lastHoverIndex = -1;
 
     public BatteryHistoryGraphControl()
     {
@@ -240,10 +252,10 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     // ── Hover crosshair (TODO #27) ────────────────────────────────────────────
 
     /// <summary>
-    /// Traces the nearest sample to the cursor's X position — a linear scan over <see cref="_hoverXs"/>
-    /// rather than a binary search: at the sizes <see cref="Render"/> already downsamples to
-    /// (roughly one point per horizontal pixel), a full scan on a mouse-move event is cheap enough
-    /// that the extra complexity of a binary search wouldn't be worth it.
+    /// Traces the nearest sample to the cursor's X position. Uses a binary search over the
+    /// monotonically non-decreasing <see cref="_hoverXs"/> (see <see cref="MonotoneSearch.NearestIndex"/>)
+    /// and short-circuits when the nearest sample hasn't changed since the last move, so the common
+    /// case (cursor drifting within one sample's horizontal cell) does no work at all.
     /// </summary>
     private void OnCanvasPointerMoved(object sender, PointerRoutedEventArgs e)
     {
@@ -253,13 +265,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
         double x = e.GetCurrentPoint(SparklineCanvas).Position.X;
 
-        int nearest = 0;
-        double best = double.MaxValue;
-        for (int i = 0; i < xs.Count; i++)
-        {
-            double d = Math.Abs(xs[i] - x);
-            if (d < best) { best = d; nearest = i; }
-        }
+        int nearest = MonotoneSearch.NearestIndex(xs, x);
+        // Same sample AND still on-canvas from a prior move → nothing to redraw. (After a Render the
+        // elements were cleared, so _crosshairAttached is false and we fall through to re-add them
+        // even when the nearest index happens to match.)
+        if (nearest == _lastHoverIndex && _crosshairAttached) return;
+        _lastHoverIndex = nearest;
 
         DrawCrosshair(samples[nearest], xs[nearest], projectY(samples[nearest].Soc));
     }
@@ -267,57 +278,97 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private void OnCanvasPointerExited(object sender, PointerRoutedEventArgs e) => ClearCrosshair();
 
     /// <summary>
-    /// Removes exactly the crosshair's own elements (line, dot, pill) from the canvas — NOT a
-    /// <c>SparklineCanvas.Children.Clear()</c>, which would also wipe the real chart underneath.
+    /// Detaches the crosshair's own elements (line, dot, pill) from the canvas — NOT a
+    /// <c>SparklineCanvas.Children.Clear()</c>, which would also wipe the real chart underneath. The
+    /// element instances are kept (in their fields) for reuse on the next hover.
     /// </summary>
     private void ClearCrosshair()
     {
-        foreach (var element in _crosshairElements)
-            SparklineCanvas.Children.Remove(element);
-        _crosshairElements.Clear();
+        if (_crosshairAttached)
+        {
+            if (_crosshairLine is { } l) SparklineCanvas.Children.Remove(l);
+            if (_crosshairDot  is { } d) SparklineCanvas.Children.Remove(d);
+            if (_crosshairPill is { } p) SparklineCanvas.Children.Remove(p);
+            _crosshairAttached = false;
+        }
+        _lastHoverIndex = -1;
     }
 
     /// <summary>
-    /// Draws the hover crosshair at the given sample: a thin vertical trace line spanning the plot
-    /// height, a small dot marking that sample's actual point on the SoC line, and a "time · SoC% ·
-    /// rate" readout pill. Redrawn (via <see cref="ClearCrosshair"/> then re-add) on every pointer
-    /// move rather than moved in place — WinUI has no cheap "reposition without a full Children
-    /// mutation" primitive here, and at typical mouse-move frequencies this is not a hot enough
-    /// path to justify the extra bookkeeping a move-in-place version would need.
+    /// Lazily builds the crosshair's three reusable elements (once), so pointer moves only ever
+    /// reposition/retext them. Colours/opacity never change, so they're set here rather than per move.
     /// </summary>
-    private void DrawCrosshair(BatterySample sample, double x, double y)
+    private void EnsureCrosshairElements()
     {
-        ClearCrosshair();
-
-        double h = SparklineCanvas.ActualHeight;
-        var line = new Microsoft.UI.Xaml.Shapes.Line
+        _crosshairLine ??= new Microsoft.UI.Xaml.Shapes.Line
         {
-            X1 = x, Y1 = 0, X2 = x, Y2 = h,
             Stroke          = SparklineStartLabel.Foreground,   // same neutral brush as axis labels
             StrokeThickness = 1,
             Opacity         = 0.5,
         };
-        SparklineCanvas.Children.Add(line);
-        _crosshairElements.Add(line);
-
-        const double dotR = 3;
-        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+        _crosshairDot ??= new Microsoft.UI.Xaml.Shapes.Ellipse
         {
-            Width           = dotR * 2,
-            Height          = dotR * 2,
+            Width           = 6,
+            Height          = 6,
             Fill            = AppColors.HistorySocBrush,
             Stroke          = SparklineStartLabel.Foreground,
             StrokeThickness = 1,
         };
-        Canvas.SetLeft(dot, x - dotR);
-        Canvas.SetTop(dot, y - dotR);
-        SparklineCanvas.Children.Add(dot);
-        _crosshairElements.Add(dot);
+        if (_crosshairPill is null)
+        {
+            _crosshairPillText = new TextBlock
+            {
+                FontSize   = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GraphLabelPillTextBrushRef.Foreground,
+            };
+            _crosshairPill = new Border
+            {
+                Background   = AnnotationPillBackgroundRef.Background,
+                CornerRadius = new CornerRadius(5),
+                Padding      = new Thickness(4, 1, 4, 1),
+                Child        = _crosshairPillText,
+            };
+        }
+    }
 
-        string rate  = PowerFormat.SignedRate(sample.PowerMw) ?? "0 W";
+    /// <summary>
+    /// Positions the hover crosshair at the given sample: a thin vertical trace line spanning the
+    /// plot height, a small dot marking that sample's actual point on the SoC line, and a
+    /// "time · SoC% · rate" readout pill. Reuses the three persistent elements built by
+    /// <see cref="EnsureCrosshairElements"/> — repositions via <see cref="Canvas"/> attached
+    /// properties and the <see cref="Microsoft.UI.Xaml.Shapes.Line"/>'s own coordinates, and only
+    /// (re-)adds them to the canvas when they aren't already attached (first hover, or after a
+    /// <see cref="Render"/> cleared the canvas).
+    /// </summary>
+    private void DrawCrosshair(BatterySample sample, double x, double y)
+    {
+        EnsureCrosshairElements();
+
+        double h = SparklineCanvas.ActualHeight;
+        _crosshairLine!.X1 = x;
+        _crosshairLine.X2  = x;
+        _crosshairLine.Y1  = 0;
+        _crosshairLine.Y2  = h;
+
+        const double dotR = 3;
+        Canvas.SetLeft(_crosshairDot!, x - dotR);
+        Canvas.SetTop(_crosshairDot!,  y - dotR);
+
+        string rate = PowerFormat.SignedRate(sample.PowerMw) ?? "0 W";
         string label = $"{sample.AtUtc.ToLocalTime():t} · {sample.Soc}% · {rate}";
-        var pill = AddAnnotationPill(x, Math.Max(0, y - 20 - 13), label, SparklineCanvas.ActualWidth, fontSize: 12);
-        _crosshairElements.Add(pill);
+        _crosshairPillText!.Text = label;
+        Canvas.SetLeft(_crosshairPill!, PillLeft(x, label, fontSize: 12, SparklineCanvas.ActualWidth));
+        Canvas.SetTop(_crosshairPill!,  Math.Max(0, y - 20 - 13));
+
+        if (!_crosshairAttached)
+        {
+            // Added after the series (which Render() drew first) so the crosshair sits on top.
+            SparklineCanvas.Children.Add(_crosshairLine);
+            SparklineCanvas.Children.Add(_crosshairDot);
+            SparklineCanvas.Children.Add(_crosshairPill);
+            _crosshairAttached = true;
+        }
     }
 
     // ── Time-scale selector ───────────────────────────────────────────────────
@@ -432,6 +483,11 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     public void Render()
     {
         SparklineCanvas.Children.Clear();
+        // The Clear() above detached the reused crosshair elements along with the series; mark them
+        // unattached (and drop the traced-sample cache) so the next pointer move re-adds and
+        // repositions them against this render's fresh geometry.
+        _crosshairAttached = false;
+        _lastHoverIndex    = -1;
 
         var samples = BatteryHistoryService.CurrentWindow();
         if (samples.Count < 2)
@@ -914,19 +970,25 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             Child        = label,
         };
 
-        // Estimated, not measured: Measure() requires a layout pass (real cost on every gap-break
-        // and every min/max marker, every render) and, called here — before the pill is ever added
-        // to SparklineCanvas.Children — risks returning a degenerate 0×0 DesiredSize on the very
-        // first render (before the control's first layout pass).
-        double estimatedWidth = text.Length * fontSize * PillCharWidthEm + PillPaddingX;
-        double left = Math.Clamp(centerX - estimatedWidth / 2, 0, Math.Max(0, canvasWidth - estimatedWidth));
-        Canvas.SetLeft(pill, left);
+        Canvas.SetLeft(pill, PillLeft(centerX, text, fontSize, canvasWidth));
         // Clamp vertically too: a min/max marker near 100% SoC places `top` just above the dot,
         // which is already near the plot's own top edge — without this, the pill can compute a
         // negative Top and render clipped above (or entirely outside) the canvas.
         Canvas.SetTop(pill, Math.Max(0, top));
         SparklineCanvas.Children.Add(pill);
         return pill;
+    }
+
+    /// <summary>
+    /// Estimated (not measured) left edge for a centred pill of <paramref name="text"/>, clamped to
+    /// stay within the canvas — see <see cref="AddAnnotationPill"/> for why the width is estimated
+    /// rather than measured. Shared by that per-render path and the reused hover-crosshair pill so
+    /// both clamp identically.
+    /// </summary>
+    private static double PillLeft(double centerX, string text, double fontSize, double canvasWidth)
+    {
+        double estimatedWidth = text.Length * fontSize * PillCharWidthEm + PillPaddingX;
+        return Math.Clamp(centerX - estimatedWidth / 2, 0, Math.Max(0, canvasWidth - estimatedWidth));
     }
 
     /// <summary>
