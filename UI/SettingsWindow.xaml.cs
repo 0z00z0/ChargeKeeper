@@ -461,7 +461,16 @@ internal sealed partial class SettingsWindow : Window
         // build — assigning them via the XAML type-converter throws a XamlParseException (see
         // DashboardWindow.ConfigureThresholdRange). Maximum before Minimum, same reasoning: it
         // never lets Minimum transiently exceed Maximum during assignment.
-        var range = new RangeSelector { Height = 32, Margin = new Thickness(0, 2, 0, 2) };
+        // Stretch so the slider fills the full card width (issue #31) — the card itself uses
+        // ContentAlignment.Vertical below so its content region spans edge-to-edge rather than being
+        // squeezed into the right-hand column; without both, the RangeSelector renders too small to
+        // operate comfortably.
+        var range = new RangeSelector
+        {
+            Height              = 32,
+            Margin              = new Thickness(0, 2, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
         range.Maximum       = PresetEditValidator.MaxThreshold;
         range.Minimum       = PresetEditValidator.MinThreshold;
         range.StepFrequency = 5;
@@ -498,7 +507,15 @@ internal sealed partial class SettingsWindow : Window
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",                              Content = nameBox },
-            new SettingsCard { Header = "Range (5-point minimum gap)",       Content = rangeRow },
+            // ContentAlignment.Vertical drops the slider onto its own full-width row beneath the
+            // header instead of the default right-aligned content column, so it can stretch out to a
+            // usable size (issue #31).
+            new SettingsCard
+            {
+                Header           = "Range (5-point minimum gap)",
+                ContentAlignment = ContentAlignment.Vertical,
+                Content          = rangeRow,
+            },
         };
         expander.ItemsFooter = footer;
 
