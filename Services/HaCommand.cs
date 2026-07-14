@@ -31,7 +31,9 @@ internal readonly record struct HaCommand(HaCommandKind Kind, bool BoolValue, in
     /// <item><c>charge_start</c>/<c>charge_stop</c>: a number in
     /// [<see cref="PresetEditValidator.MinThreshold"/>, <see cref="PresetEditValidator.MaxThreshold"/>]
     /// %, rounded from a possible float; out-of-range or non-numeric is rejected.</item>
-    /// <item><c>charge_to_full</c>: accepts any non-empty press payload.</item>
+    /// <item><c>charge_to_full</c>: accepts ONLY the exact <see cref="ButtonPress"/> payload
+    /// ("PRESS") — the most consequential command (kick to 100 %) must not fire on a stray or
+    /// retained payload.</item>
     /// <item><c>preset</c>: a non-empty name (membership is checked at dispatch against the live
     /// preset list, not here).</item>
     /// </list>
@@ -61,7 +63,8 @@ internal readonly record struct HaCommand(HaCommandKind Kind, bool BoolValue, in
                 return true;
 
             case HaDiscovery.CmdChargeToFull:
-                if (p.Length == 0) return false;
+                // Exact-match the discovery payload_press; anything else (empty, stray, retained) is ignored.
+                if (!string.Equals(p, ButtonPress, StringComparison.Ordinal)) return false;
                 cmd = new HaCommand(HaCommandKind.ChargeToFull, false, 0, "");
                 return true;
 
