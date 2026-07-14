@@ -99,6 +99,10 @@ internal static class HaDiscovery
     public const string Online  = "online";
     public const string Offline = "offline";
 
+    /// <summary>Placeholder option for the preset <c>select</c> when no presets are configured — HA
+    /// rejects a select with an empty <c>options</c> list, so we publish a single safe non-empty value.</summary>
+    public const string NoPresetOption = "(none)";
+
     // Battery-state strings, aligned with the HA mobile app's sensor.battery_state values.
     public const string StateCharging    = "Charging";
     public const string StateNotCharging = "Not Charging";
@@ -208,6 +212,24 @@ internal static class HaDiscovery
     public static IEnumerable<(string Component, string ObjectId)> Entities =>
         _entities.Select(e => (e.Component, e.ObjectId));
 
+    /// <summary>
+    /// Config topics for the OLD entity ids that issue #29 renamed. Because the HA component is part
+    /// of the discovery config topic, a component change (binary_sensor→switch, sensor→number) or an
+    /// object-id rename (soc→battery_level, power→battery_power) leaves the previous retained config
+    /// orphaned at its old path — an upgrading user keeps a ghost entity forever. Publish an empty
+    /// retained payload to each of these (on connect AND on disable) to evict them. Verified against
+    /// <c>git show 11669b8:Services/HaDiscovery.cs</c> (the pre-#29 entity set); <c>on_ac</c> and
+    /// <c>adapter_watts</c> kept the same id+component, so they are NOT ghosts and are omitted.
+    /// </summary>
+    public static readonly (string Component, string ObjectId)[] LegacyEntities =
+    [
+        ("sensor",        "soc"),          // → sensor/battery_level
+        ("sensor",        "power"),        // → sensor/battery_power
+        ("binary_sensor", "smart_charge"), // → switch/smart_charge
+        ("sensor",        "charge_start"), // → number/charge_start
+        ("sensor",        "charge_stop"),  // → number/charge_stop
+    ];
+
     private static Dictionary<string, object> Device(string nodeId, string deviceName, string swVersion) => new()
     {
         ["identifiers"]  = new[] { nodeId },
@@ -219,8 +241,9 @@ internal static class HaDiscovery
 
     /// <summary>
     /// The retained discovery configs to publish on connect: one (topic, json) per entity.
-    /// <paramref name="presetNames"/> populates the preset <c>select</c>'s options (empty list → an
-    /// empty picker, which is valid). Serialized with default options; value_templates contain
+    /// <paramref name="presetNames"/> populates the preset <c>select</c>'s options (empty list → a
+    /// single <see cref="NoPresetOption"/> placeholder, since HA rejects an empty select). Serialized
+    /// with default options; value_templates contain
     /// literal <c>{{ }}</c> which are fine inside a JSON string.
     /// </summary>
     public static IEnumerable<(string Topic, string Json)> DiscoveryConfigs(
@@ -253,9 +276,12 @@ internal static class HaDiscovery
                 // above because it depends on the node id).
                 config[k] = (k == "json_attributes_topic") ? state : v;
 
-            // The preset select's options are dynamic (the configured preset names).
+            // The preset select's options are dynamic (the configured preset names). HA rejects an
+            // empty select, so fall back to a single placeholder when there are no presets.
             if (e.ObjectId == CmdPreset)
-                config["options"] = presetNames;
+                config["options"] = presetNames.Count > 0
+                    ? presetNames
+                    : (IReadOnlyList<string>)[NoPresetOption];
 
             yield return (ConfigTopic(discoveryPrefix, e.Component, nodeId, e.ObjectId),
                           JsonSerializer.Serialize(config));

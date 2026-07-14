@@ -151,6 +151,35 @@ public class HaDiscoveryTests
         Assert.Equal(HaDiscovery.CommandTopic(node, "preset"), doc.RootElement.GetProperty("command_topic").GetString());
     }
 
+    [Fact]
+    public void DiscoveryConfigs_Issue30_PresetSelect_EmptyPresets_FallsBackToNonEmptyOptions()
+    {
+        // HA rejects a select with an empty options list — with no presets configured we must still
+        // publish a single safe placeholder (issue #30 review).
+        string node = HaDiscovery.NodeId("PC");
+        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [])
+            .Single(c => c.Topic == $"homeassistant/select/{node}/preset/config");
+
+        using var doc = JsonDocument.Parse(json);
+        var options = doc.RootElement.GetProperty("options").EnumerateArray().Select(x => x.GetString()).ToArray();
+        Assert.NotEmpty(options);
+        Assert.Equal(new[] { HaDiscovery.NoPresetOption }, options);
+    }
+
+    [Fact]
+    public void LegacyEntities_CoverThePre29RenamedIds_ForRetainedClear()
+    {
+        // The #29 renames whose retained discovery must be evicted (old component/id → new).
+        var legacy = HaDiscovery.LegacyEntities;
+        Assert.Contains(("sensor", "soc"), legacy);
+        Assert.Contains(("sensor", "power"), legacy);
+        Assert.Contains(("binary_sensor", "smart_charge"), legacy);
+        Assert.Contains(("sensor", "charge_start"), legacy);
+        Assert.Contains(("sensor", "charge_stop"), legacy);
+        // The current entity set must NOT overlap the legacy set (else we'd clear a live entity).
+        Assert.Empty(HaDiscovery.Entities.Intersect(legacy));
+    }
+
     // ── State payload ────────────────────────────────────────────────────────────
 
     private static HaState State(
