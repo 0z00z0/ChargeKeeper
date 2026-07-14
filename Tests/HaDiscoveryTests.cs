@@ -4,9 +4,12 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure-contract tests for the Home Assistant MQTT discovery layer (TODO #28) — no broker needed.
+// Pure-contract tests for the Home Assistant MQTT discovery layer (TODO #28/#29) — no broker.
 public class HaDiscoveryTests
 {
+    private static List<(string Topic, string Json)> Configs(string node) =>
+        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0").ToList();
+
     [Theory]
     [InlineData("ESPEN-X1", "chargekeeper_espen_x1")]
     [InlineData("desk top pc", "chargekeeper_desk_top_pc")]
@@ -23,139 +26,119 @@ public class HaDiscoveryTests
         string node = HaDiscovery.NodeId("PC");
         Assert.Equal($"chargekeeper/{node}/state", HaDiscovery.StateTopic(node));
         Assert.Equal($"chargekeeper/{node}/availability", HaDiscovery.AvailabilityTopic(node));
-        Assert.Equal($"homeassistant/sensor/{node}/soc/config",
-                     HaDiscovery.ConfigTopic("homeassistant", "sensor", node, "soc"));
+        Assert.Equal($"homeassistant/sensor/{node}/battery_level/config",
+                     HaDiscovery.ConfigTopic("homeassistant", "sensor", node, "battery_level"));
     }
 
     [Fact]
-    public void DiscoveryConfigs_OneRetainedConfigPerEntity_AllShareDeviceAndAvailability()
+    public void DiscoveryConfigs_CoverEveryEntity_AllShareDeviceAndAvailability()
     {
         string node = HaDiscovery.NodeId("PC");
-        var configs = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.3.0").ToList();
+        var configs = Configs(node);
 
-        Assert.Equal(7, configs.Count);   // soc, power, on_ac, smart_charge, charge_start, charge_stop, adapter_watts
-        // Object-id and component appear in the discovery topic path per HA's convention.
-        Assert.Contains(configs, c => c.Topic == $"homeassistant/binary_sensor/{node}/on_ac/config");
-        Assert.Contains(configs, c => c.Topic == $"homeassistant/binary_sensor/{node}/smart_charge/config");
+        Assert.Equal(configs.Count, HaDiscovery.Entities.Count());
+        // battery_level, battery_state, battery_power, battery_health, is_charging,
+        // remaining_charge_time, on_ac, smart_charge, charge_start, charge_stop, adapter_watts.
+        Assert.Equal(11, configs.Count);
 
-        foreach (var (topic, json) in configs)
+        foreach (var (_, json) in configs)
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             Assert.Equal(HaDiscovery.StateTopic(node), root.GetProperty("state_topic").GetString());
             Assert.Equal(HaDiscovery.AvailabilityTopic(node), root.GetProperty("availability_topic").GetString());
             Assert.StartsWith($"{node}_", root.GetProperty("unique_id").GetString());
-            // Every entity carries the same device identity so HA groups them.
             Assert.Equal(node, root.GetProperty("device").GetProperty("identifiers")[0].GetString());
             Assert.Equal("ZeroZero Software", root.GetProperty("device").GetProperty("manufacturer").GetString());
         }
     }
 
     [Fact]
-    public void DiscoveryConfigs_OnAcBinarySensor_HasOnOffPayloads()
+    public void DiscoveryConfigs_Issue29_BatteryLevelSensor_HasBatteryDeviceClass()
     {
         string node = HaDiscovery.NodeId("PC");
-        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper", "1.0.0")
-            .Single(c => c.Topic == $"homeassistant/binary_sensor/{node}/on_ac/config");
+        var (_, json) = Configs(node).Single(c => c.Topic == $"homeassistant/sensor/{node}/battery_level/config");
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("ON",  doc.RootElement.GetProperty("payload_on").GetString());
-        Assert.Equal("OFF", doc.RootElement.GetProperty("payload_off").GetString());
-        Assert.Equal("plug", doc.RootElement.GetProperty("device_class").GetString());
+        Assert.Equal("battery", doc.RootElement.GetProperty("device_class").GetString());
+        Assert.Equal("%", doc.RootElement.GetProperty("unit_of_measurement").GetString());
     }
 
     [Fact]
-    public void DiscoveryConfigs_SmartChargeBinarySensor_HasPayloadsIconAndTemplate()
+    public void DiscoveryConfigs_Issue29_BatteryState_ExposesLowPowerModeAttribute()
     {
         string node = HaDiscovery.NodeId("PC");
-        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper", "1.3.0")
-            .Single(c => c.Topic == $"homeassistant/binary_sensor/{node}/smart_charge/config");
+        var (_, json) = Configs(node).Single(c => c.Topic == $"homeassistant/sensor/{node}/battery_state/config");
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("Smart Charge", doc.RootElement.GetProperty("name").GetString());
-        Assert.Equal("ON",  doc.RootElement.GetProperty("payload_on").GetString());
-        Assert.Equal("OFF", doc.RootElement.GetProperty("payload_off").GetString());
-        Assert.Equal("mdi:battery-heart-variant", doc.RootElement.GetProperty("icon").GetString());
-        Assert.Contains("value_json.smart_charge", doc.RootElement.GetProperty("value_template").GetString());
+        // The attributes topic is the shared state topic (filled from the node id, not left blank).
+        Assert.Equal(HaDiscovery.StateTopic(node), doc.RootElement.GetProperty("json_attributes_topic").GetString());
+        Assert.Contains("low_power_mode", doc.RootElement.GetProperty("json_attributes_template").GetString());
     }
 
     [Fact]
-    public void DiscoveryConfigs_ChargeStartStop_RenamedButIdsUnchanged()
+    public void DiscoveryConfigs_Issue29_IsChargingBinarySensor_HasChargingDeviceClass()
     {
-        // Change #2: only the friendly Name changes ("Smart Charge start/stop" → "Charge start/stop");
-        // object_id and unique_id stay `{node}_charge_start`/`{node}_charge_stop` so HA keeps the
-        // existing entities and just relabels them (no orphaned duplicates).
         string node = HaDiscovery.NodeId("PC");
-        var configs = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.3.0").ToList();
+        var (_, json) = Configs(node).Single(c => c.Topic == $"homeassistant/binary_sensor/{node}/is_charging/config");
 
-        var start = configs.Single(c => c.Topic == $"homeassistant/sensor/{node}/charge_start/config");
-        using (var doc = JsonDocument.Parse(start.Json))
-        {
-            Assert.Equal("Charge start", doc.RootElement.GetProperty("name").GetString());
-            Assert.Equal($"{node}_charge_start", doc.RootElement.GetProperty("unique_id").GetString());
-            Assert.Equal($"{node}_charge_start", doc.RootElement.GetProperty("object_id").GetString());
-        }
-
-        var stop = configs.Single(c => c.Topic == $"homeassistant/sensor/{node}/charge_stop/config");
-        using (var doc = JsonDocument.Parse(stop.Json))
-        {
-            Assert.Equal("Charge stop", doc.RootElement.GetProperty("name").GetString());
-            Assert.Equal($"{node}_charge_stop", doc.RootElement.GetProperty("unique_id").GetString());
-            Assert.Equal($"{node}_charge_stop", doc.RootElement.GetProperty("object_id").GetString());
-        }
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("battery_charging", doc.RootElement.GetProperty("device_class").GetString());
+        Assert.Equal("ON", doc.RootElement.GetProperty("payload_on").GetString());
     }
 
     [Fact]
-    public void Entities_IncludeSmartCharge_ForRetainedClearOnDisable()
+    public void DiscoveryConfigs_Issue29_RemainingChargeTime_IsDurationInMinutes()
     {
-        // The Entities list drives clearing retained discovery on disable — the new sensor must be in it.
-        var entities = HaDiscovery.Entities.ToList();
-        Assert.Equal(7, entities.Count);
-        Assert.Contains(("binary_sensor", "smart_charge"), entities);
+        string node = HaDiscovery.NodeId("PC");
+        var (_, json) = Configs(node).Single(c => c.Topic == $"homeassistant/sensor/{node}/remaining_charge_time/config");
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("duration", doc.RootElement.GetProperty("device_class").GetString());
+        Assert.Equal("min", doc.RootElement.GetProperty("unit_of_measurement").GetString());
     }
+
+    // ── State payload ────────────────────────────────────────────────────────────
+
+    private static HaState State(
+        int soc = 73, string batteryState = HaDiscovery.StateCharging, bool lowPower = false,
+        int powerMw = 45000, bool isCharging = true, bool onAc = true, string? health = "Good",
+        int? remaining = 40, bool smartCharge = true, int? start = 60, int? stop = 80, int? watts = 65)
+        => new(soc, batteryState, lowPower, powerMw, isCharging, onAc, health, remaining,
+               smartCharge, start, stop, watts);
 
     [Fact]
     public void StatePayload_AlwaysIncludesCoreFields()
     {
-        var json = HaDiscovery.StatePayload(new HaState(Soc: 73, PowerMw: 45000, OnAc: true,
-            SmartChargeEnabled: false, ChargeStart: null, ChargeStop: null, AdapterWatts: null));
+        var json = HaDiscovery.StatePayload(State(
+            soc: 73, batteryState: HaDiscovery.StateNotCharging, isCharging: false, smartCharge: false,
+            health: null, remaining: null, start: null, stop: null, watts: null));
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal(73, doc.RootElement.GetProperty("soc").GetInt32());
-        Assert.Equal(45000, doc.RootElement.GetProperty("power_mw").GetInt32());
-        Assert.True(doc.RootElement.GetProperty("on_ac").GetBoolean());
-        // smart_charge is ALWAYS present (never omitted), unlike the optional thresholds/watts.
-        Assert.False(doc.RootElement.GetProperty("smart_charge").GetBoolean());
-        // Unknown optionals are omitted so their HA entity reads "unknown", not a fake 0.
-        Assert.False(doc.RootElement.TryGetProperty("charge_start", out _));
-        Assert.False(doc.RootElement.TryGetProperty("adapter_watts", out _));
+        var root = doc.RootElement;
+        Assert.Equal(73, root.GetProperty("battery_level").GetInt32());
+        Assert.Equal(HaDiscovery.StateNotCharging, root.GetProperty("battery_state").GetString());
+        Assert.False(root.GetProperty("is_charging").GetBoolean());
+        Assert.False(root.GetProperty("smart_charge").GetBoolean());
+        Assert.True(root.TryGetProperty("low_power_mode", out _));
+        // Unknown optionals are omitted so their HA entity reads "unknown", not a fake value.
+        Assert.False(root.TryGetProperty("battery_health", out _));
+        Assert.False(root.TryGetProperty("remaining_min", out _));
+        Assert.False(root.TryGetProperty("charge_start", out _));
+        Assert.False(root.TryGetProperty("adapter_watts", out _));
     }
 
     [Fact]
     public void StatePayload_IncludesOptionalFieldsWhenKnown()
     {
-        var json = HaDiscovery.StatePayload(new HaState(Soc: 80, PowerMw: -18000, OnAc: false,
-            SmartChargeEnabled: true, ChargeStart: 60, ChargeStop: 80, AdapterWatts: 65));
+        var json = HaDiscovery.StatePayload(State());
 
         using var doc = JsonDocument.Parse(json);
-        Assert.True(doc.RootElement.GetProperty("smart_charge").GetBoolean());
-        Assert.Equal(60, doc.RootElement.GetProperty("charge_start").GetInt32());
-        Assert.Equal(80, doc.RootElement.GetProperty("charge_stop").GetInt32());
-        Assert.Equal(65, doc.RootElement.GetProperty("adapter_watts").GetInt32());
-        Assert.Equal(-18000, doc.RootElement.GetProperty("power_mw").GetInt32());
-    }
-
-    [Fact]
-    public void StatePayload_OffState_IncludesStop100_OmitsStart()
-    {
-        // Change #4: Smart Charge off → charge_stop 100 (charging to full is allowed) is sent, while
-        // charge_start is omitted so its HA entity reads "unknown/unavailable".
-        var json = HaDiscovery.StatePayload(new HaState(Soc: 55, PowerMw: 20000, OnAc: true,
-            SmartChargeEnabled: false, ChargeStart: null, ChargeStop: 100, AdapterWatts: 65));
-
-        using var doc = JsonDocument.Parse(json);
-        Assert.False(doc.RootElement.GetProperty("smart_charge").GetBoolean());
-        Assert.Equal(100, doc.RootElement.GetProperty("charge_stop").GetInt32());
-        Assert.False(doc.RootElement.TryGetProperty("charge_start", out _));
+        var root = doc.RootElement;
+        Assert.Equal("Good", root.GetProperty("battery_health").GetString());
+        Assert.Equal(40, root.GetProperty("remaining_min").GetInt32());
+        Assert.Equal(60, root.GetProperty("charge_start").GetInt32());
+        Assert.Equal(80, root.GetProperty("charge_stop").GetInt32());
+        Assert.Equal(65, root.GetProperty("adapter_watts").GetInt32());
     }
 }

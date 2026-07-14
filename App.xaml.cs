@@ -333,7 +333,9 @@ public partial class App : Application
         // returns null before the first reading, so nothing bogus is published.
         _ha.CurrentStateProvider = () => _lastIconState.Pct < 0
             ? null
-            : HaStateBuilder.Build(_lastIconState.Pct, _lastRateMW, _lastOnAC, _lastThresholdState, _lastAdapterWattage);
+            : HaStateBuilder.Build(
+                _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
+                _lastAdapterWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode);
         _ha.ApplySettings(SettingsService.Current);
     }
 
@@ -556,16 +558,21 @@ public partial class App : Application
             _lastThresholdState = ChargeThresholdService.Read();
             _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
             _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
+            _lastDesignMwh      = report.DesignCapacityInMilliwattHours;   // TODO #29 — battery-health denominator
+            // Windows Energy Saver → the HA mobile-app "Low Power Mode" attribute (TODO #29).
+            _lastLowPowerMode   = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
             // Only meaningful while an adapter is attached (TODO #41); the read is memoized inside
             // ChargerInfoService, so per-event calls here are cheap after the first.
             _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
-            // ── Home Assistant publish (TODO #28) ─────────────────────────────
+            // ── Home Assistant publish (TODO #28/#29) ─────────────────────────
             // No-op unless the MQTT publisher is enabled+connected. HaStateBuilder gates which
-            // fields are known (thresholds only when Smart Charge is on; wattage only on AC) so
-            // that mapping stays unit-tested.
-            _ha?.PublishState(HaStateBuilder.Build(pct, _lastRateMW, charging, _lastThresholdState, _lastAdapterWattage));
+            // fields are known and derives the HA mobile-app-aligned battery sensors (state/health/
+            // remaining time).
+            _ha?.PublishState(HaStateBuilder.Build(
+                pct, _lastRateMW, charging, report.Status, _lastThresholdState, _lastAdapterWattage,
+                _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode));
 
             // ── Toast: AC connected ───────────────────────────────────────────
             if (_lastBatteryStatus == BatteryStatus.Discharging &&
@@ -602,6 +609,8 @@ public partial class App : Application
     private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
     private int?    _lastFullMwh;
     private int?    _lastAdapterWattage; // AC adapter rated wattage (TODO #41), null until known
+    private int?    _lastDesignMwh;      // design capacity (TODO #29) — battery-health denominator
+    private bool    _lastLowPowerMode;   // Windows Energy Saver active (TODO #29) — HA state attribute
     private ChargeThresholdState? _lastThresholdState;
 
     private void UpdateTrayIcon(int pct, bool charging)
