@@ -33,13 +33,27 @@ internal static class BatteryHistoryService
     /// </summary>
     public const int SampleIntervalSeconds = 20;
 
-    // A gap must span at least this many missed ticks before Record() reports it as possible
-    // downtime at all — a single slightly-late sample (scheduler jitter) isn't "downtime". This is
-    // independent of the user-configurable DowntimeGapMinutes setting, which only controls how the
-    // GRAPH visually collapses a gap; this is the much lower bar for "did the app plausibly not run
-    // continuously", which the caller's own drop%-per-hour anomaly threshold (TODO #26, default
-    // ~3%/hour) further filters before ever toasting.
-    private static readonly TimeSpan MinGapForAnomalyCheck = TimeSpan.FromSeconds(SampleIntervalSeconds * 3);
+    /// <summary>
+    /// The single "is this hole in the timeline downtime?" threshold, read by BOTH the graph (which
+    /// visually collapses any gap this size into a fixed-width break) AND <see cref="Record"/>'s
+    /// anomaly gate below — so a user's graph-gap setting (Settings → General → "Downtime gap
+    /// threshold", <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>) can no longer
+    /// disagree with when an overnight-drain toast may fire. Previously the graph read the setting
+    /// while the anomaly path used a separate fixed 3-sample-interval constant, so raising the graph
+    /// gap to (say) 30 min or "None" still let a drain toast fire for a gap the graph refused to draw.
+    /// <para>
+    /// 0 ("None") → <see cref="TimeSpan.MaxValue"/> (gap detection disabled everywhere), NOT a literal
+    /// zero-minute threshold. Read fresh each access so a settings change takes effect without a
+    /// restart. The minimum positive setting (1 min) is three sample intervals, so a single late
+    /// sample (scheduler jitter) is never treated as downtime — the old constant's purpose, now
+    /// inherent in the setting's floor. The drain-anomaly path applies a further rate-trust floor and
+    /// %/hour threshold (<see cref="DrainAnomalyPolicy"/>) on top of this gate before toasting.
+    /// </para>
+    /// </summary>
+    public static TimeSpan DowntimeThreshold =>
+        SettingsService.Current.DowntimeGapMinutes <= 0
+            ? TimeSpan.MaxValue
+            : TimeSpan.FromMinutes(SettingsService.Current.DowntimeGapMinutes);
 
     // All raw file I/O (path build, dir-ensure-once, append, read-all, read-last) lives in the
     // shared CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse, the
@@ -91,10 +105,10 @@ internal static class BatteryHistoryService
 
     /// <summary>
     /// Appends a sample to the file and to the in-memory window. Thread-safe; never throws. Returns
-    /// gap info (TODO #26) when this sample landed more than <see cref="MinGapForAnomalyCheck"/>
-    /// after the previous one — the caller (which owns the anomaly-rate threshold and toast-firing
-    /// decision; this service stays a persistence layer, not a notification one) decides whether it
-    /// was actually anomalous.
+    /// gap info (TODO #26) when this sample landed more than <see cref="DowntimeThreshold"/> (the same
+    /// gate the graph uses) after the previous one — the caller (which owns the anomaly-rate threshold
+    /// and toast-firing decision; this service stays a persistence layer, not a notification one)
+    /// decides whether it was actually anomalous.
     /// </summary>
     public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw)
     {
@@ -115,7 +129,10 @@ internal static class BatteryHistoryService
             if (_lastPersisted is { } previous)
             {
                 var gap = sample.AtUtc - previous.AtUtc;
-                if (gap > MinGapForAnomalyCheck)
+                // Gate on the SHARED DowntimeThreshold so the anomaly path and the graph agree on
+                // what counts as downtime (see the field remarks). The caller then applies its own
+                // rate-trust floor + %/hour threshold before actually toasting.
+                if (gap > DowntimeThreshold)
                     gapInfo = new DowntimeGapInfo(previous.Soc - sample.Soc, gap);
             }
 
