@@ -4,28 +4,41 @@ using System.Text.Json;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// A single snapshot of the values ChargeKeeper publishes to Home Assistant (TODO #28).
-/// <c>SmartChargeEnabled</c> reports whether Smart Charge is actively limiting the charge. When Smart
-/// Charge is off, <c>ChargeStop</c> is 100 (charging is allowed all the way to full) and
-/// <c>ChargeStart</c> is null so its HA entity reads "unknown/unavailable"; when on, both carry the
-/// live thresholds. <c>AdapterWatts</c> is null off AC, and on a non-Lenovo laptop with no
-/// adapter-wattage reading, so its entity reads "unknown" rather than a fabricated 0.
+/// A single snapshot of the values ChargeKeeper publishes to Home Assistant (TODO #28/#29). The
+/// read-only battery sensors mirror the Home Assistant mobile-app convention (issue #29):
+/// <c>Soc</c> → sensor.battery_level, <c>BatteryState</c> → sensor.battery_state (Charging / Not
+/// Charging / Full) with a <c>LowPowerMode</c> attribute, <c>PowerMw</c> → sensor.battery_power,
+/// <c>IsCharging</c> → binary_sensor.is_charging, <c>Health</c> → sensor.battery_health, and
+/// <c>RemainingMinutes</c> → sensor.remaining_charge_time (omitted while discharging so its entity
+/// reads "unknown"). Battery temperature and cycle count are NOT published — Windows exposes no
+/// reliable per-battery source for either (see the issue #29 comment).
+/// <para>
+/// <c>SmartChargeEnabled</c>/<c>ChargeStart</c>/<c>ChargeStop</c> report whether Smart Charge is
+/// actively limiting the charge and at what thresholds; when off, <c>ChargeStop</c> is 100 and
+/// <c>ChargeStart</c> is null (its HA entity reads "unknown"). <c>AdapterWatts</c> is null off AC / on
+/// hardware with no adapter-wattage reading.
+/// </para>
 /// </summary>
 internal readonly record struct HaState(
     int Soc,
+    string BatteryState,
+    bool LowPowerMode,
     int PowerMw,
+    bool IsCharging,
     bool OnAc,
+    string? Health,
+    int? RemainingMinutes,
     bool SmartChargeEnabled,
     int? ChargeStart,
     int? ChargeStop,
     int? AdapterWatts);
 
 /// <summary>
-/// PURE builder for the Home Assistant MQTT-discovery contract (TODO #28) — topic names, per-entity
-/// discovery config JSON, and the shared state payload. Kept free of any MQTT client so the protocol
-/// contract (the fiddly part, modelled on HASS.Agent's discovery layout) is unit-testable without a
-/// live broker; <see cref="HomeAssistantService"/> owns the actual connection and just publishes what
-/// this produces.
+/// PURE builder for the Home Assistant MQTT-discovery contract (TODO #28/#29) — topic names,
+/// per-entity discovery config JSON, and the shared state payload. Kept free of any MQTT client so
+/// the protocol contract (the fiddly part, modelled on HA's own mobile-app entity set) is
+/// unit-testable without a live broker; <see cref="HomeAssistantService"/> owns the actual
+/// connection and just publishes what this produces.
 /// <para>
 /// Layout: one retained discovery config per entity at
 /// <c>&lt;prefix&gt;/&lt;component&gt;/&lt;node&gt;/&lt;object&gt;/config</c>; all entities share one
@@ -65,23 +78,55 @@ internal static class HaDiscovery
     public const string Online  = "online";
     public const string Offline = "offline";
 
+    // Battery-state strings, aligned with the HA mobile app's sensor.battery_state values.
+    public const string StateCharging    = "Charging";
+    public const string StateNotCharging = "Not Charging";
+    public const string StateFull        = "Full";
+
     // Entity definitions: object id, HA component, friendly name, and the extra discovery fields
     // (device_class/unit/value_template/binary payloads). Kept in one place so DiscoveryConfigs and
-    // any future entity list stay in sync.
+    // the retained-clear list stay in sync.
     private sealed record Entity(string ObjectId, string Component, string Name, Dictionary<string, object> Extra);
 
     private static readonly Entity[] _entities =
     [
-        new("soc", "sensor", "Battery", new()
+        // ── Read-only battery sensors (issue #29) — HA mobile-app naming/semantics ──────────────
+        new("battery_level", "sensor", "Battery level", new()
         {
             ["device_class"] = "battery", ["unit_of_measurement"] = "%", ["state_class"] = "measurement",
-            ["value_template"] = "{{ value_json.soc }}",
+            ["value_template"] = "{{ value_json.battery_level }}",
         }),
-        new("power", "sensor", "Charge power", new()
+        new("battery_state", "sensor", "Battery state", new()
+        {
+            ["icon"] = "mdi:battery-charging",
+            ["value_template"] = "{{ value_json.battery_state }}",
+            // Low Power Mode surfaces as an attribute on this sensor, matching the mobile app.
+            ["json_attributes_topic"]    = "",  // filled with the state topic in DiscoveryConfigs
+            ["json_attributes_template"] = "{{ {'low_power_mode': value_json.low_power_mode} | tojson }}",
+        }),
+        new("battery_power", "sensor", "Battery power", new()
         {
             ["device_class"] = "power", ["unit_of_measurement"] = "W", ["state_class"] = "measurement",
-            // mW → W, one decimal; positive = charging, negative = draining.
+            // mW → W, one decimal; positive = charging/input, negative = draining.
             ["value_template"] = "{{ (value_json.power_mw | float / 1000) | round(1) }}",
+        }),
+        new("battery_health", "sensor", "Battery health", new()
+        {
+            ["icon"] = "mdi:heart-pulse",
+            ["value_template"] = "{{ value_json.battery_health }}",
+        }),
+        new("is_charging", "binary_sensor", "Is charging", new()
+        {
+            ["device_class"] = "battery_charging",
+            ["value_template"] = "{{ 'ON' if value_json.is_charging else 'OFF' }}",
+            ["payload_on"] = "ON", ["payload_off"] = "OFF",
+        }),
+        new("remaining_charge_time", "sensor", "Remaining charge time", new()
+        {
+            ["device_class"] = "duration", ["unit_of_measurement"] = "min",
+            ["icon"] = "mdi:timer-sand",
+            // Omitted from state while discharging → the entity reads "unknown/unavailable".
+            ["value_template"] = "{{ value_json.remaining_min }}",
         }),
         new("on_ac", "binary_sensor", "On AC", new()
         {
@@ -150,7 +195,10 @@ internal static class HaDiscovery
                 ["payload_not_available"] = Offline,
                 ["device"]             = device,
             };
-            foreach (var (k, v) in e.Extra) config[k] = v;
+            foreach (var (k, v) in e.Extra)
+                // The battery_state attribute topic is the shared state topic (couldn't be a const
+                // above because it depends on the node id).
+                config[k] = (k == "json_attributes_topic") ? state : v;
 
             yield return (ConfigTopic(discoveryPrefix, e.Component, nodeId, e.ObjectId),
                           JsonSerializer.Serialize(config));
@@ -158,23 +206,28 @@ internal static class HaDiscovery
     }
 
     /// <summary>
-    /// The shared state payload. Always-present fields (soc/power/on_ac/smart_charge) plus optional
-    /// fields only when known — an omitted field renders its entity "unknown" in HA. With Smart Charge
-    /// off, <c>charge_stop</c> is still sent as 100 (charging allowed to full) while <c>charge_start</c>
-    /// is omitted (reads "unknown"); <c>adapter_watts</c> is omitted with no adapter-wattage support.
+    /// The shared state payload. Always-present battery fields plus optional fields only when known —
+    /// an omitted field renders its entity "unknown" in HA. <c>remaining_min</c> is omitted while
+    /// discharging (issue #29), <c>charge_start</c> is omitted with Smart Charge off, and
+    /// <c>adapter_watts</c>/<c>battery_health</c> are omitted when unknown.
     /// </summary>
     public static string StatePayload(HaState s)
     {
         var payload = new Dictionary<string, object>
         {
-            ["soc"]          = s.Soc,
-            ["power_mw"]     = s.PowerMw,
-            ["on_ac"]        = s.OnAc,
-            ["smart_charge"] = s.SmartChargeEnabled,
+            ["battery_level"]  = s.Soc,
+            ["battery_state"]  = s.BatteryState,
+            ["low_power_mode"] = s.LowPowerMode,
+            ["power_mw"]       = s.PowerMw,
+            ["is_charging"]    = s.IsCharging,
+            ["on_ac"]          = s.OnAc,
+            ["smart_charge"]   = s.SmartChargeEnabled,
         };
-        if (s.ChargeStart is { } cs) payload["charge_start"]  = cs;
-        if (s.ChargeStop  is { } ce) payload["charge_stop"]   = ce;
-        if (s.AdapterWatts is { } w) payload["adapter_watts"] = w;
+        if (s.Health is { } h)          payload["battery_health"] = h;
+        if (s.RemainingMinutes is { } r) payload["remaining_min"]  = r;
+        if (s.ChargeStart is { } cs)    payload["charge_start"]   = cs;
+        if (s.ChargeStop  is { } ce)    payload["charge_stop"]    = ce;
+        if (s.AdapterWatts is { } w)    payload["adapter_watts"]  = w;
         return JsonSerializer.Serialize(payload);
     }
 }
