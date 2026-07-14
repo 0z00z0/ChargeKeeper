@@ -271,7 +271,7 @@ ChargeKeeper/
 ├── Helpers/                         — Infrastructure utilities
 │   ├── AppColors.cs                 — Shared colour constants and pre-allocated brushes
 │   ├── IconGenerator.cs             — Static brand-mark tray icon (file-based) + live battery arc icon
-│   ├── NativeMethods.cs             — Win32 P/Invoke: per-monitor work area + DPI, DestroyIcon
+│   ├── NativeMethods.cs             — Win32 P/Invoke: per-monitor work area + DPI, monitor clamping, native dialogs
 │   ├── RelayCommand.cs              — Minimal ICommand for tray click binding
 │   └── TaskSchedulerHelper.cs       — Auto-start management via Task Scheduler
 │
