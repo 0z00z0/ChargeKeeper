@@ -8,14 +8,17 @@ namespace ChargeKeeper.Services;
 /// <see cref="HaDiscovery"/> contract onto it: on connect it publishes the retained discovery configs
 /// + "online" availability (so HA auto-creates the ChargeKeeper device), then an entity state payload
 /// whenever <see cref="PublishState"/> is called; a Last-Will-and-Testament flips availability to
-/// "offline" if the process dies. Reconnects with backoff while enabled. Turning the feature off
-/// clears the retained discovery so HA drops the device; a normal app exit keeps it (just goes
-/// offline). NEVER logs the broker password.
+/// "offline" if the process dies. It also SUBSCRIBES to the charge-control command topics (issue #30)
+/// and routes each inbound message through <see cref="HaCommand.TryParse"/> +
+/// <see cref="HaCommandDispatcher"/> to the app's charge-control services. Reconnects with backoff
+/// while enabled. Turning the feature off clears the retained discovery so HA drops the device; a
+/// normal app exit keeps it (just goes offline). NEVER logs the broker password or any payload.
 /// </summary>
 internal sealed class HomeAssistantService : IDisposable
 {
     private readonly string _swVersion;
     private readonly IMqttClient _client;
+    private readonly IChargeControlActions _actions;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private volatile bool _enabled;
@@ -34,10 +37,14 @@ internal sealed class HomeAssistantService : IDisposable
     /// </summary>
     public Func<HaState?>? CurrentStateProvider { get; set; }
 
-    public HomeAssistantService(string swVersion)
+    public HomeAssistantService(string swVersion, IChargeControlActions? actions = null)
     {
         _swVersion = swVersion;
+        _actions = actions ?? new ChargeControlActions();
         _client = new MqttClientFactory().CreateMqttClient();
+        // Route inbound charge-control commands (issue #30). Registered once for the client's life;
+        // the handler is a no-op for anything that isn't a recognised command topic.
+        _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
     }
 
     /// <summary>
@@ -128,9 +135,21 @@ internal sealed class HomeAssistantService : IDisposable
     private async Task OnConnectedAsync(CancellationToken ct)
     {
         AppLog.Info($"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
-        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion))
+        // Preset names populate the "Charge preset" select's options (issue #30). Read fresh on each
+        // connect so a reconnect picks up any preset edits made while offline.
+        var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
             await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
+
+        // Subscribe to the single command wildcard so HA can drive Smart Charge / thresholds / preset
+        // (issue #30). One filter covers every command entity; the handler routes by object-id.
+        await _client.SubscribeAsync(
+            new MqttClientSubscribeOptionsBuilder()
+                .WithTopicFilter(f => f.WithTopic(HaDiscovery.CommandTopicFilter(_nodeId))
+                                       .WithAtLeastOnceQoS())
+                .Build(),
+            ct).ConfigureAwait(false);
         // Publish a FRESH current state right away so a connect before any battery tick still shows
         // live values. Fall back to the last cached snapshot when no provider is set / it has no
         // reading yet (both null on a very early first connect → nothing published, as before).
@@ -155,6 +174,47 @@ internal sealed class HomeAssistantService : IDisposable
         _lastStateJson = json;
         if (_enabled && _client.IsConnected)
             _ = PublishAsync(_stateTopic, json, retain: true, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Inbound MQTT handler for the charge-control command topics (issue #30). Parses defensively via
+    /// <see cref="HaCommand.TryParse"/> (ignoring anything malformed or off-topic), dispatches to the
+    /// app's services, then re-publishes current state so HA reflects the change promptly rather than
+    /// waiting for the next battery tick. Never throws (the MQTT loop must survive a bad payload) and
+    /// never logs the payload.
+    /// </summary>
+    private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
+    {
+        try
+        {
+            string topic = e.ApplicationMessage.Topic;
+            if (HaDiscovery.CommandObjectId(_nodeId, topic) is not { } objectId) return Task.CompletedTask;
+
+            string payload = e.ApplicationMessage.ConvertPayloadToString() ?? "";
+            if (!HaCommand.TryParse(objectId, payload, out var cmd))
+            {
+                AppLog.Info($"HomeAssistant: ignored command '{objectId}' (unrecognised/invalid payload).");
+                return Task.CompletedTask;
+            }
+
+            AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}.");
+            HaCommandDispatcher.Dispatch(cmd, _actions);
+
+            // The service calls settle asynchronously; give the device a moment then push fresh state.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
+                RepublishCurrentState();
+            });
+        }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Publishes a fresh snapshot from <see cref="CurrentStateProvider"/> if one is available.</summary>
+    private void RepublishCurrentState()
+    {
+        if (CurrentStateProvider?.Invoke() is { } current) PublishState(current);
     }
 
     private async Task PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
