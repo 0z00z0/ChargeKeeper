@@ -80,6 +80,33 @@ internal static class NativeMethods
         return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1040 };
     }
 
+    /// <summary>
+    /// Clamps a saved window rect (physical px) so it sits fully within the work area of the monitor
+    /// nearest its centre, shrinking it if it is larger than that monitor. Restores a saved window
+    /// position while guaranteeing the window lands on a currently-connected screen — a rect saved on
+    /// a since-disconnected monitor is pulled onto the nearest one. Uses the same MonitorFromPoint /
+    /// GetMonitorInfo path as <see cref="GetCursorMonitorMetrics"/>; DisplayArea.FindAll faulted in a
+    /// window constructor on a multi-monitor setup and is deliberately avoided. Falls back to the
+    /// input rect unchanged if the monitor query fails.
+    /// </summary>
+    internal static (int X, int Y, int W, int H) ClampRectToNearestMonitor(int x, int y, int w, int h)
+    {
+        var center  = new POINT { X = x + w / 2, Y = y + h / 2 };
+        var monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST);
+        var info    = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref info))
+            return (x, y, w, h);
+
+        var work  = info.rcWork;
+        int workW = work.Right  - work.Left;
+        int workH = work.Bottom - work.Top;
+        int cw = Math.Min(w, workW);
+        int ch = Math.Min(h, workH);
+        int cx = Math.Clamp(x, work.Left, work.Right  - cw);
+        int cy = Math.Clamp(y, work.Top,  work.Bottom - ch);
+        return (cx, cy, cw, ch);
+    }
+
     // ── Native Win32 dark-mode support ─────────────────────────────────────────
     // uxtheme.dll exposes these only by ordinal (no named exports).
     //   SetPreferredAppMode               = ordinal 135  (Win10 1903 / build 18362+)

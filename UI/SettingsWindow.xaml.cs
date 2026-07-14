@@ -6,7 +6,6 @@ using Windows.Graphics;
 using Windows.System;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
-using WinUIEx;
 
 namespace ChargeKeeper.UI;
 
@@ -52,8 +51,11 @@ namespace ChargeKeeper.UI;
 internal sealed partial class SettingsWindow : Window
 {
     private const string AppName = AppInfo.Name;
-    private const int DefaultWidth  = 820;
-    private const int DefaultHeight = 640;
+    // First-open default (DIPs, scaled to the monitor and capped to its work area). Sized as a
+    // sensible max so the window is never oversized on a large/ultrawide screen — the content
+    // otherwise lays out ~2580 px wide.
+    private const int DefaultWidth  = 1200;
+    private const int DefaultHeight = 750;
 
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
@@ -132,64 +134,39 @@ internal sealed partial class SettingsWindow : Window
 
     private void ConfigureWindowChrome()
     {
+        var rect = ComputeInitialRect();
+        // AppWindow.MoveAndResize is the same call the History window uses successfully on this
+        // machine; guarded regardless so a placement failure can never stop the window from showing.
+        try { AppWindow.MoveAndResize(rect); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); }
+    }
+
+    /// <summary>
+    /// The window's opening rect (physical px): the saved size+position when one exists (clamped
+    /// onto a currently-connected monitor), otherwise a default centred on the monitor under the
+    /// cursor and capped to its work area so it is never oversized on a large screen. Deliberately
+    /// uses the native MonitorFromPoint / GetCursorMonitorMetrics path, NOT DisplayArea.FindAll —
+    /// the latter faulted in the constructor on a multi-monitor setup and, because a throw there
+    /// left the window unactivated, made the Settings window never appear (the placement was lost
+    /// and the window fell back to its oversized content-default size).
+    /// </summary>
+    private static RectInt32 ComputeInitialRect()
+    {
         var s = SettingsService.Current;
         if (s.SettingsWindowX is { } x && s.SettingsWindowY is { } y &&
             s.SettingsWindowWidth is { } w && s.SettingsWindowHeight is { } h &&
-            w > 0 && h > 0 &&
-            ClampToVisibleMonitor(x, y, w, h) is { } visible &&
-            TryMoveAndResize(visible))
+            w > 0 && h > 0)
         {
-            return;
-        }
-
-        // First-ever open, a saved rect that no longer lands on any connected monitor (e.g. a
-        // second monitor was unplugged), or a placement API that faulted above — centre at the
-        // default size. Guarded too: on the multi-monitor machine where this window failed to
-        // appear, a placement failure must never bubble up and stop the window from showing.
-        // WinUIEx's CenterOnScreen handles the DPI-aware math this app's popup windows hand-roll
-        // via NativeMethods.GetCursorMonitorMetrics.
-        try { this.CenterOnScreen(DefaultWidth, DefaultHeight); }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.CenterOnScreen", ex); }
-    }
-
-    /// <summary>
-    /// <see cref="AppWindow"/>.MoveAndResize, guarded: returns false (and logs) on failure so the
-    /// caller falls back to centring rather than letting the whole window fail to show.
-    /// </summary>
-    private bool TryMoveAndResize(RectInt32 rect)
-    {
-        try { AppWindow.MoveAndResize(rect); return true; }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); return false; }
-    }
-
-    /// <summary>
-    /// Returns the saved rect adjusted to sit FULLY on a currently-connected monitor whose work
-    /// area contains the window's title bar, or null if no monitor does (→ caller re-centers).
-    /// A mere-overlap test isn't enough: a window closed while docked on a second monitor (saved at
-    /// e.g. x=2160) and reopened on just the laptop screen would restore almost entirely off-screen
-    /// with its title bar unreachable — "the Settings window doesn't appear". So we require a
-    /// grabbable slice of the title bar to be on a monitor, then clamp the whole rect inside that
-    /// monitor's work area (shrinking it if it's larger) so it's always visible and movable.
-    /// </summary>
-    private static RectInt32? ClampToVisibleMonitor(int x, int y, int w, int h)
-    {
-        foreach (var display in DisplayArea.FindAll())
-        {
-            var wa = display.WorkArea;
-            // A point well inside the title bar must land on this monitor's work area.
-            int anchorX = x + Math.Min(w / 2, 120);
-            int anchorY = y + 16;
-            bool titleBarReachable = anchorX >= wa.X && anchorX < wa.X + wa.Width &&
-                                     anchorY >= wa.Y && anchorY < wa.Y + wa.Height;
-            if (!titleBarReachable) continue;
-
-            int cw = Math.Min(w, wa.Width);
-            int ch = Math.Min(h, wa.Height);
-            int cx = Math.Clamp(x, wa.X, wa.X + wa.Width  - cw);
-            int cy = Math.Clamp(y, wa.Y, wa.Y + wa.Height - ch);
+            var (cx, cy, cw, ch) = NativeMethods.ClampRectToNearestMonitor(x, y, w, h);
             return new RectInt32(cx, cy, cw, ch);
         }
-        return null;
+
+        var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
+        int workW = work.Right  - work.Left;
+        int workH = work.Bottom - work.Top;
+        int dw = Math.Min((int)(DefaultWidth  * scale), workW);
+        int dh = Math.Min((int)(DefaultHeight * scale), workH);
+        return new RectInt32(work.Left + (workW - dw) / 2, work.Top + (workH - dh) / 2, dw, dh);
     }
 
     /// <summary>
