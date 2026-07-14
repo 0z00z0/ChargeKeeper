@@ -4,15 +4,20 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Self-registers Windows Error Reporting "LocalDumps" for this exe so that a NATIVE crash — or
-/// an external termination that Windows itself attributes to a fault — produces a usermode
-/// minidump on disk. Those faults bypass .NET's managed exception handlers entirely (nothing
-/// reaches AppDomain.UnhandledException, so app.log stays silent), which is exactly the signature
-/// seen twice now (2026-07-03, 2026-07-05): the tray icon vanishes on a dock/display-topology
-/// change with zero trace anywhere — no ProcessExit log line, no crash.log entry, no Application-log
-/// event, and no WER report at all. A registered LocalDumps entry forces Windows to write a
-/// minidump for ANY unhandled fault in this process, which is the missing piece needed to root-
-/// cause that signature next time it happens.
+/// Crash-forensics for this exe, pared back now that the bug it was built for is fixed.
+///
+/// Two mechanisms were armed while the "vanished tray icon, zero trace" deaths were unexplained
+/// (2026-07-03 … 07-08): WER "LocalDumps" (a minidump on any unhandled FAULT) and a
+/// "SilentProcessExit" monitor (a minidump + Event 3001 on any fault-LESS termination). The
+/// SilentProcessExit monitor did its job — it pinned the root cause to Task Scheduler
+/// hard-terminating the app at undock (StopIfGoingOnBatteries, now fixed in
+/// <see cref="WatchdogTask"/>). But it fires on EVERY exit of this exe, and the watchdog probe
+/// (<c>--watchdog-relaunch</c>) exits every 5 minutes, so it was writing an ~11 MB minidump per
+/// probe — hundreds of megabytes a day of pure noise. So it is now RETIRED: no longer armed, and
+/// <see cref="TryDisarmSilentExitMonitor"/> actively removes it from machines that already have it.
+///
+/// Only WER LocalDumps stays — it triggers solely on a genuine unhandled fault (never on the clean
+/// probe exits), so it keeps a future crash capturable at zero steady-state cost.
 ///
 /// Writing under HKLM needs admin; the app is requireAdministrator, so this succeeds at startup.
 /// Entirely best-effort — any failure (e.g. a non-elevated run) is swallowed.
@@ -28,17 +33,14 @@ internal static class CrashDumps
     private const string SilentExitKey =
         @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\" + ExeName;
 
-    // FLG_MONITOR_SILENT_PROCESS_EXIT — makes the kernel report terminations of this exe that
-    // never reach the exception path (TerminateProcess by another process or by our own native
-    // frameworks). OR'd into GlobalFlag so any other diagnostic bits already set there survive.
+    // FLG_MONITOR_SILENT_PROCESS_EXIT — the GlobalFlag bit that turns the SilentProcessExit monitor
+    // on. Only referenced now to clear it back off (see TryDisarmSilentExitMonitor).
     private const int FlgMonitorSilentProcessExit = 0x200;
 
     /// <summary>
     /// Registers a minidump-on-crash for this exe into <paramref name="dumpDir"/>. Never throws.
-    /// Logs whether it actually armed — given this whole file exists to root-cause a bug that has
-    /// already resisted two occurrences of instrumentation, "did this even take effect this run" is
-    /// the one thing worth confirming; a silent failure (e.g. a policy blocking HKLM writes) would
-    /// otherwise be indistinguishable from "it armed correctly but the fault class never occurred."
+    /// Logs whether it actually armed — a silent HKLM-write failure (policy) would otherwise be
+    /// indistinguishable from "armed fine but no fault has occurred."
     /// </summary>
     internal static void TryRegisterLocalDumps(string dumpDir)
     {
@@ -64,48 +66,86 @@ internal static class CrashDumps
     }
 
     /// <summary>
-    /// Arms Windows "silent process exit" monitoring for this exe. LocalDumps above only fires on
-    /// an unhandled FAULT; the dock-undock kill (forensics 2026-07-06 + 2026-07-08: "Host window
-    /// closed" in the same second as Kernel-Power "Power source change", then nothing — no
-    /// ShutdownStarting, no ProcessExit, dumps folder empty) is a fault-less native termination,
-    /// which LocalDumps can structurally never catch. This monitor covers that class: any
-    /// TerminateProcess-style exit produces Application-log Event 3001
-    /// (Microsoft-Windows-ProcessExitMonitor) naming the process that issued the kill, plus a
-    /// minidump of this process in <paramref name="dumpDir"/>. If a future kill leaves NO 3001
-    /// event either, the exit was a plain native ExitProcess from inside the framework — that
-    /// distinction is exactly what this instrumentation exists to make.
+    /// Removes the SilentProcessExit monitor this app used to arm. It fired a minidump on every exit
+    /// of the exe — including the 5-minute watchdog probe — so on any machine that ran a version
+    /// which armed it, ~11 MB dumps piled up ~288×/day until this runs. Deletes the monitor key and
+    /// clears the GlobalFlag bit (dropping the now-empty IFEO value/subkey so no stray Image File
+    /// Execution Options entry lingers for our exe). Never throws; idempotent.
     /// </summary>
-    internal static void TryRegisterSilentExitMonitor(string dumpDir)
+    internal static void TryDisarmSilentExitMonitor()
     {
+        bool changed = false;
         try
         {
-            Directory.CreateDirectory(dumpDir);
-            using (var sub = Registry.LocalMachine.CreateSubKey(SilentExitKey))
+            using (var sub = Registry.LocalMachine.OpenSubKey(SilentExitKey))
             {
-                if (sub is null)
-                {
-                    AppLog.Info($"CrashDumps: CreateSubKey returned null for {SilentExitKey} — not armed.");
-                    return;
-                }
-                sub.SetValue("ReportingMode", 6, RegistryValueKind.DWord); // 2 = local dump | 4 = Event 3001
-                sub.SetValue("LocalDumpFolder", dumpDir, RegistryValueKind.String);
-                sub.SetValue("DumpType", 1, RegistryValueKind.DWord); // 1 = mini (all thread stacks)
+                if (sub is not null) { Registry.LocalMachine.DeleteSubKeyTree(SilentExitKey); changed = true; }
             }
-            using (var ifeo = Registry.LocalMachine.CreateSubKey(IfeoKey))
+
+            using (var ifeo = Registry.LocalMachine.OpenSubKey(IfeoKey, writable: true))
             {
-                if (ifeo is null)
+                if (ifeo is not null && ifeo.GetValue("GlobalFlag") is int flags &&
+                    (flags & FlgMonitorSilentProcessExit) != 0)
                 {
-                    AppLog.Info($"CrashDumps: CreateSubKey returned null for {IfeoKey} — not armed.");
-                    return;
+                    int cleared = flags & ~FlgMonitorSilentProcessExit;
+                    if (cleared == 0) ifeo.DeleteValue("GlobalFlag", throwOnMissingValue: false);
+                    else ifeo.SetValue("GlobalFlag", cleared, RegistryValueKind.DWord);
+                    changed = true;
                 }
-                int flags = ifeo.GetValue("GlobalFlag") is int existing ? existing : 0;
-                ifeo.SetValue("GlobalFlag", flags | FlgMonitorSilentProcessExit, RegistryValueKind.DWord);
             }
-            AppLog.Info($"CrashDumps: SilentProcessExit monitor armed -> {dumpDir}");
+
+            // Drop the IFEO subkey for our exe if disarming left it completely empty — it only ever
+            // existed to hold that GlobalFlag bit. Read the emptiness under a handle that is closed
+            // again BEFORE the delete (deleting a key while still holding a handle to it is fragile).
+            bool ifeoEmpty;
+            using (var ifeo = Registry.LocalMachine.OpenSubKey(IfeoKey))
+                ifeoEmpty = ifeo is not null && ifeo.ValueCount == 0 && ifeo.SubKeyCount == 0;
+            if (ifeoEmpty)
+                Registry.LocalMachine.DeleteSubKey(IfeoKey, throwOnMissingSubKey: false);
+
+            if (changed)
+                AppLog.Info("CrashDumps: SilentProcessExit monitor disarmed (was dumping on every watchdog probe exit).");
         }
         catch (Exception ex)
         {
-            AppLog.Error("CrashDumps.TryRegisterSilentExitMonitor", ex);
+            AppLog.Error("CrashDumps.TryDisarmSilentExitMonitor", ex);
+        }
+    }
+
+    /// <summary>
+    /// Clears out the dump directory. The retired SilentProcessExit monitor left one ~11 MB
+    /// SUBFOLDER per exit ("ChargeKeeper.exe-(PID-…)-…") — all of it benign watchdog-probe noise,
+    /// so every subfolder is removed. WER LocalDumps writes flat .dmp files on genuine faults; those
+    /// are kept, newest <paramref name="keepNewest"/> (matching WER's own DumpCount). Handling the
+    /// two kinds separately means a real crash dump is never sacrificed to keep a newer noise
+    /// folder. Never throws.
+    /// </summary>
+    internal static void TryCleanupOldDumps(string dumpDir, int keepNewest = 5)
+    {
+        try
+        {
+            var dir = new DirectoryInfo(dumpDir);
+            if (!dir.Exists) return;
+
+            // SilentProcessExit (retired) noise — every per-exit subfolder goes.
+            foreach (var sub in dir.GetDirectories())
+            {
+                try { sub.Delete(recursive: true); }
+                catch { /* best-effort */ }
+            }
+
+            // Genuine WER fault dumps — keep the newest few.
+            foreach (var dmp in dir.GetFiles("*.dmp")
+                                   .OrderByDescending(f => f.LastWriteTimeUtc)
+                                   .Skip(keepNewest))
+            {
+                try { dmp.Delete(); }
+                catch { /* best-effort — a dump still held open by WER is left for next time */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("CrashDumps.TryCleanupOldDumps", ex);
         }
     }
 }

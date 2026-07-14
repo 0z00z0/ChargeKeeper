@@ -258,20 +258,20 @@ public partial class App : Application
         else
             WatchdogTask.TryClearHoldMarker();   // any deliberate start re-arms resurrection
 
-        // Capture a minidump if the app dies from a fault that bypasses every managed handler
-        // below (the "vanished tray icon, zero trace anywhere" signature seen 2026-07-03 and
-        // 2026-07-05 — no ProcessExit line, no app.log entry, no WER report at all). LocalDumps
-        // covers unhandled faults; the SilentProcessExit monitor covers fault-less external
-        // terminations (the undock-kill signature confirmed 2026-07-06/07-08). See CrashDumps.cs
-        // for the full story. Backgrounded: it only needs to be armed before some FUTURE crash,
-        // not before the rest of startup (window/tray-icon creation below) proceeds — registry
-        // I/O here would otherwise add unaccounted latency to the exact "is the app actually
-        // running yet" window this app's history has repeatedly had trouble with.
+        // Keep a minidump-on-crash net for genuine unhandled faults (WER LocalDumps). The louder
+        // SilentProcessExit monitor that once helped pin the undock-kill root cause is now retired
+        // and actively disarmed — it dumped ~11 MB on every 5-minute watchdog probe exit — and the
+        // dump folder it filled is trimmed here. See CrashDumps.cs for the full story. Backgrounded:
+        // this only needs to be armed before some FUTURE crash, not before the rest of startup
+        // (window/tray-icon creation below) proceeds — the registry + file I/O here would otherwise
+        // add unaccounted latency to the exact "is the app actually running yet" window this app's
+        // history has repeatedly had trouble with.
         _ = Task.Run(() =>
         {
             string dumpDir = AppPaths.DataFile("dumps");
             CrashDumps.TryRegisterLocalDumps(dumpDir);
-            CrashDumps.TryRegisterSilentExitMonitor(dumpDir);
+            CrashDumps.TryDisarmSilentExitMonitor();   // retired: it dumped ~11 MB per 5-min watchdog probe
+            CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();
         });
 
