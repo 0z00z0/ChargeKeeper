@@ -50,10 +50,16 @@ internal static class BatteryHistoryService
     /// %/hour threshold (<see cref="DrainAnomalyPolicy"/>) on top of this gate before toasting.
     /// </para>
     /// </summary>
-    public static TimeSpan DowntimeThreshold =>
-        SettingsService.Current.DowntimeGapMinutes <= 0
-            ? TimeSpan.MaxValue
-            : TimeSpan.FromMinutes(SettingsService.Current.DowntimeGapMinutes);
+    public static TimeSpan DowntimeThreshold
+    {
+        get
+        {
+            // Read once: SettingsService.Current can be swapped between reads, so testing one value
+            // and converting another could mix a "None" branch with a positive minute count.
+            int minutes = SettingsService.Current.DowntimeGapMinutes;
+            return minutes <= 0 ? TimeSpan.MaxValue : TimeSpan.FromMinutes(minutes);
+        }
+    }
 
     // All raw file I/O (path build, dir-ensure-once, append, read-all, read-last) lives in the
     // shared CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse, the
@@ -238,8 +244,11 @@ internal static class BatteryHistoryService
                 long start = Math.Max(0, length - window);
                 fs.Seek(start, SeekOrigin.Begin);
                 var buffer = new byte[length - start];
-                int read = fs.Read(buffer, 0, buffer.Length);
-                var text = System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+                // ReadExactly loops until the buffer is full; a single Stream.Read may return fewer
+                // bytes than asked, and since we read FORWARD from `start` a short read would drop the
+                // file's TAIL — exactly the newest rows this method exists to find.
+                fs.ReadExactly(buffer);
+                var text = System.Text.Encoding.UTF8.GetString(buffer);
 
                 // Unless we started at byte 0, the first line in the window is very likely truncated
                 // mid-row — skip it so only whole rows are parsed. Rows are ASCII, so a split across a
