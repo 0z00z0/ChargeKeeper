@@ -31,17 +31,19 @@ jobs:
       #
       # PINNED to the exact 0z0-shared commit this app was validated against, so
       # builds are reproducible and library changes can't break this repo's CI
-      # unnoticed. To bump: sync the local sibling clone, re-run build+tests+the
-      # About window, then update SHARED_REF here AND in release.yml
-      # (`git -C ..\0z0-shared rev-parse origin/main` prints the new SHA).
-      # Once 0z0-shared publishes versioned tags/releases, pin a tag instead
-      # (tracked in that repo's issues).
+      # unnoticed. The SHA lives in a SINGLE shared file — `.github/0z0-shared-ref`
+      # — that both this workflow and release.yml read, so the two pins can no
+      # longer drift out of lockstep. Bump the SHA there (the bump procedure is
+      # documented in that file).
       - name: Clone 0z0-shared (sibling dependency, pinned)
-        env:
-          SHARED_REF: 2d89d1050f88eeaa7d64915270522cc30f3c314c
+        shell: pwsh
         run: |
+          $ref = (Get-Content .github/0z0-shared-ref |
+                  Where-Object { $_.Trim() -and $_ -notmatch '^\s*#' } |
+                  Select-Object -First 1).Trim()
+          Write-Host "Pinned 0z0-shared ref: $ref"
           git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
-          git -C ../0z0-shared checkout --detach $env:SHARED_REF
+          git -C ../0z0-shared checkout --detach $ref
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4

@@ -1,0 +1,9 @@
+# Pinned 0z0-shared (ZeroZeroBrand) commit that BOTH ci.yml and release.yml check
+# out as the sibling ../0z0-shared dependency. SINGLE SOURCE OF TRUTH — bump the SHA
+# here only; both workflows read this file, so the two pins can no longer drift.
+#
+# To bump: sync the local sibling clone, re-run build + tests + the About window, then
+# replace the SHA below with `git -C ..\0z0-shared rev-parse origin/main`.
+# Lines starting with '#' and blank lines are ignored; the first non-comment line is
+# the ref. Once 0z0-shared publishes versioned tags, pin a tag string here instead.
+2d89d1050f88eeaa7d64915270522cc30f3c314c
