@@ -26,6 +26,13 @@ public partial class App : Application
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
     private BatteryStatus _lastBatteryStatus = BatteryStatus.NotPresent;
 
+    // Serialises OnBatteryReportUpdated. The forced startup read (Task.Run in SubscribeBatteryEvents)
+    // can run concurrently with a genuine ReportUpdated event on the MTA thread, and both read+update
+    // the unsynchronised _last* fields and the transition-detection state. Without this lock a
+    // plug-in landing at the exact startup moment could be seen by BOTH invocations → a duplicate
+    // "AC connected" toast and a spurious charger-wattage cache invalidate.
+    private readonly System.Threading.Lock _batteryReportLock = new();
+
     // Cached tray icon state; Pct = -1 means not yet read.
     private (int Pct, bool Charging) _lastIconState = (-1, false);
 
@@ -472,6 +479,10 @@ public partial class App : Application
 
     private void OnBatteryReportUpdated(Battery sender, object args)
     {
+        // Serialise the whole read→decide→update so the forced startup read and a real ReportUpdated
+        // event can't interleave on the shared _last* fields (see _batteryReportLock). The body only
+        // marshals to the UI thread via non-blocking TryEnqueue, so holding the lock can't deadlock.
+        using var lockScope = _batteryReportLock.EnterScope();
         try
         {
             var report = sender.GetReport();
