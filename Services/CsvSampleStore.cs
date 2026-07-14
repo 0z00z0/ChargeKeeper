@@ -1,3 +1,5 @@
+using ChargeKeeper.Helpers;
+
 namespace ChargeKeeper.Services;
 
 /// <summary>
@@ -49,8 +51,12 @@ internal sealed class CsvSampleStore
 
     /// <summary>
     /// Ensures the containing directory exists (once per path) then appends a single line plus a
-    /// trailing newline. Does not swallow I/O errors — the caller owns the "logging must never crash
-    /// the app" policy and its own <see cref="AppLog"/> line, exactly as before the extraction.
+    /// trailing newline. Uses <see cref="SafeFileAppend"/> (FileShare.ReadWrite + bounded retry) so a
+    /// concurrent ChargeKeeper process appending to the same history file can't cause the
+    /// sharing-violation loss that #34 diagnosed for app.log — the two history writers used the same
+    /// unsafe <c>File.AppendAllText</c> and only dodged it by timing. Still does not swallow I/O
+    /// errors: a persistent failure rethrows so the caller owns the "logging must never crash the app"
+    /// policy and its own <see cref="AppLog"/> line, exactly as before.
     /// </summary>
     internal void AppendLine(string line)
     {
@@ -59,7 +65,7 @@ internal sealed class CsvSampleStore
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             _dirEnsured = true;
         }
-        File.AppendAllText(_path, line + "\n");
+        SafeFileAppend.Append(_path, line + "\n");
     }
 
     /// <summary>
