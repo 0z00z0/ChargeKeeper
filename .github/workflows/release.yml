@@ -43,14 +43,18 @@ jobs:
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # PINNED to the exact 0z0-shared commit this app was validated against —
-      # keep the SHA in sync with ci.yml (bump procedure documented there).
+      # PINNED to the exact 0z0-shared commit this app was validated against. The
+      # SHA is read from the shared `.github/0z0-shared-ref` file (same file ci.yml
+      # reads) so the release and CI pins can't drift; bump it there.
       - name: Clone 0z0-shared (sibling dependency, pinned)
-        env:
-          SHARED_REF: 2d89d1050f88eeaa7d64915270522cc30f3c314c
+        shell: pwsh
         run: |
+          $ref = (Get-Content .github/0z0-shared-ref |
+                  Where-Object { $_.Trim() -and $_ -notmatch '^\s*#' } |
+                  Select-Object -First 1).Trim()
+          Write-Host "Pinned 0z0-shared ref: $ref"
           git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
-          git -C ../0z0-shared checkout --detach $env:SHARED_REF
+          git -C ../0z0-shared checkout --detach $ref
 
       # ── 2. Resolve version string ────────────────────────────────────────────
       # Tag-triggered: strip the leading 'v'.
