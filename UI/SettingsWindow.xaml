@@ -32,8 +32,19 @@
             <NavigationViewItem Content="Appearance"       Tag="Appearance"/>
         </NavigationView.MenuItems>
 
-        <ScrollViewer Padding="20,12,20,16" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Padding="20,8,20,12" VerticalScrollBarVisibility="Auto">
             <Grid>
+
+                <!-- Density (issue #22): the SettingsCards are the same control PowerToys Settings
+                     uses, so their intrinsic density already matches. This lightweight-styling
+                     override trims the default 68px card floor so single-line rows (e.g. the Home
+                     Assistant broker fields) don't reserve extra vertical space; description-bearing
+                     cards grow past it as before. Additive resource — a harmless no-op if a toolkit
+                     version stops honouring the key. Scoped to this Grid so it covers every card
+                     (including the code-built preset / network rows nested below). -->
+                <Grid.Resources>
+                    <x:Double x:Key="SettingsCardMinHeight">52</x:Double>
+                </Grid.Resources>
 
                 <!-- ── General ─────────────────────────────────────────────────── -->
                 <StackPanel x:Name="GeneralPanel" Spacing="4">
@@ -74,7 +85,7 @@
 
                     <!-- Advanced: the two settings-file actions that used to live in the tray menu
                          (TODO #28 — "Open settings folder" / "Reload settings from file"). -->
-                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
                     <controls:SettingsCard Header="Settings file"
                                             Description="ChargeKeeper stores its configuration in settings.json. Reload picks up changes made outside the app (a manual edit, or a file synced in from another machine).">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -90,7 +101,7 @@
 
                     <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
-                    <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,16"/>
+                    <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,12"/>
 
                     <controls:SettingsCard Header="Unknown-network preset"
                                             Description="Preset to apply when the current network matches none of the profiles in the Network section, and network profiles are enabled.">
@@ -134,7 +145,7 @@
                         <TextBlock x:Name="CurrentNetworkText" Text="—" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+                    <TextBlock Text="Profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
                     <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
                     <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,0"/>
                 </StackPanel>
@@ -148,7 +159,7 @@
                         <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+                    <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
                     <TextBlock Text="Broker fields below are staged locally and only take effect when you click Apply — so the MQTT connection reconnects once per Apply, not per keystroke."
                                TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
 
