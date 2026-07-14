@@ -29,18 +29,14 @@ internal static class HaStateBuilder
         bool lowPowerMode, string? activePreset)
     {
         bool isCharging = status == BatteryStatus.Charging;
+        // "Full" only when actually externally powered — a pack sitting at 100 % while DISCHARGING
+        // (just unplugged) is Not Charging, not Full (issue #29/#30 review).
         string batteryState =
-            isCharging ? HaDiscovery.StateCharging :
-            soc >= 100 ? HaDiscovery.StateFull :
-                         HaDiscovery.StateNotCharging;
+            isCharging          ? HaDiscovery.StateCharging :
+            soc >= 100 && onAc  ? HaDiscovery.StateFull :
+                                  HaDiscovery.StateNotCharging;
 
-        bool scEnabled = threshold is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 };
-        // Off (or the "charge to 100% once" travel override) → stop 100, start omitted. This single
-        // "off" branch also covers the override because activating it calls
-        // ChargeThresholdService.SetEnabled(false), so the live threshold read already comes back
-        // Enabled: false while the override is active — no separate travel-override parameter needed.
-        int? start = scEnabled ? threshold!.Start : null;
-        int? stop  = scEnabled ? threshold!.Stop  : 100;
+        var (scEnabled, start, stop) = ChargeControlFields(threshold);
 
         // A wattage reading only belongs to the current AC session; never publish a stale one while
         // on battery (the caller already nulls it, but gate here too so the mapping is self-contained).
@@ -63,6 +59,44 @@ internal static class HaStateBuilder
     }
 
     /// <summary>
+    /// The Smart Charge on/off flag and the reflected Charge start/stop numbers derived from a live
+    /// threshold read — the single source shared by <see cref="Build"/> (battery-tick path) and
+    /// <see cref="ApplyChargeControl"/> (the post-command fresh-state republish, issue #30 review),
+    /// so the "off → stop 100, start omitted" semantics can't drift between the two.
+    /// <para>
+    /// "Off" (or the "charge to 100 % once" travel override) → stop 100, start omitted. This single
+    /// "off" branch also covers the override because activating it calls
+    /// <c>ChargeThresholdService.SetEnabled(false)</c>, so the live threshold read already comes back
+    /// <c>Enabled: false</c> while the override is active — no separate travel-override parameter needed.
+    /// </para>
+    /// </summary>
+    internal static (bool Enabled, int? Start, int? Stop) ChargeControlFields(ChargeThresholdState? threshold)
+    {
+        bool scEnabled = threshold is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 };
+        int? start = scEnabled ? threshold!.Start : null;
+        int? stop  = scEnabled ? threshold!.Stop  : 100;
+        return (scEnabled, start, stop);
+    }
+
+    /// <summary>
+    /// Returns <paramref name="baseState"/> with only its charge-control fields (Smart Charge flag,
+    /// Charge start/stop, active preset) replaced from a FRESH device read + preset name — used to
+    /// republish immediately after an inbound MQTT command writes new thresholds, without waiting for
+    /// the next battery tick and without touching App's stale threshold cache (issue #30 review).
+    /// </summary>
+    internal static HaState ApplyChargeControl(HaState baseState, ChargeThresholdState? threshold, string? activePreset)
+    {
+        var (scEnabled, start, stop) = ChargeControlFields(threshold);
+        return baseState with
+        {
+            SmartChargeEnabled = scEnabled,
+            ChargeStart = start,
+            ChargeStop = stop,
+            ActivePreset = activePreset,
+        };
+    }
+
+    /// <summary>
     /// Battery health from capacity wear (current full-charge capacity ÷ design capacity). Null when
     /// either figure is missing/non-positive so the HA entity reads "unknown" rather than a fake value.
     /// </summary>
@@ -77,15 +111,15 @@ internal static class HaStateBuilder
 
     /// <summary>
     /// Minutes until full while charging at a meaningful (&gt;=100 mW) rate; null otherwise so the
-    /// HA entity is unavailable while discharging/idle (issue #29). Mirrors
-    /// <see cref="Helpers.BatteryStatsFormatter.FormatTimeRemaining"/>'s charging branch.
+    /// HA entity is unavailable while discharging/idle (issue #29). Reuses
+    /// <see cref="Helpers.BatteryStatsFormatter.HoursToFull"/> — the SAME numeric time-to-full source
+    /// the dashboard/pop-out REMAINING stat uses — so the two can't drift on the rate guard.
     /// </summary>
     internal static int? RemainingMinutesToFull(bool isCharging, int chargeRateMw, int? remainingMwh, int? fullMwh)
     {
-        if (!isCharging || chargeRateMw < 100) return null;
-        if (remainingMwh is not { } remaining || fullMwh is not > 0) return null;
-        double hours = (fullMwh.Value - remaining) / (double)chargeRateMw;
-        if (hours <= 0 || double.IsInfinity(hours) || double.IsNaN(hours)) return null;
+        if (!isCharging) return null;
+        if (Helpers.BatteryStatsFormatter.HoursToFull(chargeRateMw, remainingMwh, fullMwh) is not { } hours)
+            return null;
         return (int)Math.Round(hours * 60);
     }
 }
