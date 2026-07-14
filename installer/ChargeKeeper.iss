@@ -229,16 +229,30 @@ end;
 
 procedure LaunchApp();
 var
-  ResultCode: Integer;
+  ResultCode, i: Integer;
 begin
   if ScheduledTaskExists() then
-    // The elevated logon task exists -> run it on demand to start the app elevated
-    // with NO extra UAC prompt (scheduled tasks bypass the consent prompt).
-    Exec('schtasks.exe', '/Run /TN "' + TaskName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-  else
-    // No task -> use 'runas' so the UAC consent dialog is raised to the foreground.
-    // 'open' also works but the dialog can appear behind the installer window and be missed.
-    ShellExec('runas', ExpandConstant('{app}\{#AppExe}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  begin
+    // The elevated logon task exists -> run it on demand to start the app elevated with NO extra
+    // UAC prompt (scheduled tasks bypass the consent prompt).
+    Exec('schtasks.exe', '/Run /TN "' + TaskName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // BUT: a task created by an older installer (or the legacy-migration branch in ssInstall) via
+    // plain `schtasks /Create` carries the schtasks default DisallowStartIfOnBatteries=true until
+    // the app rewrites it power-safe on first run. On battery the scheduler ACCEPTS the /Run but
+    // silently declines to launch the action — the exact "app didn't start after install" report.
+    // /Run's own exit code is 0 either way, so verify the app actually came up instead: poll
+    // briefly (the process is visible immediately, independent of the app's own startup-delay
+    // setting) and only fall through to a direct launch if it did not.
+    for i := 1 to 6 do
+    begin
+      if AppIsRunning() then exit;
+      Sleep(500);
+    end;
+  end;
+  // No task, or the task-run didn't bring the app up (battery-blocked) -> launch directly. 'runas'
+  // raises the UAC consent dialog to the foreground (the app is requireAdministrator); 'open' also
+  // works but the dialog can appear behind the installer window and be missed.
+  ShellExec('runas', ExpandConstant('{app}\{#AppExe}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
