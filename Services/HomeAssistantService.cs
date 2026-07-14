@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using MQTTnet;
 using MQTTnet.Protocol;
 
@@ -21,6 +22,15 @@ internal sealed class HomeAssistantService : IDisposable
     private readonly IChargeControlActions _actions;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    // Inbound commands are handed to this single-reader queue and processed one-at-a-time on a
+    // dedicated worker, OFF the MQTT receive callback (issue #30 review): the callback must return
+    // promptly (never run the blocking vendor RPC inline), and a read-modify-write pair for one
+    // command must finish before the next starts (else two near-simultaneous threshold sets each read
+    // the old pair and clobber each other). A single reader gives both properties for free.
+    private readonly Channel<HaCommand> _commands =
+        Channel.CreateUnbounded<HaCommand>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly Task _commandWorker;
+
     private volatile bool _enabled;
     private MqttClientOptions? _options;
     private string _nodeId = "", _stateTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
@@ -43,8 +53,10 @@ internal sealed class HomeAssistantService : IDisposable
         _actions = actions ?? new ChargeControlActions();
         _client = new MqttClientFactory().CreateMqttClient();
         // Route inbound charge-control commands (issue #30). Registered once for the client's life;
-        // the handler is a no-op for anything that isn't a recognised command topic.
+        // the handler is a no-op for anything that isn't a recognised command topic. It only enqueues;
+        // the actual dispatch runs on the single-worker loop below.
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
+        _commandWorker = Task.Run(ProcessCommandsAsync);
     }
 
     /// <summary>
@@ -140,6 +152,9 @@ internal sealed class HomeAssistantService : IDisposable
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
         foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
             await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
+        // Evict any retained discovery from the OLD (pre-#29) entity ids so an upgrading user doesn't
+        // keep ghost entities alongside the renamed ones.
+        await ClearLegacyDiscoveryAsync(ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
 
         // Subscribe to the single command wildcard so HA can drive Smart Charge / thresholds / preset
@@ -165,23 +180,30 @@ internal sealed class HomeAssistantService : IDisposable
 
     /// <summary>
     /// Publishes an entity state snapshot (retained, so HA has a value immediately on restart).
-    /// Cheap no-op when disabled or disconnected — the snapshot is cached and re-sent on next connect.
+    /// No-op when the feature is disabled (fix: return BEFORE building/serializing the payload, so a
+    /// battery tick costs nothing while off). When enabled but the payload is unchanged from the last
+    /// one, skips the network publish too — a stationary SoC shouldn't re-send a retained message
+    /// every tick. Still caches while disconnected so the snapshot is re-sent on the next connect.
     /// Call from the battery-report path.
     /// </summary>
     public void PublishState(HaState state)
     {
+        if (!_enabled) return;
         string json = HaDiscovery.StatePayload(state);
+        if (string.Equals(json, _lastStateJson, StringComparison.Ordinal)) return;  // unchanged → don't republish
         _lastStateJson = json;
-        if (_enabled && _client.IsConnected)
+        if (_client.IsConnected)
             _ = PublishAsync(_stateTopic, json, retain: true, CancellationToken.None);
     }
 
     /// <summary>
-    /// Inbound MQTT handler for the charge-control command topics (issue #30). Parses defensively via
-    /// <see cref="HaCommand.TryParse"/> (ignoring anything malformed or off-topic), dispatches to the
-    /// app's services, then re-publishes current state so HA reflects the change promptly rather than
-    /// waiting for the next battery tick. Never throws (the MQTT loop must survive a bad payload) and
-    /// never logs the payload.
+    /// Inbound MQTT handler for the charge-control command topics (issue #30). Runs on the MQTT
+    /// receive callback, so it does only cheap work: skip retained command payloads (a command is an
+    /// event, not state — a leftover retained payload would otherwise re-fire on every reconnect),
+    /// parse defensively via <see cref="HaCommand.TryParse"/> (ignoring anything malformed/off-topic),
+    /// then hand the parsed command to the single-worker queue and return. The blocking dispatch +
+    /// fresh-state republish happen on <see cref="ProcessCommandsAsync"/>, never here. Never throws
+    /// (the MQTT loop must survive a bad payload) and never logs the payload.
     /// </summary>
     private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
     {
@@ -190,6 +212,15 @@ internal sealed class HomeAssistantService : IDisposable
             string topic = e.ApplicationMessage.Topic;
             if (HaDiscovery.CommandObjectId(_nodeId, topic) is not { } objectId) return Task.CompletedTask;
 
+            // Ignore retained messages on command topics. With CleanSession + resubscribe-on-connect,
+            // a retained cmd/* payload (e.g. a stale PRESS or threshold) is redelivered and would
+            // re-fire on every reconnect. Commands are events; only state topics carry retained value.
+            if (e.ApplicationMessage.Retain)
+            {
+                AppLog.Info($"HomeAssistant: ignored retained command '{objectId}'.");
+                return Task.CompletedTask;
+            }
+
             string payload = e.ApplicationMessage.ConvertPayloadToString() ?? "";
             if (!HaCommand.TryParse(objectId, payload, out var cmd))
             {
@@ -197,24 +228,54 @@ internal sealed class HomeAssistantService : IDisposable
                 return Task.CompletedTask;
             }
 
-            AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}.");
-            HaCommandDispatcher.Dispatch(cmd, _actions);
-
-            // The service calls settle asynchronously; give the device a moment then push fresh state.
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
-                RepublishCurrentState();
-            });
+            AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}; queued.");
+            _commands.Writer.TryWrite(cmd);   // unbounded + non-blocking; the worker drains it in order
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
         return Task.CompletedTask;
     }
 
-    /// <summary>Publishes a fresh snapshot from <see cref="CurrentStateProvider"/> if one is available.</summary>
-    private void RepublishCurrentState()
+    /// <summary>
+    /// The single-worker command loop (issue #30 review). Drains <see cref="_commands"/> one command
+    /// at a time — so a blocking read-modify-write for one command completes before the next starts —
+    /// dispatching each to the (now synchronous) <see cref="IChargeControlActions"/> and then
+    /// publishing a FRESH state snapshot so HA reflects the change immediately. Runs for the object's
+    /// lifetime; ends when <see cref="Dispose"/> completes the channel writer.
+    /// </summary>
+    private async Task ProcessCommandsAsync()
     {
-        if (CurrentStateProvider?.Invoke() is { } current) PublishState(current);
+        await foreach (var cmd in _commands.Reader.ReadAllAsync().ConfigureAwait(false))
+        {
+            try
+            {
+                HaCommandDispatcher.Dispatch(cmd, _actions);   // synchronous read-modify-write on this worker
+                PublishFreshStateAfterCommand();
+            }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitize(ex)); }
+        }
+    }
+
+    /// <summary>
+    /// Publishes state right after a command's write completes, reflecting the change with a FRESH
+    /// device read rather than App's stale cached threshold state (which the command path never
+    /// refreshes). Takes the battery fields from <see cref="CurrentStateProvider"/> but overrides the
+    /// charge-control fields (Smart Charge / thresholds / preset) from a live
+    /// <see cref="ChargeThresholdService.Read"/> + the persisted active preset.
+    /// </summary>
+    private void PublishFreshStateAfterCommand()
+    {
+        if (CurrentStateProvider?.Invoke() is not { } baseState) return;
+        var fresh = ChargeThresholdService.Read();
+        string? activePreset = SettingsService.Current.ActivePreset;
+        PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, activePreset));
+    }
+
+    /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>
+    private async Task ClearLegacyDiscoveryAsync(CancellationToken ct)
+    {
+        foreach (var (component, objectId) in HaDiscovery.LegacyEntities)
+            await PublishAsync(HaDiscovery.ConfigTopic(_discoveryPrefix, component, _nodeId, objectId),
+                               "", retain: true, ct).ConfigureAwait(false);
     }
 
     private async Task PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
@@ -241,11 +302,14 @@ internal sealed class HomeAssistantService : IDisposable
             if (_client.IsConnected)
             {
                 if (clearDiscovery)
+                {
                     // User disabled the feature — remove the retained discovery configs so HA drops
                     // the device entirely (a normal exit skips this and just goes offline, keeping it).
-                    foreach (var (component, objectId) in HaDiscovery.Entities)
+                    // Clear the OLD (pre-#29) ids too so an upgraded-then-disabled user leaves no ghosts.
+                    foreach (var (component, objectId) in HaDiscovery.Entities.Concat(HaDiscovery.LegacyEntities))
                         await PublishAsync(HaDiscovery.ConfigTopic(_discoveryPrefix, component, _nodeId, objectId),
                                            "", retain: true, CancellationToken.None).ConfigureAwait(false);
+                }
 
                 await PublishAsync(_availTopic, HaDiscovery.Offline, retain: true, CancellationToken.None).ConfigureAwait(false);
                 await _client.DisconnectAsync().ConfigureAwait(false);
@@ -260,8 +324,11 @@ internal sealed class HomeAssistantService : IDisposable
 
     public void Dispose()
     {
+        // Stop the command worker: complete the channel so ProcessCommandsAsync drains and exits.
+        try { _commands.Writer.TryComplete(); } catch { }
         // Graceful exit: go offline but KEEP the retained discovery so the device persists in HA.
         try { StopInternalAsync(clearDiscovery: false).Wait(TimeSpan.FromSeconds(3)); } catch { }
+        try { _commandWorker.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _client.Dispose();
         _cts?.Dispose();
         _gate.Dispose();
