@@ -79,15 +79,34 @@ internal sealed partial class SettingsWindow : Window
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
-        ConfigureWindowChrome();
 
-        RefreshAllSections();
-        WireHaBrokerFieldEditHandlers();
-
-        Nav.SelectedItem = Nav.MenuItems[0];
-        ShowSection("General");
+        // NOTHING below may throw out of the constructor. App.ShowSettingsWindow only assigns
+        // _settings and calls Activate() once `new SettingsWindow(...)` returns — so a throw here
+        // leaves an orphaned, never-shown window AND makes every later "Settings…" click leak
+        // another hidden one (the "Settings window never appears" symptom, reproduced on a
+        // multi-monitor setup where the window-placement API faulted). Each step is best-effort:
+        // one failing piece degrades on its own instead of hiding the whole window.
+        SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
+        SafeInit(nameof(RefreshAllSections), RefreshAllSections);
+        SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
+        SafeInit("SelectInitialSection", () =>
+        {
+            Nav.SelectedItem = Nav.MenuItems[0];
+            ShowSection("General");
+        });
 
         Closed += OnClosed;
+    }
+
+    /// <summary>
+    /// Runs one constructor step, swallowing + logging any failure so it cannot prevent the window
+    /// from being shown. See the constructor note for why a throw out of the ctor is fatal to the
+    /// whole window.
+    /// </summary>
+    private static void SafeInit(string step, Action body)
+    {
+        try { body(); }
+        catch (Exception ex) { AppLog.Error($"SettingsWindow ctor step '{step}'", ex); }
     }
 
     /// <summary>
@@ -117,18 +136,30 @@ internal sealed partial class SettingsWindow : Window
         if (s.SettingsWindowX is { } x && s.SettingsWindowY is { } y &&
             s.SettingsWindowWidth is { } w && s.SettingsWindowHeight is { } h &&
             w > 0 && h > 0 &&
-            ClampToVisibleMonitor(x, y, w, h) is { } visible)
+            ClampToVisibleMonitor(x, y, w, h) is { } visible &&
+            TryMoveAndResize(visible))
         {
-            AppWindow.MoveAndResize(visible);
+            return;
         }
-        else
-        {
-            // First-ever open, or the saved rect no longer lands on any connected monitor (e.g. a
-            // second monitor was unplugged) — WinUIEx's CenterOnScreen handles the DPI-aware
-            // placement math this app's other windows otherwise hand-roll via
-            // NativeMethods.GetCursorMonitorMetrics.
-            this.CenterOnScreen(DefaultWidth, DefaultHeight);
-        }
+
+        // First-ever open, a saved rect that no longer lands on any connected monitor (e.g. a
+        // second monitor was unplugged), or a placement API that faulted above — centre at the
+        // default size. Guarded too: on the multi-monitor machine where this window failed to
+        // appear, a placement failure must never bubble up and stop the window from showing.
+        // WinUIEx's CenterOnScreen handles the DPI-aware math this app's popup windows hand-roll
+        // via NativeMethods.GetCursorMonitorMetrics.
+        try { this.CenterOnScreen(DefaultWidth, DefaultHeight); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.CenterOnScreen", ex); }
+    }
+
+    /// <summary>
+    /// <see cref="AppWindow"/>.MoveAndResize, guarded: returns false (and logs) on failure so the
+    /// caller falls back to centring rather than letting the whole window fail to show.
+    /// </summary>
+    private bool TryMoveAndResize(RectInt32 rect)
+    {
+        try { AppWindow.MoveAndResize(rect); return true; }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); return false; }
     }
 
     /// <summary>
