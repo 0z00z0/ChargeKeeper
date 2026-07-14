@@ -11,7 +11,14 @@ public class BatteryHistoryServiceTests : IDisposable
     private readonly string _testFile =
         Path.Combine(Path.GetTempPath(), $"lpt-history-test-{Guid.NewGuid():N}.csv");
 
-    public BatteryHistoryServiceTests() => BatteryHistoryService.UseTestPath(_testFile);
+    public BatteryHistoryServiceTests()
+    {
+        BatteryHistoryService.UseTestPath(_testFile);
+        // Gap detection now reads the SHARED BatteryHistoryService.DowntimeThreshold (the user's
+        // graph "Downtime gap threshold" setting), so pin it to the 1-minute default here — otherwise
+        // these tests would depend on the dev machine's real settings.json.
+        SettingsService.Current.DowntimeGapMinutes = 1;
+    }
 
     public void Dispose()
     {
@@ -167,6 +174,37 @@ public class BatteryHistoryServiceTests : IDisposable
 
         Assert.NotNull(gap);
         Assert.True(gap!.Value.SocDropPercent < 0);
+    }
+
+    [Fact]
+    public void Record_GapBelowUserDowntimeThreshold_ReportsNoGap()
+    {
+        // Unification guard: the anomaly gate now shares the graph's downtime threshold. Raising the
+        // "Downtime gap threshold" so the graph would NOT draw a 6-minute hole as downtime must also
+        // stop that hole producing gap info (hence no drain toast) — the disagreement #18 called out.
+        SettingsService.Current.DowntimeGapMinutes = 30;   // graph collapses only gaps > 30 min
+        var old = new BatterySample(DateTime.UtcNow.AddMinutes(-6), 80, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
+
+        var gap = BatteryHistoryService.Record(70, null, 0);   // 6 min later, a 10% drop
+
+        Assert.Null(gap);   // below the 30-min downtime threshold → not reported
+    }
+
+    [Fact]
+    public void Record_GapDetectionDisabled_ReportsNoGapEvenForLongGap()
+    {
+        // "None" (0) disables downtime detection everywhere — the graph draws no break and the
+        // anomaly path fires no toast, even across a genuine multi-hour hole.
+        SettingsService.Current.DowntimeGapMinutes = 0;
+        var old = new BatterySample(DateTime.UtcNow.AddHours(-8), 90, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
+
+        var gap = BatteryHistoryService.Record(60, null, 0);
+
+        Assert.Null(gap);
     }
 
     [Fact]

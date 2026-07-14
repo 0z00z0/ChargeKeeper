@@ -13,6 +13,14 @@ internal static class DrainAnomalyPolicy
     // "Modern Standby misbehaving?" alarm. They're independent of the user's %/hour threshold — that
     // sets HOW fast counts as abnormal; these set the minimum evidence before the rate is trusted at
     // all, which is what makes the feature's "overnight" framing honest.
+    //
+    // MinGap is a RATE-TRUST floor, layered ON TOP of — not a duplicate of — the shared
+    // "is this downtime?" gate (BatteryHistoryService.DowntimeThreshold). That gate (the user's
+    // graph-gap setting) already decides whether Record even reports a gap here; MinGap then requires
+    // the reported gap to span long enough that a %/hour extrapolation is credible (and guards the
+    // division below). So the effective anomaly gate is max(the user's downtime threshold, 15 min):
+    // two genuinely different concerns, no longer three parallel copies of one "was this downtime?"
+    // number.
     internal const int MinDropPercent = 5;
     internal static readonly TimeSpan MinGap = TimeSpan.FromMinutes(15);
 

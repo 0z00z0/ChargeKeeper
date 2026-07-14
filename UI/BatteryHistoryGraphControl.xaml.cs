@@ -31,20 +31,12 @@ namespace ChargeKeeper.UI;
 /// </summary>
 public sealed partial class BatteryHistoryGraphControl : UserControl
 {
-    // A hole in the timeline bigger than this is treated as downtime (app was closed/crashed)
-    // rather than just a slightly-late sample, and gets a gap marker instead of a connecting line.
-    // User-configurable (Settings window → General → "Downtime gap threshold", TODO #19) via
-    // SettingsService.Current.DowntimeGapMinutes, so this can't be a cached `static readonly`
-    // computed once at type-init the way it used to be (TimeSpan.FromSeconds(
-    // BatteryHistoryService.SampleIntervalSeconds * 3), ~1 minute) — it must react to the setting
-    // changing without an app restart, so it's read fresh from settings on every access instead.
-    // 0 ("None") maps to TimeSpan.MaxValue, not TimeSpan.Zero: the setting means "disable gap
-    // detection" (never treat any hole as downtime), the opposite of a literal zero-minute
-    // threshold, which would nonsensically flag every sample boundary as a gap.
-    private static TimeSpan GapThreshold =>
-        SettingsService.Current.DowntimeGapMinutes <= 0
-            ? TimeSpan.MaxValue
-            : TimeSpan.FromMinutes(SettingsService.Current.DowntimeGapMinutes);
+    // A hole in the timeline bigger than this is treated as downtime (app was closed/crashed) and
+    // gets a gap marker instead of a connecting line. This is the SHARED downtime primitive
+    // (BatteryHistoryService.DowntimeThreshold): the graph and the drain-anomaly gate both read it,
+    // so the user's "Downtime gap threshold" setting can't disagree between the two (see that
+    // property's remarks). Read fresh each access so a settings change takes effect without a restart.
+    private static TimeSpan GapThreshold => BatteryHistoryService.DowntimeThreshold;
 
     // Stroke width for the primary series (SoC) — heavier than the secondary series so it reads
     // as the "main" line at a glance.
