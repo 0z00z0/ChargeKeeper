@@ -71,6 +71,17 @@
                         <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
                                   SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
+
+                    <!-- Advanced: the two settings-file actions that used to live in the tray menu
+                         (TODO #28 — "Open settings folder" / "Reload settings from file"). -->
+                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+                    <controls:SettingsCard Header="Settings file"
+                                            Description="ChargeKeeper stores its configuration in settings.json. Reload picks up changes made outside the app (a manual edit, or a file synced in from another machine).">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="OpenSettingsFolderBtn" Content="Open settings folder" Click="OnOpenSettingsFolder"/>
+                            <Button x:Name="ReloadSettingsBtn" Content="Reload settings from file" Click="OnReloadSettings"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <!-- ── Smart Charge (presets) ──────────────────────────────────── -->

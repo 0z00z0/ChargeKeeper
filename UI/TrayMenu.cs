@@ -20,46 +20,39 @@ namespace ChargeKeeper.UI;
 ///
 /// <para>
 /// State model: the menu has ONE read path and ONE apply path. <see cref="ReadState"/>
-/// captures every input the menu reflects (feature states, settings, travel override) into a
-/// single immutable <see cref="MenuState"/> snapshot; <see cref="ApplyState"/> derives EVERY
-/// item's IsChecked/IsEnabled from that snapshot. No command handler updates its own item —
-/// each mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>
+/// captures every input the menu reflects (the feature toggle states) into a single immutable
+/// <see cref="MenuState"/> snapshot; <see cref="ApplyState"/> derives EVERY item's
+/// IsChecked/IsEnabled from that snapshot. No command handler updates its own item — each
+/// mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>
 /// (directly, or via <see cref="TravelOverrideService.StateChanged"/>), so two items can never
 /// disagree about the current state.
 /// </para>
 ///
 /// <para>
 /// Visual language: every STATEFUL item is a <see cref="ToggleMenuFlyoutItem"/> whose check
-/// mark reflects the snapshot (features, presets, travel override, icon mode); every ACTION is
-/// a plain text item (Settings…, About…, Exit). No regular item carries an icon — the only
-/// emoji is the transient "⬆ Update available" alert badge.
+/// mark reflects the snapshot (the three feature toggles — Smart Charge, Smart Standby, Launch
+/// at startup); every ACTION is a plain text item (Settings…, Check for updates, About…, Exit).
+/// No regular item carries an icon — the only emoji is the transient "⬆ Update available" alert
+/// badge.
 /// </para>
 ///
 /// <para>
-/// TODO #19: this menu used to also carry a 4-level-deep Settings ▸ Network profiles ▸ Add
-/// configuration ▸ &lt;preset&gt; tree covering every configurable setting (low-battery %,
-/// startup delay, downtime gap, drain-anomaly %, network profiles/rules, Home Assistant/MQTT).
-/// All of that moved into <c>UI.SettingsWindow</c> (opened via the "Settings…" item below), so
-/// this menu now carries only glanceable status + quick toggles, at most one level deep
-/// (Presets ▸). Network-location auto-apply (<see cref="OnNetworkLocationChanged"/>) is NOT a
+/// TODO #19 / #28: this menu used to also carry a 4-level-deep Settings ▸ Network profiles ▸ Add
+/// configuration ▸ &lt;preset&gt; tree, plus a Presets submenu, a "Charge to 100 % once" travel
+/// override, a "Numeric % icon" toggle, and Open-settings-folder / Reload-settings actions. All
+/// of the configuration moved into <c>UI.SettingsWindow</c> (opened via the "Settings…" item),
+/// including the Open-folder / Reload entry points (now an Advanced footer there); the travel
+/// override lives on the Dashboard. The menu is now flat — quick toggles + a handful of actions,
+/// no submenus. Network-location auto-apply (<see cref="OnNetworkLocationChanged"/>) is NOT a
 /// menu item and stays wired here regardless — it is a background reaction, not UI.
 /// </para>
 /// </summary>
 internal sealed class TrayMenu
 {
     private readonly List<(ToggleMenuFlyoutItem Item, IToggleFeature Feature)> _toggles = [];
-    private readonly List<(ToggleMenuFlyoutItem Item, ThresholdPreset Preset)> _presetItems = [];
 
-    // Index of the Smart Charge toggle in _toggles (-1 if absent). Its state gates the Presets
-    // submenu and the travel-override item; caching the index lets those read from the same
-    // snapshot slot as the toggle itself, so the gate can never disagree with the check mark.
-    private readonly int _smartChargeIndex = -1;
-
-    private MenuFlyoutItem?       _updateItem;
-    private ToggleMenuFlyoutItem? _travelItem;
-    private ToggleMenuFlyoutItem? _iconModeItem;
-    private MenuFlyoutSubItem?    _presetsSubmenu;
-    private BrandAboutWindow?     _aboutWindow;
+    private MenuFlyoutItem?   _updateItem;
+    private BrandAboutWindow? _aboutWindow;
 
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
@@ -67,17 +60,6 @@ internal sealed class TrayMenu
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
-
-    /// <summary>
-    /// Set by <c>App</c> to <c>() =&gt; _settings?.RefreshAllSections()</c> — lets an external
-    /// settings replacement (Reload/Import, from <see cref="ApplySettingsLoadResult"/>) reach an
-    /// already-open Settings window. Without this hook the window's own doc comment claim (that it
-    /// resyncs after a background reload) would be false: nothing else can see the window instance,
-    /// since the reference only runs the other way (Settings window holds a TrayMenu, not vice
-    /// versa). Property rather than a constructor parameter so it can be wired after both objects
-    /// exist, and null (no-op) whenever the window isn't currently open.
-    /// </summary>
-    public Action? OnExternalReload { get; set; }
 
     public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
                     Action onOpenSettings)
@@ -87,59 +69,52 @@ internal sealed class TrayMenu
         _onOpenSettings    = onOpenSettings;
         Flyout = new MenuFlyout();
 
-        foreach (var feature in features)
+        // Builds a toggle for one feature and registers it for the state refresh. The item is added
+        // to the flyout at the position its GROUP belongs (power toggles at the top, Launch at
+        // startup down in the updates group) rather than all in one top run.
+        ToggleMenuFlyoutItem MakeToggle(IToggleFeature feature)
         {
             var item = new ToggleMenuFlyoutItem { Text = feature.Name };
             // Capture current IsChecked at click time to avoid TOCTOU: the target state comes
             // from the item the user just interacted with rather than a fresh OS read.
             item.Command = new RelayCommand(() => Toggle(feature, !item.IsChecked));
             _toggles.Add((item, feature));
-            Flyout.Items.Add(item);
-
-            // Append preset submenu + travel override directly under Smart Charge.
-            if (feature is SmartChargeFeature)
-            {
-                _smartChargeIndex = _toggles.Count - 1;   // the toggle just added above
-                _presetsSubmenu = BuildPresetsSubmenu();
-                Flyout.Items.Add(_presetsSubmenu);
-
-                // Constant caption + check-mark-while-active: stateful items all speak the same
-                // visual language, and no regular item carries an emoji icon. (The dashboard's
-                // plain Button keeps TravelOverrideService.ActionLabel — a button's caption must
-                // say what clicking does; a toggle's check mark already does.)
-                _travelItem = new ToggleMenuFlyoutItem
-                {
-                    Text    = "Charge to 100 % once",
-                    Command = new RelayCommand(OnTravelOverride),
-                };
-                Flyout.Items.Add(_travelItem);
-            }
+            return item;
         }
 
-        // ── Quick toggles + Settings entry point (TODO #19) ─────────────────────
-        Flyout.Items.Add(new MenuFlyoutSeparator());
-
-        _iconModeItem = new ToggleMenuFlyoutItem
+        // ── Power toggles: Smart Charge + Smart Standby ─────────────────────────
+        // Launch-at-startup is a feature too, but it reads as an app-management action rather than a
+        // power control, so it lives in the updates group below (TODO #28) — built there, not here.
+        IToggleFeature? autoStart = null;
+        foreach (var feature in features)
         {
-            Text    = "Numeric % icon",
-            Command = new RelayCommand(ToggleIconMode),
-        };
-        Flyout.Items.Add(_iconModeItem);
+            if (feature is AutoStartFeature)
+            {
+                autoStart = feature;
+                continue;
+            }
+            Flyout.Items.Add(MakeToggle(feature));
+        }
 
+        // ── Settings entry point (TODO #19) ─────────────────────────────────────
+        Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
-        Flyout.Items.Add(new MenuFlyoutItem { Text = "Open settings folder", Command = new RelayCommand(OpenSettingsFile) });
-        Flyout.Items.Add(new MenuFlyoutItem { Text = "Reload settings from file", Command = new RelayCommand(ReloadSettings) });
 
+        // ── Updates + Launch at startup (TODO #28) ──────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem
         {
             Text    = "Check for updates",
             Command = new RelayCommand(() => _ = CheckForUpdatesAsync()),
         });
+        if (autoStart is not null)
+            Flyout.Items.Add(MakeToggle(autoStart));
 
-        // ── About / Exit ──────────────────────────────────────────────────────
+        // ── About ───────────────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
+
+        // ── Exit ────────────────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(onExit) });
 
@@ -201,15 +176,14 @@ internal sealed class TrayMenu
     /// <c>UI.SettingsWindow</c> (TODO #19). Extracted from <see cref="ApplySettingsLoadResult"/>
     /// (Reload keeps its own toast; the Settings window calls this bare — showing a toast on top
     /// of the very window the user is looking at would be noise). Refreshes exactly what a
-    /// settings edit can invalidate: the icon-mode callback (in case IconMode changed), the
-    /// Presets submenu (its items close over <see cref="ThresholdPreset"/> objects, which a
-    /// rename/delete/add can replace wholesale — see <see cref="RebuildPresetsSubmenu"/>), and
-    /// every other item's check marks/availability via <see cref="RefreshState"/>.
+    /// settings edit can invalidate: the icon-mode callback (in case IconMode changed) and every
+    /// item's check marks/availability via <see cref="RefreshState"/>. The tray menu no longer
+    /// carries a Presets submenu (TODO #28 moved it fully into the Settings window), so there is
+    /// nothing here to rebuild from the edited preset list — only the toggles resync.
     /// </summary>
     public void ReconcileFromExternalChange()
     {
         _onIconModeChanged();
-        RebuildPresetsSubmenu();
         // QueueRefresh, not RefreshState: ReadState() does a Lenovo RPC + SCM query + Task
         // Scheduler COM connect (see the constructor's own reasoning above), and this method is
         // now called on every Settings-window preset edit/add/delete, not just the rare menu-open
@@ -249,12 +223,11 @@ internal sealed class TrayMenu
     /// One immutable snapshot of every input the menu reflects — the single internal state all
     /// items are derived from. <see cref="ReadState"/> is the only producer (may perform RPC —
     /// callable from any thread); <see cref="ApplyState"/> is the only consumer (UI thread only).
+    /// Since TODO #28 the menu's only stateful items are the feature toggles, so the snapshot is
+    /// just their (available, enabled) reads.
     /// </summary>
     private sealed record MenuState(
-        IReadOnlyList<(bool Available, bool Enabled)> Features,   // aligned with _toggles
-        string? ActivePreset,
-        bool    TravelOverrideActive,
-        bool    NumericIcon);
+        IReadOnlyList<(bool Available, bool Enabled)> Features);   // aligned with _toggles
 
     private MenuState ReadState()
     {
@@ -268,13 +241,7 @@ internal sealed class TrayMenu
                                                 fallback: (Available: true, Enabled: false));
             features[i] = (available, available && enabled);
         }
-
-        var s = SettingsService.Current;
-        return new MenuState(
-            features,
-            s.ActivePreset,
-            TravelOverrideService.IsActive,
-            s.IconMode == TrayIconMode.Numeric);
+        return new MenuState(features);
     }
 
     private void ApplyState(MenuState state)
@@ -285,76 +252,9 @@ internal sealed class TrayMenu
             _toggles[i].Item.IsEnabled = available;
             _toggles[i].Item.IsChecked = enabled;
         }
-
-        // Smart Charge's own snapshot slot gates the presets + travel override, so those can never
-        // disagree with its toggle. (false,false) when there is no Smart Charge feature.
-        var (scAvailable, scEnabled) = _smartChargeIndex >= 0
-            ? state.Features[_smartChargeIndex]
-            : (Available: false, Enabled: false);
-
-        // A preset shows checked only while its thresholds are actually in effect: Smart Charge
-        // on and no travel override lifting them. Activating the override deliberately KEEPS
-        // ActivePreset in settings (the auto-revert restores that preset's thresholds), but the
-        // menu must never show a checked preset next to a checked "Charge to 100 % once".
-        foreach (var (item, preset) in _presetItems)
-            item.IsChecked = scEnabled &&
-                             !state.TravelOverrideActive &&
-                             preset.Name == state.ActivePreset;
-        if (_presetsSubmenu is not null)
-            _presetsSubmenu.IsEnabled = scAvailable;
-
-        // Travel override: checked while a "charge to 100 % once" is in progress; greyed out on
-        // hardware without threshold support (mirrors the dashboard hiding its button).
-        if (_travelItem is not null)
-        {
-            _travelItem.IsEnabled = scAvailable;
-            _travelItem.IsChecked = state.TravelOverrideActive;
-        }
-
-        if (_iconModeItem is not null)
-            _iconModeItem.IsChecked = state.NumericIcon;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
-
-    private MenuFlyoutSubItem BuildPresetsSubmenu()
-    {
-        var sub = new MenuFlyoutSubItem { Text = "Presets" };
-        AddPresetItems(sub);
-        return sub;
-    }
-
-    /// <summary>
-    /// Clears and re-adds the Presets submenu's items from the (possibly just-edited/reloaded)
-    /// live settings. <see cref="RefreshState"/> alone is NOT enough for this submenu: it only
-    /// toggles IsChecked on the EXISTING items, which still close over the ThresholdPreset objects
-    /// captured when the menu was built — after an out-of-band edit to settings.json, or an edit
-    /// made in <c>UI.SettingsWindow</c> (TODO #19), those closures would keep applying the stale
-    /// pre-edit Start/Stop values. Call after any operation that can replace the live Presets list
-    /// wholesale (<see cref="SettingsService.Reload"/> via <see cref="ApplySettingsLoadResult"/>,
-    /// or any Settings-window commit via <see cref="ReconcileFromExternalChange"/>).
-    /// </summary>
-    private void RebuildPresetsSubmenu()
-    {
-        if (_presetsSubmenu is null) return;
-        _presetItems.Clear();
-        _presetsSubmenu.Items.Clear();
-        AddPresetItems(_presetsSubmenu);
-    }
-
-    private void AddPresetItems(MenuFlyoutSubItem sub)
-    {
-        foreach (var preset in SettingsService.Current.Presets)
-        {
-            var p    = preset; // local copy for lambda capture
-            // p.Label is the single shared formatter (ThresholdPreset.FormatLabel), so this menu
-            // label never drifts from what the Settings window shows for the same preset (TODO #19).
-            var item = new ToggleMenuFlyoutItem { Text = p.Label };
-            item.Command = new RelayCommand(() => ApplyPreset(p));
-            _presetItems.Add((item, p));
-            sub.Items.Add(item);
-        }
-    }
 
     private void ApplyPreset(ThresholdPreset preset)
         => Task.Run(() =>
@@ -390,25 +290,6 @@ internal sealed class TrayMenu
         if (preset is not null) ApplyPreset(preset);
     }
 
-    // No explicit QueueRefresh here: Activate/Cancel settle asynchronously and fire
-    // StateChanged when done — which is subscribed to QueueRefresh in the constructor.
-    // Refreshing before they settle would only capture the not-yet-changed state.
-    private static void OnTravelOverride()
-    {
-        if (TravelOverrideService.IsActive)
-            TravelOverrideService.Cancel();
-        else
-            TravelOverrideService.Activate();
-    }
-
-    private void ToggleIconMode()
-    {
-        SettingsService.Update(s =>
-            s.IconMode = s.IconMode == TrayIconMode.Arc ? TrayIconMode.Numeric : TrayIconMode.Arc);
-        _onIconModeChanged();
-        QueueRefresh();
-    }
-
     // ── Network-location auto-apply (TODO #31) ──────────────────────────────────
     // Not a menu item — see the class doc comment and the constructor's subscription. Configuring
     // WHICH rule maps to which preset now happens entirely in UI.SettingsWindow (TODO #19); this
@@ -441,37 +322,6 @@ internal sealed class TrayMenu
             }
         }
         QueueRefresh(); // still resync check marks even when nothing was applied
-    }
-
-    /// <summary>
-    /// Re-reads settings.json from disk without restarting the app (e.g. after a manual edit, or a
-    /// file synced in from another machine) — same purpose as HyperVManagerTray's "Reload config
-    /// from disk", but read-only against the canonical file rather than adopting an arbitrary path.
-    /// </summary>
-    private void ReloadSettings() =>
-        ApplySettingsLoadResult(SettingsService.Reload(),
-            "Settings reloaded from disk.",
-            "Could not reload settings — the file is missing or invalid.");
-
-    /// <summary>
-    /// Success/failure handling for <see cref="ReloadSettings"/>, the one remaining command that
-    /// can replace <see cref="SettingsService.Current"/> wholesale (TODO #19 removed the other,
-    /// Import): on success, delegates to <see cref="ReconcileFromExternalChange"/> for the silent
-    /// resync, then confirms via a toast either way — unlike the Settings window's own commits,
-    /// Reload has no "same window" to make a toast redundant.
-    /// </summary>
-    private void ApplySettingsLoadResult(bool ok, string successMessage, string failureMessage)
-    {
-        if (ok)
-        {
-            ReconcileFromExternalChange();
-            OnExternalReload?.Invoke();   // resync an already-open Settings window, if any
-            NativeMethods.Info(successMessage, AppName);
-        }
-        else
-        {
-            NativeMethods.Warn(failureMessage, AppName);
-        }
     }
 
     // ── About / updates ─────────────────────────────────────────────────────
@@ -599,22 +449,6 @@ internal sealed class TrayMenu
         // ChargeKeeper self-drives any update-triggered exit (background download → _onExit), so the
         // window is never asked to close the app on our behalf.
         return false;
-    }
-
-    private static void OpenSettingsFile()
-    {
-        // Open Explorer with the settings file selected so the user can find, copy, or edit it.
-        var filePath = SettingsService.FilePath;
-        var dir      = Path.GetDirectoryName(filePath) ?? filePath;
-
-        // If the file exists, select it; otherwise just open the folder.
-        var args = File.Exists(filePath) ? $"/select,\"{filePath}\"" : $"\"{dir}\"";
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-        {
-            FileName        = "explorer.exe",
-            Arguments       = args,
-            UseShellExecute = true,
-        });
     }
 
     // Apply target state off the UI thread — RPC/service writes can block for seconds.

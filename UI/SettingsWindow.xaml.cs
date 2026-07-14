@@ -325,6 +325,34 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.GraphTimeScale = scale);
     }
 
+    // ── Advanced (settings file) ─────────────────────────────────────────────────
+    // The two settings-file actions relocated from the tray menu (TODO #28).
+
+    private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Reveal(SettingsService.FilePath);
+
+    /// <summary>
+    /// Re-reads settings.json from disk (a manual edit, or a file synced in from another machine),
+    /// then — since this window is the one showing those values — resyncs its own sections and the
+    /// tray toggles. Was the tray's "Reload settings from file" command; moved here (TODO #28) so the
+    /// entry point sits next to the settings it affects, and can call <see cref="RefreshAllSections"/>
+    /// directly rather than through the old <c>OnExternalReload</c> hook. A toast confirms either
+    /// outcome, matching the previous tray behaviour.
+    /// </summary>
+    private void OnReloadSettings(object sender, RoutedEventArgs e)
+    {
+        if (SettingsService.Reload())
+        {
+            RefreshAllSections();                 // reflect the reloaded values in this open window
+            _menu.ReconcileFromExternalChange();  // resync the tray toggles + icon
+            NativeMethods.Info("Settings reloaded from disk.", AppName);
+        }
+        else
+        {
+            NativeMethods.Warn("Could not reload settings — the file is missing or invalid.", AppName);
+        }
+    }
+
     // ── Notifications ─────────────────────────────────────────────────────────────
 
     private void LoadNotifications()
