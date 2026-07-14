@@ -714,7 +714,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     /// timeline gaps (per <paramref name="gapBefore"/> — indices preceded by a REAL gap in the
     /// original, pre-downsampling data; a plain Δt check here would misfire on ordinary stride
     /// spacing after reduction) and at null values (e.g. charge limit while Smart Charge is off).
-    /// Shared by <see cref="DrawSeries"/> and <see cref="DrawGradientFill"/> so the line and its
+    /// Shared by <see cref="DrawSeries"/> and <see cref="DrawSocFillAndLine"/> so the line and its
     /// fill can never disagree about where a run starts or ends.
     /// </summary>
     private static List<List<Point>> CollectRuns(
