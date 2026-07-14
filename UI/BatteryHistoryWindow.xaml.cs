@@ -14,7 +14,8 @@ namespace ChargeKeeper.UI;
 /// Hosts the identical control (same drawing code, same shared <c>GraphTimeScale</c> setting and
 /// <c>BatteryHistoryService</c> in-memory window as the small dashboard — this is a bigger view of
 /// the same graph, not an independently-scoped second one), just given room to grow. Frameless
-/// (border, no title bar — same chrome as DashboardWindow/AboutWindow) but still resizable, and
+/// (border, no title bar — same chrome as DashboardWindow, applied via
+/// <see cref="Helpers.WindowChrome.ApplyPopup"/>) but still resizable, and
 /// dismissed the same way as the tray popup: it closes itself on focus loss. With no title-bar X,
 /// clicking away is the ONLY way to dismiss it — App's singleton recreates it cheaply next time.
 /// When opened from the visible dashboard it animates open, growing from the dashboard's on-screen
@@ -212,7 +213,7 @@ public sealed partial class BatteryHistoryWindow : Window
     /// <summary>
     /// Final placement: ~70% width × 65% height of the monitor under the cursor (clamped to a sane
     /// minimum) and centred there. Uses the same <see cref="NativeMethods.GetCursorMonitorMetrics"/>
-    /// helper as DashboardWindow/AboutWindow, but centres rather than tray-anchors. Returns the
+    /// helper as DashboardWindow, but centres rather than tray-anchors. Returns the
     /// OUTER rect rather than applying a client size — the open animation needs one rect it can
     /// interpolate towards with MoveAndResize, and on a frameless window the non-client area is
     /// only the thin resize border, so outer ≈ client for the 70%/65% target.
