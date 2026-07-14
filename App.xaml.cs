@@ -358,7 +358,6 @@ public partial class App : Application
             new AutoStartFeature(),
         ];
         _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow);
-        _menu.OnExternalReload     = () => _settings?.RefreshAllSections();
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());
