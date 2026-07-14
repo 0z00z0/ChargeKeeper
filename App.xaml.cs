@@ -342,7 +342,7 @@ public partial class App : Application
             ? null
             : HaStateBuilder.Build(
                 _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
-                _lastAdapterWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
+                ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                 SettingsService.Current.ActivePreset);
         _ha.ApplySettings(SettingsService.Current);
     }
@@ -573,9 +573,11 @@ public partial class App : Application
             _lastDesignMwh      = report.DesignCapacityInMilliwattHours;   // TODO #29 — battery-health denominator
             // Windows Energy Saver → the HA mobile-app "Low Power Mode" attribute (TODO #29).
             _lastLowPowerMode   = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
-            // Only meaningful while an adapter is attached (TODO #41); the read is memoized inside
-            // ChargerInfoService, so per-event calls here are cheap after the first.
-            _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
+            // Warm ChargerInfoService's own memoized wattage while on AC (TODO #41) — the read RPCs
+            // at most once per AC session, and Invalidate() below drops it on unplug. Consumers
+            // (tooltip, HA publish) read ChargerInfoService.CachedWattage directly rather than a
+            // second App-level copy of the same value (TODO #18).
+            if (charging) ChargerInfoService.GetRatedWattage();
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
             // ── Home Assistant publish (TODO #28/#29/#30) ─────────────────────
@@ -583,7 +585,7 @@ public partial class App : Application
             // fields are known and derives the HA mobile-app-aligned battery sensors (state/health/
             // remaining time); the active preset drives the "Charge preset" select's reflected value.
             _ha?.PublishState(HaStateBuilder.Build(
-                pct, _lastRateMW, charging, report.Status, _lastThresholdState, _lastAdapterWattage,
+                pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
                 _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                 SettingsService.Current.ActivePreset));
 
@@ -621,7 +623,6 @@ public partial class App : Application
     private bool    _lastOnAC;
     private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
     private int?    _lastFullMwh;
-    private int?    _lastAdapterWattage; // AC adapter rated wattage (TODO #41), null until known
     private int?    _lastDesignMwh;      // design capacity (TODO #29) — battery-health denominator
     private bool    _lastLowPowerMode;   // Windows Energy Saver active (TODO #29) — HA state attribute
     private ChargeThresholdState? _lastThresholdState;
@@ -714,8 +715,9 @@ public partial class App : Application
         // shown only in its expected direction via the shared formatter (mW below 1 W, real −).
         string chargeIcon = _lastOnAC ? "⚡︎" : "🔋";   // ⚡ + U+FE0E = outline (text) presentation
         // Adapter wattage (TODO #41) rides along in the "AC" label itself — "AC (65W)" — rather
-        // than as a separate line, since it's a property of the power SOURCE, not a new stat.
-        string acLabel = _lastAdapterWattage is { } watts ? $"AC ({watts}W)" : "AC";
+        // than as a separate line, since it's a property of the power SOURCE, not a new stat. Read
+        // ChargerInfoService's own memoized value (this label only shows on AC, where it's warmed).
+        string acLabel = ChargerInfoService.CachedWattage is { } watts ? $"AC ({watts}W)" : "AC";
         lines.Append(_lastOnAC
             ? $"\n{chargeIcon} {acLabel} · {pct}%"
             : $"\n{chargeIcon} {pct}%");
