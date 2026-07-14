@@ -645,7 +645,7 @@ internal sealed partial class SettingsWindow : Window
 
         SettingsService.Update(s => PresetCascade.Delete(s, name, fallback));
 
-        // The tray's Presets submenu will show the fallback checked (via ReconcileFromExternalChange
+        // Every UI surface will show the fallback selected (via ReconcileFromExternalChange
         // below) the moment this returns — push its thresholds to the device too, or the physical
         // battery keeps running the just-deleted preset's values while every UI surface claims the
         // fallback is active. Same primitive (and same toast-on-failure) as an ordinary edit.

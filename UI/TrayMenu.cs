@@ -173,7 +173,7 @@ internal sealed class TrayMenu
 
     /// <summary>
     /// Silent resync for a settings change made OUTSIDE the tray menu itself — i.e. from
-    /// <c>UI.SettingsWindow</c> (TODO #19). Extracted from <see cref="ApplySettingsLoadResult"/>
+    /// <c>UI.SettingsWindow</c> (TODO #19). Extracted from the old settings-load path
     /// (Reload keeps its own toast; the Settings window calls this bare — showing a toast on top
     /// of the very window the user is looking at would be noise). Refreshes exactly what a
     /// settings edit can invalidate: the icon-mode callback (in case IconMode changed) and every
