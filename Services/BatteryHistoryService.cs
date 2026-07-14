@@ -197,16 +197,44 @@ internal static class BatteryHistoryService
     /// last valid line), or null if the file is missing/empty/all-corrupt. Only used as the seed for
     /// gap detection (<see cref="_lastPersisted"/>) when <see cref="Record"/> runs before any
     /// <see cref="LoadWindow"/> — the normal startup path seeds it from LoadWindow's own file read.
+    /// <para>
+    /// Reads only the file's TAIL rather than parsing every row: a row is a few tens of bytes, so an
+    /// 8 KB window from the end holds hundreds of them, and this runs under the Record lock — an
+    /// up-to-60k-row full scan there would stall an incoming sample. The window widens and retries in
+    /// the pathological case where the tail is all blank/corrupt. Opens the file directly (as
+    /// <see cref="PruneFile"/> already does) since the append-only store offers no tail-seek.
+    /// </para>
     /// </summary>
     private static BatterySample? ReadLastSampleFromFile()
     {
         try
         {
-            BatterySample? last = null;
-            foreach (var line in _store.ReadAllLines())
-                if (TryParse(line, out var s))
-                    last = s;
-            return last;
+            var path = _store.FilePath;
+            if (!File.Exists(path)) return null;
+
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            long length = fs.Length;
+            if (length == 0) return null;
+
+            for (long window = 8192; ; window *= 8)
+            {
+                long start = Math.Max(0, length - window);
+                fs.Seek(start, SeekOrigin.Begin);
+                var buffer = new byte[length - start];
+                int read = fs.Read(buffer, 0, buffer.Length);
+                var text = System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+
+                // Unless we started at byte 0, the first line in the window is very likely truncated
+                // mid-row — skip it so only whole rows are parsed. Rows are ASCII, so a split across a
+                // multi-byte char could only land in that dropped first line anyway.
+                var lines = text.Split('\n');
+                int firstComplete = start == 0 ? 0 : 1;
+                for (int i = lines.Length - 1; i >= firstComplete; i--)
+                    if (TryParse(lines[i], out var s))
+                        return s;
+
+                if (start == 0) return null;   // whole file scanned, nothing parseable
+            }
         }
         catch (Exception ex)
         {

@@ -170,6 +170,42 @@ public class BatteryHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void Record_BeforeAnyLoadWindow_SeedsGapFromFileTail()
+    {
+        // No LoadWindow call → Record must lazily seed _lastPersisted by tail-reading the file, so a
+        // gap against the last persisted sample is still detected on the very first Record.
+        var beforeGap = new BatterySample(DateTime.UtcNow.AddHours(-7), 88, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(beforeGap) + "\n");
+
+        var gap = BatteryHistoryService.Record(70, null, 0);
+
+        Assert.NotNull(gap);
+        Assert.Equal(18, gap!.Value.SocDropPercent);          // 88 → 70
+        Assert.True(gap.Value.GapDuration >= TimeSpan.FromHours(6.9));
+    }
+
+    [Fact]
+    public void Record_BeforeAnyLoadWindow_TailReadPicksTrueLastRow_InLargeFile()
+    {
+        // A file larger than the 8 KB tail window, so ReadLastSampleFromFile actually seeks the tail
+        // (start > 0) and must drop its truncated first line yet still return the TRUE last row —
+        // proving it reads the tail, not just the small-file whole-buffer path.
+        var sb       = new System.Text.StringBuilder();
+        var baseTime = DateTime.UtcNow.AddHours(-10);
+        for (int i = 0; i < 600; i++)   // ~600 rows × ~30 bytes ≈ 18 KB > 8 KB window
+            sb.Append(BatteryHistoryService.Format(new BatterySample(baseTime.AddSeconds(i), 50, null, 0)))
+              .Append('\n');
+        var last = new BatterySample(DateTime.UtcNow.AddHours(-9), 83, null, 0);
+        sb.Append(BatteryHistoryService.Format(last)).Append('\n');
+        File.WriteAllText(_testFile, sb.ToString());
+
+        var gap = BatteryHistoryService.Record(60, null, 0);
+
+        Assert.NotNull(gap);
+        Assert.Equal(23, gap!.Value.SocDropPercent);          // 83 → 60, i.e. measured against the last row
+    }
+
+    [Fact]
     public void Record_AfterGapLongerThanLoadedWindow_StillReportsGap()
     {
         // Regression guard for the overnight-drain no-op: with only a 1h window loaded, a sample
