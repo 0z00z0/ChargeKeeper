@@ -72,20 +72,19 @@ internal static class HaCommandDispatcher
 }
 
 /// <summary>
-/// The live <see cref="IChargeControlActions"/> — dispatches each command to ChargeKeeper's existing
-/// services on a background thread (the vendor RPC blocks for seconds; the MQTT receive callback must
-/// return promptly). Mirrors the tray menu's own charge-control call sites so behaviour can't drift:
-/// enabling Smart Charge mid-override cancels the override (<c>TrayMenu.Toggle</c>), applying explicit
-/// thresholds funnels through <see cref="TravelOverrideService.ApplyExplicitThresholds"/>, and a
-/// preset apply repeats <c>TrayMenu.ApplyPreset</c> (write + persist ActivePreset).
+/// The live <see cref="IChargeControlActions"/> — routes each command to ChargeKeeper's existing
+/// services. Every method runs SYNCHRONOUSLY (the vendor RPC blocks for seconds): the caller
+/// (<see cref="HomeAssistantService"/>) drives dispatch on a single-worker background queue, OFF the
+/// MQTT receive callback, so a read-modify-write pair completes before the next command starts and
+/// the callback thread is never blocked — the offloading + serialization now live at that one seam
+/// rather than being sprinkled per-method here. Mirrors the tray menu's own charge-control call sites
+/// so behaviour can't drift: enabling Smart Charge mid-override cancels the override
+/// (<c>TrayMenu.Toggle</c>), applying explicit thresholds funnels through
+/// <see cref="TravelOverrideService.ApplyExplicitThresholds"/>, and a preset apply repeats
+/// <c>TrayMenu.ApplyPreset</c> (write + persist ActivePreset).
 /// </summary>
 internal sealed class ChargeControlActions : IChargeControlActions
 {
-    // Sensible default when Smart Charge is off/unset (firmware may read back 0/0), so the first
-    // single-bound number-set still forms a valid pair. Matches the built-in "Daily" preset.
-    private const int DefaultStart = 60;
-    private const int DefaultStop  = 80;
-
     public (int Start, int Stop) CurrentThresholds()
     {
         var s = ChargeThresholdService.Read();
@@ -93,44 +92,57 @@ internal sealed class ChargeControlActions : IChargeControlActions
         if (s is { Start: >= PresetEditValidator.MinThreshold, Stop: <= PresetEditValidator.MaxThreshold } &&
             s.Stop - s.Start >= PresetEditValidator.MinGap)
             return (s.Start, s.Stop);
-        return (DefaultStart, DefaultStop);
+        return DefaultThresholds();
     }
 
-    public void ApplyThresholds(int start, int stop) =>
-        Task.Run(() => { try { TravelOverrideService.ApplyExplicitThresholds(start, stop); } catch { } });
+    // Sensible default when Smart Charge is off/unset (firmware may read back 0/0), so the first
+    // single-bound number-set still forms a valid pair. Derived from the built-in "Daily" preset
+    // rather than a duplicated literal, so it can't drift from SettingsService's default; a hard
+    // fallback covers a user who deleted the "Daily" preset entirely.
+    private static (int Start, int Stop) DefaultThresholds()
+    {
+        var daily = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == "Daily");
+        return daily is { Start: >= PresetEditValidator.MinThreshold, Stop: <= PresetEditValidator.MaxThreshold }
+               && daily.Stop - daily.Start >= PresetEditValidator.MinGap
+            ? (daily.Start, daily.Stop)
+            : (60, 80);
+    }
 
-    public void SetSmartChargeEnabled(bool enable) =>
-        Task.Run(() =>
+    public void ApplyThresholds(int start, int stop)
+    {
+        try { TravelOverrideService.ApplyExplicitThresholds(start, stop); } catch { }
+    }
+
+    public void SetSmartChargeEnabled(bool enable)
+    {
+        try
         {
-            try
-            {
-                // Re-enabling Smart Charge while "charge to 100 % once" runs means "threshold back
-                // on" — the override's cancel path (restores saved thresholds + disarms the revert).
-                // A bare SetEnabled(true) would instead apply firmware 0/0 as defaults. Mirrors
-                // TrayMenu.Toggle.
-                if (enable && TravelOverrideService.IsActive) TravelOverrideService.Cancel();
-                else ChargeThresholdService.SetEnabled(enable);
-            }
-            catch { }
-        });
+            // Re-enabling Smart Charge while "charge to 100 % once" runs means "threshold back
+            // on" — the override's cancel path (restores saved thresholds + disarms the revert).
+            // A bare SetEnabled(true) would instead apply firmware 0/0 as defaults. Mirrors
+            // TrayMenu.Toggle.
+            if (enable && TravelOverrideService.IsActive) TravelOverrideService.Cancel();
+            else ChargeThresholdService.SetEnabled(enable);
+        }
+        catch { }
+    }
 
     public void ChargeToFullOnce()
     {
-        // Activate() already offloads its own work to a background Task.
+        // Activate() manages its own background work + revert timer.
         try { TravelOverrideService.Activate(); } catch { }
     }
 
-    public void ApplyPreset(string name) =>
-        Task.Run(() =>
+    public void ApplyPreset(string name)
+    {
+        try
         {
-            try
-            {
-                var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
-                if (preset is null) return;   // enumerated select, but ignore an unknown name defensively
-                // Same order as TrayMenu.ApplyPreset: explicit-threshold write, then persist ActivePreset.
-                if (TravelOverrideService.ApplyExplicitThresholds(preset.Start, preset.Stop))
-                    SettingsService.Update(s => s.ActivePreset = preset.Name);
-            }
-            catch { }
-        });
+            var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
+            if (preset is null) return;   // enumerated select, but ignore an unknown name defensively
+            // Same order as TrayMenu.ApplyPreset: explicit-threshold write, then persist ActivePreset.
+            if (TravelOverrideService.ApplyExplicitThresholds(preset.Start, preset.Stop))
+                SettingsService.Update(s => s.ActivePreset = preset.Name);
+        }
+        catch { }
+    }
 }
