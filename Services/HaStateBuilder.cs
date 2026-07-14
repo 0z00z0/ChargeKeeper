@@ -26,7 +26,7 @@ internal static class HaStateBuilder
         int soc, int chargeRateMw, bool onAc, BatteryStatus status,
         ChargeThresholdState? threshold, int? adapterWatts,
         int? remainingMwh, int? fullMwh, int? designMwh,
-        bool lowPowerMode)
+        bool lowPowerMode, string? activePreset)
     {
         bool isCharging = status == BatteryStatus.Charging;
         string batteryState =
@@ -58,7 +58,8 @@ internal static class HaStateBuilder
             SmartChargeEnabled: scEnabled,
             ChargeStart: start,
             ChargeStop: stop,
-            AdapterWatts: watts);
+            AdapterWatts: watts,
+            ActivePreset: activePreset);
     }
 
     /// <summary>

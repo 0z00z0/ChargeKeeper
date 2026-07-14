@@ -14,9 +14,9 @@ public class HaStateBuilderTests
     private static HaState Build(int soc = 72, int rateMw = 45000, bool onAc = true,
         BatteryStatus status = BatteryStatus.Charging, ChargeThresholdState? threshold = null,
         int? adapterWatts = 65, int? remainingMwh = 40000, int? fullMwh = 60000, int? designMwh = 60000,
-        bool lowPowerMode = false)
+        bool lowPowerMode = false, string? activePreset = null)
         => HaStateBuilder.Build(soc, rateMw, onAc, status, threshold, adapterWatts,
-            remainingMwh, fullMwh, designMwh, lowPowerMode);
+            remainingMwh, fullMwh, designMwh, lowPowerMode, activePreset);
 
     [Fact]
     public void Build_OnAc_SmartChargeOn_IncludesThresholdsWattsAndFlag()
@@ -112,10 +112,11 @@ public class HaStateBuilderTests
     }
 
     [Fact]
-    public void Build_PassesThroughLowPowerMode()
+    public void Build_PassesThroughLowPowerModeAndActivePreset()
     {
-        var s = Build(lowPowerMode: true);
+        var s = Build(lowPowerMode: true, activePreset: "Daily");
         Assert.True(s.LowPowerMode);
+        Assert.Equal("Daily", s.ActivePreset);
     }
 
     // ── Issue #29: health ────────────────────────────────────────────────────────

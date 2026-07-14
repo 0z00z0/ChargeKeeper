@@ -335,7 +335,8 @@ public partial class App : Application
             ? null
             : HaStateBuilder.Build(
                 _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
-                _lastAdapterWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode);
+                _lastAdapterWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
+                SettingsService.Current.ActivePreset);
         _ha.ApplySettings(SettingsService.Current);
     }
 
@@ -566,13 +567,14 @@ public partial class App : Application
             _lastAdapterWattage = charging ? ChargerInfoService.GetRatedWattage() : null;
             UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
-            // ── Home Assistant publish (TODO #28/#29) ─────────────────────────
+            // ── Home Assistant publish (TODO #28/#29/#30) ─────────────────────
             // No-op unless the MQTT publisher is enabled+connected. HaStateBuilder gates which
             // fields are known and derives the HA mobile-app-aligned battery sensors (state/health/
-            // remaining time).
+            // remaining time); the active preset drives the "Charge preset" select's reflected value.
             _ha?.PublishState(HaStateBuilder.Build(
                 pct, _lastRateMW, charging, report.Status, _lastThresholdState, _lastAdapterWattage,
-                _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode));
+                _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
+                SettingsService.Current.ActivePreset));
 
             // ── Toast: AC connected ───────────────────────────────────────────
             if (_lastBatteryStatus == BatteryStatus.Discharging &&
