@@ -577,15 +577,14 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         var socBrush     = AppColors.HistorySocBrush;
         var socFillBrush = AppColors.HistorySocFillBrush;
 
-        // Subtle gradient shade under the SoC line (AppControl-style), drawn first so the fill sits
-        // behind everything. Uses the same gapBefore boundaries as the line itself so the fill never
-        // bridges a downtime hole either. Brush is one of 3 pre-built, cached instances (AppColors).
-        DrawGradientFill(samples, gapBefore, s => s.Soc, xs, ProjectYPct, h - pad, socFillBrush);
-
-        // SoC — solid line, left axis, drawn heavier than the other two (primary: true) since it's
-        // the headline series. Drawn first among the three so limit/power (added next) sit
-        // visually on top where they cross it.
-        DrawSeries(samples, gapBefore, s => s.Soc, xs, ProjectYPct, socBrush, dashed: false, primary: true);
+        // SoC — the headline series: a subtle gradient shade (drawn first so it sits behind
+        // everything) plus the solid line on top of it, drawn heavier than the other two so it reads
+        // as primary. Both share ONE runs+tangents computation here — the fill and the line are the
+        // same monotone curve, so computing the runs (CollectRuns) and the Fritsch-Carlson tangents
+        // twice per 5s render (the old separate DrawGradientFill + DrawSeries calls) was pure
+        // duplication. Drawn before limit/power so those sit visually on top where they cross it.
+        var socRuns = CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct);
+        DrawSocFillAndLine(socRuns, socBrush, socFillBrush, plotBottomY: h - pad);
 
         // Charge limit (Smart Charge Stop threshold) — stepped line, left axis, in the SAME muted
         // amber as the gauge's threshold tick marks so the concept has one colour everywhere.
@@ -754,14 +753,16 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     /// gradually between samples. Non-stepped series (SoC, power) are drawn as a monotone cubic
     /// Hermite curve (see <see cref="BuildMonotoneFigure"/>) instead of straight segments — this
     /// softens the "staircase" look from adjacent same/1%-apart integer samples without the
-    /// overshoot risk of a plain spline, so a genuine plateau still reads as flat.
+    /// overshoot risk of a plain spline, so a genuine plateau still reads as flat. The primary SoC
+    /// series is drawn separately (with its fill) by <see cref="DrawSocFillAndLine"/>; this handles
+    /// the two secondary series (charge-limit, power), so every line drawn here is secondary-weight.
     /// </summary>
     private void DrawSeries(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
         IReadOnlyList<double> xs, Func<double, double> projectY, Brush brush,
-        bool dashed = false, bool primary = false, bool stepped = false)
+        bool dashed = false, bool stepped = false)
     {
-        double strokeThickness = primary ? PrimaryStrokeWidth : SecondaryStrokeWidth;
+        const double strokeThickness = SecondaryStrokeWidth;
 
         foreach (var pts in CollectRuns(samples, gapBefore, select, xs, projectY))
         {
@@ -784,7 +785,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             else
             {
                 var geo = new PathGeometry();
-                geo.Figures.Add(BuildMonotoneFigure(pts));
+                geo.Figures.Add(BuildMonotoneFigure(pts, MonotoneTangentsFor(pts)));
                 shape = new Microsoft.UI.Xaml.Shapes.Path { Data = geo };
             }
 
@@ -805,28 +806,25 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     /// past a flat run's own value the way a plain Catmull-Rom/natural spline can — the property
     /// that keeps a genuine plateau (e.g. sitting at 100% for hours) reading as flat instead of a
     /// gentle bump, while still rounding off the small staircases between adjacent integer-percent
-    /// samples. When <paramref name="closeAtY"/> is set, the figure is closed down to that Y and
-    /// back to the start X (for <see cref="DrawGradientFill"/>'s fill shape, so its edge matches
-    /// the line above it exactly); otherwise the figure is left open, for the line itself.
+    /// samples. Takes the tangents <paramref name="m"/> precomputed (via <see cref="MonotoneTangentsFor"/>)
+    /// so the SoC fill and line can share ONE computation (see <see cref="DrawSocFillAndLine"/>).
+    /// When <paramref name="closeAtY"/> is set, the figure is closed down to that Y and back to the
+    /// start X (for the gradient-fill shape, so its edge matches the line above it exactly);
+    /// otherwise the figure is left open, for the line itself.
     /// </summary>
-    private static PathFigure BuildMonotoneFigure(IReadOnlyList<Point> pts, double? closeAtY = null)
+    private static PathFigure BuildMonotoneFigure(IReadOnlyList<Point> pts, double[] m, double? closeAtY = null)
     {
-        var xs = new double[pts.Count];
-        var ys = new double[pts.Count];
-        for (int i = 0; i < pts.Count; i++) { xs[i] = pts[i].X; ys[i] = pts[i].Y; }
-        var m = MonotoneTangents(xs, ys);
-
         var figure = new PathFigure { StartPoint = pts[0], IsClosed = closeAtY.HasValue };
         for (int i = 0; i < pts.Count - 1; i++)
         {
-            double h = xs[i + 1] - xs[i];
+            double h = pts[i + 1].X - pts[i].X;
             figure.Segments.Add(new BezierSegment
             {
                 // Standard Hermite→Bezier conversion for a curve linear-in-x: the tangent VECTOR
                 // at each end is (h, slope*h), and the Bezier control points sit 1/3 of that
                 // vector in from each endpoint.
-                Point1 = new Point(xs[i]     + h / 3, ys[i]     + m[i]     * h / 3),
-                Point2 = new Point(xs[i + 1] - h / 3, ys[i + 1] - m[i + 1] * h / 3),
+                Point1 = new Point(pts[i].X     + h / 3, pts[i].Y     + m[i]     * h / 3),
+                Point2 = new Point(pts[i + 1].X - h / 3, pts[i + 1].Y - m[i + 1] * h / 3),
                 Point3 = pts[i + 1],
             });
         }
@@ -889,27 +887,54 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return m;
     }
 
-    /// <summary>
-    /// Draws a soft gradient shade under a series' segments (AppControl-style): a pre-built
-    /// (cached, never allocated here) brush fading from the line's colour to fully transparent at
-    /// the plot's bottom edge. Uses the identical <see cref="CollectRuns"/> boundaries as
-    /// <see cref="DrawSeries"/> so the fill never bridges a downtime hole, and the SAME monotone
-    /// curve (<see cref="BuildMonotoneFigure"/>) as its upper edge so the fill boundary never
-    /// diverges from the smoothed line drawn on top of it. Must be called before the corresponding
-    /// line series so the fill layers underneath it.
-    /// </summary>
-    private void DrawGradientFill(
-        IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
-        IReadOnlyList<double> xs, Func<double, double> projectY, double plotBottomY,
-        LinearGradientBrush fill)
+    /// <summary>Extracts (x, y) into parallel arrays and returns the monotone tangents for a run of
+    /// projected points — the per-run half of the old <c>BuildMonotoneFigure</c>, split out so the
+    /// SoC fill and line can compute it ONCE and pass it to both figures.</summary>
+    private static double[] MonotoneTangentsFor(IReadOnlyList<Point> pts)
     {
-        foreach (var pts in CollectRuns(samples, gapBefore, select, xs, projectY))
-        {
-            if (pts.Count < 2) continue;
+        var xs = new double[pts.Count];
+        var ys = new double[pts.Count];
+        for (int i = 0; i < pts.Count; i++) { xs[i] = pts[i].X; ys[i] = pts[i].Y; }
+        return MonotoneTangents(xs, ys);
+    }
 
-            var geo = new PathGeometry();
-            geo.Figures.Add(BuildMonotoneFigure(pts, closeAtY: plotBottomY));
-            SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = geo, Fill = fill });
+    /// <summary>
+    /// Draws the SoC series as a gradient fill plus the line on top, both from ONE runs+tangents
+    /// computation (<paramref name="runs"/> from <see cref="CollectRuns"/>, tangents via
+    /// <see cref="MonotoneTangentsFor"/>). The fill and the line are the identical monotone curve
+    /// (<see cref="BuildMonotoneFigure"/>) — the fill just closes down to <paramref name="plotBottomY"/>
+    /// — so computing the runs and the Fritsch-Carlson tangents once here replaces the old
+    /// separate DrawGradientFill + DrawSeries pair that did it twice per render. Per run the fill is
+    /// added before the line so it layers underneath; runs are disjoint in x, so the resulting
+    /// z-order matches the old "all fills, then all lines" ordering exactly. A pre-built cached
+    /// <paramref name="fillBrush"/> (AppColors) is reused across renders, never allocated here.
+    /// </summary>
+    private void DrawSocFillAndLine(
+        IReadOnlyList<List<Point>> runs, Brush lineBrush, LinearGradientBrush fillBrush, double plotBottomY)
+    {
+        foreach (var pts in runs)
+        {
+            if (pts.Count < 2) continue; // a lone point has nothing to connect to
+
+            var m = MonotoneTangentsFor(pts);
+
+            // Fill first (sits underneath the line and, being drawn before limit/power, under those too).
+            var fillGeo = new PathGeometry();
+            fillGeo.Figures.Add(BuildMonotoneFigure(pts, m, closeAtY: plotBottomY));
+            SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = fillGeo, Fill = fillBrush });
+
+            // Line: same tangents, so its edge matches the fill's upper boundary exactly.
+            var lineGeo = new PathGeometry();
+            lineGeo.Figures.Add(BuildMonotoneFigure(pts, m));
+            SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
+            {
+                Data              = lineGeo,
+                StrokeThickness   = PrimaryStrokeWidth,
+                StrokeLineJoin    = PenLineJoin.Round,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap  = PenLineCap.Round,
+                Stroke            = lineBrush,
+            });
         }
     }
 
