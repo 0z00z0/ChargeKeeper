@@ -73,6 +73,24 @@ WizardSmallImageFile=wizard\wizsmall-55x58.bmp,wizard\wizsmall-69x73.bmp,wizard\
 CloseApplications=yes
 RestartApplications=no
 
+[Messages]
+; ── ZeroZero Software studio voice (issue #66) ───────────────────────────────
+; British English, plain language (per 0z0-design/design-language.md: no jargon;
+; the "no telemetry, no accounts, no subscriptions" statement made comfortably and
+; plainly), brand name exactly "ZeroZero Software". Only the strings below are
+; overridden — every other wizard string keeps Inno's default English. The wizard
+; font is deliberately NOT changed here (see InitializeWizard's note): the brand
+; typeface lives only in the pre-rendered bitmap surfaces, so the copy stays in the
+; default dialog font the target machine is guaranteed to have.
+WelcomeLabel2=This will install {#AppName} on your computer.%n%n{#AppName} installs just for your user account, so no administrator rights are needed to set it up.%n%nNo telemetry, no accounts, no subscriptions.
+; The app has no window — it runs from the notification area (system tray). Both
+; finished-page strings are set so the first-time user knows where to find it,
+; whichever variant Inno shows (with or without a post-install run option).
+FinishedLabelNoIcons={#AppName} is installed and running. Look for its icon in the notification area (the system tray, next to the clock) — that is where you open it, check the battery, and change its settings.
+FinishedLabel={#AppName} is installed and running. Look for its icon in the notification area (the system tray, next to the clock) — that is where you open it, check the battery, and change its settings.
+; Quiet studio sign-off, bottom-left of every wizard page.
+BeveledLabel=ZeroZero Software — Small tools. Zero bloat.
+
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
@@ -119,6 +137,23 @@ var
   // (winget / the AutoUpdate task) restart the app it killed: without this, a background
   // upgrade leaves the tray app dead until the next sign-in.
   WasRunning: Boolean;
+
+procedure InitializeWizard();
+begin
+  // Dense-steel page headings (issue #66) — the same on-white SteelBlue the small wizard
+  // header image uses ($cSteelDense in installer\make-wizard-images.ps1 = #3F6374). This
+  // recolours only the heading labels; body text and everything else stays default, and
+  // WizardStyle / the light modern inner-page theme are untouched.
+  //
+  // ⚠ Pascal TColor is BGR, not RGB: #3F6374 (RGB) → $74633F. Do NOT "fix" this to $3F6374.
+  //
+  // PageNameLabel sits on the white header strip; WelcomeLabel1/FinishedHeadingLabel sit on
+  // the white main page area. #3F6374 on white measures ~6.5:1 contrast, comfortably above
+  // the 4.5:1 threshold, so all three carry the steel colour.
+  WizardForm.PageNameLabel.Font.Color        := $74633F;  // inner-page title (white header strip)
+  WizardForm.WelcomeLabel1.Font.Color        := $74633F;  // "Welcome" heading (white main area)
+  WizardForm.FinishedHeadingLabel.Font.Color := $74633F;  // "Completing" heading (white main area)
+end;
 
 function ScheduledTaskExists(): Boolean;
 var
