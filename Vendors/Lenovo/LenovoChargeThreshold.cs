@@ -37,7 +37,7 @@ internal sealed class LenovoChargeThreshold : IChargeThresholdProvider
             if (LenGetChargeThreshold(PrimaryBattery, out int cap, out int en, out int start, out int stop) != 0)
                 return null;
 
-            return new ChargeThresholdState(cap != 0, en != 0, start, stop);
+            return new(cap != 0, en != 0, start, stop);
         }
         catch
         {

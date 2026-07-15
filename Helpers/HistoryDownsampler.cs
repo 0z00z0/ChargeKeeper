@@ -35,7 +35,7 @@ internal static class HistoryDownsampler
                 trueGapAfter.Add(i);
 
         if (maxPoints <= 0 || samples.Count <= maxPoints)
-            return new Result(samples, trueGapAfter);   // indices are already in the right space
+            return new(samples, trueGapAfter);   // indices are already in the right space
 
         var mustKeep = new HashSet<int> { 0, samples.Count - 1 };
         foreach (int i in trueGapAfter)
@@ -63,6 +63,6 @@ internal static class HistoryDownsampler
         foreach (int origGapIdx in trueGapAfter)
             reducedGapIndices.Add(indexMap[origGapIdx]);
 
-        return new Result(reduced, reducedGapIndices);
+        return new(reduced, reducedGapIndices);
     }
 }

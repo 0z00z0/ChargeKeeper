@@ -42,7 +42,7 @@ internal static class HaStateBuilder
         // on battery (the caller already nulls it, but gate here too so the mapping is self-contained).
         int? watts = onAc ? adapterWatts : null;
 
-        return new HaState(
+        return new(
             Soc: soc,
             BatteryState: batteryState,
             LowPowerMode: lowPowerMode,
