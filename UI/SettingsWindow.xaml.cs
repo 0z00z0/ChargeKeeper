@@ -59,6 +59,7 @@ internal sealed partial class SettingsWindow : Window
 
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
+    private readonly Action   _onShowAbout;
 
     // Guards LoadXxx()'s programmatic control assignments from re-entering their own
     // changed/toggled/selection handlers and queuing a bogus commit — same pattern as
@@ -74,10 +75,11 @@ internal sealed partial class SettingsWindow : Window
     // own threshold-debounce timer is stopped in its Closed handler to avoid.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onShowAbout)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
+        _onShowAbout = onShowAbout;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -248,6 +250,7 @@ internal sealed partial class SettingsWindow : Window
         NetworkPanel.Visibility       = tag == "Network"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AppearancePanel.Visibility    = tag == "Appearance"     ? Visibility.Visible : Visibility.Collapsed;
+        AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
         // Cheap to refresh every time the tab is opened rather than on a timer — reflects a
         // network change made while the window was on a different tab.
@@ -1018,4 +1021,8 @@ internal sealed partial class SettingsWindow : Window
         bool on = UseNewStylingToggle.IsOn;
         SettingsService.Update(s => s.UseNewStyling = on);
     }
+
+    // #59: opens the same single About window the tray "About…" item uses, via the callback App
+    // wired up from the tray menu — so there's never more than one About window instance.
+    private void OnAboutClicked(object sender, RoutedEventArgs e) => _onShowAbout();
 }

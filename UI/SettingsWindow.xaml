@@ -58,6 +58,9 @@
             <NavigationViewItem Content="Appearance"       Tag="Appearance">
                 <NavigationViewItem.Icon><FontIcon Glyph="&#xE771;"/></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="About"            Tag="About">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xE946;"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
 
         <!-- Issue #51: subtle app-identity footer, bottom-left of the pane — logo + name + the
@@ -249,6 +252,19 @@
                     <controls:SettingsCard Header="Use new styling"
                                             Description="Experimental new visual style (TODO #45). No effect yet — reserved for a future update.">
                         <ToggleSwitch x:Name="UseNewStylingToggle" OnContent="On" OffContent="Off" Toggled="OnUseNewStylingToggled"/>
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <!-- ── About (#59) ─────────────────────────────────────────────── -->
+                <StackPanel x:Name="AboutPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}"/>
+
+                    <controls:SettingsCard Header="ChargeKeeper"
+                                            Description="Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Made by ZeroZero Software.">
+                        <controls:SettingsCard.HeaderIcon>
+                            <ImageIcon Source="ms-appx:///Assets/AppIcon.png"/>
+                        </controls:SettingsCard.HeaderIcon>
+                        <Button x:Name="AboutButton" Content="About ChargeKeeper" Click="OnAboutClicked"/>
                     </controls:SettingsCard>
                 </StackPanel>
 

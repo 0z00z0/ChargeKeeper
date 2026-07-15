@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="ChargeKeeper.UI.AboutWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:ChargeKeeper.UI"
+    xmlns:brand="using:ZeroZero.Brand.WinUI"
+    mc:Ignorable="d">
+
+    <!-- #59: ChargeKeeper-owned About window. Chrome (Mica BaseAlt, sizing, close) is ours;
+         the actual About CONTENT (brand header, links, credits) is the shared
+         ZeroZero.Brand.WinUI.BrandAboutControl, hosted content-only. The shared control has NO
+         update button by design — ChargeKeeper keeps its own tray "Check for updates" item. -->
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <ScrollViewer Padding="24" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <brand:BrandAboutControl x:Name="About" MaxWidth="560" HorizontalAlignment="Center"/>
+    </ScrollViewer>
+</Window>

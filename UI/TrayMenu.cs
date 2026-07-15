@@ -3,8 +3,6 @@ using Microsoft.UI.Xaml.Controls;
 using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
-using ZeroZero.Brand.Core;
-using ZeroZero.Brand.WinUI;
 
 namespace ChargeKeeper.UI;
 
@@ -51,8 +49,8 @@ internal sealed class TrayMenu
 {
     private readonly List<(ToggleMenuFlyoutItem Item, IToggleFeature Feature)> _toggles = [];
 
-    private MenuFlyoutItem?   _updateItem;
-    private BrandAboutWindow? _aboutWindow;
+    private MenuFlyoutItem? _updateItem;
+    private AboutWindow?    _aboutWindow;
 
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
@@ -335,7 +333,16 @@ internal sealed class TrayMenu
 
     private const string AppName = AppInfo.Name;
 
-    private void ShowAbout()
+    /// <summary>
+    /// Opens (or re-activates) the single About window. #59: this is now ChargeKeeper's own
+    /// <see cref="AboutWindow"/> hosting the shared <c>BrandAboutControl</c> content, not the
+    /// shared <c>BrandAboutWindow</c> popup. The About payload lives in that window; the
+    /// "Check for updates" flow stays a separate tray menu item (see <see cref="CheckForUpdatesAsync"/>),
+    /// so no update/exit plumbing is passed here. Also called by the Settings window's
+    /// "About ChargeKeeper" button (via the <c>onShowAbout</c> callback App wires up), reusing the
+    /// same single-instance window.
+    /// </summary>
+    internal void ShowAbout()
     {
         if (_aboutWindow is not null)
         {
@@ -343,41 +350,7 @@ internal sealed class TrayMenu
             return;
         }
 
-        var options = new BrandAboutOptions
-        {
-            Info = new AboutInfo
-            {
-                AppName     = AppName,
-                Version     = AppInfo.Version,
-                Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
-                RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
-                // Keep this list in sync with the README's "External libraries" table (memory
-                // preference) — same non-Microsoft NuGet dependencies.
-                ExternalLibraries =
-                [
-                    new ExternalLibrary("H.NotifyIcon.WinUI", "HavenDV", "System-tray icon + native context menu for WinUI 3", "MIT", "https://github.com/HavenDV/H.NotifyIcon"),
-                    new ExternalLibrary("TaskScheduler", "David Hall", "Managed wrapper over the Windows Task Scheduler API (auto-start)", "MIT", "https://github.com/dahall/TaskScheduler"),
-                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
-                    new ExternalLibrary("CommunityToolkit.WinUI.Controls.SettingsControls", ".NET Foundation", "SettingsCard/SettingsExpander rows (Settings window)", "MIT", "https://github.com/CommunityToolkit/Windows"),
-                    new ExternalLibrary("WinUIEx", "Morten Nielsen", "WinUI 3 window helper extensions (Settings window placement)", "MIT", "https://github.com/dotMorten/WinUIEx"),
-                    new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the MQTT publishing integration", "MIT", "https://github.com/dotnet/MQTTnet"),
-                ],
-            },
-            // Reuses this class's own CheckForUpdatesAsync (below) rather than duplicating a second
-            // near-identical copy of the old AboutWindow.xaml.cs update-check block: both versions
-            // differed only in how they captured the parent HWND (AppWindow.Id of the About window
-            // itself vs NativeMethods.CaptureHwnd()), and BrandAboutWindow doesn't expose its own
-            // HWND — so CaptureHwnd() is required here either way.
-            //
-            // CheckForUpdatesAsync always returns false (it never asks the window to drive the exit):
-            // when an update is chosen it shows a "Downloading…" prompt and kicks off a *background*
-            // installer download, then ChargeKeeper terminates itself via _onExit() once that
-            // completes (see below). Because the window is never told an update was applied, its
-            // OnBeforeExit teardown hook is never invoked — so it's left null here.
-            OnCheckForUpdates = CheckForUpdatesAsync,
-        };
-
-        _aboutWindow = new BrandAboutWindow(options);
+        _aboutWindow = new AboutWindow();
         _aboutWindow.Closed += (_, _) => _aboutWindow = null;
         _aboutWindow.Activate();
     }
