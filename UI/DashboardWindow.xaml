@@ -26,12 +26,16 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <TextBlock Grid.Row="0"
-                   Text="ChargeKeeper"
-                   FontSize="13"
-                   FontWeight="SemiBold"
-                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                   Margin="0,0,0,14"/>
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8"
+                    VerticalAlignment="Center" Margin="0,0,0,14">
+            <Image Source="ms-appx:///Assets/AppIcon.png"
+                   Width="18" Height="18" VerticalAlignment="Center"/>
+            <TextBlock Text="ChargeKeeper"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+        </StackPanel>
 
         <!-- Battery gauge section: gauge left, stats right filling remaining width -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
