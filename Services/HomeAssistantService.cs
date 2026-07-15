@@ -57,6 +57,16 @@ internal sealed class HomeAssistantService : IDisposable
         // the actual dispatch runs on the single-worker loop below.
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
         _commandWorker = Task.Run(ProcessCommandsAsync);
+
+        // Reflect a charge-control change (tray OR MQTT command) to HA the moment it settles, so the
+        // smart_charge switch + charge_start/stop numbers + preset select show what actually took
+        // effect (issue #40 item 3) instead of waiting for the next battery tick. Both events funnel
+        // to the same handler: ChargeControlService covers the composed threshold/smart-charge/preset
+        // ops; TravelOverrideService covers the async "charge to 100 % once" activate/revert (whose
+        // restore completes on a background task) so the published state is the settled truth.
+        // Static events — unsubscribed in Dispose so a disposed instance doesn't keep publishing.
+        ChargeControlService.StateChanged  += OnChargeControlChanged;
+        TravelOverrideService.StateChanged += OnChargeControlChanged;
     }
 
     /// <summary>
@@ -248,11 +258,27 @@ internal sealed class HomeAssistantService : IDisposable
         {
             try
             {
+                // The dispatch drives the shared ChargeControlService (or TravelOverrideService for
+                // "charge to 100 % once"), whose StateChanged event we subscribe to — so the FRESH
+                // reflect happens via OnChargeControlChanged, covering the async override
+                // activate/revert timing too. No separate publish call is needed here.
                 HaCommandDispatcher.Dispatch(cmd, _actions);   // synchronous read-modify-write on this worker
-                PublishFreshStateAfterCommand();
             }
             catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitize(ex)); }
         }
+    }
+
+    /// <summary>
+    /// Reflect a settled charge-control change to HA (issue #40 item 3). Subscribed to
+    /// <see cref="ChargeControlService.StateChanged"/> AND
+    /// <see cref="TravelOverrideService.StateChanged"/>, so a change from ANY source — tray toggle,
+    /// inbound MQTT command, network-profile auto-apply, or the override auto-revert at full charge —
+    /// republishes the genuinely-current Smart Charge / thresholds / preset. No-op while disabled.
+    /// </summary>
+    private void OnChargeControlChanged()
+    {
+        if (!_enabled) return;
+        PublishFreshStateAfterCommand();
     }
 
     /// <summary>
@@ -324,6 +350,9 @@ internal sealed class HomeAssistantService : IDisposable
 
     public void Dispose()
     {
+        // Detach from the static charge-control events so a disposed instance stops publishing.
+        ChargeControlService.StateChanged  -= OnChargeControlChanged;
+        TravelOverrideService.StateChanged -= OnChargeControlChanged;
         // Stop the command worker: complete the channel so ProcessCommandsAsync drains and exits.
         try { _commands.Writer.TryComplete(); } catch { }
         // Graceful exit: go offline but KEEP the retained discovery so the device persists in HA.

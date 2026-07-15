@@ -124,6 +124,14 @@ internal sealed class TrayMenu
         // Never unsubscribed: TrayMenu lives for the whole process.
         TravelOverrideService.StateChanged += QueueRefresh;
 
+        // Resync after ANY shared charge-control change — including one driven by an inbound MQTT
+        // command (issue #40 item 4). Before this the MQTT path mutated Smart Charge / thresholds /
+        // preset without telling the tray, so the menu (and tooltip/dashboard) stayed stale until the
+        // next right-click/tick. ChargeControlService now funnels the tray AND MQTT paths, and fires
+        // StateChanged after each, so both reconcile identically. Same background-thread + never-
+        // unsubscribed reasoning as the TravelOverrideService subscription above.
+        ChargeControlService.StateChanged += QueueRefresh;
+
         // Network-location auto-apply (TODO #31) — fires on a background thread (same as
         // TravelOverrideService.StateChanged above); OnNetworkLocationChanged marshals via
         // ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed, same
@@ -256,39 +264,37 @@ internal sealed class TrayMenu
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private void ApplyPreset(ThresholdPreset preset)
-        => Task.Run(() =>
-        {
-            try
-            {
-                // A preset IS an explicit threshold choice — it supersedes an in-flight
-                // "charge to 100 % once" override. ApplyExplicitThresholds owns the load-bearing
-                // Deactivate-first-then-write ordering (shared with the dashboard slider and the
-                // Settings window) so it can't drift between the three call sites.
-                bool ok = TravelOverrideService.ApplyExplicitThresholds(preset.Start, preset.Stop);
-                if (ok)
-                    // Update() (not "Current.ActivePreset = x; Save();") — this spans the RPC call
-                    // above, so a concurrent "Reload settings from disk" could otherwise swap
-                    // Current out from under a plain captured-reference mutation and silently lose
-                    // this write (see SettingsService.Update's doc comment).
-                    SettingsService.Update(s => s.ActivePreset = preset.Name);
-            }
-            catch { }
-            finally { QueueRefresh(); }
-        });
+    private void ApplyPreset(ThresholdPreset preset) => RunApplyPreset(preset.Name);
 
     /// <summary>
     /// Applies the preset with the given name — the Settings window's network-profile editor calls
     /// this so a profile added/edited for the network you're currently on takes effect immediately
-    /// (TODO #19/#22). Delegates to <see cref="ApplyPreset"/> so the device write + ActivePreset +
+    /// (TODO #19/#22). Delegates to <see cref="RunApplyPreset"/> so the device write + ActivePreset +
     /// reconcile stay in one place; no-op when the name is blank or matches no preset.
     /// </summary>
     public void ApplyPresetByName(string presetName)
     {
         if (string.IsNullOrWhiteSpace(presetName)) return;
-        var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == presetName);
-        if (preset is not null) ApplyPreset(preset);
+        // Resolve here first so an unknown name is a no-op WITHOUT spinning up a Task (preserves the
+        // old contract). The device write + persist + reconcile happen inside RunApplyPreset.
+        if (SettingsService.Current.Presets.Any(p => p.Name == presetName))
+            RunApplyPreset(presetName);
     }
+
+    /// <summary>
+    /// Applies the named preset off the UI thread (the vendor RPC blocks) via the shared
+    /// <see cref="ChargeControlService"/> — the SAME composition the MQTT preset command uses (issue
+    /// #40 item 4), so the "supersede any in-flight override, write, then persist ActivePreset"
+    /// ordering lives in exactly one place. QueueRefresh in the finally is belt-and-suspenders on top
+    /// of the ChargeControlService.StateChanged subscription.
+    /// </summary>
+    private void RunApplyPreset(string name)
+        => Task.Run(() =>
+        {
+            try { ChargeControlService.ApplyPresetByName(name); }
+            catch { }
+            finally { QueueRefresh(); }
+        });
 
     // ── Network-location auto-apply (TODO #31) ──────────────────────────────────
     // Not a menu item — see the class doc comment and the constructor's subscription. Configuring
@@ -457,15 +463,15 @@ internal sealed class TrayMenu
         {
             try
             {
-                // Re-enabling Smart Charge while "charge to 100 % once" is running means
-                // "threshold back on" — which is exactly the override's cancel path: it restores
-                // the saved pre-override thresholds AND disarms the auto-revert. A bare
-                // SetEnabled(true) would instead apply DEFAULT thresholds (activating the
-                // override wiped the firmware values to 0/0) and leave the auto-revert armed to
-                // clobber them at the next full charge.
-                if (feature is SmartChargeFeature && enable && TravelOverrideService.IsActive)
+                // Smart Charge funnels through the shared ChargeControlService — the SAME composition
+                // the MQTT smart_charge switch uses (issue #40 item 4), so the load-bearing
+                // "re-enable mid-override → cancel the override (restore saved thresholds + disarm
+                // the auto-revert), not a bare SetEnabled(true) that would apply firmware's 0/0
+                // defaults and leave the revert armed" rule lives in exactly one place. Other
+                // features (Smart Standby, Launch at startup) are a plain enable/disable.
+                if (feature is SmartChargeFeature)
                 {
-                    TravelOverrideService.Cancel();   // fires StateChanged → QueueRefresh
+                    ChargeControlService.SetSmartChargeEnabled(enable);   // fires StateChanged → QueueRefresh
                     return;
                 }
 
