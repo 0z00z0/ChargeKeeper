@@ -192,38 +192,62 @@ function Render-Large([int]$w,[int]$h) {
         Fill-AccentBar $g 0 0            $w (5*$k)
         Fill-AccentBar $g 0 ($h-5*$k)    $w (5*$k)
 
-        # [Ø] mark: 58-unit target box, centred, top area. markScale = 58/256.
-        $markW = 58*$k
-        Draw-Mark $g (($w-$markW)/2) (26*$k) ($markW/256.0)
+        # Layout (base 164x314 units, ×$k). Two stacked blocks with a divider between them, spaced so
+        # NOTHING overlaps: the ChargeKeeper battery glyph and its wordmark used to collide — they now
+        # sit in the lower product block with a clear gap, and the studio tagline moved up under the
+        # studio label where it belongs (it's ZeroZero Software's tagline, not the product's).
+        #
+        #   STUDIO block:  [Ø] mark  →  "ZeroZero Software"  →  "Small tools. Zero bloat."
+        #   ── divider ──
+        #   PRODUCT block: battery glyph  →  "ChargeKeeper" wordmark
 
-        # Battery glyph: 128-unit target box, centred.
-        $glyphW = 128*$k
-        Draw-Battery $g (($w-$glyphW)/2) (112*$k) ($glyphW/256.0)
+        # [Ø] mark: 52-unit target box, centred near the top.
+        $markW = 52*$k
+        Draw-Mark $g (($w-$markW)/2) (22*$k) ($markW/256.0)
 
-        # Wordmark + tagline
-        $fmt = New-Object System.Drawing.StringFormat
-        $fmt.Alignment = [System.Drawing.StringAlignment]::Center
-        $wordFont = New-Object System.Drawing.Font($brandFamily,(16*$k),[System.Drawing.FontStyle]::Bold,[System.Drawing.GraphicsUnit]::Pixel)
-        $tagFont  = New-Object System.Drawing.Font($brandFamily,(9*$k),[System.Drawing.FontStyle]::Regular,[System.Drawing.GraphicsUnit]::Pixel)
+        $fmtC = New-Object System.Drawing.StringFormat
+        $fmtC.Alignment     = [System.Drawing.StringAlignment]::Center
+        $fmtC.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+        $studioFont = New-Object System.Drawing.Font($brandFamily,(11*$k),[System.Drawing.FontStyle]::Regular,[System.Drawing.GraphicsUnit]::Pixel)
+        $tagFont    = New-Object System.Drawing.Font($brandFamily,(9*$k), [System.Drawing.FontStyle]::Regular,[System.Drawing.GraphicsUnit]::Pixel)
+        $wordFont   = New-Object System.Drawing.Font($brandFamily,(16*$k),[System.Drawing.FontStyle]::Bold,   [System.Drawing.GraphicsUnit]::Pixel)
         try {
             $tb = New-Object System.Drawing.SolidBrush($cText)
             $mb = New-Object System.Drawing.SolidBrush($cMuted)
             try {
-                $g.DrawString("ChargeKeeper",$wordFont,$tb,(New-Object System.Drawing.RectangleF(0,(196*$k),$w,(24*$k))),$fmt)
-                $g.DrawString("Small tools. Zero bloat.",$tagFont,$mb,(New-Object System.Drawing.RectangleF(0,(228*$k),$w,(16*$k))),$fmt)
+                # Studio label + studio tagline (top block, under the [Ø] mark). Rect centres:
+                # ~y86 and ~y103 — clear of the mark above (brackets end ~y58) and the divider below.
+                $g.DrawString("ZeroZero Software",$studioFont,$tb,(New-Object System.Drawing.RectangleF(0,(78*$k),$w,(16*$k))),$fmtC)
+                $g.DrawString("Small tools. Zero bloat.",$tagFont,$mb,(New-Object System.Drawing.RectangleF(0,(96*$k),$w,(14*$k))),$fmtC)
+
+                # Divider between the studio and product blocks.
+                $divPen = New-Object System.Drawing.Pen($cBorder,(1*$k))
+                try { $g.DrawLine($divPen,(40*$k),(120*$k),($w-40*$k),(120*$k)) } finally { $divPen.Dispose() }
+
+                # Battery glyph: 110-unit box, placed low. Its drawn extent is ~y166..y222; the
+                # wordmark below starts ~y242, so glyph and wordmark never overlap.
+                $glyphW = 110*$k
+                Draw-Battery $g (($w-$glyphW)/2) (138*$k) ($glyphW/256.0)
+
+                # "ChargeKeeper" wordmark BELOW the battery, with a clear gap. No tagline under it.
+                $g.DrawString("ChargeKeeper",$wordFont,$tb,(New-Object System.Drawing.RectangleF(0,(236*$k),$w,(28*$k))),$fmtC)
             } finally { $tb.Dispose(); $mb.Dispose() }
-        } finally { $wordFont.Dispose(); $tagFont.Dispose(); $fmt.Dispose() }
+        } finally { $studioFont.Dispose(); $tagFont.Dispose(); $wordFont.Dispose(); $fmtC.Dispose() }
     } finally { $g.Dispose() }
     return $bmp
 }
 
-# ── Small header image (base 55x58) — product battery glyph on studio bg ──────
+# ── Small header image (base 55x58) — product battery glyph on WHITE ──────────
+# The inner wizard pages are the light/modern Inno theme, so this clears to WHITE (not the studio
+# dark) to blend in rather than float as a dark box. The steel/sage/terracotta glyph reads fine on
+# white.
 function Render-Small([int]$w,[int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w,$h,[System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
     $g = New-Graphics $bmp
     try {
         [float]$k = $w / 55.0
-        $g.Clear($cBg)
+        $g.Clear([System.Drawing.Color]::White)
         # battery glyph ~46 units wide, centred.
         $glyphW = 46*$k
         Draw-Battery $g (($w-$glyphW)/2) ((($h-$glyphW*(256.0/256.0))/2)) ($glyphW/256.0)
