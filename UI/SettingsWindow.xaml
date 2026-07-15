@@ -39,27 +39,30 @@
             <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
         </NavigationView.Resources>
 
+        <!-- #52: bespoke two-tone nav icons (steel outline + sage/terracotta accents), shipped as
+             SVG assets and shown via ImageIcon/SvgImageSource — two-tone can't be a single-colour
+             PathIcon. -->
         <NavigationView.MenuItems>
             <NavigationViewItem Content="General"         Tag="General">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Smart Charge"     Tag="SmartCharge">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE83E;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xEC42;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Network"          Tag="Network">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE774;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE753;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Appearance"       Tag="Appearance">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE771;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/appearance.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="About"            Tag="About">
-                <NavigationViewItem.Icon><FontIcon Glyph="&#xE946;"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg"/></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>
 
