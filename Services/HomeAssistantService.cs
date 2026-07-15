@@ -199,13 +199,21 @@ internal sealed class HomeAssistantService : IDisposable
     private async Task<bool> DelayOrWake(TimeSpan delay, CancellationToken ct)
     {
         var wake = _wake.Task;
+        // Linked CTS so that when Wake() wins, we CANCEL the losing Task.Delay instead of abandoning it
+        // (an uncancelled timer would otherwise linger up to a full poll/backoff — up to 60 s).
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
-            var winner = await Task.WhenAny(Task.Delay(delay, ct), wake).ConfigureAwait(false);
+            var delayTask = Task.Delay(delay, delayCts.Token);
+            var winner = await Task.WhenAny(delayTask, wake).ConfigureAwait(false);
             if (winner == wake)
+            {
+                delayCts.Cancel();
+                try { await delayTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
                 // Consume this wake and re-arm for the next one. A signal that races this swap at
                 // worst costs one poll interval before the next reconnect attempt — benign.
                 _wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
             else
                 await winner.ConfigureAwait(false);   // observe cancellation raised by the delay
             return !ct.IsCancellationRequested;
