@@ -1,36 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ChargeKeeper app icon — "Guarded Battery".
+  ChargeKeeper app icon — "0z0 steel battery".
 
-  A battery outline in a purple→indigo gradient, with an amber vertical line at the ~80 %
-  mark representing the charge-limit threshold (slightly overshooting the body so it reads
-  as a marker, not a fill edge). Fully transparent background — no background plate — scaled
-  to fill the canvas (matching modern Windows 11 icon conventions, where the shell supplies
-  its own rounded-square mask/backdrop rather than the app baking one in).
+  A flat, squared battery outline in muted SteelBlue, with a Sage-green interior fill and a
+  Terracotta vertical "guard" line crossing the body — ChargeKeeper's own product palette
+  (== GaugePalette SteelBlue / SageGreen / Terracotta). No gradients: flat geometric shapes,
+  matching the ZeroZero "0z0 geometric" studio look. Fully transparent background — no
+  background plate — scaled to fill the canvas (matching modern Windows 11 icon conventions,
+  where the shell supplies its own rounded-square mask/backdrop rather than the app baking one in).
 
   This file is the authoritative vector. The shipped Assets\AppIcon.ico is generated from
   the same geometry by scripts\make-appicon.ps1 (which redraws it natively per size), and
   Helpers\IconGenerator.cs redraws it at runtime for the startup tray icon.
 -->
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7b8cff"/>
-      <stop offset="1" stop-color="#3f5be0"/>
-    </linearGradient>
-  </defs>
+  <!-- Battery body outline: flat SteelBlue, round line-join -->
+  <rect x="15" y="80" width="191" height="96" rx="6"
+        fill="none" stroke="#7FA8B8" stroke-width="13" stroke-linejoin="round"/>
 
-  <!-- Battery body outline -->
-  <rect x="13" y="78" width="195" height="100" rx="23"
-        fill="none" stroke="url(#body)" stroke-width="15"/>
+  <!-- Battery cap (positive terminal): solid SteelBlue -->
+  <rect x="221" y="106" width="20" height="44" rx="3" fill="#7FA8B8"/>
 
-  <!-- Battery cap (positive terminal) -->
-  <rect x="221" y="103" width="23" height="50" rx="9" fill="#3f5be0"/>
+  <!-- Interior charge fill: Sage green at 90% opacity -->
+  <rect x="36" y="101" width="110" height="55" rx="3" fill="#7AB88F" opacity="0.9"/>
 
-  <!-- Interior charge fill (~80 % of the body) -->
-  <rect x="36" y="101" width="110" height="55" rx="11" fill="url(#body)" opacity="0.85"/>
-
-  <!-- Amber charge-limit line at the 80 % mark -->
-  <line x1="161" y1="63" x2="161" y2="193" stroke="#d8a657" stroke-width="9"
-        stroke-linecap="round"/>
+  <!-- Terracotta guard line crossing the body (flat/butt caps) -->
+  <line x1="161" y1="66" x2="161" y2="190" stroke="#C9926B" stroke-width="9"/>
 </svg>
