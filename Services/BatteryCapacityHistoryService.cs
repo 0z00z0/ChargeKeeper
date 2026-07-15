@@ -25,7 +25,19 @@ internal static class BatteryCapacityHistoryService
     // CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse and the
     // once-a-day cache below). Every store call happens under _lock, the same lock that guards that
     // cache — see CsvSampleStore's remarks on why it holds no lock of its own.
-    private static readonly CsvSampleStore _store = new("capacity-history.csv");
+    // Descriptive header (a leading '#' comment describing the file + units, then the column-name
+    // row) written once when the store first creates the file. Both lines fail TryParse, so
+    // LoadAll/ReadLastLine skip them for free. LoadAll never rewrites the file, so there is no prune
+    // path to re-emit it here (unlike BatteryHistoryService).
+    internal const string HeaderComment =
+        "# ChargeKeeper battery-capacity history — one row per calendar day, kept indefinitely. " +
+        "timestamp = ISO 8601 with local UTC offset; " +
+        "full_charge_mwh = current full-charge capacity; " +
+        "design_capacity_mwh = as-new rated capacity in milliwatt-hours (blank if the controller doesn't report it).";
+    internal const string HeaderColumns = "timestamp,full_charge_mwh,design_capacity_mwh";
+    internal const string Header = HeaderComment + "\n" + HeaderColumns;
+
+    private static readonly CsvSampleStore _store = new("battery-capacity-history.csv", Header);
 
     private static readonly Lock _lock = new();
 
@@ -119,10 +131,13 @@ internal static class BatteryCapacityHistoryService
         }
     }
 
-    // CSV row: unixMillisUtc,fullChargeMwh,designMwh  (design column blank when unsupported).
-    // Internal (not private) so unit tests can verify the round-trip without touching any file.
+    // CSV row: timestamp,full_charge_mwh,design_capacity_mwh where timestamp is ISO 8601 with the
+    // machine's local UTC offset (e.g. 2026-07-15T14:30:00+02:00) and the design column is blank when
+    // the controller doesn't report it. Internal (not private) so unit tests can verify the round-trip
+    // without touching any file. The stored AtUtc is always Kind=Utc; the local offset in the file is
+    // purely for human readability and round-trips the same instant.
     internal static string Format(CapacitySample s) => string.Create(CultureInfo.InvariantCulture,
-        $"{new DateTimeOffset(s.AtUtc).ToUnixTimeMilliseconds()},{s.FullChargeMwh},{s.DesignMwh?.ToString(CultureInfo.InvariantCulture) ?? ""}");
+        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.FullChargeMwh},{s.DesignMwh?.ToString(CultureInfo.InvariantCulture) ?? ""}");
 
     internal static bool TryParse(string line, out CapacitySample sample)
     {
@@ -130,10 +145,10 @@ internal static class BatteryCapacityHistoryService
         var p = line.Split(',');
         if (p.Length < 3) return false;
         var ci = CultureInfo.InvariantCulture;
-        if (!long.TryParse(p[0], NumberStyles.Integer, ci, out var ms))   return false;
+        if (!DateTimeOffset.TryParse(p[0], ci, DateTimeStyles.RoundtripKind, out var dto)) return false;
         if (!int.TryParse (p[1], NumberStyles.Integer, ci, out var full)) return false;
         int? design = int.TryParse(p[2], NumberStyles.Integer, ci, out var d) ? d : null;
-        sample = new CapacitySample(DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime, full, design);
+        sample = new CapacitySample(dto.UtcDateTime, full, design);
         return true;
     }
 }
