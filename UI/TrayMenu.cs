@@ -360,7 +360,7 @@ internal sealed class TrayMenu
                     new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
                     new ExternalLibrary("CommunityToolkit.WinUI.Controls.SettingsControls", ".NET Foundation", "SettingsCard/SettingsExpander rows (Settings window)", "MIT", "https://github.com/CommunityToolkit/Windows"),
                     new ExternalLibrary("WinUIEx", "Morten Nielsen", "WinUI 3 window helper extensions (Settings window placement)", "MIT", "https://github.com/dotMorten/WinUIEx"),
-                    new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the Home Assistant integration", "MIT", "https://github.com/dotnet/MQTTnet"),
+                    new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the MQTT publishing integration", "MIT", "https://github.com/dotnet/MQTTnet"),
                 ],
             },
             // Reuses this class's own CheckForUpdatesAsync (below) rather than duplicating a second

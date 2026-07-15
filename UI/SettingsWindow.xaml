@@ -28,7 +28,7 @@
             <NavigationViewItem Content="Smart Charge"     Tag="SmartCharge"/>
             <NavigationViewItem Content="Notifications"    Tag="Notifications"/>
             <NavigationViewItem Content="Network"          Tag="Network"/>
-            <NavigationViewItem Content="Home Assistant"   Tag="HomeAssistant"/>
+            <NavigationViewItem Content="MQTT"             Tag="HomeAssistant"/>
             <NavigationViewItem Content="Appearance"       Tag="Appearance"/>
         </NavigationView.MenuItems>
 
@@ -150,12 +150,12 @@
                     <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,0"/>
                 </StackPanel>
 
-                <!-- ── Home Assistant ───────────────────────────────────────────── -->
+                <!-- ── MQTT (section label; the publisher defaults to HA's discovery convention) ── -->
                 <StackPanel x:Name="HomeAssistantPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Home Assistant" Style="{StaticResource SectionHeaderStyle}"/>
+                    <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <controls:SettingsCard Header="Publish to Home Assistant"
-                                            Description="Publishes battery/charge state to an MQTT broker using Home Assistant's MQTT-discovery convention. Applies immediately.">
+                    <controls:SettingsCard Header="Publish to MQTT"
+                                            Description="Publishes battery/charge state to an MQTT broker using the standard MQTT auto-discovery convention. Applies immediately.">
                         <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                     </controls:SettingsCard>
 
@@ -178,7 +178,7 @@
                     <controls:SettingsCard Header="Use TLS" Description="Broker port is usually 8883 when enabled.">
                         <ToggleSwitch x:Name="HaTlsToggle" OnContent="On" OffContent="Off"/>
                     </controls:SettingsCard>
-                    <controls:SettingsCard Header="Discovery prefix" Description="Must match Home Assistant's configured MQTT-discovery prefix (default: homeassistant).">
+                    <controls:SettingsCard Header="Discovery prefix" Description="The MQTT auto-discovery prefix your broker/consumer expects (default: homeassistant).">
                         <TextBox x:Name="HaPrefixBox" MinWidth="220"/>
                     </controls:SettingsCard>
 
