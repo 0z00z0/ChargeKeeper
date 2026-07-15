@@ -38,6 +38,19 @@ internal sealed class HomeAssistantService : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
+    // Wakes the maintain loop out of its inter-poll delay early — signalled on a detected disconnect
+    // (OnClientDisconnectedAsync) or a resume-from-standby (OnPowerResume), so a reconnect + "online"
+    // republish happens within moments instead of after the full poll/backoff (issue #41). Volatile:
+    // swapped for a fresh instance each time it's consumed.
+    private volatile TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // Connection-loop timing (issue #41). A generous keep-alive keeps an idle link up; a short-ish
+    // connected re-poll plus the wake signal shrink the reconnect window without busy-spinning.
+    private static readonly TimeSpan KeepAlive      = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ConnectedPoll  = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(3);
+    private const double MaxBackoffSeconds = 60;
+
     /// <summary>
     /// Supplies the current live state to publish immediately on every (re)connect, so a connect
     /// that happens before the first battery tick still shows real values (previously only
@@ -56,6 +69,9 @@ internal sealed class HomeAssistantService : IDisposable
         // the handler is a no-op for anything that isn't a recognised command topic. It only enqueues;
         // the actual dispatch runs on the single-worker loop below.
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
+        // Reconnect + republish "online" the instant a drop is detected, not after the poll interval
+        // (issue #41).
+        _client.DisconnectedAsync += OnClientDisconnectedAsync;
         _commandWorker = Task.Run(ProcessCommandsAsync);
 
         // Reflect a charge-control change (tray OR MQTT command) to HA the moment it settles, so the
@@ -102,6 +118,13 @@ internal sealed class HomeAssistantService : IDisposable
                 .WithTcpServer(s.MqttBrokerHost.Trim(), s.MqttBrokerPort)
                 .WithClientId(_nodeId)
                 .WithCleanSession()
+                // Explicit generous keep-alive (issue #41): MQTTnet auto-sends a PINGREQ within this
+                // period whenever the link is otherwise idle (no battery change to publish), so the
+                // broker won't drop a quiet connection — and a link that died silently (e.g. the NIC
+                // suspended in modern standby) is detected within ~1 keep-alive and surfaces as a
+                // DisconnectedAsync we react to, rather than lingering "connected" while HA shows the
+                // Last-Will "offline".
+                .WithKeepAlivePeriod(KeepAlive)
                 .WithWillTopic(_availTopic)
                 .WithWillPayload(HaDiscovery.Offline)
                 .WithWillRetain()
@@ -131,7 +154,7 @@ internal sealed class HomeAssistantService : IDisposable
 
     private async Task MaintainConnectionAsync(CancellationToken ct)
     {
-        var backoff = TimeSpan.FromSeconds(3);
+        var backoff = InitialBackoff;
         while (!ct.IsCancellationRequested && _enabled)
         {
             try
@@ -139,19 +162,85 @@ internal sealed class HomeAssistantService : IDisposable
                 if (!_client.IsConnected && _options is { } opt)
                 {
                     await _client.ConnectAsync(opt, ct).ConfigureAwait(false);
-                    await OnConnectedAsync(ct).ConfigureAwait(false);
-                    backoff = TimeSpan.FromSeconds(3);
+                    await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
+                    backoff = InitialBackoff;
                 }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
                 AppLog.Error("HomeAssistantService.Connect", Sanitize(ex));   // message only, never creds
-                backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 60));
+                backoff = NextBackoff(backoff);
             }
-            try { await Task.Delay(_client.IsConnected ? TimeSpan.FromSeconds(15) : backoff, ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { break; }
+            // Re-check periodically while healthy; back off while failing. Either wait is cut short by
+            // Wake() (a detected disconnect or a resume-from-standby) so we reconnect promptly (#41).
+            if (!await DelayOrWake(_client.IsConnected ? ConnectedPoll : backoff, ct).ConfigureAwait(false))
+                break;
         }
+    }
+
+    /// <summary>Exponential backoff step, capped — pure so the cap/growth is unit-tested.</summary>
+    internal static TimeSpan NextBackoff(TimeSpan current) =>
+        TimeSpan.FromSeconds(Math.Min(current.TotalSeconds * 2, MaxBackoffSeconds));
+
+    /// <summary>
+    /// Waits up to <paramref name="delay"/>, returning early when <see cref="Wake"/> is signalled.
+    /// Returns false only when the service is cancelled (the caller then breaks the maintain loop).
+    /// </summary>
+    private async Task<bool> DelayOrWake(TimeSpan delay, CancellationToken ct)
+    {
+        var wake = _wake.Task;
+        try
+        {
+            var winner = await Task.WhenAny(Task.Delay(delay, ct), wake).ConfigureAwait(false);
+            if (winner == wake)
+                // Consume this wake and re-arm for the next one. A signal that races this swap at
+                // worst costs one poll interval before the next reconnect attempt — benign.
+                _wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            else
+                await winner.ConfigureAwait(false);   // observe cancellation raised by the delay
+            return !ct.IsCancellationRequested;
+        }
+        catch (OperationCanceledException) { return false; }
+    }
+
+    private void Wake() => _wake.TrySetResult();
+
+    /// <summary>
+    /// MQTTnet fired a disconnect (broker close, or a keep-alive ping that failed after the NIC
+    /// suspended in modern standby). Wake the maintain loop so it reconnects + republishes "online"
+    /// immediately, shrinking the window where HA shows the Last-Will "offline" while the PC is
+    /// actually alive (issue #41).
+    /// </summary>
+    private Task OnClientDisconnectedAsync(MqttClientDisconnectedEventArgs e)
+    {
+        if (_enabled) Wake();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Call on resume-from-standby (issue #41). Modern standby suspends the NIC, so the broker's
+    /// Last-Will flips the device "offline" and the TCP socket dies silently; this forces an immediate
+    /// reconnect + "online" + fresh-state republish so the sensors don't linger "Unavailable" after
+    /// the machine wakes. No-op when the feature is disabled.
+    /// <para>
+    /// MUST be wired from the app's PowerModeChanged/Resume handler — this class deliberately does not
+    /// subscribe to <c>SystemEvents</c> itself (it would then own an unsubscribe lifetime that belongs
+    /// to App). See the note in the PR: add <c>_ha?.OnPowerResume();</c> to App.OnPowerModeChanged.
+    /// </para>
+    /// </summary>
+    public void OnPowerResume()
+    {
+        if (!_enabled) return;
+        _ = ForceReconnectAsync();
+    }
+
+    private async Task ForceReconnectAsync()
+    {
+        // Drop any half-dead socket so the maintain loop's IsConnected check reconnects; then wake it
+        // so it doesn't wait out the poll. DisconnectAsync on an already-dead socket is a fast no-op.
+        try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
+        Wake();
     }
 
     private async Task OnConnectedAsync(CancellationToken ct)
