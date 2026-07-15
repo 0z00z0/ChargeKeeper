@@ -72,7 +72,7 @@ public class NetworkLocationServiceTests
         var physical  = new AdapterCandidate(IPv4Index: 7,  IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
         var vEthernet = new AdapterCandidate(IPv4Index: 12, IsVirtual: true,  Type: NetworkInterfaceType.Ethernet);
 
-        var result = NetworkLocationService.SelectPrimary(new[] { physical, vEthernet }, bestIndex: 12);
+        var result = NetworkLocationService.SelectPrimary([physical, vEthernet], bestIndex: 12);
 
         Assert.Same(vEthernet, result);
     }
@@ -82,7 +82,7 @@ public class NetworkLocationServiceTests
     {
         var ethernet = new AdapterCandidate(IPv4Index: 5, IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
 
-        var result = NetworkLocationService.SelectPrimary(new[] { ethernet }, bestIndex: 5);
+        var result = NetworkLocationService.SelectPrimary([ethernet], bestIndex: 5);
 
         Assert.Same(ethernet, result);
     }
@@ -95,7 +95,7 @@ public class NetworkLocationServiceTests
         var wifi     = new AdapterCandidate(IPv4Index: 9, IsVirtual: false, Type: NetworkInterfaceType.Wireless80211);
         var ethernet = new AdapterCandidate(IPv4Index: 3, IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
 
-        var result = NetworkLocationService.SelectPrimary(new[] { wifi, ethernet }, bestIndex: 0);
+        var result = NetworkLocationService.SelectPrimary([wifi, ethernet], bestIndex: 0);
 
         Assert.Same(ethernet, result);
     }
@@ -107,7 +107,7 @@ public class NetworkLocationServiceTests
         // Hyper-V bridge with no physical peer Up), a usable adapter must never be discarded as null.
         var vEthernet = new AdapterCandidate(IPv4Index: 4, IsVirtual: true, Type: NetworkInterfaceType.Ethernet);
 
-        var result = NetworkLocationService.SelectPrimary(new[] { vEthernet }, bestIndex: 0);
+        var result = NetworkLocationService.SelectPrimary([vEthernet], bestIndex: 0);
 
         Assert.Same(vEthernet, result);
     }
@@ -117,6 +117,6 @@ public class NetworkLocationServiceTests
     {
         // Genuinely offline (no adapter has a usable IPv4) → null, which DetectCurrent maps to the
         // empty "No network detected" location.
-        Assert.Null(NetworkLocationService.SelectPrimary(System.Array.Empty<AdapterCandidate>(), bestIndex: 0));
+        Assert.Null(NetworkLocationService.SelectPrimary([], bestIndex: 0));
     }
 }
