@@ -72,16 +72,18 @@ internal static class HaCommandDispatcher
 }
 
 /// <summary>
-/// The live <see cref="IChargeControlActions"/> — routes each command to ChargeKeeper's existing
-/// services. Every method runs SYNCHRONOUSLY (the vendor RPC blocks for seconds): the caller
-/// (<see cref="HomeAssistantService"/>) drives dispatch on a single-worker background queue, OFF the
-/// MQTT receive callback, so a read-modify-write pair completes before the next command starts and
-/// the callback thread is never blocked — the offloading + serialization now live at that one seam
-/// rather than being sprinkled per-method here. Mirrors the tray menu's own charge-control call sites
-/// so behaviour can't drift: enabling Smart Charge mid-override cancels the override
-/// (<c>TrayMenu.Toggle</c>), applying explicit thresholds funnels through
-/// <see cref="TravelOverrideService.ApplyExplicitThresholds"/>, and a preset apply repeats
-/// <c>TrayMenu.ApplyPreset</c> (write + persist ActivePreset).
+/// The live <see cref="IChargeControlActions"/> — routes each command onto the shared
+/// <see cref="ChargeControlService"/>, the SAME composition the tray menu drives (issue #40 item 4),
+/// so the "cancel override vs SetEnabled" / "ApplyExplicitThresholds + persist ActivePreset"
+/// orchestration lives in exactly one place and can't drift between the MQTT and tray paths — and an
+/// MQTT-driven change fires <see cref="ChargeControlService.StateChanged"/>, which reconciles the
+/// tray/tooltip/dashboard just like a tray-driven change (previously the MQTT path skipped that
+/// reconcile and the tray went stale). Every method runs SYNCHRONOUSLY (the vendor RPC blocks for
+/// seconds): the caller (<see cref="HomeAssistantService"/>) drives dispatch on a single-worker
+/// background queue, OFF the MQTT receive callback, so a read-modify-write pair completes before the
+/// next command starts and the callback thread is never blocked. <see cref="CurrentThresholds"/> is
+/// the one bit of MQTT-only logic that stays here — the read the dispatcher combines a single-bound
+/// number-set against.
 /// </summary>
 internal sealed class ChargeControlActions : IChargeControlActions
 {
@@ -110,39 +112,26 @@ internal sealed class ChargeControlActions : IChargeControlActions
 
     public void ApplyThresholds(int start, int stop)
     {
-        try { TravelOverrideService.ApplyExplicitThresholds(start, stop); } catch { }
+        // Shared composition (fires ChargeControlService.StateChanged → tray/tooltip/dashboard/MQTT reflect).
+        try { ChargeControlService.SetExplicitThresholds(start, stop); } catch { }
     }
 
     public void SetSmartChargeEnabled(bool enable)
     {
-        try
-        {
-            // Re-enabling Smart Charge while "charge to 100 % once" runs means "threshold back
-            // on" — the override's cancel path (restores saved thresholds + disarms the revert).
-            // A bare SetEnabled(true) would instead apply firmware 0/0 as defaults. Mirrors
-            // TrayMenu.Toggle.
-            if (enable && TravelOverrideService.IsActive) TravelOverrideService.Cancel();
-            else ChargeThresholdService.SetEnabled(enable);
-        }
-        catch { }
+        // Shared composition owns the "re-enable mid-override → cancel override" rule (mirrors TrayMenu.Toggle).
+        try { ChargeControlService.SetSmartChargeEnabled(enable); } catch { }
     }
 
     public void ChargeToFullOnce()
     {
-        // Activate() manages its own background work + revert timer.
+        // Activate() manages its own background work + revert timer, and raises
+        // TravelOverrideService.StateChanged when it settles — HomeAssistantService reflects that.
         try { TravelOverrideService.Activate(); } catch { }
     }
 
     public void ApplyPreset(string name)
     {
-        try
-        {
-            var preset = SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
-            if (preset is null) return;   // enumerated select, but ignore an unknown name defensively
-            // Same order as TrayMenu.ApplyPreset: explicit-threshold write, then persist ActivePreset.
-            if (TravelOverrideService.ApplyExplicitThresholds(preset.Start, preset.Stop))
-                SettingsService.Update(s => s.ActivePreset = preset.Name);
-        }
-        catch { }
+        // Shared composition: explicit-threshold write + persist ActivePreset, ignoring an unknown name.
+        try { ChargeControlService.ApplyPresetByName(name); } catch { }
     }
 }
