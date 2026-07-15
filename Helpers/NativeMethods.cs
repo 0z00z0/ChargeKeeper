@@ -118,7 +118,7 @@ internal static class NativeMethods
             return rect;
 
         // Fallback: assume a typical 1920×1040 work area (1080p minus a 40 px taskbar).
-        return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1040 };
+        return new() { Left = 0, Top = 0, Right = 1920, Bottom = 1040 };
     }
 
     /// <summary>

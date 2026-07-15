@@ -220,7 +220,7 @@ internal static class NetworkLocationService
             string? cidr = ipv4 is not null ? CalculateCidr(ipv4.Address, ipv4.IPv4Mask) : null;
             bool wired   = primary.NetworkInterfaceType != NetworkInterfaceType.Wireless80211;
             string? hint = wired ? primary.Name : TryGetWifiSsid();
-            return new NetworkLocation(mac.Length > 0 ? mac : null, cidr, wired, hint);
+            return new(mac.Length > 0 ? mac : null, cidr, wired, hint);
         }
         catch
         {
