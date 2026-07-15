@@ -32,7 +32,8 @@ if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out
 # ── Brand palette (0z0-design/design-language.md) ─────────────────────────────
 function C([int]$r,[int]$g,[int]$b) { [System.Drawing.Color]::FromArgb(255,$r,$g,$b) }
 $cBg      = C 0x0a 0x0f 0x17
-$cGlow    = C 0x15 0x26 0x3a
+$cGlow    = C 0x15 0x26 0x3a   # blue-black — the [Ø] mark's OWN plate glow (Draw-Mark); studio-mark rule
+$cGlowSteel = C 0x16 0x23 0x2c # steel-tinted — the banner BACKGROUND glow only (flat muted framing)
 $cPlate   = C 0x12 0x20 0x2f
 $cBorder  = C 0x1a 0x28 0x40
 $cText    = C 0xdd 0xe6 0xf4
@@ -151,14 +152,9 @@ function Draw-Battery($g,[float]$ox,[float]$oy,[float]$s) {
     } finally { $limPen.Dispose() }
 }
 
-function Fill-AccentBar($g,[float]$x,[float]$y,[float]$w,[float]$h) {
-    # teal->blue | purple->indigo, the two signature gradients side by side.
-    $half = $w/2
-    $r1 = New-Object System.Drawing.RectangleF($x,$y,$half,$h)
-    $r2 = New-Object System.Drawing.RectangleF(($x+$half),$y,$half,$h)
-    $b1 = New-Object System.Drawing.Drawing2D.LinearGradientBrush($r1,$cTeal,$cBlue,[System.Drawing.Drawing2D.LinearGradientMode]::Horizontal)
-    $b2 = New-Object System.Drawing.Drawing2D.LinearGradientBrush($r2,$cPurple,$cIndigo,[System.Drawing.Drawing2D.LinearGradientMode]::Horizontal)
-    try { $g.FillRectangle($b1,$r1); $g.FillRectangle($b2,$r2) } finally { $b1.Dispose(); $b2.Dispose() }
+function Fill-FlatBar($g,[float]$x,[float]$y,[float]$w,[float]$h,$color) {
+    $b = New-Object System.Drawing.SolidBrush($color)
+    try { $g.FillRectangle($b,$x,$y,$w,$h) } finally { $b.Dispose() }
 }
 
 function New-Graphics($bmp) {
@@ -183,14 +179,21 @@ function Render-Large([int]$w,[int]$h) {
         $pg = New-Object System.Drawing.Drawing2D.PathGradientBrush($bgPath)
         try {
             $pg.CenterPoint    = New-Object System.Drawing.PointF(($w*0.5),($h*0.22))
-            $pg.CenterColor    = $cGlow
+            $pg.CenterColor    = $cGlowSteel
             $pg.SurroundColors = @($cBg)
             $pg.FocusScales    = New-Object System.Drawing.PointF(0.15,0.05)
             $g.FillPath($pg,$bgPath)
         } finally { $pg.Dispose(); $bgPath.Dispose() }
 
-        Fill-AccentBar $g 0 0            $w (5*$k)
-        Fill-AccentBar $g 0 ($h-5*$k)    $w (5*$k)
+        # Flat muted product framing (no gradients) — the flat-iconography rule (0z0-design/icon-library.md).
+        # Top: a single flat SteelBlue bar. Bottom: three flat segments SteelBlue/Sage/Terracotta,
+        # a quiet echo of the app's GaugePalette. Both 3 units tall (min 2 px).
+        [float]$barH = [Math]::Max(2.0, 3*$k)
+        Fill-FlatBar $g 0 0 $w $barH $cSteel
+        [float]$seg = $w/3.0
+        Fill-FlatBar $g 0                ($h-$barH) $seg          $barH $cSteel
+        Fill-FlatBar $g $seg             ($h-$barH) $seg          $barH $cSage
+        Fill-FlatBar $g ($seg*2)         ($h-$barH) ($w-$seg*2)   $barH $cTerra
 
         # Layout (base 164x314 units, ×$k). Two stacked blocks with a divider between them, spaced so
         # NOTHING overlaps: the ChargeKeeper battery glyph and its wordmark used to collide — they now
