@@ -487,6 +487,12 @@ public partial class App : Application
         // attached now (TODO #41).
         ChargerInfoService.Invalidate();
 
+        // The MQTT link is the most likely thing to have gone half-dead across standby (the socket
+        // may survive the OS suspend while the broker already dropped us via keep-alive, so its
+        // Last-Will flipped every sensor to "unavailable"). Kick an immediate reconnect + republish
+        // "online" so HA doesn't wait out the keep-alive/backoff before the sensors return (#41).
+        _ha?.OnPowerResume();
+
         // On resume the shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated,
         // so H.NotifyIcon's built-in recovery never fires. A plain ForceCreate() can't help here:
         // its Create() early-returns while the library still believes the icon exists. Force a real
