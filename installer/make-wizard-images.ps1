@@ -42,6 +42,10 @@ $cBlue    = C 0x11 0xa9 0xd6
 $cPurple  = C 0x7b 0x8c 0xff
 $cIndigo  = C 0x3f 0x5b 0xe0
 $cAmber   = C 0xd8 0xa6 0x57
+# ── ChargeKeeper product palette (== GaugePalette): 0z0-steel battery glyph ────
+$cSteel   = C 0x7f 0xa8 0xb8   # SteelBlue  body outline + cap
+$cSage    = C 0x7a 0xb8 0x8f   # Sage       interior charge fill
+$cTerra   = C 0xc9 0x92 0x6b   # Terracotta guard line
 
 # ── Brand typeface: Cascadia Mono, loaded privately from the sibling design/shared repo ──
 $fontPaths = @(
@@ -120,36 +124,30 @@ function Draw-Mark($g,[float]$ox,[float]$oy,[float]$s) {
 }
 
 # Draw the ChargeKeeper battery glyph on a 256-unit sub-canvas at (ox,oy), scaled by $s.
+# 0z0-steel: flat SteelBlue outline + cap, Sage interior fill, Terracotta guard line —
+# geometry matches brand\chargekeeper-icon.svg (no gradients).
 function Draw-Battery($g,[float]$ox,[float]$oy,[float]$s) {
-    $bodyRect = New-Object System.Drawing.RectangleF(($ox+13*$s),($oy+78*$s),(195*$s),(100*$s))
-    $bodyPath = New-RoundedRectPath ($ox+13*$s) ($oy+78*$s) (195*$s) (100*$s) (23*$s)
+    $bodyPath = New-RoundedRectPath ($ox+15*$s) ($oy+80*$s) (191*$s) (96*$s) (6*$s)
     try {
-        $bb = New-Object System.Drawing.Drawing2D.LinearGradientBrush($bodyRect,$cPurple,$cIndigo,
-            [System.Drawing.Drawing2D.LinearGradientMode]::ForwardDiagonal)
-        try {
-            $pen = New-Object System.Drawing.Pen($bb, (15*$s))
-            try { $pen.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round; $g.DrawPath($pen,$bodyPath) }
-            finally { $pen.Dispose() }
-        } finally { $bb.Dispose() }
+        $pen = New-Object System.Drawing.Pen($cSteel, (13*$s))
+        try { $pen.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round; $g.DrawPath($pen,$bodyPath) }
+        finally { $pen.Dispose() }
     } finally { $bodyPath.Dispose() }
 
-    $capPath = New-RoundedRectPath ($ox+221*$s) ($oy+103*$s) (23*$s) (50*$s) (9*$s)
-    try { $cap = New-Object System.Drawing.SolidBrush($cIndigo); try { $g.FillPath($cap,$capPath) } finally { $cap.Dispose() } }
+    $capPath = New-RoundedRectPath ($ox+221*$s) ($oy+106*$s) (20*$s) (44*$s) (3*$s)
+    try { $cap = New-Object System.Drawing.SolidBrush($cSteel); try { $g.FillPath($cap,$capPath) } finally { $cap.Dispose() } }
     finally { $capPath.Dispose() }
 
-    $fillRect = New-Object System.Drawing.RectangleF(($ox+36*$s),($oy+101*$s),(110*$s),(55*$s))
-    $fillPath = New-RoundedRectPath ($ox+36*$s) ($oy+101*$s) (110*$s) (55*$s) (11*$s)
+    $fillPath = New-RoundedRectPath ($ox+36*$s) ($oy+101*$s) (110*$s) (55*$s) (3*$s)
     try {
-        $fb = New-Object System.Drawing.Drawing2D.LinearGradientBrush($fillRect,
-            [System.Drawing.Color]::FromArgb(217,$cPurple),[System.Drawing.Color]::FromArgb(217,$cIndigo),
-            [System.Drawing.Drawing2D.LinearGradientMode]::ForwardDiagonal)
+        $fb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(230,$cSage))
         try { $g.FillPath($fb,$fillPath) } finally { $fb.Dispose() }
     } finally { $fillPath.Dispose() }
 
-    $limPen = New-Object System.Drawing.Pen($cAmber, (9*$s))
+    $limPen = New-Object System.Drawing.Pen($cTerra, (9*$s))
     try {
-        $limPen.StartCap=[System.Drawing.Drawing2D.LineCap]::Round; $limPen.EndCap=[System.Drawing.Drawing2D.LineCap]::Round
-        $g.DrawLine($limPen, ($ox+161*$s),($oy+63*$s), ($ox+161*$s),($oy+193*$s))
+        $limPen.StartCap=[System.Drawing.Drawing2D.LineCap]::Flat; $limPen.EndCap=[System.Drawing.Drawing2D.LineCap]::Flat
+        $g.DrawLine($limPen, ($ox+161*$s),($oy+66*$s), ($ox+161*$s),($oy+190*$s))
     } finally { $limPen.Dispose() }
 }
 
