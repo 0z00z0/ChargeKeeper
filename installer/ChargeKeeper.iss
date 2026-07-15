@@ -52,7 +52,10 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=Output
 OutputBaseFilename=ChargeKeeper-Setup-{#AppVersion}
-SetupIconFile=..\Assets\AppIcon.ico
+; #60: plated high-contrast setup icon (steel battery on a dark rounded plate) — the plain
+; transparent AppIcon.ico was near-invisible on Inno's light title bar. Built by
+; scripts\make-appicon.ps1 -Plated. The app itself still ships the transparent AppIcon.ico.
+SetupIconFile=..\Assets\SetupIcon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
