@@ -484,7 +484,7 @@ internal sealed partial class SettingsWindow : Window
         var startText = new TextBlock { Text = $"{preset.Start}%", FontSize = 12, Width = 36, VerticalAlignment = VerticalAlignment.Center };
         var stopText  = new TextBlock { Text = $"{preset.Stop}%",  FontSize = 12, Width = 36, VerticalAlignment = VerticalAlignment.Center, TextAlignment = Microsoft.UI.Xaml.TextAlignment.Right };
 
-        var rangeRow = new Grid { ColumnSpacing = 8 };
+        var rangeRow = new Grid { ColumnSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
         rangeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         rangeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         rangeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -511,14 +511,21 @@ internal sealed partial class SettingsWindow : Window
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",                              Content = nameBox },
-            // ContentAlignment.Vertical drops the slider onto its own full-width row beneath the
-            // header instead of the default right-aligned content column, so it can stretch out to a
-            // usable size (issue #31).
+            // ContentAlignment.Vertical drops the slider onto its own row beneath the header instead
+            // of the default right-aligned content column. That alone is NOT enough (issue #31): a
+            // SettingsCard's HorizontalContentAlignment defaults to Right, so even in Vertical mode
+            // the content presenter gives the Grid only its natural width and right-aligns it — the
+            // star column collapses and the RangeSelector shrinks to minimum, crammed to the right
+            // edge (~250px). HorizontalContentAlignment=Stretch is the actual root-cause fix: it lets
+            // the [Auto,*,Auto] Grid span the full card width so the slider fills it. (DashboardWindow's
+            // identical threshold Grid renders fine only because it sits directly in a full-width
+            // StackPanel with nothing constraining its width.)
             new SettingsCard
             {
-                Header           = "Range (5-point minimum gap)",
-                ContentAlignment = ContentAlignment.Vertical,
-                Content          = rangeRow,
+                Header                     = "Range (5-point minimum gap)",
+                ContentAlignment           = ContentAlignment.Vertical,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content                    = rangeRow,
             },
         };
         expander.ItemsFooter = footer;
