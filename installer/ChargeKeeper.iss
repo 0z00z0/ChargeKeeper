@@ -56,6 +56,14 @@ SetupIconFile=..\Assets\AppIcon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; ZeroZero Software studio-look wizard graphics (issue #23). Built by
+; installer\make-wizard-images.ps1 (native GDI+, no SVG rasteriser needed); design source
+; is installer\wizard\*.svg. Comma-separated variants at 100/125/150/175/200 % let Inno
+; pick the best for the display DPI. SetupIconFile above stays the product battery icon.
+WizardImageFile=wizard\wizimg-164x314.bmp,wizard\wizimg-205x392.bmp,wizard\wizimg-246x471.bmp,wizard\wizimg-287x549.bmp,wizard\wizimg-328x628.bmp
+WizardSmallImageFile=wizard\wizsmall-55x58.bmp,wizard\wizsmall-69x73.bmp,wizard\wizsmall-83x87.bmp,wizard\wizsmall-96x102.bmp,wizard\wizsmall-110x116.bmp
+; WizardImageStretch left at its default (yes): every variant shares Inno's exact image-area
+; aspect (164:314 and 55:58), so stretching only ever scales uniformly to a perfect fit.
 ; Let a silent (background) update close the running tray app and replace its files.
 ; Do NOT auto-restart it afterwards — the app is requireAdministrator, so relaunching
 ; would pop a UAC prompt out of nowhere. It returns at the next sign-in / manual launch.

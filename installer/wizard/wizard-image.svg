@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ChargeKeeper installer — large wizard side banner (WizardImageFile).
+
+  Studio look per 0z0-design/design-language.md: dark #0a0f17 background with a lighter
+  blue-black glow, the two signature bracket gradients (teal->blue, purple->indigo), the
+  [Ø] STUDIO mark (allowed here — the installer wizard is a "made by ZeroZero Software"
+  surface, not the app's own icon), the ChargeKeeper PRODUCT battery glyph, and the
+  "ChargeKeeper" wordmark in Cascadia Mono.
+
+  This SVG is the design reference. The shipped .bmp files are rendered from the SAME
+  geometry natively (GDI+) by installer\make-wizard-images.ps1, because there is no SVG
+  rasteriser on the build machine (same constraint as scripts\make-appicon.ps1). If you
+  change this design, update that script's geometry to match and re-run it.
+
+  Reference canvas 164x314 (Inno's base WizardImageFile size).
+-->
+<svg width="164" height="314" viewBox="0 0 164 314" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="28%" r="80%">
+      <stop offset="0" stop-color="#15263a"/>
+      <stop offset="1" stop-color="#0a0f17"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#27e0c8"/>
+      <stop offset="0.5"  stop-color="#11a9d6"/>
+      <stop offset="0.5"  stop-color="#7b8cff"/>
+      <stop offset="1"    stop-color="#3f5be0"/>
+    </linearGradient>
+    <linearGradient id="lbrk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#27e0c8"/><stop offset="1" stop-color="#11a9d6"/>
+    </linearGradient>
+    <linearGradient id="rbrk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7b8cff"/><stop offset="1" stop-color="#3f5be0"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7b8cff"/><stop offset="1" stop-color="#3f5be0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="164" height="314" fill="url(#bg)"/>
+  <rect x="0" y="0"   width="164" height="5" fill="url(#accent)"/>
+  <rect x="0" y="309" width="164" height="5" fill="url(#accent)"/>
+
+  <!-- [Ø] studio mark, ~58px, centred near the top (256-canvas geometry scaled 0.2266, at x=53 y=26) -->
+  <g transform="translate(53,26) scale(0.2266)">
+    <rect x="8" y="8" width="240" height="240" rx="52" fill="#12202f"/>
+    <polyline points="104,78 82,78 82,178 104,178" fill="none" stroke="url(#lbrk)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="152,78 174,78 174,178 152,178" fill="none" stroke="url(#rbrk)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="112" y="88" width="32" height="80" rx="12" fill="none" stroke="#d8a657" stroke-width="10"/>
+    <line x1="148" y1="92" x2="108" y2="164" stroke="#d8a657" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- ChargeKeeper product battery glyph, ~128px wide (256-canvas scaled 0.5, at x=18 y=112) -->
+  <g transform="translate(18,112) scale(0.5)">
+    <rect x="13" y="78" width="195" height="100" rx="23" fill="none" stroke="url(#body)" stroke-width="15"/>
+    <rect x="221" y="103" width="23" height="50" rx="9" fill="#3f5be0"/>
+    <rect x="36" y="101" width="110" height="55" rx="11" fill="url(#body)" opacity="0.85"/>
+    <line x1="161" y1="63" x2="161" y2="193" stroke="#d8a657" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark + tagline in Cascadia Mono -->
+  <text x="82" y="214" text-anchor="middle" font-family="Cascadia Mono, monospace" font-size="16" font-weight="600" fill="#dde6f4">ChargeKeeper</text>
+  <text x="82" y="238" text-anchor="middle" font-family="Cascadia Mono, monospace" font-size="9" fill="#64788f">Small tools. Zero bloat.</text>
+</svg>
