@@ -53,7 +53,19 @@ internal static class IconGenerator
     /// the thin low-battery arc washed out. Falls back via <see cref="NativeMethods.GetTaskbarDpi"/>
     /// to the system DPI, then 96 (100 %).
     /// </summary>
-    private static int CurrentTraySlotSize() => SlotSizeForDpi(NativeMethods.GetTaskbarDpi());
+    private static int CurrentTraySlotSize() =>
+        _cachedSlotSize ??= SlotSizeForDpi(NativeMethods.GetTaskbarDpi());
+
+    // The taskbar DPI only changes on a display event (monitor added/removed, taskbar moved to
+    // another monitor, scale changed), never between two battery ticks — so the FindWindow +
+    // GetDpiForWindow round-trips are cached and only recomputed after
+    // <see cref="InvalidateSlotSizeCache"/> (called from App on SystemEvents.DisplaySettingsChanged),
+    // instead of on every live icon repaint.
+    private static int? _cachedSlotSize;
+
+    /// <summary>Drops the cached tray-slot size so the next render re-queries the taskbar DPI. Call
+    /// when the display configuration changes (DPI / monitor topology).</summary>
+    internal static void InvalidateSlotSizeCache() => _cachedSlotSize = null;
 
     // ── ChargeKeeper "Guarded Battery" brand palette ──────────────────────────
     // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
