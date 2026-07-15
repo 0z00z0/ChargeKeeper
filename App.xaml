@@ -10,6 +10,87 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- ─────────────────────────────────────────────────────────────────────────────
+                 ZeroZero Software studio CHROME palette + typeface (issue #23 rebrand).
+
+                 These override the small set of WinUI theme brushes the app's chrome already
+                 references ({ThemeResource TextFillColor…}, dividers/strokes, card surfaces and
+                 the accent), so the Dashboard/Settings/History windows adopt the studio look with
+                 no per-window edits. Values come verbatim from 0z0-design/design-language.md.
+
+                 IMPORTANT — this is CHROME only. The product-functional colours (the battery
+                 gauge tiers, tray icon and history series in Helpers/AppColors.cs +
+                 GaugePalette.cs — SteelBlue/SageGreen/Terracotta/Amber) are ChargeKeeper's own
+                 product identity and are deliberately NOT touched here.
+
+                 Overrides are duplicated across the Default (dark) and Light theme dictionaries
+                 with identical values: the studio palette is dark regardless of the OS theme, so
+                 every window reads the same whichever theme is active. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <!-- Text -->
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush"   Color="#dde6f4"/>
+                    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#93a4bb"/>
+                    <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#64788f"/>
+                    <SolidColorBrush x:Key="TextFillColorDisabledBrush"  Color="#45566a"/>
+                    <!-- Hairlines / dividers / strokes -->
+                    <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush"  Color="#1a2840"/>
+                    <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush"  Color="#1a2840"/>
+                    <SolidColorBrush x:Key="CardStrokeColorDefaultBrush"     Color="#1a2840"/>
+                    <!-- Card / panel surfaces (SettingsCard, BatteryHealthPanel) -->
+                    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
+                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
+                    <!-- Primary accent → studio teal (toggles, nav selection, focus, primary buttons) -->
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#27e0c8"/>
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E627e0c8"/>
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC27e0c8"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush"   Color="#dde6f4"/>
+                    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#93a4bb"/>
+                    <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#64788f"/>
+                    <SolidColorBrush x:Key="TextFillColorDisabledBrush"  Color="#45566a"/>
+                    <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush"  Color="#1a2840"/>
+                    <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush"  Color="#1a2840"/>
+                    <SolidColorBrush x:Key="CardStrokeColorDefaultBrush"     Color="#1a2840"/>
+                    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
+                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#27e0c8"/>
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E627e0c8"/>
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC27e0c8"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Studio palette exposed as named brushes for explicit use in chrome XAML.
+                 (design-language.md colour table). -->
+            <SolidColorBrush x:Key="BrandBgBrush"     Color="#0a0f17"/>
+            <SolidColorBrush x:Key="BrandBg2Brush"    Color="#0e1620"/>
+            <SolidColorBrush x:Key="BrandBg3Brush"    Color="#101a26"/>
+            <SolidColorBrush x:Key="BrandBorderBrush" Color="#1a2840"/>
+            <SolidColorBrush x:Key="BrandTextBrush"   Color="#dde6f4"/>
+            <SolidColorBrush x:Key="BrandMutedBrush"  Color="#64788f"/>
+            <SolidColorBrush x:Key="BrandTealBrush"   Color="#27e0c8"/>
+            <SolidColorBrush x:Key="BrandBlueBrush"   Color="#11a9d6"/>
+            <SolidColorBrush x:Key="BrandPurpleBrush" Color="#7b8cff"/>
+            <SolidColorBrush x:Key="BrandIndigoBrush" Color="#3f5be0"/>
+            <SolidColorBrush x:Key="BrandAmberBrush"  Color="#d8a657"/>
+
+            <!-- Brand typeface: Cascadia Mono. Reused from the shared ZeroZero.Brand.WinUI library,
+                 which ships the .ttf as Content into this app's output under Assets\Fonts\ (same
+                 file the shared About window references) — so it is NOT re-bundled here. Per
+                 0z0-design: Cascadia Mono is the studio's UI/body/heading face; monospace is used
+                 throughout the brand, not just for code. -->
+            <FontFamily x:Key="BrandFont">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+
+            <!-- Default chrome typeface: applied to every TextBlock that has no explicit Style.
+                 TextBlock has no control template, so an implicit style here is safe (it only sets
+                 the font). Content strings in Buttons/ComboBoxes render through TextBlocks too, so
+                 they pick this up as well. The keyed TextBlock styles below repeat the FontFamily
+                 setter since a keyed style opts out of the implicit one. -->
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
+            </Style>
+
             <tb:TaskbarIcon
                 x:Key="TrayIcon"
                 ToolTipText="ChargeKeeper"
@@ -23,12 +104,14 @@
                  the health summary's TextWrapping) stay inline at each call site. Application-level
                  so every window and UserControl resolves them via StaticResource. -->
             <Style x:Key="StatLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="10"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}"/>
                 <Setter Property="CharacterSpacing" Value="100"/>
             </Style>
             <Style x:Key="StatValueStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             </Style>
@@ -38,11 +121,13 @@
                  SectionHeaderStyle carries the uniform bottom margin; SubHeaderStyle leaves Margin
                  inline since it varies between the first sub-header and the later ones. -->
             <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="16"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Margin" Value="0,0,0,4"/>
             </Style>
             <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Opacity" Value="0.85"/>

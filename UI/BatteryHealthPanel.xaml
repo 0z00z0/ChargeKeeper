@@ -12,9 +12,13 @@
          already cover a completely different (minutes-to-days) scale, and whose gap-collapsing
          x-axis would misrepresent a value that changes over months. Collapses to a single
          "gathering data" line until at least two daily samples exist. -->
+    <!-- Studio card surface (CardBackgroundFillColorDefaultBrush is remapped to the studio bg2 in
+         App.xaml) with a hairline studio border, so this health card matches the Settings cards. -->
     <Border CornerRadius="12"
             Padding="16,12"
-            Background="{ThemeResource ControlFillColorDefaultBrush}">
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1">
         <Grid RowSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
