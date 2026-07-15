@@ -6,7 +6,7 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Generates the ChargeKeeper "Guarded Battery" tray icon at runtime — the static fallback
+/// Generates the ChargeKeeper "0z0 steel battery" tray icon at runtime — the static fallback
 /// shown at startup until the first battery event replaces it with the live arc/number icon.
 /// Writing to a file on disk lets H.NotifyIcon reload the icon if it is recreated,
 /// and avoids the GDI handle leak that <c>Bitmap.GetHicon()</c> introduces.
@@ -67,12 +67,13 @@ internal static class IconGenerator
     /// when the display configuration changes (DPI / monitor topology).</summary>
     internal static void InvalidateSlotSizeCache() => _cachedSlotSize = null;
 
-    // ── ChargeKeeper "Guarded Battery" brand palette ──────────────────────────
+    // ── ChargeKeeper "0z0 steel battery" brand mark palette ───────────────────
     // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
-    // vector), redrawn natively per frame from a 256-unit reference canvas.
-    private static readonly Color BodyLight  = Color.FromArgb(0x7B, 0x8C, 0xFF); // purple (gradient start)
-    private static readonly Color BodyDark   = Color.FromArgb(0x3F, 0x5B, 0xE0); // indigo (gradient end)
-    private static readonly Color LimitAmber = FromPacked(GaugePalette.Amber);   // charge-limit line (== brand amber)
+    // vector), redrawn natively per frame from a 256-unit reference canvas. Flat "0z0
+    // geometric" colours from the product's own GaugePalette — no gradients.
+    private static readonly Color MarkSteel      = FromPacked(GaugePalette.SteelBlue);  // body outline + cap
+    private static readonly Color MarkSage       = FromPacked(GaugePalette.SageGreen);  // interior fill
+    private static readonly Color MarkTerracotta = FromPacked(GaugePalette.Terracotta); // guard line
 
     // ── Arc fill colours — charge state (TODO #34) ────────────────────────────
     // System.Drawing has no shared type with WinUI's Windows.UI.Color, but packed ARGB bytes cross
@@ -105,7 +106,8 @@ internal static class IconGenerator
     // automatically rather than serving the stale cached file from a previous version.
     // v5: the red Lenovo "L" was replaced by the ChargeKeeper "Guarded Battery" mark.
     // v6: dropped the dark background plate (transparent, scaled to fill the canvas).
-    private const string IconVersion = "v6";
+    // v7: restyled to the flat "0z0 steel battery" (SteelBlue body+cap, Sage fill, Terracotta guard line).
+    private const string IconVersion = "v7";
 
     internal static string GenerateAndSaveTrayIcon(string outputDirectory)
     {
@@ -204,12 +206,13 @@ internal static class IconGenerator
     // ── Private rendering ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Renders the "Guarded Battery" mark: a battery outline in a purple→indigo gradient, with
-    /// an amber vertical line at the ~80 % mark representing the charge-limit threshold. Fully
-    /// transparent background — no background plate — geometry scaled to fill the canvas.
-    /// Geometry is expressed on a 256-unit reference canvas (the same numbers as
-    /// <c>brand\chargekeeper-icon.svg</c>) and scaled to <paramref name="size"/>, with minimum
-    /// stroke widths so the mark stays legible at 16 px.
+    /// Renders the "0z0 steel battery" mark: a flat, squared SteelBlue battery outline with a
+    /// Sage-green interior fill and a Terracotta guard line crossing the body — ChargeKeeper's
+    /// own muted product palette (GaugePalette), no gradients. Fully transparent background —
+    /// no background plate — geometry scaled to fill the canvas. Geometry is expressed on a
+    /// 256-unit reference canvas (the same numbers as <c>brand\chargekeeper-icon.svg</c>) and
+    /// scaled to <paramref name="size"/>, with minimum stroke widths so the mark stays legible
+    /// at 16 px.
     /// </summary>
     private static Bitmap RenderIconBitmap(int size)
     {
@@ -221,34 +224,30 @@ internal static class IconGenerator
 
         float s = size / 256f;
 
-        // Battery body outline: purple→indigo gradient stroke.
-        var bodyRect = new RectangleF(13 * s, 78 * s, 195 * s, 100 * s);
-        using (var bodyPath  = BuildRoundedRectPath(bodyRect, 23 * s))
-        using (var bodyBrush = new LinearGradientBrush(bodyRect, BodyLight, BodyDark,
-                                                       LinearGradientMode.ForwardDiagonal))
-        using (var bodyPen   = new System.Drawing.Pen(bodyBrush, Math.Max(15 * s, 1.6f))
+        // Battery body outline: flat SteelBlue stroke, round line-join.
+        var bodyRect = new RectangleF(15 * s, 80 * s, 191 * s, 96 * s);
+        using (var bodyPath = BuildRoundedRectPath(bodyRect, 6 * s))
+        using (var bodyPen  = new System.Drawing.Pen(MarkSteel, Math.Max(13 * s, 1.6f))
                                    { LineJoin = LineJoin.Round })
             g.DrawPath(bodyPen, bodyPath);
 
-        // Battery cap (positive terminal): solid indigo.
-        using (var capPath = BuildRoundedRectPath(new RectangleF(221 * s, 103 * s, 23 * s, 50 * s), 9 * s))
-        using (var cap     = new SolidBrush(BodyDark))
+        // Battery cap (positive terminal): solid SteelBlue.
+        using (var capPath = BuildRoundedRectPath(new RectangleF(221 * s, 106 * s, 20 * s, 44 * s), 3 * s))
+        using (var cap     = new SolidBrush(MarkSteel))
             g.FillPath(cap, capPath);
 
-        // Interior charge fill: same gradient at ~85 % opacity, filled to ~80 % of the body.
+        // Interior charge fill: solid Sage green at ~90 % opacity (alpha ≈ 230).
         var fillRect = new RectangleF(36 * s, 101 * s, 110 * s, 55 * s);
-        using (var fillPath  = BuildRoundedRectPath(fillRect, 11 * s))
-        using (var fillBrush = new LinearGradientBrush(fillRect,
-                   Color.FromArgb(217, BodyLight), Color.FromArgb(217, BodyDark),
-                   LinearGradientMode.ForwardDiagonal))
+        using (var fillPath  = BuildRoundedRectPath(fillRect, 3 * s))
+        using (var fillBrush = new SolidBrush(Color.FromArgb(230, MarkSage)))
             g.FillPath(fillBrush, fillPath);
 
-        // Amber charge-limit line at the 80 % mark, slightly overshooting the body top/bottom.
+        // Terracotta guard line crossing the body — flat/butt caps (NOT round).
         // Clamped to ≥2 px so it survives the 16 px frame.
-        using (var limitPen = new System.Drawing.Pen(LimitAmber, Math.Max(9 * s, 2f)))
+        using (var limitPen = new System.Drawing.Pen(MarkTerracotta, Math.Max(9 * s, 2f)))
         {
-            limitPen.StartCap = limitPen.EndCap = LineCap.Round;
-            g.DrawLine(limitPen, 161 * s, 63 * s, 161 * s, 193 * s);
+            limitPen.StartCap = limitPen.EndCap = LineCap.Flat;
+            g.DrawLine(limitPen, 161 * s, 66 * s, 161 * s, 190 * s);
         }
 
         return bmp;
