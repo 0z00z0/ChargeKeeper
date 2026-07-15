@@ -240,18 +240,28 @@ function Render-Large([int]$w,[int]$h) {
 
 # ── Small header image (base 55x58) — product battery glyph on WHITE ──────────
 # The inner wizard pages are the light/modern Inno theme, so this clears to WHITE (not the studio
-# dark) to blend in rather than float as a dark box. The steel/sage/terracotta glyph reads fine on
-# white.
+# dark) to blend in rather than float as a dark box. The app's light-steel palette washes out on
+# white, so this draws the glyph in DENSER/darker muted tones (deeper steel/sage/terracotta) purely
+# for this on-white variant — swapped in via $script scope so Draw-Battery picks them up, then
+# restored. The transparent-on-dark app icon itself is unchanged.
+$cSteelDense = C 0x3f 0x63 0x74   # deeper SteelBlue  — reads on white
+$cSageDense  = C 0x4f 0x8f 0x67   # deeper Sage
+$cTerraDense = C 0xb5 0x77 0x45   # deeper Terracotta
 function Render-Small([int]$w,[int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w,$h,[System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
     $g = New-Graphics $bmp
+    $savedSteel = $script:cSteel; $savedSage = $script:cSage; $savedTerra = $script:cTerra
+    $script:cSteel = $cSteelDense; $script:cSage = $cSageDense; $script:cTerra = $cTerraDense
     try {
         [float]$k = $w / 55.0
         $g.Clear([System.Drawing.Color]::White)
         # battery glyph ~46 units wide, centred.
         $glyphW = 46*$k
         Draw-Battery $g (($w-$glyphW)/2) ((($h-$glyphW*(256.0/256.0))/2)) ($glyphW/256.0)
-    } finally { $g.Dispose() }
+    } finally {
+        $g.Dispose()
+        $script:cSteel = $savedSteel; $script:cSage = $savedSage; $script:cTerra = $savedTerra
+    }
     return $bmp
 }
 
