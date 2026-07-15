@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   ChargeKeeper installer — small header image (WizardSmallImageFile), shown top-right on
-  every interior wizard page. The ChargeKeeper PRODUCT battery glyph (0z0 steel) on the
-  studio dark background. Rendered natively (GDI+) by installer\make-wizard-images.ps1 — see
-  wizard-image.svg for why (no SVG rasteriser on the build machine).
+  every interior wizard page. Those pages are the light/modern Inno theme, so this clears to
+  WHITE (not the studio dark) to blend in rather than float as a dark box. The app's
+  light-steel palette washes out on white, so the ChargeKeeper PRODUCT battery glyph is drawn
+  here in DENSER/darker muted tones (deeper steel/sage/terracotta) purely for this on-white
+  variant. Rendered natively (GDI+) by installer\make-wizard-images.ps1 — see wizard-image.svg
+  for why (no SVG rasteriser on the build machine).
 
   Reference canvas 55x58 (Inno's base WizardSmallImageFile size).
 -->
 <svg width="55" height="58" viewBox="0 0 55 58" xmlns="http://www.w3.org/2000/svg">
-  <rect width="55" height="58" fill="#0a0f17"/>
-  <!-- battery glyph ~46px wide (256-canvas scaled 0.18, centred at x=4.5 y=15) -->
-  <g transform="translate(4.5,15) scale(0.18)">
-    <rect x="15" y="80" width="191" height="96" rx="6" fill="none" stroke="#7FA8B8" stroke-width="13" stroke-linejoin="round"/>
-    <rect x="221" y="106" width="20" height="44" rx="3" fill="#7FA8B8"/>
-    <rect x="36" y="101" width="110" height="55" rx="3" fill="#7AB88F" opacity="0.9"/>
-    <line x1="161" y1="66" x2="161" y2="190" stroke="#C9926B" stroke-width="9"/>
+  <rect width="55" height="58" fill="#ffffff"/>
+  <!-- battery glyph ~46px wide (256-canvas scaled 0.1797, centred at x=4.5 y=6) -->
+  <g transform="translate(4.5,6) scale(0.1797)">
+    <rect x="15" y="80" width="191" height="96" rx="6" fill="none" stroke="#3F6374" stroke-width="13" stroke-linejoin="round"/>
+    <rect x="221" y="106" width="20" height="44" rx="3" fill="#3F6374"/>
+    <rect x="36" y="101" width="110" height="55" rx="3" fill="#4F8F67" opacity="0.9"/>
+    <line x1="161" y1="66" x2="161" y2="190" stroke="#B57745" stroke-width="9"/>
   </g>
 </svg>
