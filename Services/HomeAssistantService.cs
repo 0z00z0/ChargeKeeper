@@ -63,7 +63,12 @@ internal sealed class HomeAssistantService : IDisposable
     public HomeAssistantService(string swVersion, IChargeControlActions? actions = null)
     {
         _swVersion = swVersion;
-        _actions = actions ?? new ChargeControlActions();
+        // Give the live actions the app's already-maintained cached thresholds (from the same
+        // CurrentStateProvider snapshot the normal publish path trusts) so a single-bound
+        // charge_start/charge_stop set reads its companion value from cache instead of a dedicated
+        // pre-write EC RPC (the guaranteed-fresh read still happens AFTER the write). Late-bound: the
+        // delegate reads CurrentStateProvider at call time, since it's assigned after construction.
+        _actions = actions ?? new ChargeControlActions(CachedThresholds);
         _client = new MqttClientFactory().CreateMqttClient();
         // Route inbound charge-control commands (issue #30). Registered once for the client's life;
         // the handler is a no-op for anything that isn't a recognised command topic. It only enqueues;
@@ -452,3 +457,15 @@ internal sealed class HomeAssistantService : IDisposable
         _gate.Dispose();
     }
 }
+    /// <summary>
+    /// The app's already-maintained cached Smart Charge thresholds, taken from the same
+    /// <see cref="CurrentStateProvider"/> snapshot the normal publish path trusts. Supplied to the
+    /// live <see cref="ChargeControlActions"/> so a single-bound charge_start/charge_stop set reads its
+    /// companion value from cache — not a dedicated pre-write EC RPC. Returns null when Smart Charge is
+    /// off/unset or no reading exists yet, so the dispatcher falls back to a sensible default pair.
+    /// </summary>
+    private (int Start, int Stop)? CachedThresholds() =>
+        CurrentStateProvider?.Invoke() is { SmartChargeEnabled: true, ChargeStart: int start, ChargeStop: int stop }
+            ? (start, stop)
+            : null;
+
