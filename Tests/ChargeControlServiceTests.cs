@@ -20,6 +20,7 @@ public class ChargeControlServiceTests
         public (int Start, int Stop)? ApplyThresholdsArg;
         public bool ApplyThresholdsResult = true;
         public string? SetActivePresetArg;
+        public int  SetActivePresetCalls;   // distinguishes "cleared to null" from "never called"
         public readonly Dictionary<string, ThresholdPreset> Presets = new();
 
         public bool IsOverrideActive => OverrideActive;
@@ -31,7 +32,7 @@ public class ChargeControlServiceTests
             return ApplyThresholdsResult;
         }
         public ThresholdPreset? FindPreset(string name) => Presets.GetValueOrDefault(name);
-        public void SetActivePreset(string name) => SetActivePresetArg = name;
+        public void SetActivePreset(string? name) { SetActivePresetArg = name; SetActivePresetCalls++; }
     }
 
     // Swaps in the fake + a StateChanged counter, runs `body`, and always restores global state.
@@ -100,6 +101,48 @@ public class ChargeControlServiceTests
             Assert.True(ok);
             Assert.Equal((55, 75), fake.ApplyThresholdsArg);
             Assert.Equal(1, fired());
+        });
+    }
+
+    [Fact]
+    public void SetExplicitThresholds_WithoutClearFlag_LeavesActivePresetUntouched()
+    {
+        // The Settings preset-edit / delete-fallback callers manage ActivePreset themselves — the
+        // write must NOT touch it (default clearActivePreset:false).
+        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        {
+            ChargeControlService.SetExplicitThresholds(55, 75);
+            Assert.Equal(0, fake.SetActivePresetCalls);
+            Assert.Equal(1, fired());
+        });
+    }
+
+    [Fact]
+    public void SetExplicitThresholds_ClearActivePreset_OnSuccess_ClearsToNull()
+    {
+        // The dashboard slider drag makes the value "custom" — the persisted ActivePreset is cleared.
+        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        {
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, clearActivePreset: true);
+            Assert.True(ok);
+            Assert.Equal((50, 80), fake.ApplyThresholdsArg);
+            Assert.Equal(1, fake.SetActivePresetCalls);
+            Assert.Null(fake.SetActivePresetArg);   // cleared, not set to a name
+            Assert.Equal(1, fired());
+        });
+    }
+
+    [Fact]
+    public void SetExplicitThresholds_ClearActivePreset_OnFailedWrite_DoesNotClear()
+    {
+        // A failed device write must not leave the UI claiming "no preset" when the device never moved.
+        WithFake(new FakePrimitives { ApplyThresholdsResult = false }, (fake, fired) =>
+        {
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, clearActivePreset: true);
+            Assert.False(ok);
+            Assert.Equal((50, 80), fake.ApplyThresholdsArg);   // write attempted
+            Assert.Equal(0, fake.SetActivePresetCalls);        // but ActivePreset left intact
+            Assert.Equal(1, fired());                          // still an attempt → reconcile
         });
     }
 

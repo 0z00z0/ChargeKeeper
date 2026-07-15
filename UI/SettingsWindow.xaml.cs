@@ -616,19 +616,23 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>
     /// Pushes thresholds to the device off the UI thread via the shared
-    /// <see cref="TravelOverrideService.ApplyExplicitThresholds"/> primitive (which deactivates any
-    /// in-flight "charge to 100% once" override first). A write failure is surfaced with a TOAST,
-    /// not the preset row's inline error text: by the time this async write completes the row may
-    /// already be gone (a rename triggers a full rebuild, and the delete-fallback path has no row
-    /// at all), so a row-bound error could silently vanish exactly when it matters — the whole
-    /// point of reporting the failure. Silently discarding it would leave settings.json/tray/window
-    /// all claiming a value the device never accepted.
+    /// <see cref="ChargeControlService.SetExplicitThresholds"/> composition (which funnels
+    /// <see cref="TravelOverrideService.ApplyExplicitThresholds"/> — deactivating any in-flight
+    /// "charge to 100% once" override first — and fires StateChanged so the tray/tooltip/MQTT
+    /// reconcile immediately, issue #40). <c>clearActivePreset</c> is left at its default (false):
+    /// the ActivePreset here is managed by the callers (an edited preset stays active; the
+    /// delete-fallback path already promoted the fallback via PresetCascade), so this write must NOT
+    /// touch it. A write failure is surfaced with a TOAST, not the preset row's inline error text: by
+    /// the time this async write completes the row may already be gone (a rename triggers a full
+    /// rebuild, and the delete-fallback path has no row at all), so a row-bound error could silently
+    /// vanish exactly when it matters — the whole point of reporting the failure. Silently discarding
+    /// it would leave settings.json/tray/window all claiming a value the device never accepted.
     /// </summary>
     private void PushThresholdsToDevice(int start, int stop) => Task.Run(() =>
     {
         try
         {
-            if (!TravelOverrideService.ApplyExplicitThresholds(start, stop))
+            if (!ChargeControlService.SetExplicitThresholds(start, stop))
                 RunOnUi(() => NativeMethods.Warn(
                     "Saved, but the device didn't accept these thresholds — check the Lenovo driver.",
                     AppName));
