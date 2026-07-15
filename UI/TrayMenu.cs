@@ -285,15 +285,16 @@ internal sealed class TrayMenu
     /// Applies the named preset off the UI thread (the vendor RPC blocks) via the shared
     /// <see cref="ChargeControlService"/> — the SAME composition the MQTT preset command uses (issue
     /// #40 item 4), so the "supersede any in-flight override, write, then persist ActivePreset"
-    /// ordering lives in exactly one place. QueueRefresh in the finally is belt-and-suspenders on top
-    /// of the ChargeControlService.StateChanged subscription.
+    /// ordering lives in exactly one place. ApplyPresetByName fires StateChanged → QueueRefresh on any
+    /// resolved preset, so there is NO finally-refresh here (that fired the full ReadState — Lenovo
+    /// RPC + SCM + Task Scheduler COM — a second time per apply). Only an exception (thrown before
+    /// StateChanged fired) needs an explicit reconcile.
     /// </summary>
     private void RunApplyPreset(string name)
         => Task.Run(() =>
         {
             try { ChargeControlService.ApplyPresetByName(name); }
-            catch { }
-            finally { QueueRefresh(); }
+            catch { QueueRefresh(); }
         });
 
     // ── Network-location auto-apply (TODO #31) ──────────────────────────────────
@@ -461,20 +462,29 @@ internal sealed class TrayMenu
     private void Toggle(IToggleFeature feature, bool enable)
         => Task.Run(() =>
         {
+            // Smart Charge funnels through the shared ChargeControlService — the SAME composition
+            // the MQTT smart_charge switch uses (issue #40 item 4), so the load-bearing
+            // "re-enable mid-override → cancel the override (restore saved thresholds + disarm
+            // the auto-revert), not a bare SetEnabled(true) that would apply firmware's 0/0
+            // defaults and leave the revert armed" rule lives in exactly one place. It fires
+            // StateChanged → QueueRefresh itself, so there is NO finally-refresh on this path (a
+            // shared one fired the full ReadState — Lenovo RPC + SCM + Task Scheduler COM — TWICE
+            // per toggle). Only a throw before StateChanged fired needs an explicit reconcile.
+            if (feature is SmartChargeFeature)
+            {
+                try { ChargeControlService.SetSmartChargeEnabled(enable); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' failed: {ex.Message}");
+                    QueueRefresh();   // StateChanged did not fire on the throw — reconcile anyway
+                }
+                return;
+            }
+
+            // Other features (Smart Standby, Launch at startup) are a plain enable/disable with no
+            // StateChanged, so the finally IS the sole refresh here.
             try
             {
-                // Smart Charge funnels through the shared ChargeControlService — the SAME composition
-                // the MQTT smart_charge switch uses (issue #40 item 4), so the load-bearing
-                // "re-enable mid-override → cancel the override (restore saved thresholds + disarm
-                // the auto-revert), not a bare SetEnabled(true) that would apply firmware's 0/0
-                // defaults and leave the revert armed" rule lives in exactly one place. Other
-                // features (Smart Standby, Launch at startup) are a plain enable/disable.
-                if (feature is SmartChargeFeature)
-                {
-                    ChargeControlService.SetSmartChargeEnabled(enable);   // fires StateChanged → QueueRefresh
-                    return;
-                }
-
                 bool ok = feature.SetEnabled(enable);
                 if (!ok)
                     System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' → {enable} returned false");
