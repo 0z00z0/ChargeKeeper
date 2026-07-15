@@ -96,6 +96,12 @@
 
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico" />
+    <!-- Ship the PNG icon too so ms-appx:///Assets/AppIcon.png resolves at runtime
+         (Settings pane footer + Dashboard header). Without CopyToOutputDirectory the
+         PNG is stripped from the output and the image renders blank. -->
+    <Content Include="Assets\AppIcon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!--
