@@ -1,7 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using ChargeKeeper.Services;
 
 namespace ChargeKeeper.Helpers;
@@ -22,30 +21,39 @@ internal static class IconGenerator
     // The LIVE icon renders only the current tray slot size instead (see RenderBatteryIcon).
     private static readonly int[] IconSizes = [32, 24, 20, 16];
 
-    // SM_CXSMICON — the shell's small-icon (notification-area) width in pixels for the current DPI.
-    private const int SM_CXSMICON = 49;
-
-    // Classic DllImport (not the LibraryImport source generator) so this stays local to
-    // IconGenerator without forcing <AllowUnsafeBlocks> on the whole project. Kept here rather than
-    // in NativeMethods because it's used only by the tray-icon renderer.
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int nIndex);
+    // The logical (DPI-unscaled) small-icon size, in pixels at 96 DPI. Scaled up by the taskbar's
+    // DPI to get the physical slot size — see SlotSizeForDpi / CurrentTraySlotSize.
+    private const int LogicalSmallIconSize = 16;
 
     /// <summary>
-    /// The tray slot size the shell will actually display, snapped to a sane range. Used to render
-    /// the LIVE icon at exactly one size rather than the four the static .ico bakes in — the shell
-    /// only ever shows one, so rendering the other three every state change was wasted GDI work.
-    /// Falls back to 16 (100% DPI small icon) if the metric is unavailable.
+    /// The physical pixel size to render the live tray icon at, given a monitor <paramref name="dpi"/>.
+    /// This is the 16 px logical small-icon size scaled to that DPI (<c>round(16 * dpi / 96)</c>),
+    /// clamped to 16..64 — 100 %..400 % — so a bogus DPI can never yield a giant or empty bitmap.
+    /// Pure and side-effect-free so the DPI→size mapping can be unit-tested without a live taskbar.
     /// </summary>
-    private static int CurrentTraySlotSize()
+    internal static int SlotSizeForDpi(uint dpi)
     {
-        int size;
-        try { size = GetSystemMetrics(SM_CXSMICON); }
-        catch { size = 0; }
-        // Clamp defensively: a bogus 0 (metric unavailable) or an absurd value must not yield a
-        // giant/empty bitmap. 16..64 covers 100%..400% small-icon DPI.
-        return size is >= 16 and <= 64 ? size : 16;
+        // dpi == 0 means "unknown" from the Win32 query; treat as 96 (100 %) rather than collapsing
+        // to the clamp floor, so the icon is still rendered at the true logical size.
+        if (dpi == 0) dpi = 96;
+        int size = (int)Math.Round(LogicalSmallIconSize * dpi / 96.0, MidpointRounding.AwayFromZero);
+        return Math.Clamp(size, 16, 64); // 16..64 covers 100 %..400 % small-icon DPI
     }
+
+    /// <summary>
+    /// The tray slot size the shell will actually display, sized to the TASKBAR's DPI (not the
+    /// process's DPI context). Used to render the LIVE icon at exactly one size rather than the four
+    /// the static .ico bakes in — the shell only ever shows one, so rendering the other three every
+    /// state change was wasted GDI work.
+    ///
+    /// Querying the taskbar's own monitor DPI (rather than <c>GetSystemMetrics(SM_CXSMICON)</c>,
+    /// which reports the small-icon size for the PROCESS's DPI context) is what makes the arc render
+    /// crisp when the taskbar is on a secondary monitor at a different scale (issue #40 item 2): the
+    /// old per-process size was wrong for that taskbar, so the shell rescaled the single frame and
+    /// the thin low-battery arc washed out. Falls back via <see cref="NativeMethods.GetTaskbarDpi"/>
+    /// to the system DPI, then 96 (100 %).
+    /// </summary>
+    private static int CurrentTraySlotSize() => SlotSizeForDpi(NativeMethods.GetTaskbarDpi());
 
     // ── ChargeKeeper "Guarded Battery" brand palette ──────────────────────────
     // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative

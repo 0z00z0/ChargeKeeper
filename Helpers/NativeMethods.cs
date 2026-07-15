@@ -41,6 +41,47 @@ internal static class NativeMethods
     [DllImport("Shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
+    // GetDpiForWindow / GetDpiForSystem exist on Windows 10 1607+ (build 14393). Wrapped in
+    // try/catch at the call site so older builds fall back gracefully rather than crashing.
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForSystem();
+
+    /// <summary>
+    /// DPI (dots-per-inch) of the monitor hosting the shell taskbar (the <c>Shell_TrayWnd</c>
+    /// window). The tray icon lives on the taskbar, so the live icon must be rendered for THIS
+    /// DPI — which can differ from the process's own DPI context when the taskbar sits on a
+    /// secondary monitor at a different scale (a mixed-DPI multi-monitor setup). Falls back to the
+    /// system DPI, then 96 (100 %), if the query fails or the API is unavailable.
+    /// </summary>
+    internal static uint GetTaskbarDpi()
+    {
+        try
+        {
+            var hwnd = FindWindow("Shell_TrayWnd", null);
+            if (hwnd != IntPtr.Zero)
+            {
+                uint dpi = GetDpiForWindow(hwnd);
+                if (dpi != 0) return dpi;
+            }
+        }
+        catch { /* GetDpiForWindow absent on pre-1607 Windows — fall through */ }
+
+        try
+        {
+            uint sys = GetDpiForSystem();
+            if (sys != 0) return sys;
+        }
+        catch { /* GetDpiForSystem absent on pre-1607 Windows — fall through */ }
+
+        return 96; // 100 % DPI
+    }
+
     /// <summary>
     /// Work area (taskbar-excluded desktop bounds, in physical pixels) and DPI scale factor of the
     /// monitor currently under the mouse cursor — i.e. the screen whose tray the user just clicked.
