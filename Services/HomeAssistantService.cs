@@ -42,18 +42,39 @@ internal sealed class HomeAssistantService : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
+    // Set by OnPowerResume; honoured on the maintain-loop thread so the resume-forced socket drop +
+    // reconnect happens THERE, never racing the loop's own ConnectAsync/OnConnectedAsync (a separate
+    // fire-and-forget DisconnectAsync used to race it). Volatile: cross-thread flag.
+    private volatile bool _reconnectRequested;
+
+    // Coalesces a burst of charge-control StateChanged signals into at most one in-flight fresh EC read
+    // plus one trailing read, so slider drags / a threshold-set-while-override (which fires BOTH events)
+    // don't queue N sequential blocking vendor reads when only the last matters.
+    private readonly CoalescingGate _reflectGate = new();
+
     // Wakes the maintain loop out of its inter-poll delay early — signalled on a detected disconnect
     // (OnClientDisconnectedAsync) or a resume-from-standby (OnPowerResume), so a reconnect + "online"
     // republish happens within moments instead of after the full poll/backoff (issue #41). Volatile:
     // swapped for a fresh instance each time it's consumed.
     private volatile TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    // Connection-loop timing (issue #41). A generous keep-alive keeps an idle link up; a short-ish
-    // connected re-poll plus the wake signal shrink the reconnect window without busy-spinning.
+    // Connection-loop timing (issue #41). A generous keep-alive keeps an idle link up; drop detection
+    // is now event-driven (DisconnectedAsync → Wake), so the connected re-poll can be long — it's only
+    // a stability re-check now, not the primary drop detector, so a battery device isn't woken every
+    // 10 s for nothing.
     private static readonly TimeSpan KeepAlive      = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan ConnectedPoll  = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ConnectedPoll  = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(3);
     private const double MaxBackoffSeconds = 60;
+    // A connection that lived at least this long is treated as a genuine session, so its drop reconnects
+    // fast (backoff reset). A connection that dropped sooner is a flap (broker accepts the CONNECT then
+    // drops almost immediately) → keep escalating the backoff so we can't tight-spin reconnecting it.
+    private static readonly TimeSpan StableConnection = TimeSpan.FromSeconds(30);
+    // Debounce before the post-command fresh read: lets a burst of near-simultaneous StateChanged
+    // signals collapse into one read AND lets the in-progress device write land first, so we don't
+    // publish an interim state (e.g. a stale "Smart Charge off" seen between a deactivate signal and
+    // the threshold write completing).
+    private static readonly TimeSpan ReflectDebounce = TimeSpan.FromMilliseconds(250);
 
     /// <summary>
     /// Supplies the current live state to publish immediately on every (re)connect, so a connect
@@ -164,14 +185,43 @@ internal sealed class HomeAssistantService : IDisposable
     private async Task MaintainConnectionAsync(CancellationToken ct)
     {
         var backoff = InitialBackoff;
+        DateTime? connectedSince = null;   // when the current live session started; null while disconnected
+
         while (!ct.IsCancellationRequested && _enabled)
         {
+            // A resume-from-standby forces a reconnect: the NIC was suspended so the socket is often
+            // half-dead while IsConnected still reads true. Drop it HERE (on the loop thread) so it
+            // can't race the loop's own ConnectAsync. A resume is not a flap — reset the backoff.
+            if (_reconnectRequested)
+            {
+                _reconnectRequested = false;
+                try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
+                connectedSince = null;
+                backoff = InitialBackoff;
+            }
+
             try
             {
                 if (!_client.IsConnected && _options is { } opt)
                 {
+                    // If we just lost a *brief* session, that's a flap (broker accepts then instantly
+                    // drops); escalate and wait out the backoff BEFORE retrying so we can't tight-spin.
+                    // A genuine drop of a session that lasted (or a first attempt) reconnects at once.
+                    if (connectedSince is { } since && DateTime.UtcNow - since < StableConnection)
+                    {
+                        backoff = NextBackoff(backoff);
+                        connectedSince = null;
+                        if (!await DelayOrWake(backoff, ct).ConfigureAwait(false)) break;
+                    }
+                    connectedSince = null;
+
                     await _client.ConnectAsync(opt, ct).ConfigureAwait(false);
                     await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
+                    connectedSince = DateTime.UtcNow;
+                }
+                else if (_client.IsConnected && connectedSince is { } s && DateTime.UtcNow - s >= StableConnection)
+                {
+                    // Session has proven stable → clear the backoff so the NEXT genuine drop is fast.
                     backoff = InitialBackoff;
                 }
             }
@@ -180,9 +230,10 @@ internal sealed class HomeAssistantService : IDisposable
             {
                 AppLog.Error("HomeAssistantService.Connect", Sanitize(ex));   // message only, never creds
                 backoff = NextBackoff(backoff);
+                connectedSince = null;
             }
-            // Re-check periodically while healthy; back off while failing. Either wait is cut short by
-            // Wake() (a detected disconnect or a resume-from-standby) so we reconnect promptly (#41).
+            // Re-poll occasionally while healthy (long — drops are event-driven now); back off while
+            // failing. A genuine live-connection drop or a resume cuts the wait short via Wake() (#41).
             if (!await DelayOrWake(_client.IsConnected ? ConnectedPoll : backoff, ct).ConfigureAwait(false))
                 break;
         }
@@ -191,6 +242,18 @@ internal sealed class HomeAssistantService : IDisposable
     /// <summary>Exponential backoff step, capped — pure so the cap/growth is unit-tested.</summary>
     internal static TimeSpan NextBackoff(TimeSpan current) =>
         TimeSpan.FromSeconds(Math.Min(current.TotalSeconds * 2, MaxBackoffSeconds));
+
+    /// <summary>
+    /// Whether a DisconnectedAsync event should wake the maintain loop for an early reconnect. Only a
+    /// drop of a genuinely-LIVE connection should (ClientWasConnected). MQTTnet also fires this event
+    /// with ClientWasConnected=false when ConnectAsync itself fails — waking on THAT short-circuits the
+    /// exponential backoff into near-continuous reconnect hammering. Pure so it's unit-tested.
+    /// </summary>
+    internal static bool ShouldWakeOnDisconnect(bool enabled, bool clientWasConnected) =>
+        enabled && clientWasConnected;
+
+    /// <summary>Whether a session that lived <paramref name="lifetime"/> counts as stable (vs a flap).</summary>
+    internal static bool IsStableConnection(TimeSpan lifetime) => lifetime >= StableConnection;
 
     /// <summary>
     /// Waits up to <paramref name="delay"/>, returning early when <see cref="Wake"/> is signalled.
@@ -231,7 +294,7 @@ internal sealed class HomeAssistantService : IDisposable
     /// </summary>
     private Task OnClientDisconnectedAsync(MqttClientDisconnectedEventArgs e)
     {
-        if (_enabled) Wake();
+        if (ShouldWakeOnDisconnect(_enabled, e.ClientWasConnected)) Wake();
         return Task.CompletedTask;
     }
 
@@ -249,14 +312,10 @@ internal sealed class HomeAssistantService : IDisposable
     public void OnPowerResume()
     {
         if (!_enabled) return;
-        _ = ForceReconnectAsync();
-    }
-
-    private async Task ForceReconnectAsync()
-    {
-        // Drop any half-dead socket so the maintain loop's IsConnected check reconnects; then wake it
-        // so it doesn't wait out the poll. DisconnectAsync on an already-dead socket is a fast no-op.
-        try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
+        // Signal the maintain loop to force a reconnect and wake it — it performs the socket drop +
+        // reconnect on its OWN thread (see the top of MaintainConnectionAsync), so this can't race the
+        // loop's in-flight ConnectAsync/OnConnectedAsync the way a direct DisconnectAsync here would.
+        _reconnectRequested = true;
         Wake();
     }
 
@@ -394,7 +453,35 @@ internal sealed class HomeAssistantService : IDisposable
     private void OnChargeControlChanged()
     {
         if (!_enabled) return;
-        PublishFreshStateAfterCommand();
+        // Coalesce: only the first signal of a burst starts the reflect loop; the rest just arm a
+        // trailing pass. This collapses a slider drag / a threshold-set-while-override (which fires
+        // BOTH ChargeControlService AND TravelOverrideService) into at most one in-flight fresh read
+        // plus one trailing read, instead of one blocking vendor read per signal.
+        if (_reflectGate.Signal())
+            _ = ReflectLoopAsync();
+    }
+
+    /// <summary>
+    /// Debounced, coalescing driver for the post-command fresh-state republish. Runs one pass per
+    /// coalesced burst: a short debounce (so a burst collapses AND the in-progress device write lands
+    /// before we read — avoiding an interim stale publish), then a single fresh read+publish. If more
+    /// signals arrived during the pass, runs once more; otherwise ends. The blocking vendor read runs
+    /// here on a background continuation, never on the StateChanged caller (tray/command-worker) thread.
+    /// </summary>
+    private async Task ReflectLoopAsync()
+    {
+        do
+        {
+            _reflectGate.BeginPass();
+            try
+            {
+                await Task.Delay(ReflectDebounce).ConfigureAwait(false);
+                if (_enabled)
+                    PublishFreshStateAfterCommand();
+            }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Reflect", Sanitize(ex)); }
+        }
+        while (_reflectGate.ShouldRepeat());
     }
 
     /// <summary>
@@ -411,6 +498,18 @@ internal sealed class HomeAssistantService : IDisposable
         string? activePreset = SettingsService.Current.ActivePreset;
         PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, activePreset));
     }
+
+    /// <summary>
+    /// The app's already-maintained cached Smart Charge thresholds, taken from the same
+    /// <see cref="CurrentStateProvider"/> snapshot the normal publish path trusts. Supplied to the
+    /// live <see cref="ChargeControlActions"/> so a single-bound charge_start/charge_stop set reads its
+    /// companion value from cache — not a dedicated pre-write EC RPC. Returns null when Smart Charge is
+    /// off/unset or no reading exists yet, so the dispatcher falls back to a sensible default pair.
+    /// </summary>
+    private (int Start, int Stop)? CachedThresholds() =>
+        CurrentStateProvider?.Invoke() is { SmartChargeEnabled: true, ChargeStart: int start, ChargeStop: int stop }
+            ? (start, stop)
+            : null;
 
     /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>
     private async Task ClearLegacyDiscoveryAsync(CancellationToken ct)
@@ -479,15 +578,49 @@ internal sealed class HomeAssistantService : IDisposable
         _gate.Dispose();
     }
 }
-    /// <summary>
-    /// The app's already-maintained cached Smart Charge thresholds, taken from the same
-    /// <see cref="CurrentStateProvider"/> snapshot the normal publish path trusts. Supplied to the
-    /// live <see cref="ChargeControlActions"/> so a single-bound charge_start/charge_stop set reads its
-    /// companion value from cache — not a dedicated pre-write EC RPC. Returns null when Smart Charge is
-    /// off/unset or no reading exists yet, so the dispatcher falls back to a sensible default pair.
-    /// </summary>
-    private (int Start, int Stop)? CachedThresholds() =>
-        CurrentStateProvider?.Invoke() is { SmartChargeEnabled: true, ChargeStart: int start, ChargeStop: int stop }
-            ? (start, stop)
-            : null;
 
+/// <summary>
+/// Collapses a burst of signals into at most one in-flight run plus one trailing run. Lock-based and
+/// side-effect-free (it only tracks the running/pending flags) so the coalescing decision is
+/// unit-tested without threads. Used by <see cref="HomeAssistantService"/> to coalesce charge-control
+/// StateChanged signals into a bounded number of blocking vendor reads.
+/// <list type="bullet">
+/// <item><see cref="Signal"/> — records a signal; returns true only to the caller that must START the
+///   loop (a signal while a loop already runs returns false but arms a trailing pass).</item>
+/// <item><see cref="BeginPass"/> — claims the pending work at the top of each pass.</item>
+/// <item><see cref="ShouldRepeat"/> — true to run another pass (a signal arrived during the last one),
+///   otherwise clears the running flag and returns false to end the loop.</item>
+/// </list>
+/// </summary>
+internal sealed class CoalescingGate
+{
+    private readonly object _lock = new();
+    private bool _running;
+    private bool _pending;
+
+    public bool Signal()
+    {
+        lock (_lock)
+        {
+            _pending = true;
+            if (_running) return false;
+            _running = true;
+            return true;
+        }
+    }
+
+    public void BeginPass()
+    {
+        lock (_lock) { _pending = false; }
+    }
+
+    public bool ShouldRepeat()
+    {
+        lock (_lock)
+        {
+            if (_pending) return true;
+            _running = false;
+            return false;
+        }
+    }
+}
