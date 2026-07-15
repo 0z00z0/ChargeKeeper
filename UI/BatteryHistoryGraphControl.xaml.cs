@@ -195,7 +195,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             });
         }
 
-        _resizeRenderTimer          = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+        _resizeRenderTimer          = new() { Interval = TimeSpan.FromMilliseconds(120) };
         _resizeRenderTimer.Tick    += (_, _) => { _resizeRenderTimer.Stop(); Render(); };
 
         Unloaded += (_, _) =>
