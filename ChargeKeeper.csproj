@@ -102,6 +102,11 @@
     <Content Include="Assets\AppIcon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- #52: bespoke two-tone Settings nav icons (steel + sage + terracotta). Shipped as SVG
+         assets so ms-appx:///Assets/nav/*.svg resolves for the NavigationView ImageIcons. -->
+    <Content Include="Assets\nav\*.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!--
