@@ -335,15 +335,24 @@ public partial class App : Application
         // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
         _ha = new HomeAssistantService(AppInfo.Version);
         // Publish live values immediately on every (re)connect — not just after a battery event fires.
-        // Set BEFORE ApplySettings, which may start connecting (and invoke this) right away. Reads
-        // battery-thread fields; a cross-thread read here is benign (stale-by-one-tick at worst) and
-        // returns null before the first reading, so nothing bogus is published.
-        _ha.CurrentStateProvider = () => _lastIconState.Pct < 0
-            ? null
-            : HaStateBuilder.Build(
-                _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
-                ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                SettingsService.Current.ActivePreset);
+        // Set BEFORE ApplySettings, which may start connecting (and invoke this) right away. This runs
+        // on the MQTT thread, concurrent with OnBatteryReportUpdated's writes to the _last* fields, so
+        // snapshot them under _batteryReportLock — otherwise a publish could mix a tick-N field with a
+        // tick-(N-1) one (a torn read). Build the immutable HaState INSIDE the lock for a coherent
+        // snapshot, then return it: the caller (HomeAssistantService) does the actual MQTT publish
+        // OUTSIDE this call, so the lock never spans the broker RPC and can't deadlock. Returns null
+        // before the first reading, so nothing bogus is published.
+        _ha.CurrentStateProvider = () =>
+        {
+            using (_batteryReportLock.EnterScope())
+            {
+                if (_lastIconState.Pct < 0) return null;
+                return HaStateBuilder.Build(
+                    _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
+                    ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
+                    SettingsService.Current.ActivePreset);
+            }
+        };
         _ha.ApplySettings(SettingsService.Current);
     }
 
