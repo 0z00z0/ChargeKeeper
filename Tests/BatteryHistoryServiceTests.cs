@@ -193,16 +193,41 @@ public class BatteryHistoryServiceTests : IDisposable
     }
 
     [Fact]
-    public void Record_GapDetectionDisabled_ReportsNoGapEvenForLongGap()
+    public void Record_GapDetectionNone_StillReportsOvernightGap()
     {
-        // "None" (0) disables downtime detection everywhere — the graph draws no break and the
-        // anomaly path fires no toast, even across a genuine multi-hour hole.
+        // Issue #40 decoupling: "None" (0) means "graph draws no breaks", NOT "stop watching for an
+        // overnight battery drain". Across a genuine multi-hour hole the anomaly path must STILL
+        // report the gap (it falls back to its own floor, DrainAnomalyPolicy.MinGap), so the safety
+        // toast can still fire even though the graph has stopped drawing breaks.
         SettingsService.Current.DowntimeGapMinutes = 0;
         var old = new BatterySample(DateTime.UtcNow.AddHours(-8), 90, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
         BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
 
+        // Sanity: the graph gate really is disabled ("None" → MaxValue → no breaks drawn)…
+        Assert.Equal(TimeSpan.MaxValue, BatteryHistoryService.DowntimeThreshold);
+        // …but the anomaly gate falls back to the floor, so it keeps detecting.
+        Assert.Equal(DrainAnomalyPolicy.MinGap, BatteryHistoryService.AnomalyGapThreshold);
+
         var gap = BatteryHistoryService.Record(60, null, 0);
+
+        Assert.NotNull(gap);
+        Assert.Equal(30, gap!.Value.SocDropPercent);          // 90 → 60
+        Assert.True(gap.Value.GapDuration >= TimeSpan.FromHours(7.9));
+    }
+
+    [Fact]
+    public void Record_GapDetectionNone_ReportsNoGapForShortHole()
+    {
+        // The "None" fallback is the anomaly floor (15 min), not zero — a brief hole shorter than the
+        // floor is still not treated as downtime by the anomaly path (it could never clear
+        // DrainAnomalyPolicy.ShouldWarn's own MinGap check anyway).
+        SettingsService.Current.DowntimeGapMinutes = 0;
+        var old = new BatterySample(DateTime.UtcNow.AddMinutes(-5), 80, null, 0);
+        File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
+        BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
+
+        var gap = BatteryHistoryService.Record(78, null, 0);   // 5 min later, below the 15-min floor
 
         Assert.Null(gap);
     }
