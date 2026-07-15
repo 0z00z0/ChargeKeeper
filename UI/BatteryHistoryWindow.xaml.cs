@@ -95,7 +95,7 @@ public sealed partial class BatteryHistoryWindow : Window
         HistoryGraph.Render();
         RefreshStats();
 
-        _refreshTimer       = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) => { HistoryGraph.Render(); RefreshStats(); };
         _refreshTimer.Start();
 

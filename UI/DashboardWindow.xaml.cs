@@ -92,10 +92,10 @@ public sealed partial class DashboardWindow : Window
         HistoryGraph.ShowStressHeatmap = false;
         HistoryGraph.ShowCrosshair     = false;
 
-        _refreshTimer       = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) => Refresh();
 
-        _thresholdApplyTimer          = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        _thresholdApplyTimer          = new() { Interval = TimeSpan.FromMilliseconds(700) };
         _thresholdApplyTimer.Tick    += (_, _) => CommitThresholds();
 
         Activated += OnActivated;
