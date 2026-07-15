@@ -96,6 +96,12 @@
 
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico" />
+    <!-- Ship the plated icon (steel battery on a #0e1620 rounded plate) into the app output so
+         TitleBarTheme can point the window/title-bar icon at it — visible on the dark title bar
+         where the transparent AppIcon.ico washed out. Same file the installer's SetupIconFile uses. -->
+    <Content Include="Assets\SetupIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- Ship the PNG icon too so ms-appx:///Assets/AppIcon.png resolves at runtime
          (Settings pane footer + Dashboard header). Without CopyToOutputDirectory the
          PNG is stripped from the output and the image renders blank. -->

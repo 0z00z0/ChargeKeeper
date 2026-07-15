@@ -11,8 +11,8 @@ namespace ChargeKeeper.Helpers;
 /// Paints a standard window title bar in the studio dark palette so it stops clashing with the
 /// dark Mica backdrop the windows use. Only touches the title-bar colours (never the presenter /
 /// border), so it is safe to call on any window; on a frameless popup it is simply a no-op that
-/// the guard below swallows. Caption-button backgrounds are left transparent so the Mica shows
-/// through, matching the rest of the chrome.
+/// the guard below swallows. Caption-button backgrounds are painted the dark Bg (Mica does not
+/// fill the non-client caption area) so the whole title bar reads as one uniform dark surface.
 /// </summary>
 internal static class TitleBarTheme
 {
@@ -34,10 +34,17 @@ internal static class TitleBarTheme
             if (appWindow is null) return;
 
             // Make the taskbar / Alt-Tab / title-bar icon the current steel battery rather than
-            // whatever the window inherited or cached. AppIcon.ico ships to the output dir (Content).
+            // whatever the window inherited or cached. Use the PLATED SetupIcon.ico (steel battery
+            // on a #0e1620 rounded plate) rather than the transparent AppIcon.ico — the plate keeps
+            // the icon visible against the dark title bar, where the plain transparent icon washed
+            // out. Both ship to the output dir (Content). Falls back to AppIcon.ico if the plated
+            // one is missing.
             try
             {
-                var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+                var platedIco = Path.Combine(AppContext.BaseDirectory, "Assets", "SetupIcon.ico");
+                var icoPath = File.Exists(platedIco)
+                    ? platedIco
+                    : Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
                 if (File.Exists(icoPath)) appWindow.SetIcon(icoPath);
             }
             catch (Exception ex) { AppLog.Error("TitleBarTheme.SetIcon", ex); }
@@ -51,9 +58,12 @@ internal static class TitleBarTheme
             tb.ForegroundColor         = Text;
             tb.InactiveForegroundColor = Text;
 
-            // Transparent caption-button backgrounds let the Mica backdrop show through.
-            tb.ButtonBackgroundColor         = Colors.Transparent;
-            tb.ButtonInactiveBackgroundColor = Colors.Transparent;
+            // Fill the caption-button strip with the dark Bg. Mica does NOT paint the non-client
+            // caption area, so leaving these Transparent rendered a light strip behind the
+            // min/max/close buttons that clashed with the dark title bar. Painting them Bg makes the
+            // whole title bar uniformly dark; the hover colour stays a lighter steel for feedback.
+            tb.ButtonBackgroundColor         = Bg;
+            tb.ButtonInactiveBackgroundColor = Bg;
             tb.ButtonForegroundColor         = Text;
             tb.ButtonHoverForegroundColor    = Text;
             tb.ButtonHoverBackgroundColor    = Hover;
