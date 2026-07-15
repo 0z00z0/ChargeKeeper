@@ -27,7 +27,7 @@ internal static class AppPaths
 
     /// <summary>
     /// A path inside <see cref="DataDir"/>: <c>%AppData%\ChargeKeeper\{name}</c>. <paramref name="name"/>
-    /// is a file name (e.g. <c>"history.csv"</c>) or a subdirectory name (e.g. <c>"dumps"</c>) — this
+    /// is a file name (e.g. <c>"battery-level-history.csv"</c>) or a subdirectory name (e.g. <c>"dumps"</c>) — this
     /// only composes the path; it neither creates nor checks for it.
     /// </summary>
     internal static string DataFile(string name) => Path.Combine(DataDir, name);
