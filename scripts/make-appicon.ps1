@@ -24,17 +24,24 @@
 .EXAMPLE
     .\scripts\make-appicon.ps1                    # writes Assets\AppIcon.ico + Assets\AppIcon.png
     .\scripts\make-appicon.ps1 -OutPath my.ico    # writes elsewhere
+    .\scripts\make-appicon.ps1 -Plated            # writes Assets\SetupIcon.ico (glyph on a dark plate)
 #>
 [CmdletBinding()]
 param(
-    [string] $OutPath = ""   # default: <repo>\Assets\AppIcon.ico
+    [string] $OutPath = "",  # default: <repo>\Assets\AppIcon.ico (or SetupIcon.ico with -Plated)
+    # -Plated: draw the glyph on a subtle rounded-square dark plate so the icon stays visible on ANY
+    # title-bar colour. Used for the installer's SetupIconFile (#60) — the transparent AppIcon.ico is
+    # near-invisible on Inno's light title bar. The app itself keeps the plain transparent AppIcon.ico.
+    [switch] $Plated
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path $PSScriptRoot -Parent
-if (-not $OutPath) { $OutPath = Join-Path $root "Assets\AppIcon.ico" }
+if (-not $OutPath) {
+    $OutPath = Join-Path $root ($Plated ? "Assets\SetupIcon.ico" : "Assets\AppIcon.ico")
+}
 
 $sizes = 256, 128, 64, 48, 32, 16
 
@@ -43,6 +50,9 @@ $sizes = 256, 128, 64, 48, 32, 16
 $steelBlue  = [System.Drawing.Color]::FromArgb(0x7F, 0xA8, 0xB8)   # body outline + cap
 $sageGreen  = [System.Drawing.Color]::FromArgb(0x7A, 0xB8, 0x8F)   # interior fill
 $terracotta = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)  # guard line
+# Plate (only used with -Plated): studio bg2 fill + faint studio border edge.
+$plateFill  = [System.Drawing.Color]::FromArgb(0x0e, 0x16, 0x20)   # #0e1620
+$plateEdge  = [System.Drawing.Color]::FromArgb(0x1a, 0x28, 0x40)   # #1a2840
 
 # Rounded rect as a GraphicsPath; radius clamped to half the shorter side so tiny
 # frames can't produce arcs larger than the rect itself.
@@ -58,8 +68,9 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]
     return $p
 }
 
-# Renders one frame and returns it as a PNG byte array.
-function New-IconFramePng([int]$size) {
+# Renders one frame and returns it as a PNG byte array. With -Plated, a dark rounded-square plate is
+# drawn behind the glyph so the icon reads on any background (installer title bar).
+function New-IconFramePng([int]$size, [bool]$plated = $false) {
     $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
         $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -70,8 +81,20 @@ function New-IconFramePng([int]$size) {
 
             [float]$s = $size / 256.0
 
-            # No background plate — fully transparent (canvas already cleared above). Flat
-            # "0z0 geometric" battery glyph scaled to fill the canvas.
+            # Optional dark plate behind the glyph (-Plated): rounded square inset from the canvas,
+            # ~12% corner radius, #0e1620 fill with a faint #1a2840 edge. Keeps the otherwise
+            # transparent light-steel glyph visible on a light title bar.
+            if ($plated) {
+                $platePath = New-RoundedRectPath (10 * $s) (10 * $s) (236 * $s) (236 * $s) (28 * $s)
+                try {
+                    $pf = New-Object System.Drawing.SolidBrush($plateFill)
+                    try { $g.FillPath($pf, $platePath) } finally { $pf.Dispose() }
+                    $pe = New-Object System.Drawing.Pen($plateEdge, [Math]::Max(3 * $s, 1.0))
+                    try { $g.DrawPath($pe, $platePath) } finally { $pe.Dispose() }
+                } finally { $platePath.Dispose() }
+            }
+
+            # Flat "0z0 geometric" battery glyph scaled to fill the canvas.
 
             # Battery body outline: flat SteelBlue stroke (clamped ≥1.6 px), round line-join.
             $bodyPath = New-RoundedRectPath (15 * $s) (80 * $s) (191 * $s) (96 * $s) (6 * $s)
@@ -123,7 +146,7 @@ function New-IconFramePng([int]$size) {
 # silently picks a single-byte overload and corrupts the file.
 Write-Host "==> Rendering frames: $($sizes -join ', ') px" -ForegroundColor Cyan
 $frames = [System.Collections.Generic.List[byte[]]]::new()
-foreach ($size in $sizes) { $frames.Add([byte[]](New-IconFramePng $size)) }
+foreach ($size in $sizes) { $frames.Add([byte[]](New-IconFramePng $size ([bool]$Plated))) }
 
 # ── Assemble the ICO (same layout as IconGenerator.SaveAsIco) ─────────────────
 $outDir = Split-Path $OutPath -Parent
@@ -172,8 +195,11 @@ Write-Host "==> ICO verified OK." -ForegroundColor Green
 
 # ── Also emit a 256x256 transparent PNG for in-app use ────────────────────────
 # The Settings pane-footer <Image> references ms-appx:///Assets/AppIcon.png; the .ico can't be
-# bound directly there. Same 256-unit geometry, single frame.
-$pngPath = Join-Path (Split-Path $OutPath -Parent) "AppIcon.png"
-[System.IO.File]::WriteAllBytes($pngPath, [byte[]](New-IconFramePng 256))
-$pngBytes = (Get-Item $pngPath).Length
-Write-Host "==> Wrote $pngPath ($pngBytes bytes, 256x256)" -ForegroundColor Green
+# bound directly there. Same 256-unit geometry, single frame. Skipped with -Plated (that run only
+# produces the plated SetupIcon.ico and must not touch the app's transparent AppIcon.png).
+if (-not $Plated) {
+    $pngPath = Join-Path (Split-Path $OutPath -Parent) "AppIcon.png"
+    [System.IO.File]::WriteAllBytes($pngPath, [byte[]](New-IconFramePng 256))
+    $pngBytes = (Get-Item $pngPath).Length
+    Write-Host "==> Wrote $pngPath ($pngBytes bytes, 256x256)" -ForegroundColor Green
+}
