@@ -43,10 +43,29 @@
                     <!-- Card / panel surfaces (SettingsCard, BatteryHealthPanel) -->
                     <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
                     <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
-                    <!-- Primary accent → studio teal (toggles, nav selection, focus, primary buttons) -->
+                    <!-- Primary accent → studio teal (toggles, nav selection, focus, primary buttons).
+                         The paired *Color* keys and SystemAccentColor* below MUST agree with these
+                         brushes: some control visual-states (ToggleSwitch "on" fill, the RangeSelector
+                         thumb/track, Button hover/pressed/checked) resolve the OS system accent COLOR
+                         rather than the AccentFill brush, so overriding only the brushes left those
+                         states painting the OS accent instead of studio teal. -->
                     <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#27e0c8"/>
                     <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E627e0c8"/>
                     <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC27e0c8"/>
+                    <!-- Paired accent *Color* keys (brush forms above) -->
+                    <Color x:Key="AccentFillColorDefaultColor">#27e0c8</Color>
+                    <Color x:Key="AccentFillColorSecondaryColor">#E627e0c8</Color>
+                    <Color x:Key="AccentFillColorTertiaryColor">#CC27e0c8</Color>
+                    <Color x:Key="AccentTextFillColorPrimaryColor">#27e0c8</Color>
+                    <!-- System accent ramp → studio teal (39,224,200) with lighter/darker steps.
+                         Drives accent visual-states that read SystemAccentColor* directly. -->
+                    <Color x:Key="SystemAccentColor">#27e0c8</Color>
+                    <Color x:Key="SystemAccentColorLight1">#52e6d3</Color>
+                    <Color x:Key="SystemAccentColorLight2">#7decde</Color>
+                    <Color x:Key="SystemAccentColorLight3">#a9f2e9</Color>
+                    <Color x:Key="SystemAccentColorDark1">#1fb3a0</Color>
+                    <Color x:Key="SystemAccentColorDark2">#178678</Color>
+                    <Color x:Key="SystemAccentColorDark3">#105a50</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
