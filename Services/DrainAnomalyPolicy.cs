@@ -14,13 +14,15 @@ internal static class DrainAnomalyPolicy
     // sets HOW fast counts as abnormal; these set the minimum evidence before the rate is trusted at
     // all, which is what makes the feature's "overnight" framing honest.
     //
-    // MinGap is a RATE-TRUST floor, layered ON TOP of — not a duplicate of — the shared
-    // "is this downtime?" gate (BatteryHistoryService.DowntimeThreshold). That gate (the user's
-    // graph-gap setting) already decides whether Record even reports a gap here; MinGap then requires
-    // the reported gap to span long enough that a %/hour extrapolation is credible (and guards the
-    // division below). So the effective anomaly gate is max(the user's downtime threshold, 15 min):
-    // two genuinely different concerns, no longer three parallel copies of one "was this downtime?"
-    // number.
+    // MinGap is a RATE-TRUST floor. It is ALSO the fallback gate BatteryHistoryService.
+    // AnomalyGapThreshold uses when the user sets the graph gap to "None": "None" stops the graph
+    // drawing breaks but must NOT disable overnight-drain detection (issue #40), so the anomaly path
+    // falls back to this floor and keeps watching. When the user's graph-gap setting is a positive
+    // value it governs whether Record reports a gap at all (graph + anomaly agree); MinGap then still
+    // requires the reported gap to span long enough that a %/hour extrapolation is credible (and
+    // guards the division below). So the effective anomaly gate is max(user threshold, 15 min), with
+    // 15 min alone in force when the user chose "None" — two genuinely different concerns, not three
+    // parallel copies of one "was this downtime?" number.
     internal const int MinDropPercent = 5;
     internal static readonly TimeSpan MinGap = TimeSpan.FromMinutes(15);
 

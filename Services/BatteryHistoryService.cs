@@ -34,20 +34,20 @@ internal static class BatteryHistoryService
     public const int SampleIntervalSeconds = 20;
 
     /// <summary>
-    /// The single "is this hole in the timeline downtime?" threshold, read by BOTH the graph (which
-    /// visually collapses any gap this size into a fixed-width break) AND <see cref="Record"/>'s
-    /// anomaly gate below — so a user's graph-gap setting (Settings → General → "Downtime gap
-    /// threshold", <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>) can no longer
-    /// disagree with when an overnight-drain toast may fire. Previously the graph read the setting
-    /// while the anomaly path used a separate fixed 3-sample-interval constant, so raising the graph
-    /// gap to (say) 30 min or "None" still let a drain toast fire for a gap the graph refused to draw.
+    /// The GRAPH's "is this hole in the timeline downtime?" threshold — the user's graph-gap setting
+    /// (Settings → General → "Downtime gap threshold",
+    /// <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>). The graph visually collapses any
+    /// gap larger than this into a fixed-width break instead of a connecting line.
     /// <para>
-    /// 0 ("None") → <see cref="TimeSpan.MaxValue"/> (gap detection disabled everywhere), NOT a literal
-    /// zero-minute threshold. Read fresh each access so a settings change takes effect without a
-    /// restart. The minimum positive setting (1 min) is three sample intervals, so a single late
-    /// sample (scheduler jitter) is never treated as downtime — the old constant's purpose, now
-    /// inherent in the setting's floor. The drain-anomaly path applies a further rate-trust floor and
-    /// %/hour threshold (<see cref="DrainAnomalyPolicy"/>) on top of this gate before toasting.
+    /// 0 ("None") → <see cref="TimeSpan.MaxValue"/>, so the graph draws NO breaks at all — NOT a
+    /// literal zero-minute threshold. Read fresh each access so a settings change takes effect without
+    /// a restart. The minimum positive setting (1 min) is three sample intervals, so a single late
+    /// sample (scheduler jitter) is never drawn as downtime.
+    /// </para>
+    /// <para>
+    /// This is a PRESENTATION knob only. The overnight-drain-anomaly gate does NOT read it directly —
+    /// see <see cref="AnomalyGapThreshold"/> for why "None" must silence the graph's breaks without
+    /// also disabling drain detection (issue #40).
     /// </para>
     /// </summary>
     public static TimeSpan DowntimeThreshold
@@ -58,6 +58,40 @@ internal static class BatteryHistoryService
             // and converting another could mix a "None" branch with a positive minute count.
             int minutes = SettingsService.Current.DowntimeGapMinutes;
             return minutes <= 0 ? TimeSpan.MaxValue : TimeSpan.FromMinutes(minutes);
+        }
+    }
+
+    /// <summary>
+    /// The gate <see cref="Record"/> uses to decide whether to REPORT a downtime gap to the
+    /// drain-anomaly path — deliberately DECOUPLED from the graph's <see cref="DowntimeThreshold"/> on
+    /// the "None" case (issue #40). Setting the graph gap to "None" means "stop drawing breaks", NOT
+    /// "stop watching for an overnight battery drain": the safety warning must keep detecting.
+    /// <para>
+    /// Effective gate = <c>max(anomaly floor, user threshold when positive)</c>, falling back to the
+    /// anomaly's own floor (<see cref="DrainAnomalyPolicy.MinGap"/>) when the user chose "None"
+    /// (<see cref="TimeSpan.MaxValue"/>). So:
+    /// <list type="bullet">
+    /// <item>a positive user threshold still governs both graph and anomaly in agreement (raising it to
+    /// 30 min stops a 6-min hole producing a toast, just as it stops the graph drawing it); but</item>
+    /// <item>"None" leaves the anomaly floor in force, so a genuine multi-hour overnight gap is still
+    /// reported even though the graph has stopped drawing breaks.</item>
+    /// </list>
+    /// The floor also means a sub-15-min hole is never handed to the anomaly path — it could never
+    /// clear <see cref="DrainAnomalyPolicy.ShouldWarn"/>'s own <see cref="DrainAnomalyPolicy.MinGap"/>
+    /// rate-trust check anyway, so gating here matches what the policy would accept. Drain detection
+    /// still has its own explicit user off-switch (<c>DrainAnomalyWarningEnabled</c>), which is the
+    /// intended way to silence it deliberately.
+    /// </para>
+    /// </summary>
+    public static TimeSpan AnomalyGapThreshold
+    {
+        get
+        {
+            var userGate = DowntimeThreshold;
+            // "None" (MaxValue) disables the GRAPH's breaks but must not disable drain detection:
+            // fall back to the anomaly floor. Otherwise honour the user's threshold, never below it.
+            if (userGate == TimeSpan.MaxValue) return DrainAnomalyPolicy.MinGap;
+            return userGate > DrainAnomalyPolicy.MinGap ? userGate : DrainAnomalyPolicy.MinGap;
         }
     }
 
@@ -111,10 +145,11 @@ internal static class BatteryHistoryService
 
     /// <summary>
     /// Appends a sample to the file and to the in-memory window. Thread-safe; never throws. Returns
-    /// gap info (TODO #26) when this sample landed more than <see cref="DowntimeThreshold"/> (the same
-    /// gate the graph uses) after the previous one — the caller (which owns the anomaly-rate threshold
-    /// and toast-firing decision; this service stays a persistence layer, not a notification one)
-    /// decides whether it was actually anomalous.
+    /// gap info (TODO #26) when this sample landed more than <see cref="AnomalyGapThreshold"/> after
+    /// the previous one — the anomaly gate, which tracks the graph's threshold while it is positive but
+    /// keeps its own floor when the user picks "None" (issue #40). The caller (which owns the
+    /// anomaly-rate threshold and toast-firing decision; this service stays a persistence layer, not a
+    /// notification one) decides whether it was actually anomalous.
     /// </summary>
     public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw)
     {
@@ -135,10 +170,12 @@ internal static class BatteryHistoryService
             if (_lastPersisted is { } previous)
             {
                 var gap = sample.AtUtc - previous.AtUtc;
-                // Gate on the SHARED DowntimeThreshold so the anomaly path and the graph agree on
-                // what counts as downtime (see the field remarks). The caller then applies its own
-                // rate-trust floor + %/hour threshold before actually toasting.
-                if (gap > DowntimeThreshold)
+                // Gate on AnomalyGapThreshold, NOT the graph's DowntimeThreshold: the two agree while
+                // the user threshold is positive, but "None" only stops the GRAPH drawing breaks — the
+                // anomaly path falls back to its own floor so overnight-drain detection keeps running
+                // (issue #40; see AnomalyGapThreshold remarks). The caller then applies its own
+                // %/hour threshold before actually toasting.
+                if (gap > AnomalyGapThreshold)
                     gapInfo = new DowntimeGapInfo(previous.Soc - sample.Soc, gap);
             }
 
