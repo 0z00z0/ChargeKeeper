@@ -27,15 +27,36 @@ internal sealed class CsvSampleStore
 {
     private string _path;
     private bool _dirEnsured;
+    private readonly string? _header;
 
     /// <param name="fileName">
-    /// File name inside <c>%AppData%\ChargeKeeper</c> (e.g. <c>"history.csv"</c>). The full default
-    /// path is resolved through <see cref="AppPaths"/>; <see cref="UseTestPath"/> can repoint it.
+    /// File name inside <c>%AppData%\ChargeKeeper</c> (e.g. <c>"battery-level-history.csv"</c>). The
+    /// full default path is resolved through <see cref="AppPaths"/>; <see cref="UseTestPath"/> can
+    /// repoint it.
     /// </param>
-    internal CsvSampleStore(string fileName) => _path = AppPaths.DataFile(fileName);
+    /// <param name="header">
+    /// Optional descriptive header block written verbatim the first time the file is CREATED — a
+    /// leading <c>#</c> comment line describing the file/units plus a column-name row, the two joined
+    /// by a single <c>\n</c>. Null (the default) writes no header, matching the store's original
+    /// behaviour. Both header lines fail every service's <c>TryParse</c>, so readers skip them for
+    /// free; a whole-file rewrite that must preserve the header (e.g.
+    /// <see cref="BatteryHistoryService"/>'s prune) reads it back from <see cref="Header"/>.
+    /// </param>
+    internal CsvSampleStore(string fileName, string? header = null)
+    {
+        _path = AppPaths.DataFile(fileName);
+        _header = header;
+    }
 
     /// <summary>Path to the backing CSV file — surfaced by each service's <c>FilePath</c>.</summary>
     internal string FilePath => _path;
+
+    /// <summary>
+    /// The descriptive header block (<c>#</c> comment + column row joined by <c>\n</c>) this store
+    /// prepends on file creation, or <c>null</c> if none was configured. Exposed so a service that
+    /// rewrites the whole file (prune) can re-emit it at the top.
+    /// </summary>
+    internal string? Header => _header;
 
     /// <summary>
     /// TEST-ONLY seam: repoints the store at an isolated file and forgets the dir-ensured flag, so the
@@ -57,6 +78,10 @@ internal sealed class CsvSampleStore
     /// unsafe <c>File.AppendAllText</c> and only dodged it by timing. Still does not swallow I/O
     /// errors: a persistent failure rethrows so the caller owns the "logging must never crash the app"
     /// policy and its own <see cref="AppLog"/> line, exactly as before.
+    /// <para>
+    /// When a <see cref="Header"/> was configured and the file does not yet exist, the header block is
+    /// written ahead of the first row (in the same append, so header + first row land atomically).
+    /// </para>
     /// </summary>
     internal void AppendLine(string line)
     {
@@ -65,7 +90,13 @@ internal sealed class CsvSampleStore
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             _dirEnsured = true;
         }
-        SafeFileAppend.Append(_path, line + "\n");
+        // Emit the descriptive header the first time we CREATE the file (single append with the first
+        // row so a reader never sees a header-only file). Header lines fail TryParse, so they're
+        // skipped on read.
+        if (_header is not null && !File.Exists(_path))
+            SafeFileAppend.Append(_path, _header + "\n" + line + "\n");
+        else
+            SafeFileAppend.Append(_path, line + "\n");
     }
 
     /// <summary>

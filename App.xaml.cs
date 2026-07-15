@@ -63,7 +63,7 @@ public partial class App : Application
     // Diagnosed 2026-07-03: after install, the elevated post-install launch can go unnoticed (the
     // UAC prompt isn't always where the user is looking), so they launch the app again themselves
     // — nothing stopped a second process from running alongside the first. Two instances would
-    // both claim the tray icon and write to history.csv with no cross-process locking. Held for
+    // both claim the tray icon and write to battery-level-history.csv with no cross-process locking. Held for
     // the whole process lifetime; Windows releases it automatically on termination (clean exit,
     // crash, or kill) — no explicit Release() needed, which also sidesteps Mutex's normal
     // same-thread-release requirement (ProcessExit handlers aren't guaranteed to run on the

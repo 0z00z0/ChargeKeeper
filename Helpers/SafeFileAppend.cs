@@ -13,7 +13,7 @@ namespace ChargeKeeper.Helpers;
 /// This is the fix for #34 ("AppLog silently drops lines"): the old code used
 /// <c>File.AppendAllText</c>, whose default <see cref="FileShare.Read"/> denies concurrent writers,
 /// so a sibling process's in-flight append made the call throw a sharing violation — swallowed and
-/// lost. <c>history.csv</c> used the same API and only dodged it by timing, so both callers now route
+/// lost. The history CSVs used the same API and only dodged it by timing, so all callers now route
 /// through here.
 ///
 /// Only sharing/lock collisions are retried; a non-transient failure (missing directory, access

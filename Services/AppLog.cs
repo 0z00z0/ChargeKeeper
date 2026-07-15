@@ -16,7 +16,7 @@ namespace ChargeKeeper.Services;
 /// probe / self-heal / an OnProcessExit handler racing the startup handoff) held <c>app.log</c> open
 /// for write at the same moment, the append threw <see cref="IOException"/> and the bare
 /// <c>catch { }</c> swallowed it forever — the line, and every subsequent collision, vanished with
-/// no trace. <c>history.csv</c> uses the same API but happened to dodge this because of timing, not
+/// no trace. The history CSVs use the same API but happened to dodge this because of timing, not
 /// because it's actually safe.
 /// <para>
 /// The fix: open the file explicitly with <see cref="FileMode.Append"/> +
