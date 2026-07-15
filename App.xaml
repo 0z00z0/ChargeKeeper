@@ -100,6 +100,12 @@
             <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
             <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
+            <!-- Cascadia Mono renders visually larger than WinUI's default sans at the same point
+                 size, so once every control switched to it the Settings text (SettingsCard headers,
+                 combos, toggles) felt oversized. Trim the control-content size a notch (14 -> 12.5)
+                 to compensate. Dashboard text is unaffected — those TextBlocks set explicit FontSize. -->
+            <x:Double x:Key="ControlContentThemeFontSize">12.5</x:Double>
+
             <!-- Default chrome typeface: applied to every TextBlock that has no explicit Style.
                  TextBlock has no control template, so an implicit style here is safe (it only sets
                  the font). Content strings in Buttons/ComboBoxes render through TextBlocks too, so
@@ -140,13 +146,13 @@
                  inline since it varies between the first sub-header and the later ones. -->
             <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="16"/>
+                <Setter Property="FontSize" Value="14"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Margin" Value="0,0,0,4"/>
             </Style>
             <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontSize" Value="12"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Opacity" Value="0.85"/>
             </Style>
