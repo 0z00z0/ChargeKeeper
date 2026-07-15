@@ -38,14 +38,15 @@
             <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent"/>
             <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
 
-            <!-- Enlarge the bespoke two-tone nav icons (#52). The left-pane
-                 NavigationViewItemPresenter template wraps the item Icon in a Viewbox whose Height
-                 is bound to this theme resource (default 16px), so the ImageIcon Width/Height="28"
-                 below was still being scaled down to ~16px. Overriding this single resource is the
-                 least-invasive fix — it enlarges the icon box to ~28px without touching the item
-                 template, label alignment, or collapsed/compact pane behaviour. Adjust this one
-                 number if the size needs tuning after an on-screen check. -->
-            <x:Double x:Key="NavigationViewItemOnLeftIconBoxHeight">28</x:Double>
+            <!-- Enlarge the bespoke two-tone nav icons (#52). SINGLE SOURCE OF TRUTH for the nav
+                 icon size — adjust this ONE number to tune it after an on-screen check. The
+                 left-pane NavigationViewItemPresenter template wraps the item Icon in a Viewbox
+                 whose Height is bound to NavigationViewItemOnLeftIconBoxHeight (default 16px), so
+                 without the override below the ImageIcons were scaled down to ~16px. Aliasing that
+                 theme resource to NavIconSize (rather than repeating the literal) keeps the icon
+                 box and every ImageIcon W/H in lockstep — least-invasive, no item-template copy. -->
+            <x:Double x:Key="NavIconSize">28</x:Double>
+            <StaticResource x:Key="NavigationViewItemOnLeftIconBoxHeight" ResourceKey="NavIconSize"/>
         </NavigationView.Resources>
 
         <!-- #52: bespoke two-tone nav icons (steel outline + sage/terracotta accents), shipped as
@@ -53,25 +54,25 @@
              PathIcon. -->
         <NavigationView.MenuItems>
             <NavigationViewItem Content="General"         Tag="General">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Smart Charge"     Tag="SmartCharge">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Network"          Tag="Network">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <!-- #45: an Appearance section (a dead "Use new styling" toggle) was removed; restore a
                  nav item here — icon asset Assets/nav/appearance.svg is retained — when there's a
                  real styling setting to expose. -->
             <NavigationViewItem Content="About"            Tag="About">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg" Width="28" Height="28"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>
 

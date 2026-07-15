@@ -44,6 +44,11 @@ AppSupportURL={#AppUrl}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+; Inno Setup 6 defaults DisableWelcomePage=yes, which hides the Welcome page entirely — so the
+; redesigned studio banner (WizardImageFile) and the studio-voice WelcomeLabel copy below would
+; only ever appear on the Finished page. Show the Welcome page so the #60 installer redesign is
+; actually seen (one extra "Next" click on the way in).
+DisableWelcomePage=no
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 ; Per-user: installs under %LocalAppData%\Programs, no UAC for the install itself.
@@ -86,10 +91,14 @@ WelcomeLabel2=This will install {#AppName} on your computer.%n%n{#AppName} insta
 ; The app has no window — it runs from the notification area (system tray). Both
 ; finished-page strings are set so the first-time user knows where to find it,
 ; whichever variant Inno shows (with or without a post-install run option).
-FinishedLabelNoIcons={#AppName} is installed and running. Look for its icon in the notification area (the system tray, next to the clock) — that is where you open it, check the battery, and change its settings.
-FinishedLabel={#AppName} is installed and running. Look for its icon in the notification area (the system tray, next to the clock) — that is where you open it, check the battery, and change its settings.
+; ASCII-only on purpose: this .iss has no UTF-8 BOM, so Inno Setup 6 reads it as ANSI — a
+; U+2014 em dash would ship as mojibake ("a-tilde ..."). Use plain ASCII punctuation here.
+; Says "installed", not "installed and running": the post-install launch is an elevated
+; ShellExec that the user can cancel at the UAC prompt, so "running" isn't guaranteed.
+FinishedLabelNoIcons={#AppName} is installed. Look for its icon in the notification area (the system tray, next to the clock); that's where you open it, check the battery, and change its settings.
+FinishedLabel={#AppName} is installed. Look for its icon in the notification area (the system tray, next to the clock); that's where you open it, check the battery, and change its settings.
 ; Quiet studio sign-off, bottom-left of every wizard page.
-BeveledLabel=ZeroZero Software — Small tools. Zero bloat.
+BeveledLabel=ZeroZero Software - Small tools. Zero bloat.
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion

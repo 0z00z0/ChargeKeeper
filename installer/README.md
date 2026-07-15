@@ -77,8 +77,11 @@ purple→indigo) — it is the studio's signature, not the app's. This is why th
 wizard banner even though it never appears in the app's own icon.
 
 **Product framing (flat, muted).** Everything *around* the mark that frames ChargeKeeper — the
-accent bars, the background glow tint, the battery glyph, and the inner-page headings — uses
-ChargeKeeper's flat muted product palette, **with no gradients outside the mark**:
+accent bars, the battery glyph, and the inner-page headings — uses ChargeKeeper's flat muted
+product palette as **flat fills** (no gradients on the product framing; the `[Ø]` mark is the only
+element that keeps gradients). The one exception is the dark banner's own background, which keeps a
+subtle radial *glow* vignette (a soft `#16232c`→`#0a0f17`) as part of the studio surface — a
+background tone, not framing:
 
 | Role                         | On dark banner            | Dense on-white (inner pages) |
 |------------------------------|---------------------------|------------------------------|
