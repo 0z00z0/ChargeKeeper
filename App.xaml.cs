@@ -392,6 +392,11 @@ public partial class App : Application
     private void SubscribeBatteryEvents()
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        // Re-render the tray icon at the new taskbar DPI when the display config changes (monitor
+        // added/removed, taskbar moved to a different-DPI monitor, scale changed) — otherwise the
+        // cached slot size + the battery-tick-gated render leave the arc rescaled/washed-out until the
+        // next battery event (issue #40 item 2 trigger).
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's
         // own state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
@@ -557,6 +562,9 @@ public partial class App : Application
             // non-blocking TryEnqueue). The HaState is BUILT here for a coherent snapshot but PUBLISHED
             // after the lock releases, so the lock never spans the MQTT publish either.
             HaState haSnapshot;
+            bool fireLowBattery = false;
+            bool fireChargingStarted = false;
+            int? chargeCompleteStopPct = null;
             using (_batteryReportLock.EnterScope())
             {
                 // ── Dynamic tray icon ─────────────────────────────────────────
@@ -591,7 +599,7 @@ public partial class App : Application
                     !_lowBatteryWarningFired)
                 {
                     _lowBatteryWarningFired = true;
-                    ToastService.NotifyLowBattery(pct);
+                    fireLowBattery = true;   // fired outside the lock (see below)
                 }
                 // Reset the guard with hysteresis so it can fire again after a partial charge.
                 else if (pct > s.LowBatteryWarningPct + 5)
@@ -605,8 +613,7 @@ public partial class App : Application
                 if (_lastBatteryStatus == BatteryStatus.Charging &&
                     report.Status      == BatteryStatus.Idle)
                 {
-                    int stopPct = thresholdState is { Enabled: true, Stop: > 0 } ? thresholdState.Stop : 100;
-                    ToastService.NotifyChargeComplete(stopPct);
+                    chargeCompleteStopPct = thresholdState is { Enabled: true, Stop: > 0 } ? thresholdState.Stop : 100;
                 }
 
                 // ── Travel override revert ────────────────────────────────────
@@ -640,7 +647,7 @@ public partial class App : Application
                 if (_lastBatteryStatus == BatteryStatus.Discharging &&
                     report.Status      == BatteryStatus.Charging)
                 {
-                    ToastService.NotifyChargingStarted();
+                    fireChargingStarted = true;   // fired outside the lock (see below)
                 }
 
                 // ── Charger-wattage cache invalidation ────────────────────────
@@ -654,6 +661,15 @@ public partial class App : Application
 
                 _lastBatteryStatus = report.Status;
             }
+
+            // ── Toasts (outside the lock) ─────────────────────────────────────
+            // ToastService.Notify* does a synchronous WinRT/COM Show; keeping it out of the critical
+            // section means a toast can't stall a concurrent MQTT snapshot read (which now also takes
+            // _batteryReportLock). The fire/skip decisions + the _lowBatteryWarningFired latch were made
+            // inside the lock above; only the COM Show is deferred here.
+            if (fireLowBattery)                    ToastService.NotifyLowBattery(pct);
+            if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop);
+            if (fireChargingStarted)               ToastService.NotifyChargingStarted();
 
             // ── Home Assistant publish (outside the lock) ─────────────────────
             // No-op unless the MQTT publisher is enabled+connected. Kept out of the critical section
@@ -709,6 +725,16 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Fires when the desktop display topology or DPI changes. The tray slot size is DPI-dependent,
+    /// so drop the cached slot size and repaint the icon at the new resolution.
+    /// </summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        Helpers.IconGenerator.InvalidateSlotSizeCache();
+        ForceIconRefresh();
+    }
+
+    /// <summary>
     /// Forces an immediate tray icon re-render using the last known battery state.
     /// Called when the icon mode is toggled from the tray menu or settings panel.
     /// </summary>
@@ -727,8 +753,22 @@ public partial class App : Application
     /// </summary>
     internal void RefreshTooltip()
     {
-        _lastThresholdState = ChargeThresholdService.Read();
-        UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
+        // The vendor RPC stays OUTSIDE the lock (never hold _batteryReportLock across an EC call).
+        var threshold = ChargeThresholdService.Read();
+
+        // Then take the lock to write _lastThresholdState and snapshot the fields UpdateTooltip needs,
+        // so this off-thread writer (fires on TravelOverrideService.StateChanged) stays coherent with
+        // OnBatteryReportUpdated and the MQTT CurrentStateProvider read — otherwise a snapshot could
+        // pair this just-restored threshold with a previous tick's battery fields.
+        int pct; int? remaining, full;
+        using (_batteryReportLock.EnterScope())
+        {
+            _lastThresholdState = threshold;
+            pct       = _lastIconState.Pct < 0 ? 0 : _lastIconState.Pct;
+            remaining = _lastRemainingMwh;
+            full      = _lastFullMwh;
+        }
+        UpdateTooltip(pct, remaining, full);
     }
 
     /// <summary>
@@ -959,6 +999,7 @@ public partial class App : Application
 
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
