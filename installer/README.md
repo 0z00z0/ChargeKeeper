@@ -65,6 +65,51 @@ installer over an existing Lenovo Power Tray install upgrades it in place:
 - The **winget identity is new** (`0z00z0.ChargeKeeper`) — the old package ID will not auto-upgrade
   across the rename; users install the new ID once.
 
+## Installer visual design (wizard art & setup icon)
+
+The installer is a **"made by ZeroZero Software" surface**, so it carries the studio identity —
+but only as a *shell*. The design rule settled by #60 keeps a clear split between what belongs to
+the studio and what belongs to the product:
+
+**Studio surface (constant).** The dark `#0a0f17` background and the canonical `[Ø]` studio mark
+stay. The mark is the one element allowed to keep its studio bracket gradients (teal→blue,
+purple→indigo) — it is the studio's signature, not the app's. This is why the `[Ø]` appears on the
+wizard banner even though it never appears in the app's own icon.
+
+**Product framing (flat, muted).** Everything *around* the mark that frames ChargeKeeper — the
+accent bars, the background glow tint, the battery glyph, and the inner-page headings — uses
+ChargeKeeper's flat muted product palette, **with no gradients outside the mark**:
+
+| Role                         | On dark banner            | Dense on-white (inner pages) |
+|------------------------------|---------------------------|------------------------------|
+| SteelBlue (body / structure) | `#7FA8B8`                 | `#3F6374`                    |
+| Sage (charge fill)           | `#7AB88F`                 | `#4F8F67`                    |
+| Terracotta (guard line)      | `#C9926B`                 | `#B57745`                    |
+
+**Inner pages stay light.** The wizard runs `WizardStyle=modern` (light modern inner pages) with
+dense-steel headings. The brand typeface (Cascadia Mono) appears **only in the pre-rendered
+bitmaps** — it is never set as the wizard dialog font, so the inner pages use the native system UI
+font and stay legible at every DPI.
+
+The intent is that this installer is a working reference: future ZeroZero Software installers
+(HyperVManagerTray, M365Migrator) should follow the same studio-surface-vs-product-framing split,
+swapping only the per-product palette.
+
+### Which script generates what
+
+There is **no SVG rasteriser on the build machine**, so every installer bitmap is drawn natively
+with System.Drawing (GDI+) from the same geometry the reference SVGs describe:
+
+| Artefact                                   | Generator                             | Notes |
+|--------------------------------------------|---------------------------------------|-------|
+| `installer\wizard\wizimg-*.bmp` (side banner) and `wizsmall-*.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs at 100/125/150/175/200 % so Inno picks the best for the display DPI. Referenced by `WizardImageFile` / `WizardSmallImageFile` in `ChargeKeeper.iss`. |
+| `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -Plated`    | The steel battery glyph on a dark rounded-square plate, so the icon stays visible on Inno's light title bar. The app itself still ships the plain transparent `Assets\AppIcon.ico`. |
+
+`installer\wizard\*.svg` (`wizard-image.svg`, `wizard-small.svg`) are **design references only** —
+they are not consumed by the build. They must be kept in sync with the GDI+ geometry in
+`make-wizard-images.ps1`: if you change one, change the other and re-run the script so the shipped
+BMPs match the reference.
+
 ## Releasing
 
 ### Automated release (recommended) — GitHub Actions
