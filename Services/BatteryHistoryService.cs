@@ -15,8 +15,9 @@ internal readonly record struct DowntimeGapInfo(int SocDropPercent, TimeSpan Gap
 
 /// <summary>
 /// File-backed battery history. Every sample (SoC %, Smart-Charge limit %, charge power mW) is
-/// appended to <c>%AppData%\ChargeKeeper\history.csv</c> with an absolute UTC timestamp, so the
-/// graph survives restarts and downtime shows up as a gap in the timeline. Data is kept for 14 days.
+/// appended to <c>%AppData%\ChargeKeeper\battery-level-history.csv</c> with an ISO-8601 timestamp
+/// (local UTC offset), so the graph survives restarts and downtime shows up as a gap in the
+/// timeline. Data is kept for 14 days.
 /// <para>
 /// Only the <em>currently-selected time window</em> is held in memory: <see cref="LoadWindow"/> reads
 /// that slice from the file, and <see cref="Record"/> keeps it trimmed as new samples arrive.
@@ -100,7 +101,18 @@ internal static class BatteryHistoryService
     // windowing, pruning, and gap-detection state below). Every store call happens under _lock, the
     // same lock that guards that in-memory state — see CsvSampleStore's remarks on why it holds no
     // lock of its own.
-    private static readonly CsvSampleStore _store = new("history.csv");
+    // Descriptive header (a leading '#' comment describing the file + units, then the column-name
+    // row) written once when the store first creates the file, and re-emitted by PruneFile's rewrite.
+    // Both lines fail TryParse, so LoadWindow/PruneFile skip them for free.
+    internal const string HeaderComment =
+        "# ChargeKeeper battery-level history — one row per ~20 s sample. " +
+        "timestamp = ISO 8601 with local UTC offset; soc_percent = state of charge; " +
+        "charge_limit_percent = Smart Charge limit (blank if off); " +
+        "power_mw = charge power in milliwatts (negative = discharging).";
+    internal const string HeaderColumns = "timestamp,soc_percent,charge_limit_percent,power_mw";
+    internal const string Header = HeaderComment + "\n" + HeaderColumns;
+
+    private static readonly CsvSampleStore _store = new("battery-level-history.csv", Header);
 
     private static readonly Lock _lock = new();
 
@@ -322,10 +334,15 @@ internal static class BatteryHistoryService
             if (droppedCount > 0)
             {
                 // Rewrite in place via a temp file + atomic move — a whole-file rewrite that stays a
-                // BatteryHistoryService concern (the append-only store offers no rewrite op).
+                // BatteryHistoryService concern (the append-only store offers no rewrite op). Re-emit
+                // the header block at the top: the kept rows are data-only (header lines fail TryParse,
+                // so they were never added to `kept`), and without this the prune would drop the header.
                 var path = _store.FilePath;
                 var tmp = path + ".tmp";
-                File.WriteAllLines(tmp, kept);
+                var output = new List<string>();
+                if (_store.Header is { } h) output.AddRange(h.Split('\n'));
+                output.AddRange(kept);
+                File.WriteAllLines(tmp, output);
                 File.Move(tmp, path, overwrite: true);
                 AppLog.Info($"History pruned: dropped {droppedCount} row(s) older than {RetentionDays}d, {kept.Count} kept.");
             }
@@ -336,10 +353,13 @@ internal static class BatteryHistoryService
         }
     }
 
-    // CSV row: unixMillisUtc,soc,limit,powerMw  (limit column blank when Smart Charge is off).
-    // Internal (not private) so unit tests can verify the round-trip without touching any file.
+    // CSV row: timestamp,soc_percent,charge_limit_percent,power_mw where timestamp is ISO 8601 with
+    // the machine's local UTC offset (e.g. 2026-07-15T14:30:00+02:00) and the limit column is blank
+    // when Smart Charge is off. Internal (not private) so unit tests can verify the round-trip without
+    // touching any file. The stored AtUtc is always Kind=Utc; the local offset in the file is purely
+    // for human readability and round-trips the same instant.
     internal static string Format(BatterySample s) => string.Create(CultureInfo.InvariantCulture,
-        $"{new DateTimeOffset(s.AtUtc).ToUnixTimeMilliseconds()},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw}");
+        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw}");
 
     internal static bool TryParse(string line, out BatterySample sample)
     {
@@ -347,11 +367,11 @@ internal static class BatteryHistoryService
         var p = line.Split(',');
         if (p.Length < 4) return false;
         var ci = CultureInfo.InvariantCulture;
-        if (!long.TryParse(p[0], NumberStyles.Integer, ci, out var ms))  return false;
+        if (!DateTimeOffset.TryParse(p[0], ci, DateTimeStyles.RoundtripKind, out var dto)) return false;
         if (!int.TryParse (p[1], NumberStyles.Integer, ci, out var soc)) return false;
         int? limit = int.TryParse(p[2], NumberStyles.Integer, ci, out var l) ? l : null;
         if (!int.TryParse (p[3], NumberStyles.Integer, ci, out var pw))  return false;
-        sample = new BatterySample(DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime, soc, limit, pw);
+        sample = new BatterySample(dto.UtcDateTime, soc, limit, pw);
         return true;
     }
 }
