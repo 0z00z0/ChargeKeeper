@@ -26,11 +26,14 @@ public partial class App : Application
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
     private BatteryStatus _lastBatteryStatus = BatteryStatus.NotPresent;
 
-    // Serialises OnBatteryReportUpdated. The forced startup read (Task.Run in SubscribeBatteryEvents)
-    // can run concurrently with a genuine ReportUpdated event on the MTA thread, and both read+update
-    // the unsynchronised _last* fields and the transition-detection state. Without this lock a
-    // plug-in landing at the exact startup moment could be seen by BOTH invocations → a duplicate
-    // "AC connected" toast and a spurious charger-wattage cache invalidate.
+    // Guards the coherence of the _last* battery fields + transition-detection state. Two readers/
+    // writers can now touch them concurrently: (1) the MQTT CurrentStateProvider snapshot, invoked on
+    // the MQTT thread (issue #40 item 5), and (2) OnBatteryReportUpdated itself, in case two genuine
+    // ReportUpdated events ever overlap on the MTA thread pool. Each takes this lock only for the brief
+    // read-or-publish of the fields (no vendor RPC, no MQTT publish spans it — see item 6), so a reader
+    // always sees a whole tick, never a torn mix of this tick's and the previous tick's fields.
+    // (The old startup Task.Run-vs-event race this used to guard is gone: SubscribeBatteryEvents now
+    // seeds the fields BEFORE subscribing, so no second full-handler copy runs concurrently.)
     private readonly System.Threading.Lock _batteryReportLock = new();
 
     // Cached tray icon state; Pct = -1 means not yet read.
@@ -388,18 +391,32 @@ public partial class App : Application
 
     private void SubscribeBatteryEvents()
     {
-        Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
         // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's
         // own state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
-        // Trigger immediately with the current state so the icon is right from the start — but on a
-        // background thread (this is called on the UI thread during startup, whereas the event
-        // normally fires on an MTA thread). The handler already marshals its icon swap + dashboard
-        // refresh via UpdateTrayIcon/RunOnUi, so running it off-thread keeps the battery read + two
-        // Lenovo RPCs + the capacity-file read it does out of the startup UI-thread path. The static
-        // brand icon is already showing, so there's no visible gap while this completes.
-        _ = Task.Run(() => OnBatteryReportUpdated(Battery.AggregateBattery, null!));
+
+        // Seed the icon + _last* baseline from a forced initial read, THEN subscribe to ReportUpdated
+        // — in that order (issue #40 item 6). Previously we subscribed FIRST and then fired a
+        // concurrent Task.Run(OnBatteryReportUpdated), so a second full copy of the handler ran
+        // alongside a just-registered event — and _batteryReportLock existed only to stop those two
+        // interleaving on the shared _last* fields (a duplicate "AC connected" toast + a spurious
+        // charger-wattage invalidate). Seeding before subscribing removes that race at the source: the
+        // seed runs single-threaded (nothing is subscribed yet), and its transition toasts are natural
+        // no-ops because they edge-detect against _lastBatteryStatus, still NotPresent at that point.
+        // The low-battery warning is LEVEL-based, not edge-based, so an at-startup low battery still
+        // toasts on this first real evaluation — the intended startup warning is preserved.
+        //
+        // Runs off the UI thread (this method is called on the UI thread during startup) so the
+        // battery read + Lenovo RPCs + capacity-file read stay off the cold-start path; the static
+        // brand icon covers the brief gap. Subscribing only AFTER the seed completes means the first
+        // real event can't overlap the seed. A battery change during the seed is not lost: the seed
+        // itself captures current state, and every change after subscription is delivered.
+        _ = Task.Run(() =>
+        {
+            OnBatteryReportUpdated(Battery.AggregateBattery, null!);
+            Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+        });
     }
 
     // ── History sampling ──────────────────────────────────────────────────────
@@ -488,10 +505,6 @@ public partial class App : Application
 
     private void OnBatteryReportUpdated(Battery sender, object args)
     {
-        // Serialise the whole read→decide→update so the forced startup read and a real ReportUpdated
-        // event can't interleave on the shared _last* fields (see _batteryReportLock). The body only
-        // marshals to the UI thread via non-blocking TryEnqueue, so holding the lock can't deadlock.
-        using var lockScope = _batteryReportLock.EnterScope();
         try
         {
             var report = sender.GetReport();
@@ -514,107 +527,132 @@ public partial class App : Application
             // Unlike the SoC history above, this rides the battery-report EVENT rather than a
             // dedicated timer — RecordIfNewDay is a cheap no-op after the first success each day,
             // and this event already fires often enough (multiple times an hour) that a separate
-            // timer would add nothing but a second thing to start/stop at shutdown.
+            // timer would add nothing but a second thing to start/stop at shutdown. Independent of the
+            // _last* fields, so it stays outside the lock.
             if (report.FullChargeCapacityInMilliwattHours is > 0 and { } fullChargeMwh)
                 BatteryCapacityHistoryService.RecordIfNewDay(fullChargeMwh, report.DesignCapacityInMilliwattHours);
 
-            // ── Dynamic tray icon ─────────────────────────────────────────────
-            // Only re-render when something meaningful changed (avoids GDI churn every tick).
-            if ((pct, charging) != _lastIconState)
-            {
-                _lastIconState = (pct, charging);
-                UpdateTrayIcon(pct, charging);
-            }
-
-            // ── Dashboard live update ──────────────────────────────────────────
-            // Push an immediate refresh to the open dashboard so power connect/disconnect
-            // and percentage changes are reflected at once, without waiting for the 5 s timer.
-            if (_dashboard is not null)
-            {
-                // Re-read _dashboard on the UI thread (where the Closed handler nulls it). Touching a
-                // window that closed after this tick captured it throws InvalidOperationException via
-                // combase — fatal inside a raw dispatcher callback. RunOnUi also catches as a backstop.
-                RunOnUi(() =>
-                {
-                    if (_dashboard is { } dash && dash.AppWindow.IsVisible)
-                        dash.RefreshFromEvent();
-                });
-            }
-
-            // ── Low-battery warning ───────────────────────────────────────────
-            var s = SettingsService.Current;
-            if (s.LowBatteryWarningEnabled &&
-                report.Status == BatteryStatus.Discharging &&
-                pct > 0 &&
-                pct <= s.LowBatteryWarningPct &&
-                !_lowBatteryWarningFired)
-            {
-                _lowBatteryWarningFired = true;
-                ToastService.NotifyLowBattery(pct);
-            }
-            // Reset the guard with hysteresis so it can fire again after a partial charge.
-            else if (pct > s.LowBatteryWarningPct + 5)
-            {
-                _lowBatteryWarningFired = false;
-            }
-
-            // ── Toast: charging complete ──────────────────────────────────────
-            // Fire when the battery transitions from Charging → Idle (threshold or full).
-            if (_lastBatteryStatus == BatteryStatus.Charging &&
-                report.Status      == BatteryStatus.Idle)
-            {
-                var state   = ChargeThresholdService.Read();
-                int stopPct = state is { Enabled: true, Stop: > 0 } ? state.Stop : 100;
-                ToastService.NotifyChargeComplete(stopPct);
-            }
-
-            // ── Travel override revert ────────────────────────────────────────
-            // Feed every reading to the service; it owns the "revert once charging completes"
-            // decision (Charging→Idle edge, or Idle at 100 %) and the fire-once latch.
-            TravelOverrideService.OnBatteryReport(pct, report.Status);
-
-            // ── Tray tooltip ──────────────────────────────────────────────────
-            _lastOnAC           = charging;   // IsOnAC — shared with the icon expression above
-            _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
-            _lastThresholdState = ChargeThresholdService.Read();
-            _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
-            _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
-            _lastDesignMwh      = report.DesignCapacityInMilliwattHours;   // TODO #29 — battery-health denominator
-            // Windows Energy Saver → the HA mobile-app "Low Power Mode" attribute (TODO #29).
-            _lastLowPowerMode   = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
-            // Warm ChargerInfoService's own memoized wattage while on AC (TODO #41) — the read RPCs
-            // at most once per AC session, and Invalidate() below drops it on unplug. Consumers
-            // (tooltip, HA publish) read ChargerInfoService.CachedWattage directly rather than a
-            // second App-level copy of the same value (TODO #18).
+            // ── Vendor RPCs — deliberately BEFORE the lock (issue #40 item 6) ─────────────────
+            // The MQTT CurrentStateProvider (issue #40 item 5) now also takes _batteryReportLock, so
+            // holding it across a blocking Lenovo EC call would stall MQTT publishing. Read the charge
+            // threshold once here (reused below for both _lastThresholdState AND the charge-complete
+            // stop%, so this also drops the old duplicate second read) and warm the charger-wattage
+            // cache while on AC (TODO #41 — the read RPCs at most once per AC session, and Invalidate()
+            // below drops it on unplug). Consumers (tooltip, HA snapshot) then read
+            // ChargerInfoService.CachedWattage directly rather than an App-level copy (TODO #18).
+            var thresholdState = ChargeThresholdService.Read();
             if (charging) ChargerInfoService.GetRatedWattage();
-            UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
-            // ── Home Assistant publish (TODO #28/#29/#30) ─────────────────────
-            // No-op unless the MQTT publisher is enabled+connected. HaStateBuilder gates which
-            // fields are known and derives the HA mobile-app-aligned battery sensors (state/health/
-            // remaining time); the active preset drives the "Charge preset" select's reflected value.
-            _ha?.PublishState(HaStateBuilder.Build(
-                pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
-                _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                SettingsService.Current.ActivePreset));
-
-            // ── Toast: AC connected ───────────────────────────────────────────
-            if (_lastBatteryStatus == BatteryStatus.Discharging &&
-                report.Status      == BatteryStatus.Charging)
+            // ── Critical section — coherent edge-detect + _last* publish, NO vendor RPC ───────
+            // The lock's ONLY remaining job is to keep this block atomic against a concurrent MQTT
+            // snapshot read (item 5) or an overlapping real ReportUpdated event, so neither sees a
+            // torn mix of this tick's and the previous tick's _last* fields. It never spans a vendor
+            // RPC (hoisted above) and never blocks (icon/tooltip/dashboard only marshal via
+            // non-blocking TryEnqueue). The HaState is BUILT here for a coherent snapshot but PUBLISHED
+            // after the lock releases, so the lock never spans the MQTT publish either.
+            HaState haSnapshot;
+            using (_batteryReportLock.EnterScope())
             {
-                ToastService.NotifyChargingStarted();
+                // ── Dynamic tray icon ─────────────────────────────────────────
+                // Only re-render when something meaningful changed (avoids GDI churn every tick).
+                if ((pct, charging) != _lastIconState)
+                {
+                    _lastIconState = (pct, charging);
+                    UpdateTrayIcon(pct, charging);
+                }
+
+                // ── Dashboard live update ──────────────────────────────────────
+                // Push an immediate refresh to the open dashboard so power connect/disconnect
+                // and percentage changes are reflected at once, without waiting for the 5 s timer.
+                if (_dashboard is not null)
+                {
+                    // Re-read _dashboard on the UI thread (where the Closed handler nulls it). Touching
+                    // a window that closed after this tick captured it throws InvalidOperationException
+                    // via combase — fatal inside a raw dispatcher callback. RunOnUi catches as backstop.
+                    RunOnUi(() =>
+                    {
+                        if (_dashboard is { } dash && dash.AppWindow.IsVisible)
+                            dash.RefreshFromEvent();
+                    });
+                }
+
+                // ── Low-battery warning ───────────────────────────────────────
+                var s = SettingsService.Current;
+                if (s.LowBatteryWarningEnabled &&
+                    report.Status == BatteryStatus.Discharging &&
+                    pct > 0 &&
+                    pct <= s.LowBatteryWarningPct &&
+                    !_lowBatteryWarningFired)
+                {
+                    _lowBatteryWarningFired = true;
+                    ToastService.NotifyLowBattery(pct);
+                }
+                // Reset the guard with hysteresis so it can fire again after a partial charge.
+                else if (pct > s.LowBatteryWarningPct + 5)
+                {
+                    _lowBatteryWarningFired = false;
+                }
+
+                // ── Toast: charging complete ──────────────────────────────────
+                // Fire when the battery transitions from Charging → Idle (threshold or full). Reuses
+                // the single thresholdState read above rather than a fresh EC RPC.
+                if (_lastBatteryStatus == BatteryStatus.Charging &&
+                    report.Status      == BatteryStatus.Idle)
+                {
+                    int stopPct = thresholdState is { Enabled: true, Stop: > 0 } ? thresholdState.Stop : 100;
+                    ToastService.NotifyChargeComplete(stopPct);
+                }
+
+                // ── Travel override revert ────────────────────────────────────
+                // Feed every reading to the service; it owns the "revert once charging completes"
+                // decision (Charging→Idle edge, or Idle at 100 %) and the fire-once latch, and
+                // dispatches any actual EC revert on its own background Task (never blocks here).
+                TravelOverrideService.OnBatteryReport(pct, report.Status);
+
+                // ── Tray tooltip ──────────────────────────────────────────────
+                _lastOnAC           = charging;   // IsOnAC — shared with the icon expression above
+                _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
+                _lastThresholdState = thresholdState;                          // hoisted read above
+                _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
+                _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
+                _lastDesignMwh      = report.DesignCapacityInMilliwattHours;   // TODO #29 — battery-health denominator
+                // Windows Energy Saver → the HA mobile-app "Low Power Mode" attribute (TODO #29).
+                _lastLowPowerMode   = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
+                UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
+
+                // ── Home Assistant snapshot (TODO #28/#29/#30) ────────────────
+                // Built under the lock for a coherent _last* view; PUBLISHED below, outside the lock.
+                // HaStateBuilder gates which fields are known and derives the HA mobile-app-aligned
+                // battery sensors (state/health/remaining time); the active preset drives the "Charge
+                // preset" select's reflected value.
+                haSnapshot = HaStateBuilder.Build(
+                    pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
+                    _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
+                    SettingsService.Current.ActivePreset);
+
+                // ── Toast: AC connected ───────────────────────────────────────
+                if (_lastBatteryStatus == BatteryStatus.Discharging &&
+                    report.Status      == BatteryStatus.Charging)
+                {
+                    ToastService.NotifyChargingStarted();
+                }
+
+                // ── Charger-wattage cache invalidation ────────────────────────
+                // Unplugged: drop ChargerInfoService's memoized adapter wattage, so the next AC
+                // session re-reads whatever adapter is attached then — it may be a different charger.
+                if (_lastBatteryStatus != BatteryStatus.Discharging &&
+                    report.Status      == BatteryStatus.Discharging)
+                {
+                    ChargerInfoService.Invalidate();
+                }
+
+                _lastBatteryStatus = report.Status;
             }
 
-            // ── Charger-wattage cache invalidation ────────────────────────────
-            // Unplugged: drop ChargerInfoService's memoized adapter wattage, so the next AC
-            // session re-reads whatever adapter is attached then — it may be a different charger.
-            if (_lastBatteryStatus != BatteryStatus.Discharging &&
-                report.Status      == BatteryStatus.Discharging)
-            {
-                ChargerInfoService.Invalidate();
-            }
-
-            _lastBatteryStatus = report.Status;
+            // ── Home Assistant publish (outside the lock) ─────────────────────
+            // No-op unless the MQTT publisher is enabled+connected. Kept out of the critical section
+            // so the lock never spans the publish (item 5) even though PublishState is fire-and-forget.
+            _ha?.PublishState(haSnapshot);
         }
         catch
         {
