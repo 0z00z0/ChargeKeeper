@@ -232,7 +232,7 @@
                         <TextBox x:Name="HaHostBox" MinWidth="220" PlaceholderText="e.g. 10.0.20.22"/>
                     </controls:SettingsCard>
                     <controls:SettingsCard Header="Port">
-                        <NumberBox x:Name="HaPortBox" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Compact" MinWidth="120"/>
+                        <NumberBox x:Name="HaPortBox" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Hidden" MinWidth="120"/>
                     </controls:SettingsCard>
                     <controls:SettingsCard Header="Username" Description="Leave blank for an anonymous broker.">
                         <TextBox x:Name="HaUsernameBox" MinWidth="220"/>
