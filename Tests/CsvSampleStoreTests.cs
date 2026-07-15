@@ -47,7 +47,7 @@ public class CsvSampleStoreTests : IDisposable
         // Point at a file inside a not-yet-existing subdirectory to prove AppendLine ensures the dir
         // (the dir-ensure-once behaviour both history services relied on) rather than throwing.
         var nestedDir  = Path.Combine(Path.GetTempPath(), $"ck-csvstore-dir-{Guid.NewGuid():N}");
-        var nestedFile = Path.Combine(nestedDir, "history.csv");
+        var nestedFile = Path.Combine(nestedDir, "battery-level-history.csv");
         try
         {
             _store.UseTestPath(nestedFile);
@@ -79,6 +79,36 @@ public class CsvSampleStoreTests : IDisposable
         _store.AppendLine("last");
 
         Assert.Equal("last", _store.ReadLastLine());
+    }
+
+    [Fact]
+    public void AppendLine_WithHeader_WritesHeaderBlockOnCreation_ThenNotAgain()
+    {
+        // A header-configured store writes its '#' comment + column row exactly once, when it first
+        // CREATES the file, ahead of the first data row — and never again on later appends.
+        var headerFile = Path.Combine(Path.GetTempPath(), $"ck-csvstore-hdr-{Guid.NewGuid():N}.csv");
+        var store = new CsvSampleStore("placeholder.csv", "# comment line\ncol_a,col_b");
+        store.UseTestPath(headerFile);
+        try
+        {
+            store.AppendLine("row-1");
+            store.AppendLine("row-2");
+
+            Assert.Equal(
+                new[] { "# comment line", "col_a,col_b", "row-1", "row-2" },
+                store.ReadAllLines());
+        }
+        finally
+        {
+            try { File.Delete(headerFile); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void Header_ExposesConfiguredHeader_NullWhenNone()
+    {
+        Assert.Null(_store.Header);   // the shared store was constructed without a header
+        Assert.Equal("# c\nx,y", new CsvSampleStore("p.csv", "# c\nx,y").Header);
     }
 
     [Fact]

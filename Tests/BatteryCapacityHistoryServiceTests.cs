@@ -5,7 +5,7 @@ namespace ChargeKeeper.Tests;
 
 // Same isolation pattern as BatteryHistoryServiceTests: UseTestPath points the static service at a
 // throwaway file and resets its in-memory "already recorded today" cache, so tests never touch the
-// real user's capacity-history.csv and can't see each other's data.
+// real user's battery-capacity-history.csv and can't see each other's data.
 public class BatteryCapacityHistoryServiceTests : IDisposable
 {
     private readonly string _testFile =
@@ -52,6 +52,45 @@ public class BatteryCapacityHistoryServiceTests : IDisposable
     public void TryParse_RejectsMalformedLine(string line)
     {
         Assert.False(BatteryCapacityHistoryService.TryParse(line, out _));
+    }
+
+    [Fact]
+    public void FormatThenParse_RoundTripsInstantToTheSecond_AcrossLocalOffset()
+    {
+        // A whole-second UTC instant must survive Format (written in local time with the machine's
+        // UTC offset) → TryParse (converted back to UTC) unchanged, regardless of the dev timezone.
+        var sample = new CapacitySample(new DateTime(2026, 7, 15, 9, 5, 30, DateTimeKind.Utc), 48000, 52000);
+
+        var line = BatteryCapacityHistoryService.Format(sample);
+        Assert.True(BatteryCapacityHistoryService.TryParse(line, out var parsed));
+
+        Assert.Equal(sample.AtUtc, parsed.AtUtc);
+        Assert.Equal(DateTimeKind.Utc, parsed.AtUtc.Kind);
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2},", line);
+    }
+
+    [Fact]
+    public void TryParse_SkipsHeaderLines()
+    {
+        Assert.False(BatteryCapacityHistoryService.TryParse(BatteryCapacityHistoryService.HeaderComment, out _));
+        Assert.False(BatteryCapacityHistoryService.TryParse(BatteryCapacityHistoryService.HeaderColumns, out _));
+    }
+
+    [Fact]
+    public void RecordIfNewDay_OnFreshFile_WritesHeaderBlock_AndReadSkipsIt()
+    {
+        // The first RecordIfNewDay on a non-existent file writes the descriptive header block, then
+        // the sample. LoadAll skips the header and returns only the data row.
+        BatteryCapacityHistoryService.RecordIfNewDay(48000, 52000);
+
+        var lines = File.ReadAllLines(_testFile);
+        Assert.Equal(BatteryCapacityHistoryService.HeaderComment, lines[0]);
+        Assert.Equal(BatteryCapacityHistoryService.HeaderColumns, lines[1]);
+        Assert.StartsWith("#", lines[0]);
+        Assert.Equal(3, lines.Length);   // comment + columns + one data row
+
+        var sample = Assert.Single(BatteryCapacityHistoryService.LoadAll());
+        Assert.Equal(48000, sample.FullChargeMwh);
     }
 
     [Fact]

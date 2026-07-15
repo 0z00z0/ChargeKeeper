@@ -5,7 +5,7 @@ namespace ChargeKeeper.Tests;
 
 // BatteryHistoryService is a static class writing to a fixed AppData path in production; each
 // test points it at an isolated temp file via UseTestPath (which also resets all in-memory state),
-// so tests never touch the real user's history.csv and can't see each other's data.
+// so tests never touch the real user's battery-level-history.csv and can't see each other's data.
 public class BatteryHistoryServiceTests : IDisposable
 {
     private readonly string _testFile =
@@ -63,6 +63,75 @@ public class BatteryHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void FormatThenParse_RoundTripsInstantToTheSecond_AcrossLocalOffset()
+    {
+        // A whole-second UTC instant must survive Format (which writes it in local time with the
+        // machine's UTC offset) → TryParse (which converts back to UTC) unchanged, independent of the
+        // dev machine's timezone — the offset in the file is human-readable sugar, not a new instant.
+        var sample = new BatterySample(new DateTime(2026, 7, 15, 12, 30, 45, DateTimeKind.Utc), 63, 80, 2200);
+
+        var line = BatteryHistoryService.Format(sample);
+        Assert.True(BatteryHistoryService.TryParse(line, out var parsed));
+
+        Assert.Equal(sample.AtUtc, parsed.AtUtc);              // same instant, to the second
+        Assert.Equal(DateTimeKind.Utc, parsed.AtUtc.Kind);    // stored representation stays UTC
+        // Serialized as ISO 8601 with a local offset, NOT a Unix-millis integer.
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2},", line);
+    }
+
+    [Fact]
+    public void TryParse_SkipsHeaderLines()
+    {
+        // Both header lines (the '#' comment and the column-name row) must fail TryParse so the
+        // existing skip-on-unparseable read loops drop them for free.
+        Assert.False(BatteryHistoryService.TryParse(BatteryHistoryService.HeaderComment, out _));
+        Assert.False(BatteryHistoryService.TryParse(BatteryHistoryService.HeaderColumns, out _));
+    }
+
+    [Fact]
+    public void Record_OnFreshFile_WritesHeaderBlock_AndReadSkipsIt()
+    {
+        // The very first Record on a non-existent file writes the descriptive header block, then the
+        // sample. On read, the header lines are skipped and only the real sample comes back.
+        BatteryHistoryService.Record(60, 80, 3000);
+
+        var lines = File.ReadAllLines(_testFile);
+        Assert.Equal(BatteryHistoryService.HeaderComment, lines[0]);
+        Assert.Equal(BatteryHistoryService.HeaderColumns, lines[1]);
+        Assert.StartsWith("#", lines[0]);
+        Assert.Equal(3, lines.Length);   // comment + columns + one data row
+
+        var loaded = BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
+        var sample = Assert.Single(loaded);   // header skipped, only the sample
+        Assert.Equal(60, sample.Soc);
+    }
+
+    [Fact]
+    public void LoadWindow_Prune_PreservesHeaderBlock()
+    {
+        // A realistic file (header + one too-old + one kept row): the first LoadWindow prunes the
+        // 20-day-old row and rewrites the file, and that rewrite must keep the header at the top.
+        var tooOld = new BatterySample(DateTime.UtcNow.AddDays(-20), 10, null, 0);
+        var kept   = new BatterySample(DateTime.UtcNow.AddDays(-1),  20, null, 0);
+        File.WriteAllLines(_testFile,
+        [
+            BatteryHistoryService.HeaderComment,
+            BatteryHistoryService.HeaderColumns,
+            BatteryHistoryService.Format(tooOld),
+            BatteryHistoryService.Format(kept),
+        ]);
+
+        BatteryHistoryService.LoadWindow(TimeSpan.FromDays(14));   // triggers the prune
+
+        var lines = File.ReadAllLines(_testFile);
+        Assert.Equal(BatteryHistoryService.HeaderComment, lines[0]);
+        Assert.Equal(BatteryHistoryService.HeaderColumns, lines[1]);
+        var remaining = Assert.Single(lines.Skip(2));
+        Assert.True(BatteryHistoryService.TryParse(remaining, out var s));
+        Assert.Equal(20, s.Soc);
+    }
+
+    [Fact]
     public void Record_ThenLoadWindow_ReturnsRecordedSample()
     {
         BatteryHistoryService.Record(60, 80, 3000);
@@ -117,7 +186,11 @@ public class BatteryHistoryServiceTests : IDisposable
 
         BatteryHistoryService.LoadWindow(TimeSpan.FromDays(14));   // first call → triggers the prune
 
-        var rawLine = Assert.Single(File.ReadAllLines(_testFile));
+        // The prune rewrites the file, so it re-emits the header block ahead of the surviving row(s).
+        var lines = File.ReadAllLines(_testFile);
+        Assert.Equal(BatteryHistoryService.HeaderComment, lines[0]);
+        Assert.Equal(BatteryHistoryService.HeaderColumns, lines[1]);
+        var rawLine = Assert.Single(lines.Skip(2));
         Assert.True(BatteryHistoryService.TryParse(rawLine, out var remaining));
         Assert.Equal(20, remaining.Soc);
     }
