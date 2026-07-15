@@ -82,20 +82,42 @@ internal static class HaCommandDispatcher
 /// seconds): the caller (<see cref="HomeAssistantService"/>) drives dispatch on a single-worker
 /// background queue, OFF the MQTT receive callback, so a read-modify-write pair completes before the
 /// next command starts and the callback thread is never blocked. <see cref="CurrentThresholds"/> is
-/// the one bit of MQTT-only logic that stays here — the read the dispatcher combines a single-bound
-/// number-set against.
+/// the one bit of MQTT-only logic that stays here — the companion value the dispatcher combines a
+/// single-bound number-set against, sourced from the app's cached threshold state (not a pre-write EC
+/// read) so one charge_start/charge_stop command costs one EC write + the after-write fresh read only.
 /// </summary>
 internal sealed class ChargeControlActions : IChargeControlActions
 {
+    // The app's already-maintained cached thresholds (from HomeAssistantService's CurrentStateProvider
+    // snapshot). Preferred over a fresh device read so a single-bound charge_start/charge_stop set
+    // doesn't cost an extra blocking EC RPC just to fetch its companion value — the guaranteed-fresh
+    // read still happens AFTER the write, via HomeAssistantService.PublishFreshStateAfterCommand. Null
+    // only in tests / when no provider is wired, where we fall back to the live read.
+    private readonly Func<(int Start, int Stop)?>? _cachedThresholds;
+
+    public ChargeControlActions(Func<(int Start, int Stop)?>? cachedThresholds = null)
+        => _cachedThresholds = cachedThresholds;
+
     public (int Start, int Stop) CurrentThresholds()
     {
+        // Prefer the app's cached threshold state — no pre-write EC read on the common path.
+        if (_cachedThresholds is { } provider)
+            return provider.Invoke() is { } cached && IsValidPair(cached.Start, cached.Stop)
+                ? cached
+                : DefaultThresholds();
+
+        // No cache wired (shouldn't happen in production): fall back to a live read.
         var s = ChargeThresholdService.Read();
-        // Use the live thresholds only when they're a valid Smart Charge pair; otherwise the default.
-        if (s is { Start: >= PresetEditValidator.MinThreshold, Stop: <= PresetEditValidator.MaxThreshold } &&
-            s.Stop - s.Start >= PresetEditValidator.MinGap)
+        if (s is not null && IsValidPair(s.Start, s.Stop))
             return (s.Start, s.Stop);
         return DefaultThresholds();
     }
+
+    // A valid Smart Charge pair: both thresholds in range and at least MinGap apart.
+    private static bool IsValidPair(int start, int stop) =>
+        start >= PresetEditValidator.MinThreshold &&
+        stop  <= PresetEditValidator.MaxThreshold &&
+        stop - start >= PresetEditValidator.MinGap;
 
     // Sensible default when Smart Charge is off/unset (firmware may read back 0/0), so the first
     // single-bound number-set still forms a valid pair. Derived from the built-in "Daily" preset
