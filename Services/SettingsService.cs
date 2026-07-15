@@ -176,14 +176,8 @@ internal sealed class AppSettings
     public int? SettingsWindowWidth  { get; set; }
     public int? SettingsWindowHeight { get; set; }
 
-    // ── Appearance (TODO #45) ────────────────────────────────────────────────────
-    /// <summary>
-    /// Switches to a new visual style once TODO #45 lands. Currently a no-op: the Settings
-    /// window's Appearance section exposes and persists this toggle, but nothing reads it yet —
-    /// scoped that way deliberately (see GitHub issue #19), rather than inventing a styling system
-    /// this app has no other use for yet.
-    /// </summary>
-    public bool UseNewStyling { get; set; } = false;
+    // TODO #45: a future Appearance/styling setting would live here (the earlier no-op
+    // `UseNewStyling` toggle and its dead Settings section were removed).
 }
 
 /// <summary>

@@ -27,6 +27,9 @@ internal sealed partial class AboutWindow : Window
         InitializeComponent();
         Title = "About ChargeKeeper";
 
+        // Dark-theme the standard title bar so it matches the Mica BaseAlt backdrop.
+        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+
         About.SetInfo(BuildInfo());
 
         // The libraries expander changes the content height; the ScrollViewer already handles

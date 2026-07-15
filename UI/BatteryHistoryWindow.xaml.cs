@@ -207,8 +207,13 @@ public sealed partial class BatteryHistoryWindow : Window
         }
     }
 
-    private void ConfigureWindowChrome() =>
+    private void ConfigureWindowChrome()
+    {
         WindowChrome.ApplyPopup(this, resizable: true, alwaysOnTop: false);
+        // Dark-theme the title bar for consistency with the other windows (a no-op on this
+        // frameless popup, but harmless and keeps the call site uniform).
+        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+    }
 
     /// <summary>
     /// Final placement: ~70% width × 65% height of the monitor under the cursor (clamped to a sane

@@ -44,25 +44,25 @@
              PathIcon. -->
         <NavigationView.MenuItems>
             <NavigationViewItem Content="General"         Tag="General">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Smart Charge"     Tag="SmartCharge">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Network"          Tag="Network">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Appearance"       Tag="Appearance">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/appearance.svg"/></NavigationViewItem.Icon>
-            </NavigationViewItem>
+            <!-- #45: an Appearance section (a dead "Use new styling" toggle) was removed; restore a
+                 nav item here — icon asset Assets/nav/appearance.svg is retained — when there's a
+                 real styling setting to expose. -->
             <NavigationViewItem Content="About"            Tag="About">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg"/></NavigationViewItem.Icon>
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg" Width="20" Height="20"/></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>
 
@@ -76,7 +76,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8"
                             Margin="16,4,16,12" VerticalAlignment="Center">
                     <Image Source="ms-appx:///Assets/AppIcon.png"
-                           Width="24" Height="24" VerticalAlignment="Center"/>
+                           Width="30" Height="30" VerticalAlignment="Center"/>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="ChargeKeeper" FontSize="12"
                                    FontFamily="{StaticResource BrandFont}"
@@ -248,15 +248,8 @@
                                FontSize="11" Opacity="0.7"/>
                 </StackPanel>
 
-                <!-- ── Appearance ───────────────────────────────────────────────── -->
-                <StackPanel x:Name="AppearancePanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}"/>
-
-                    <controls:SettingsCard Header="Use new styling"
-                                            Description="Experimental new visual style (TODO #45). No effect yet — reserved for a future update.">
-                        <ToggleSwitch x:Name="UseNewStylingToggle" OnContent="On" OffContent="Off" Toggled="OnUseNewStylingToggled"/>
-                    </controls:SettingsCard>
-                </StackPanel>
+                <!-- #45: the Appearance section (a single dead "Use new styling" toggle) was
+                     removed; a real Appearance panel can be reinstated here later. -->
 
                 <!-- ── About (#59) ─────────────────────────────────────────────── -->
                 <StackPanel x:Name="AboutPanel" Spacing="4" Visibility="Collapsed">
@@ -265,7 +258,7 @@
                     <controls:SettingsCard Header="ChargeKeeper"
                                             Description="Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Made by ZeroZero Software.">
                         <controls:SettingsCard.HeaderIcon>
-                            <ImageIcon Source="ms-appx:///Assets/AppIcon.png"/>
+                            <ImageIcon Source="ms-appx:///Assets/AppIcon.png" Width="32" Height="32"/>
                         </controls:SettingsCard.HeaderIcon>
                         <Button x:Name="AboutButton" Content="About ChargeKeeper" Click="OnAboutClicked"/>
                     </controls:SettingsCard>
