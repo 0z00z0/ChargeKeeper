@@ -81,7 +81,6 @@
             <SolidColorBrush x:Key="BrandBlueBrush"   Color="#11a9d6"/>
             <SolidColorBrush x:Key="BrandPurpleBrush" Color="#7b8cff"/>
             <SolidColorBrush x:Key="BrandIndigoBrush" Color="#3f5be0"/>
-            <SolidColorBrush x:Key="BrandAmberBrush"  Color="#d8a657"/>
 
             <!-- Brand typeface: Cascadia Mono. Reused from the shared ZeroZero.Brand.WinUI library,
                  which ships the .ttf as Content into this app's output under Assets\Fonts\ (same
