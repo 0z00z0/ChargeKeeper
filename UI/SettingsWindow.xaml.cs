@@ -82,6 +82,10 @@ internal sealed partial class SettingsWindow : Window
         InitializeComponent();
         Title = "ChargeKeeper Settings";
 
+        // Pane-footer version line (issue #51). Same AppInfo.Version source the About box uses, so
+        // the two can't drift; a plain field read that can't throw, safe before the SafeInit steps.
+        VersionText.Text = $"v{AppInfo.Version}";
+
         // NOTHING below may throw out of the constructor. App.ShowSettingsWindow only assigns
         // _settings and calls Activate() once `new SettingsWindow(...)` returns — so a throw here
         // leaves an orphaned, never-shown window AND makes every later "Settings…" click leak
