@@ -208,8 +208,13 @@ public sealed partial class DashboardWindow : Window
 
     // ── Window chrome ─────────────────────────────────────────────────────────
 
-    private void ConfigureWindowChrome() =>
+    private void ConfigureWindowChrome()
+    {
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);
+        // Sets the taskbar/Alt-Tab window icon to the current steel battery (title-bar colouring is
+        // a no-op on this frameless popup, but SetIcon still applies).
+        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+    }
 
     // ── Focus / activation ────────────────────────────────────────────────────
 

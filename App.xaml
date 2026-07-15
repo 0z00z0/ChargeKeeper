@@ -89,6 +89,17 @@
                  throughout the brand, not just for code. -->
             <FontFamily x:Key="BrandFont">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
+            <!-- Override WinUI's two default content font-family theme resources so EVERY templated
+                 control (CommunityToolkit SettingsCard/SettingsExpander Header + Description,
+                 ComboBox, ToggleSwitch On/Off text, Button, NumberBox, TextBox) inherits Cascadia
+                 Mono, not just bare TextBlocks. Content strings in those controls resolve
+                 {ThemeResource ContentControlThemeFontFamily} / ControlContentThemeFontFamily rather
+                 than the implicit TextBlock style, which is why some text still rendered in the
+                 default sans before this. Literal URI (not {StaticResource BrandFont}) because a
+                 FontFamily resource can't take another resource as its value. -->
+            <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+            <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+
             <!-- Default chrome typeface: applied to every TextBlock that has no explicit Style.
                  TextBlock has no control template, so an implicit style here is safe (it only sets
                  the font). Content strings in Buttons/ComboBoxes render through TextBlocks too, so

@@ -133,7 +133,6 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadHomeAssistant();
-        LoadAppearance();
     }
 
     // ── Window chrome / lifecycle ────────────────────────────────────────────────
@@ -145,6 +144,9 @@ internal sealed partial class SettingsWindow : Window
         // machine; guarded regardless so a placement failure can never stop the window from showing.
         try { AppWindow.MoveAndResize(rect); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); }
+
+        // Dark-theme the standard title bar so it matches the Mica BaseAlt backdrop.
+        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
     }
 
     /// <summary>
@@ -249,7 +251,6 @@ internal sealed partial class SettingsWindow : Window
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         NetworkPanel.Visibility       = tag == "Network"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
-        AppearancePanel.Visibility    = tag == "Appearance"     ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
         // Cheap to refresh every time the tab is opened rather than on a timer — reflects a
@@ -1007,20 +1008,9 @@ internal sealed partial class SettingsWindow : Window
             : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
     }
 
-    // ── Appearance ────────────────────────────────────────────────────────────────
-
-    private void LoadAppearance()
-    {
-        WithUpdatingSuppressed(() => UseNewStylingToggle.IsOn = SettingsService.Current.UseNewStyling);
-    }
-
-    // No consumer yet (TODO #45) — persists the toggle only, per the issue's explicit scope.
-    private void OnUseNewStylingToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        bool on = UseNewStylingToggle.IsOn;
-        SettingsService.Update(s => s.UseNewStyling = on);
-    }
+    // ── Appearance ──────────────────────────────────────────────────────────────
+    // The Appearance section (a single dead "Use new styling" toggle that did nothing) was removed;
+    // TODO #45 can restore an Appearance nav item + panel here when there's a real styling setting.
 
     // #59: opens the same single About window the tray "About…" item uses, via the callback App
     // wired up from the tray menu — so there's never more than one About window instance.
