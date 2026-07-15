@@ -62,14 +62,26 @@ internal static class ChargeControlService
     }
 
     /// <summary>
-    /// Write explicit Start/Stop thresholds (the MQTT charge_start/charge_stop numbers). Funnels
-    /// through <see cref="TravelOverrideService.ApplyExplicitThresholds"/> — writing valid non-zero
-    /// thresholds is itself how Smart Charge is (re)enabled, so adjusting a threshold ACTIVATES Smart
-    /// Charge, as intended (issue #40 item 3). Returns the vendor write's success flag.
+    /// Write explicit Start/Stop thresholds. The single composition point for every threshold write
+    /// that is NOT a named preset — the MQTT charge_start/charge_stop numbers, the dashboard slider
+    /// drag, and the Settings preset-edit / delete-fallback push. Funnels through
+    /// <see cref="TravelOverrideService.ApplyExplicitThresholds"/> — writing valid non-zero thresholds
+    /// is itself how Smart Charge is (re)enabled, so adjusting a threshold ACTIVATES Smart Charge, as
+    /// intended (issue #40 item 3). Always fires <see cref="StateChanged"/> so the tray/tooltip/MQTT
+    /// reconcile immediately instead of waiting for the next battery tick.
+    /// <para>
+    /// <paramref name="clearActivePreset"/> reproduces the dashboard slider's semantics: a manual
+    /// threshold edit makes the value "custom", so the persisted <c>ActivePreset</c> is cleared (on a
+    /// SUCCESSFUL write only — a failed device write must not leave the UI claiming no preset when the
+    /// device never moved). The Settings preset-edit / delete-fallback callers leave it
+    /// <c>false</c>: they manage <c>ActivePreset</c> themselves (the edited/fallback preset stays
+    /// active), so the write must not touch it. Returns the vendor write's success flag.
+    /// </para>
     /// </summary>
-    public static bool SetExplicitThresholds(int start, int stop)
+    public static bool SetExplicitThresholds(int start, int stop, bool clearActivePreset = false)
     {
         bool ok = Primitives.ApplyExplicitThresholds(start, stop);
+        if (ok && clearActivePreset) Primitives.SetActivePreset(null);
         StateChanged?.Invoke();
         return ok;
     }
@@ -115,8 +127,8 @@ internal interface IChargeControlPrimitives
     /// <summary>Resolve a configured preset by name, or null if none matches.</summary>
     ThresholdPreset? FindPreset(string name);
 
-    /// <summary>Persist the active preset name.</summary>
-    void SetActivePreset(string name);
+    /// <summary>Persist the active preset name, or clear it (null) for a custom-threshold write.</summary>
+    void SetActivePreset(string? name);
 }
 
 /// <summary>Production backend for <see cref="ChargeControlService"/> — the real static services.</summary>
@@ -127,5 +139,5 @@ internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
     public void SetEnabled(bool enable) => ChargeThresholdService.SetEnabled(enable);
     public bool ApplyExplicitThresholds(int start, int stop) => TravelOverrideService.ApplyExplicitThresholds(start, stop);
     public ThresholdPreset? FindPreset(string name) => SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
-    public void SetActivePreset(string name) => SettingsService.Update(s => s.ActivePreset = name);
+    public void SetActivePreset(string? name) => SettingsService.Update(s => s.ActivePreset = name);
 }

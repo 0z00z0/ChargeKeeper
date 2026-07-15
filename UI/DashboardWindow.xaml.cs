@@ -454,20 +454,18 @@ public sealed partial class DashboardWindow : Window
         int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
         {
-            // An explicit slider write supersedes any in-flight "charge to 100 % once".
-            // ApplyExplicitThresholds owns the shared Deactivate-first-then-write ordering so it
-            // stays consistent with the presets path (see TravelOverrideService).
-            bool ok = TravelOverrideService.ApplyExplicitThresholds(start, stop);
+            // Route through the shared ChargeControlService (issue #40) — the SAME composition the
+            // tray and MQTT paths use — so this slider drag fires StateChanged and reflects to the
+            // tray/tooltip/MQTT immediately instead of waiting for the next battery tick. An explicit
+            // slider write supersedes any in-flight "charge to 100 % once" (ApplyExplicitThresholds
+            // owns the Deactivate-first-then-write ordering). clearActivePreset:true reproduces the
+            // old behaviour — the threshold is now custom, so any active preset name is cleared on a
+            // successful write (via SettingsService.Update inside the service, so a Reload() that
+            // swapped the settings object during the RPC gap can't make it a lost write).
+            bool ok = ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
             RunOnUi(() =>
             {
-                if (ok)
-                {
-                    // Threshold is now custom — clear any active preset name. Update() (not
-                    // Current-mutate-then-Save) so a Reload() that swapped the settings object
-                    // during the RPC gap above can't make this a lost write on a stale instance.
-                    SettingsService.Update(s => s.ActivePreset = null);
-                }
-                else
+                if (!ok)
                 {
                     SmartChargeDetailText.Text = "Error — check driver";
                 }
