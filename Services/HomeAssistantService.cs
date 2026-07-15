@@ -35,6 +35,10 @@ internal sealed class HomeAssistantService : IDisposable
     private MqttClientOptions? _options;
     private string _nodeId = "", _stateTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
     private string? _lastStateJson;   // republished on (re)connect so a fresh HA restart gets current values
+    // Guards the compare-and-set of _lastStateJson: PublishState (battery + command-worker threads) and
+    // OnConnectedAsync (maintain-loop thread) both read+write it, so an unsynchronised check-then-set
+    // could drop a real change (a stale write making the next change wrongly deduped) or double-publish.
+    private readonly object _stateLock = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
@@ -275,11 +279,16 @@ internal sealed class HomeAssistantService : IDisposable
         if (CurrentStateProvider?.Invoke() is { } current)
         {
             string json = HaDiscovery.StatePayload(current);
-            _lastStateJson = json;
+            lock (_stateLock) { _lastStateJson = json; }   // set-with-lock; publish unconditionally on connect
             await PublishAsync(_stateTopic, json, retain: true, ct).ConfigureAwait(false);
         }
-        else if (_lastStateJson is { } last)
-            await PublishAsync(_stateTopic, last, retain: true, ct).ConfigureAwait(false);
+        else
+        {
+            string? last;
+            lock (_stateLock) { last = _lastStateJson; }
+            if (last is not null)
+                await PublishAsync(_stateTopic, last, retain: true, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -294,8 +303,13 @@ internal sealed class HomeAssistantService : IDisposable
     {
         if (!_enabled) return;
         string json = HaDiscovery.StatePayload(state);
-        if (string.Equals(json, _lastStateJson, StringComparison.Ordinal)) return;  // unchanged → don't republish
-        _lastStateJson = json;
+        // Atomic compare-and-set: two threads (battery tick + command worker) mustn't both pass the
+        // "unchanged?" check and race the write, nor let a stale write dedupe the next real change.
+        lock (_stateLock)
+        {
+            if (string.Equals(json, _lastStateJson, StringComparison.Ordinal)) return;  // unchanged → don't republish
+            _lastStateJson = json;
+        }
         if (_client.IsConnected)
             _ = PublishAsync(_stateTopic, json, retain: true, CancellationToken.None);
     }
