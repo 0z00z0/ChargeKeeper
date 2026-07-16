@@ -236,6 +236,21 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // "/debug [on|off]" is a COMMAND, not a launch: it records whether crash-dump capture should
+        // be armed, applies that to the registry, and exits without ever showing a tray icon. It has
+        // to be handled HERE, ahead of the single-instance guard below — the tray app already
+        // running is this app's steady state, i.e. precisely the situation in which the user types
+        // this, so the /debug process would otherwise lose the mutex and exit before doing anything.
+        // No elevation dance needed: the manifest is requireAdministrator, so this process is
+        // already elevated for the HKLM write. CrashDumps owns the rest of the reasoning.
+        if (CrashDumps.TryHandleDebugCommand(Environment.GetCommandLineArgs(), AppPaths.DataFile("dumps")))
+        {
+            _intentionalExit = true;   // a command that did its job and stopped — never a teardown to self-heal
+            _quietExit       = true;   // ...and not worth a ProcessExit line; the command logged itself
+            Application.Current.Exit();
+            return;
+        }
+
         // Watchdog probes must respect a deliberate tray-menu Exit: the hold-marker written by
         // Shutdown() keeps them from resurrecting an app the user chose to stop.
         bool watchdogStart = Environment.GetCommandLineArgs().Contains(WatchdogTask.WatchdogArg);
@@ -270,21 +285,23 @@ public partial class App : Application
 
         // Minidump-on-crash net for genuine unhandled faults (WER LocalDumps), now OPT-IN on
         // release builds: a shipped app shouldn't quietly write minidumps of itself into the user's
-        // profile, so it takes ChargeKeeper.exe /debug (debug builds arm it regardless). A run
-        // WITHOUT the switch actively disarms rather than just skipping — the registration is an
+        // profile, so it follows the stored intent the /debug command above sets (debug builds arm
+        // it regardless). "Off" actively disarms rather than just skipping — the registration is an
         // HKLM key that outlives the process, so a machine that once armed it would keep dumping
-        // forever. The louder SilentProcessExit monitor that once helped pin the undock-kill root
-        // cause is retired and disarmed the same way — it dumped ~11 MB on every 5-minute watchdog
-        // probe exit — and the dump folder it filled is trimmed here. See CrashDumps.cs for the
-        // full story. Backgrounded: this only needs to be armed before some FUTURE crash, not
-        // before the rest of startup (window/tray-icon creation below) proceeds — the registry +
-        // file I/O here would otherwise add unaccounted latency to the exact "is the app actually
-        // running yet" window this app's history has repeatedly had trouble with.
+        // forever. Every instance runs this unconditionally, however it was spawned: the intent is
+        // read from settings, so a watchdog probe or self-heal relaunch re-asserts the user's answer
+        // instead of having to guess it from its own argv. The louder SilentProcessExit monitor that
+        // once helped pin the undock-kill root cause is retired and disarmed the same way — it
+        // dumped ~11 MB on every 5-minute watchdog probe exit — and the dump folder it filled is
+        // trimmed here. See CrashDumps.cs for the full story. Backgrounded: this only needs to be
+        // armed before some FUTURE crash, not before the rest of startup (window/tray-icon creation
+        // below) proceeds — the registry + file I/O here would otherwise add unaccounted latency to
+        // the exact "is the app actually running yet" window this app's history has repeatedly had
+        // trouble with.
         _ = Task.Run(() =>
         {
             string dumpDir = AppPaths.DataFile("dumps");
-            if (CrashDumps.DumpsEnabled) CrashDumps.TryRegisterLocalDumps(dumpDir);
-            else                         CrashDumps.TryDisarmLocalDumps();
+            CrashDumps.ApplyPolicy(dumpDir);
             CrashDumps.TryDisarmSilentExitMonitor();   // retired: it dumped ~11 MB per 5-min watchdog probe
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();

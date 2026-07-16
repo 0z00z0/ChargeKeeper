@@ -26,17 +26,47 @@ dotnet run
 
 | Switch | Purpose |
 |--------|---------|
-| `/debug` | Arms **crash-dump capture** for this run (WER LocalDumps → `%AppData%\ChargeKeeper\dumps`). Off by default on release builds so a shipped app never quietly writes minidumps of itself into your profile; debug builds arm it regardless. |
+| `/debug [on\|off]` | **Command, not a launch mode.** Turns **crash-dump capture** on or off (WER LocalDumps → `%AppData%\ChargeKeeper\dumps`), then exits — it never starts the tray. Off by default on release builds so a shipped app never quietly writes minidumps of itself into your profile; debug builds arm it regardless. |
 | `--watchdog-relaunch` | Internal. Used by the `ChargeKeeper Watchdog` scheduled task's 5-minute probe — not meant to be typed by hand. |
 | `--auto-relaunch` | Internal. Set when the app restarts itself after a GPU-reset teardown. |
 
-Crash-dump capture registers an **HKLM** key that outlives the process, so it is not merely
-"skipped" when `/debug` is absent — a run without the switch actively **removes** the registration.
-That means one `/debug` session cannot leave a machine dumping forever:
+`/debug` **persists** your choice as a marker file — `%AppData%\ChargeKeeper\crash-dumps-armed.marker`,
+whose mere presence means "capture is on" — and applies it to the registry immediately, then the
+process exits. It does not matter whether the tray app is already running: dump capture is governed
+by a machine-wide key, so the change takes effect at once and nothing needs restarting.
+
+The choice is a marker file rather than a setting in `settings.json` for a specific reason. The
+running tray app keeps its settings in memory and rewrites the **whole** file whenever it saves, so a
+flag stored there would be clobbered by a stale in-memory copy: arm capture with `/debug`, toggle any
+preset in the tray, and the flag would be silently reset — leaving the next boot disarmed, which is
+exactly the reboot-to-reproduce case the switch exists for. A marker file has no other writers, so
+nothing the tray does can reach it. (It is the same pattern as the watchdog's own
+`watchdog-hold.marker` next to it.)
 
 ```powershell
-ChargeKeeper.exe /debug   # dumps armed until the next plain launch disarms them
+ChargeKeeper.exe /debug       # arm capture — survives reboots, sign-in autostart, and app restarts
+ChargeKeeper.exe /debug off   # disarm again
 ```
+
+Each invocation shows a UAC prompt (the app is `requireAdministrator`, and the registration lives in
+**HKLM**) and reports what it did to `%AppData%\ChargeKeeper\app.log` — there is no console output,
+because the exe is a windowed app.
+
+Because the choice is stored rather than read from the command line, **every** way the app can start
+— your own launch, the `ChargeKeeper AutoStart` logon task (which passes no arguments), a watchdog
+probe, a self-heal relaunch — reads the same answer and re-asserts it. So dumps armed with `/debug`
+stay armed across the reboot you need to reproduce the crash, and are not disarmed behind your back
+by a probe five minutes later.
+
+The HKLM key outlives the process, so "off" is not merely "don't arm": a run with capture disabled
+actively **removes** the registration. One `/debug` session therefore cannot leave a machine dumping
+forever.
+
+> Disarming also removes the shared `...\Windows Error Reporting\LocalDumps` key when nothing else
+> is registered under it. That key's mere presence turns dump collection on **machine-wide**, for
+> every application — arming ours creates it as a side effect, so leaving it behind would have
+> every other crashing app on the machine writing minidumps into your profile. It is left alone
+> whenever another app is still registered there.
 
 ## Tray interactions
 
