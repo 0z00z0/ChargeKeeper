@@ -7,6 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="using:ChargeKeeper.UI"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:brand="using:ZeroZero.Brand.WinUI"
     mc:Ignorable="d">
 
     <!-- TODO #19: a proper titled, resizable, taskbar-visible window (default WinUI3 chrome — NOT
@@ -262,16 +263,25 @@
                      removed; a real Appearance panel can be reinstated here later. -->
 
                 <!-- ── About (#59) ─────────────────────────────────────────────── -->
+                <!-- The shared BrandAboutControl is hosted INLINE here rather than behind a button
+                     that opens AboutWindow: a settings window opening a second dialog on top of
+                     itself is a pointless hop. The control is content-only by design (#59 split the
+                     chrome out into AboutWindow), so embedding it is a clean drop-in. The card
+                     Border below gives it the same bordered-panel look as the SettingsCards in
+                     every other section, so it still reads as its own distinct entity — the studio
+                     identity inside it is deliberately not the app's own settings UI.
+                     The tray "About…" item still opens the standalone AboutWindow (the right
+                     affordance for a tray entry point) — both share AboutContent.Build(). -->
                 <StackPanel x:Name="AboutPanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <controls:SettingsCard Header="ChargeKeeper"
-                                            Description="Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Made by ZeroZero Software.">
-                        <controls:SettingsCard.HeaderIcon>
-                            <ImageIcon Source="ms-appx:///Assets/AppIcon.png" Width="40" Height="40"/>
-                        </controls:SettingsCard.HeaderIcon>
-                        <Button x:Name="AboutButton" Content="About ChargeKeeper" Click="OnAboutClicked"/>
-                    </controls:SettingsCard>
+                    <Border MaxWidth="460" HorizontalAlignment="Center"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{ThemeResource ControlCornerRadius}">
+                        <brand:BrandAboutControl x:Name="AboutInline"/>
+                    </Border>
                 </StackPanel>
 
             </Grid>

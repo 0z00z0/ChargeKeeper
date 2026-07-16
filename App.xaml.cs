@@ -979,8 +979,7 @@ public partial class App : Application
             }
 
             _settings = new SettingsWindow(_menu!,
-                onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
-                onShowAbout: _menu!.ShowAbout);
+                onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current));
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }

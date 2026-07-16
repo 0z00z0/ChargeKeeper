@@ -336,11 +336,14 @@ internal sealed class TrayMenu
     /// <summary>
     /// Opens (or re-activates) the single About window. #59: this is now ChargeKeeper's own
     /// <see cref="AboutWindow"/> hosting the shared <c>BrandAboutControl</c> content, not the
-    /// shared <c>BrandAboutWindow</c> popup. The About payload lives in that window; the
-    /// "Check for updates" flow stays a separate tray menu item (see <see cref="CheckForUpdatesAsync"/>),
-    /// so no update/exit plumbing is passed here. Also called by the Settings window's
-    /// "About ChargeKeeper" button (via the <c>onShowAbout</c> callback App wires up), reusing the
-    /// same single-instance window.
+    /// shared <c>BrandAboutWindow</c> popup. The payload comes from
+    /// <see cref="Helpers.AboutContent.Build"/>; the "Check for updates" flow stays a separate tray
+    /// menu item (see <see cref="CheckForUpdatesAsync"/>), so no update/exit plumbing is passed here.
+    ///
+    /// <para>The TRAY is this window's only entry point. The Settings window embeds the same
+    /// <c>BrandAboutControl</c> inline instead of calling this — a settings window opening a second
+    /// dialog on top of itself is a pointless hop — so there is no longer an <c>onShowAbout</c>
+    /// callback from App.</para>
     /// </summary>
     internal void ShowAbout()
     {

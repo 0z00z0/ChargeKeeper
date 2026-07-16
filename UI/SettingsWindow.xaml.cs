@@ -59,7 +59,6 @@ internal sealed partial class SettingsWindow : Window
 
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
-    private readonly Action   _onShowAbout;
 
     // Guards LoadXxx()'s programmatic control assignments from re-entering their own
     // changed/toggled/selection handlers and queuing a bogus commit — same pattern as
@@ -75,11 +74,10 @@ internal sealed partial class SettingsWindow : Window
     // own threshold-debounce timer is stopped in its Closed handler to avoid.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onShowAbout)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
-        _onShowAbout = onShowAbout;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -97,6 +95,10 @@ internal sealed partial class SettingsWindow : Window
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
         SafeInit(nameof(RefreshAllSections), RefreshAllSections);
         SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
+        // Populate the embedded About panel. One-shot: the payload is static for the process
+        // lifetime (name/version/credits), so unlike the LoadXxx() sections it never needs
+        // re-running from RefreshAllSections.
+        SafeInit("LoadAbout", () => AboutInline.SetInfo(AboutContent.Build()));
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -1012,7 +1014,7 @@ internal sealed partial class SettingsWindow : Window
     // The Appearance section (a single dead "Use new styling" toggle that did nothing) was removed;
     // TODO #45 can restore an Appearance nav item + panel here when there's a real styling setting.
 
-    // #59: opens the same single About window the tray "About…" item uses, via the callback App
-    // wired up from the tray menu — so there's never more than one About window instance.
-    private void OnAboutClicked(object sender, RoutedEventArgs e) => _onShowAbout();
+    // ── About ───────────────────────────────────────────────────────────────────
+    // No handler needed: the About section hosts BrandAboutControl inline (populated in the ctor)
+    // instead of a button that opened AboutWindow. The control owns its own link buttons.
 }

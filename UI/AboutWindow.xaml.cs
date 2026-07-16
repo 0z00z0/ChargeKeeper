@@ -2,7 +2,7 @@ using System;
 using Microsoft.UI.Xaml;
 using Windows.Graphics;
 using ChargeKeeper.Helpers;
-using ZeroZero.Brand.Core;
+using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
@@ -14,13 +14,17 @@ namespace ChargeKeeper.UI;
 /// that stays on the tray menu (<c>TrayMenu.CheckForUpdatesAsync</c>).
 ///
 /// <para>Single reusable instance owned by <see cref="TrayMenu"/> (its <c>_aboutWindow</c>
-/// field), so both the tray "About…" item and the Settings "About ChargeKeeper" button reuse
-/// one window.</para>
+/// field). This window is now the TRAY's entry point only — the Settings window embeds the same
+/// <c>BrandAboutControl</c> inline rather than opening a second dialog on top of itself. Both
+/// surfaces share one payload (<see cref="AboutContent.Build"/>) so they cannot drift.</para>
 /// </summary>
 internal sealed partial class AboutWindow : Window
 {
-    private const string AppName = AppInfo.Name;
-    private bool _sized;
+    // Target size in DIPs; scaled to the physical pixels of whichever monitor it lands on.
+    private const int WidthDip  = 460;
+    private const int HeightDip = 660;
+
+    private bool _placed;
 
     public AboutWindow()
     {
@@ -30,7 +34,7 @@ internal sealed partial class AboutWindow : Window
         // Dark-theme the standard title bar so it matches the Mica BaseAlt backdrop.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
 
-        About.SetInfo(BuildInfo());
+        About.SetInfo(AboutContent.Build());
 
         // The libraries expander changes the content height; the ScrollViewer already handles
         // overflow, so nothing more is required here — but keep the window from being smaller than
@@ -38,38 +42,36 @@ internal sealed partial class AboutWindow : Window
         Activated += OnActivated;
     }
 
+    /// <summary>
+    /// Places the window once, on first activation: centred on the monitor under the cursor —
+    /// the one the user just used the tray menu on — and sized for THAT monitor's scaling, so it
+    /// is never half-off a screen or mis-sized on a mixed-DPI setup.
+    ///
+    /// <para>Uses the native <see cref="NativeMethods.GetCursorMonitorMetrics"/> path rather than
+    /// <c>DisplayArea.FindAll</c> for the same reason
+    /// <see cref="SettingsWindow"/>'s placement does — the latter faulted on a multi-monitor setup.
+    /// Scale comes from the cursor's monitor, not <c>XamlRoot.RasterizationScale</c> (the monitor
+    /// the window happens to have opened on): the window is about to be MOVED to the cursor's
+    /// monitor, so position and size must be computed against the same one. Guarded — a placement
+    /// failure must never stop the window from showing.</para>
+    /// </summary>
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
-        if (_sized) return;
-        _sized = true;
+        if (_placed) return;
+        _placed = true;
 
-        // Size once, DPI-correct: XamlRoot is available by first activation, so scale the DIP
-        // target by the monitor's rasterisation scale (AppWindow.Resize takes physical pixels).
-        double scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
-        AppWindow.Resize(new SizeInt32(
-            (int)Math.Round(460 * scale),
-            (int)Math.Round(660 * scale)));
+        try
+        {
+            var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
+            int workW = work.Right  - work.Left;
+            int workH = work.Bottom - work.Top;
+            int w = Math.Min((int)Math.Round(WidthDip  * scale), workW);
+            int h = Math.Min((int)Math.Round(HeightDip * scale), workH);
+            AppWindow.MoveAndResize(new RectInt32(
+                work.Left + (workW - w) / 2,
+                work.Top  + (workH - h) / 2,
+                w, h));
+        }
+        catch (Exception ex) { AppLog.Error("AboutWindow.MoveAndResize", ex); }
     }
-
-    /// <summary>
-    /// The About payload — same data the tray menu used to build inline. Kept here so the one
-    /// window that renders it also owns it. Keep the external-libraries list in sync with the
-    /// README's "External libraries" table (same non-Microsoft NuGet dependencies).
-    /// </summary>
-    private static AboutInfo BuildInfo() => new()
-    {
-        AppName     = AppName,
-        Version     = AppInfo.Version,
-        Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
-        RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
-        ExternalLibraries =
-        [
-            new ExternalLibrary("H.NotifyIcon.WinUI", "HavenDV", "System-tray icon + native context menu for WinUI 3", "MIT", "https://github.com/HavenDV/H.NotifyIcon"),
-            new ExternalLibrary("TaskScheduler", "David Hall", "Managed wrapper over the Windows Task Scheduler API (auto-start)", "MIT", "https://github.com/dahall/TaskScheduler"),
-            new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
-            new ExternalLibrary("CommunityToolkit.WinUI.Controls.SettingsControls", ".NET Foundation", "SettingsCard/SettingsExpander rows (Settings window)", "MIT", "https://github.com/CommunityToolkit/Windows"),
-            new ExternalLibrary("WinUIEx", "Morten Nielsen", "WinUI 3 window helper extensions (Settings window placement)", "MIT", "https://github.com/dotMorten/WinUIEx"),
-            new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the MQTT publishing integration", "MIT", "https://github.com/dotnet/MQTTnet"),
-        ],
-    };
 }
