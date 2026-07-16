@@ -270,9 +270,22 @@ function Render-Small([int]$w,[int]$h) {
 
 function Save-Bmp($bmp,$path) { $bmp.Save($path,[System.Drawing.Imaging.ImageFormat]::Bmp); $bmp.Dispose() }
 
-# ── Emit all DPI variants ─────────────────────────────────────────────────────
-$largeSizes = @(@(164,314),@(205,392),@(246,471),@(287,549),@(328,628))   # 100/125/150/175/200 %
-$smallSizes = @(@(55,58),@(69,73),@(83,87),@(96,102),@(110,116))
+# ── Emit the wizard images ────────────────────────────────────────────────────
+# We ship a SINGLE high-resolution "hero" bitmap for each of WizardImageFile and
+# WizardSmallImageFile rather than a comma-separated per-DPI variant list. Reason: on a
+# mixed-DPI setup (e.g. a 100 % external monitor as primary + a 175 % laptop panel) Inno
+# selects/loads the wizard bitmap for the monitor Setup STARTS on, then merely *stretches*
+# that loaded bitmap when the window is shown on / dragged to a higher-DPI monitor — an
+# UPSCALE, which is exactly what made the banner text look soft. A single bitmap rendered at
+# the top of the DPI range (300 %) means Inno can only ever DOWNSCALE it, and downscaling
+# stays crisp at every scaling factor from 100 % to 300 %.
+#
+# The intermediate per-DPI variants are still emitted (harmless, and they keep the design
+# reference SVGs honest), but ChargeKeeper.iss points only at the 300 % hero pair.
+$heroLarge  = @(492,942)                                                   # 300 % hero (WizardImageFile)
+$heroSmall  = @(165,174)                                                   # 300 % hero (WizardSmallImageFile)
+$largeSizes = @(@(164,314),@(205,392),@(246,471),@(287,549),@(328,628),$heroLarge)   # 100/125/150/175/200/300 %
+$smallSizes = @(@(55,58),@(69,73),@(83,87),@(96,102),@(110,116),$heroSmall)
 
 Write-Host "==> Rendering large wizard banner variants..." -ForegroundColor Cyan
 foreach ($sz in $largeSizes) {

@@ -105,13 +105,22 @@ with System.Drawing (GDI+) from the same geometry the reference SVGs describe:
 
 | Artefact                                   | Generator                             | Notes |
 |--------------------------------------------|---------------------------------------|-------|
-| `installer\wizard\wizimg-*.bmp` (side banner) and `wizsmall-*.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs at 100/125/150/175/200 % so Inno picks the best for the display DPI. Referenced by `WizardImageFile` / `WizardSmallImageFile` in `ChargeKeeper.iss`. |
+| `installer\wizard\wizimg-*.bmp` (side banner) and `wizsmall-*.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs. `ChargeKeeper.iss` references a **single 300 %-resolution hero** of each (`wizimg-492x942.bmp`, `wizsmall-165x174.bmp`) via `WizardImageFile` / `WizardSmallImageFile`, so Inno only ever **downscales** it (crisp at every 100–300 % display scaling). The intermediate per-DPI variants are still emitted but unused — see the "blurry banner" note below. |
 | `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -Plated`    | The steel battery glyph on a dark rounded-square plate, so the icon stays visible on Inno's light title bar. The app itself still ships the plain transparent `Assets\AppIcon.ico`. |
 
 `installer\wizard\*.svg` (`wizard-image.svg`, `wizard-small.svg`) are **design references only** —
 they are not consumed by the build. They must be kept in sync with the GDI+ geometry in
 `make-wizard-images.ps1`: if you change one, change the other and re-run the script so the shipped
 BMPs match the reference.
+
+**Why a single hero bitmap instead of a per-DPI variant list.** A comma-separated
+`WizardImageFile` list lets Inno pick a per-DPI bitmap, but on a **mixed-DPI setup** (e.g. a
+100 % external monitor as primary + a 175 % laptop panel) Inno selects the bitmap for the monitor
+Setup *starts* on and then **upscales** it when the wizard is shown on / dragged to the higher-DPI
+monitor — and upscaling a bitmap is what made the banner text look soft. Shipping one bitmap
+rendered at the top of the range (300 %) means Inno can only ever **downscale**, which stays crisp
+at every scaling factor. The intermediate variants are still generated (they keep the reference
+SVGs honest and are handy for inspection) but are not referenced by `ChargeKeeper.iss`.
 
 ## Releasing
 

@@ -66,12 +66,16 @@ SolidCompression=yes
 WizardStyle=modern
 ; ZeroZero Software studio-look wizard graphics (issue #23). Built by
 ; installer\make-wizard-images.ps1 (native GDI+, no SVG rasteriser needed); design source
-; is installer\wizard\*.svg. Comma-separated variants at 100/125/150/175/200 % let Inno
-; pick the best for the display DPI. SetupIconFile above stays the product battery icon.
-WizardImageFile=wizard\wizimg-164x314.bmp,wizard\wizimg-205x392.bmp,wizard\wizimg-246x471.bmp,wizard\wizimg-287x549.bmp,wizard\wizimg-328x628.bmp
-WizardSmallImageFile=wizard\wizsmall-55x58.bmp,wizard\wizsmall-69x73.bmp,wizard\wizsmall-83x87.bmp,wizard\wizsmall-96x102.bmp,wizard\wizsmall-110x116.bmp
-; WizardImageStretch left at its default (yes): every variant shares Inno's exact image-area
-; aspect (164:314 and 55:58), so stretching only ever scales uniformly to a perfect fit.
+; is installer\wizard\*.svg. SetupIconFile above stays the product battery icon.
+;
+; SINGLE high-res (300 %) hero bitmap rather than a per-DPI comma list. On a mixed-DPI setup
+; (100 % external primary + 175 % laptop panel) Inno picks the bitmap for the monitor Setup
+; STARTS on, then UPSCALES it when shown on a higher-DPI monitor — that upscale is what made
+; the banner text blurry. One 300 % bitmap means Inno can only ever DOWNSCALE (crisp at every
+; scaling factor 100–300 %). Aspect matches Inno's image area (164:314 and 55:58) so the
+; downscale is uniform. See make-wizard-images.ps1 for the full rationale.
+WizardImageFile=wizard\wizimg-492x942.bmp
+WizardSmallImageFile=wizard\wizsmall-165x174.bmp
 ; Let a silent (background) update close the running tray app and replace its files.
 ; Do NOT auto-restart it afterwards — the app is requireAdministrator, so relaunching
 ; would pop a UAC prompt out of nowhere. It returns at the next sign-in / manual launch.
