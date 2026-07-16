@@ -189,10 +189,16 @@ jobs:
           #
           # Throws when a key doesn't match, so a future YAML reshuffle fails the release loudly
           # instead of silently publishing a stale manifest again.
+          # The (?:-\s+)? is load-bearing too: \s does NOT match '-', so a key that happens to be
+          # FIRST in a YAML sequence entry ("  - InstallerUrl: ...") would not match either. Today's
+          # keys sit inside sequence entries (Installers:, AppsAndFeaturesEntries:) and only match
+          # because they aren't the first key — a benign reorder would silently reintroduce the bug,
+          # or now, with the throw below, fail the release outright AFTER the installer is signed and
+          # the tag is already pushed.
           function Set-YamlValue {
             param([string]$File, [string]$Key, [string]$Value)
             $content = Get-Content $File -Raw
-            $pattern = "(?m)^(\s*$Key\s*:\s*).*$"
+            $pattern = "(?m)^(\s*(?:-\s+)?$Key\s*:\s*).*$"
             if ($content -notmatch $pattern) { throw "Set-YamlValue: key '$Key' not found in $File" }
             $content = $content -replace $pattern, "`${1}$Value"
             Set-Content $File -Value $content -NoNewline
