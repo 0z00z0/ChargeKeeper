@@ -106,26 +106,37 @@ with System.Drawing (GDI+) from the same geometry the reference SVGs describe:
 | Artefact                                   | Generator                             | Notes |
 |--------------------------------------------|---------------------------------------|-------|
 | `installer\wizard\wizimg-*.bmp` (side banner) and `wizsmall-*.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs. `ChargeKeeper.iss` references a **single 300 %-resolution hero** of each (`wizimg-492x942.bmp`, `wizsmall-165x174.bmp`) via `WizardImageFile` / `WizardSmallImageFile`, so Inno only ever **downscales** it (crisp at every 100–300 % display scaling). The intermediate per-DPI variants are still emitted but unused — see the "blurry banner" note below. |
-| `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -HighContrast` | The steel battery glyph in dense "ink" tones (`#1C333F`/`#366B4A`/`#99592C`) on a **transparent** background, so it blends into Inno's light title bar while staying legible at 16 px. The app's own dark title bar uses the product-palette `Assets\AppIcon.ico` instead — see "one glyph, two palettes" below. |
+| `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -HighContrast` | The steel battery glyph, rendered **per frame size** because this file is Setup.exe's own icon and lands on two opposite surfaces: the **16 px** frame is dense "ink" (`#1C333F`/`#366B4A`/`#99592C`) on transparent, for Inno's light wizard title bar; the **32/48/64/128/256 px** frames are **plated** (dark `#0e1620` square, light product glyph) for dark Explorer. See "one glyph, two treatments" below. The app's own icon is the plain product-palette `Assets\AppIcon.ico`. |
 
 `installer\wizard\*.svg` (`wizard-image.svg`, `wizard-small.svg`) are **design references only** —
 they are not consumed by the build. They must be kept in sync with the GDI+ geometry in
 `make-wizard-images.ps1`: if you change one, change the other and re-run the script so the shipped
 BMPs match the reference.
 
-**One glyph, two palettes — and no plate.** The same battery geometry ships as two icons, because
-no single icon reads on both a dark and a light title bar:
+**One glyph, two treatments.** The same battery geometry ships as two icons, because no single
+icon reads on both dark and light chrome:
 
-| File | Palette | Reads against |
-|------|---------|---------------|
-| `Assets\AppIcon.ico` | product / GaugePalette — SteelBlue `#7FA8B8`, Sage `#7AB88F`, Terracotta `#C9926B` | **Dark** chrome: the app's own `#0a0f17` title bar, taskbar, Alt-Tab |
-| `Assets\SetupIcon.ico` | dense "ink" — `#1C333F`, `#366B4A`, `#99592C` | **Light** chrome: Inno's wizard title bar |
+| File | Frames | Treatment | Reads against |
+|------|--------|-----------|---------------|
+| `Assets\AppIcon.ico` | all | product / GaugePalette — SteelBlue `#7FA8B8`, Sage `#7AB88F`, Terracotta `#C9926B`, transparent, no plate | **Dark** chrome: the app's own `#0a0f17` title bar, taskbar, Alt-Tab |
+| `Assets\SetupIcon.ico` | 16 px | dense "ink" — `#1C333F`, `#366B4A`, `#99592C`, transparent, no plate | **Light** chrome: Inno's wizard title bar (`#F3F3F3`) |
+| `Assets\SetupIcon.ico` | 32/48/64/128/256 px | **plated** — dark `#0e1620` rounded square, `#1a2840` edge, product-palette glyph on top | **Dark** chrome: Explorer, desktop, taskbar (`#202020` on Win11 dark) |
 
-Both are **fully transparent**. An earlier revision drew the glyph on a dark `#0e1620` rounded
-plate so one file could serve both, but on Inno's light title bar that plate reads as a dark box
-that refuses to blend. Re-tinting the glyph per background and dropping the plate is what actually
-works. `AppIcon.ico` needs `CopyToOutputDirectory` in the csproj — `TitleBarTheme.ApplyDark`
-resolves it by path at runtime and silently does nothing if it isn't beside the exe.
+The app icon is simple: the app only ever shows it on dark chrome, so one transparent product
+palette covers every frame. `SetupIcon.ico` is the awkward one — `SetupIconFile` is **Setup.exe's
+own file icon**, not just the wizard's title-bar icon, so it is drawn on both a light title bar and
+(usually) dark Explorer. Measured, no palette wins both: ink scores **11.87:1** on `#F3F3F3` but
+**1.24:1** on `#202020`; a plated glyph scores **6.36:1** on `#202020` but reads as a dark box on
+the light title bar. An earlier revision tried each in turn and neither held.
+
+Splitting by frame size resolves it, because the two surfaces ask for different sizes — the wizard
+bar takes 16 px, Explorer takes 32 px and up. **The accepted cost:** Explorer's "Small icons" list
+view can request 16 px, where the ink glyph is weak on dark (**2.96:1** at best). That is a real
+regression in one optional view mode, traded for the wizard's 16 px on light being correct on every
+single run. Serving the guaranteed case beats hedging both badly.
+
+`AppIcon.ico` needs `CopyToOutputDirectory` in the csproj — `TitleBarTheme.ApplyDark` resolves it
+by path at runtime and silently does nothing if it isn't beside the exe.
 
 **Why a single hero bitmap instead of a per-DPI variant list.** A comma-separated
 `WizardImageFile` list lets Inno pick a per-DPI bitmap, but on a **mixed-DPI setup** (e.g. a

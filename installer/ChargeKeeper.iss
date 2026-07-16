@@ -57,11 +57,17 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=Output
 OutputBaseFilename=ChargeKeeper-Setup-{#AppVersion}
-; #60: high-contrast setup icon — the steel battery drawn in dense "ink" tones on a TRANSPARENT
-; background, so it blends into Inno's light title bar instead of sitting in a box. (An earlier
-; revision plated the glyph on a dark rounded square so one file could serve both title bars;
-; that plate read as a dark box on light chrome.) Built by scripts\make-appicon.ps1 -HighContrast.
-; The app's own dark title bar uses the product-palette Assets\AppIcon.ico instead.
+; #60: high-contrast setup icon, rendered PER FRAME SIZE. SetupIconFile is not merely the wizard's
+; title-bar icon — it is Setup.exe's OWN file icon, so it lands on two opposite surfaces: Inno's
+; LIGHT wizard title bar (16 px, #F3F3F3) and DARK Explorer / desktop / taskbar (32 px+, #202020 on
+; Win11 dark). No single palette serves both: the dense "ink" tones score 11.87:1 on light but
+; 1.24:1 on dark (invisible), while a dark-plated glyph scores 6.36:1 on dark but reads as an ugly
+; box on light chrome. So the frames split by the size each surface asks for — 16 px stays ink on
+; transparent for the wizard bar; 32 px and up are plated (dark #0e1620 square, light product
+; glyph) for Explorer. Accepted cost: Explorer's "Small icons" view can request 16 px, where the
+; ink glyph is weak on dark — the wizard's 16 px on light is guaranteed on every run, that view
+; mode is optional, so we serve the certain case. Built by scripts\make-appicon.ps1 -HighContrast.
+; The app's own icon (dark chrome only) is the plain product-palette Assets\AppIcon.ico.
 SetupIconFile=..\Assets\SetupIcon.ico
 Compression=lzma2
 SolidCompression=yes
@@ -78,6 +84,13 @@ WizardStyle=modern
 ; downscale is uniform. See make-wizard-images.ps1 for the full rationale.
 WizardImageFile=wizard\wizimg-492x942.bmp
 WizardSmallImageFile=wizard\wizsmall-165x174.bmp
+; Set EXPLICITLY, not left to the default: with the old 5-variant lists Inno picked a bitmap that
+; already matched the image area, so stretching was immaterial. With one 300 % hero the banner
+; depends on it entirely — WizardImageStretch=no would centre the 492x942 bitmap at natural size in
+; the 164x314 area and show roughly its middle ninth, cropping the [Ø] mark, "ZeroZero Software"
+; and the "ChargeKeeper" wordmark straight off. Nothing renders these BMPs in CI, so only a manual
+; look at a signed installer would ever catch that.
+WizardImageStretch=yes
 ; Let a silent (background) update close the running tray app and replace its files.
 ; Do NOT auto-restart it afterwards — the app is requireAdministrator, so relaunching
 ; would pop a UAC prompt out of nowhere. It returns at the next sign-in / manual launch.

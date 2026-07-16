@@ -12,23 +12,53 @@
     .ico for in-app use (the Settings pane-footer image references ms-appx:///Assets/AppIcon.png).
 
     The geometry matches brand\chargekeeper-icon.svg (the authoritative vector),
-    expressed on a 256-unit reference canvas and scaled per frame. ALWAYS fully transparent —
-    no background plate — with the battery glyph scaled to fill the canvas. Flat "0z0 geometric"
-    style: a squared body+cap, an interior charge fill, and a guard line (no gradients). Stroke
-    widths are clamped so the battery outline and the guard line stay legible at 16 px.
+    expressed on a 256-unit reference canvas and scaled per frame. Flat "0z0 geometric" style:
+    a squared body+cap, an interior charge fill, and a guard line (no gradients). Stroke widths
+    are clamped so the battery outline and the guard line stay legible at 16 px.
 
-    Two palettes, because one icon cannot serve both a dark and a light title bar:
+    Two outputs, because the two files are drawn on different surfaces:
 
-      (default)       ChargeKeeper's GaugePalette (SteelBlue / Sage / Terracotta) — light tones
-                      that read on DARK backgrounds: the app's own #0a0f17 title bar, the taskbar,
-                      Alt-Tab. Written to Assets\AppIcon.ico (+ Assets\AppIcon.png).
+      (default)       Assets\AppIcon.ico (+ Assets\AppIcon.png) — the APP's own icon. Every frame
+                      is ChargeKeeper's GaugePalette (SteelBlue / Sage / Terracotta) on a fully
+                      transparent background, no plate. These light tones read on the DARK chrome
+                      the app actually lives on: its own #0a0f17 title bar, the taskbar, Alt-Tab.
 
-      -HighContrast   Dense "ink" tones that read on LIGHT backgrounds: Inno Setup's light wizard
-                      title bar. Written to Assets\SetupIcon.ico (SetupIconFile).
+      -HighContrast   Assets\SetupIcon.ico — Inno's SetupIconFile, i.e. SETUP.EXE'S OWN ICON.
+                      Rendered PER FRAME SIZE (see below), because this one file is drawn on two
+                      opposite surfaces.
 
-    Neither uses a plate. An earlier revision drew the glyph on a dark rounded-square plate so one
-    file could serve both, but on Inno's light title bar that plate reads as a dark box that
-    refuses to blend — dropping it and re-tinting the glyph per background is what actually works.
+    Why -HighContrast branches per frame size
+    -----------------------------------------
+    SetupIconFile is not just the wizard's title-bar icon — it is the icon of Setup.exe as a file.
+    That means it is drawn on two backgrounds that pull in opposite directions:
+
+      * Inno's wizard title bar, at 16 px, on LIGHT chrome (#F3F3F3).
+      * Explorer / desktop / taskbar, at 32/48/256 px, usually on DARK chrome (#202020 on Win11
+        dark mode, which is the common default).
+
+    A single palette cannot serve both. Measured against #202020, the dense "ink" tones score
+    1.24:1 (body/cap #1C333F — effectively invisible), 2.61:1 (sage) and 2.96:1 (terra); against
+    #F3F3F3 the same ink is excellent at 11.87:1. The converse also holds: an earlier revision
+    plated the glyph on a dark #0e1620 rounded square with the light product palette, which scores
+    6.36:1 on dark Explorer but reads as an ugly dark BOX sitting in Inno's light title bar.
+
+    So the frames split by the size each surface actually requests:
+
+      16 px          -> dense "ink" tones, transparent, NO plate. This is the size Inno's light
+                        wizard title bar asks for, and ink on light is what works there.
+      32/48/64/      -> the plated treatment: dark #0e1620 rounded plate with a #1a2840 edge, the
+      128/256 px        light product palette glyph on top. These are the sizes Explorer, the
+                        desktop and the taskbar ask for, where the background is usually dark.
+
+    Accepted cost, stated plainly: Explorer's "Small icons" list view can request the 16 px frame,
+    and there the ink glyph will be weak against a dark background (the same 1.24:1 as above). That
+    is the price of the split. It is the right trade: the 16 px frame is guaranteed to be shown on
+    LIGHT chrome by the installer wizard on every run, whereas 16 px on dark Explorer is one
+    optional view mode among several, and the 32 px+ frames that dark Explorer normally uses are
+    the plated ones. Serving the guaranteed case correctly beats hedging both badly.
+
+    The frames are each rendered natively at their own size — this is a per-size branch, not a
+    downscale of one master image.
 
     After writing, the ICO is round-tripped through System.Drawing.Icon at several
     sizes as a sanity check that the file parses.
@@ -41,8 +71,9 @@
 [CmdletBinding()]
 param(
     [string] $OutPath = "",  # default: <repo>\Assets\AppIcon.ico (or SetupIcon.ico with -HighContrast)
-    # -HighContrast: draw the glyph in dense "ink" tones for LIGHT chrome (Inno's wizard title bar).
-    # Background stays transparent so the icon blends into the title bar instead of sitting in a box.
+    # -HighContrast: render the SetupIcon variant, which branches PER FRAME SIZE — 16 px in dense
+    # "ink" tones on transparent (Inno's LIGHT wizard title bar), 32 px and up plated on a dark
+    # rounded square (DARK Explorer / desktop / taskbar). See the .DESCRIPTION block for why.
     [switch] $HighContrast
 )
 
@@ -57,21 +88,42 @@ if (-not $OutPath) {
 $sizes = 256, 128, 64, 48, 32, 16
 
 # ── Palettes ──────────────────────────────────────────────────────────────────
-# Default: ChargeKeeper's muted product palette (== GaugePalette SteelBlue / SageGreen /
+# Product: ChargeKeeper's muted product palette (== GaugePalette SteelBlue / SageGreen /
 # Terracotta), matching brand\chargekeeper-icon.svg and Helpers\IconGenerator.cs. Light tones,
-# so it reads on DARK chrome (the app's #0a0f17 title bar, the taskbar).
-$steelBlue  = [System.Drawing.Color]::FromArgb(0x7F, 0xA8, 0xB8)   # body outline + cap
-$sageGreen  = [System.Drawing.Color]::FromArgb(0x7A, 0xB8, 0x8F)   # interior fill
-$terracotta = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)   # guard line
+# so it reads on DARK chrome (the app's #0a0f17 title bar, the taskbar) — or, in the SetupIcon's
+# 32 px+ frames, on the dark plate.
+$productPalette = @{
+    Body  = [System.Drawing.Color]::FromArgb(0x7F, 0xA8, 0xB8)   # body outline + cap
+    Fill  = [System.Drawing.Color]::FromArgb(0x7A, 0xB8, 0x8F)   # interior fill
+    Guard = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)   # guard line
+}
 
-# -HighContrast: the same three roles taken to dense "ink" tones so the glyph reads on LIGHT
-# chrome (Inno's wizard title bar) with no plate behind it. Darker than the "dense on-white"
-# tones used by the installer's wizard-small image, because a 16 px title-bar icon needs more
-# separation than a 55 px header glyph does.
-if ($HighContrast) {
-    $steelBlue  = [System.Drawing.Color]::FromArgb(0x1C, 0x33, 0x3F)
-    $sageGreen  = [System.Drawing.Color]::FromArgb(0x36, 0x6B, 0x4A)
-    $terracotta = [System.Drawing.Color]::FromArgb(0x99, 0x59, 0x2C)
+# Ink: the same three roles taken to dense tones so the glyph reads on LIGHT chrome with no plate
+# behind it. Darker than the "dense on-white" tones used by the installer's wizard-small image,
+# because a 16 px title-bar icon needs more separation than a 55 px header glyph does.
+$inkPalette = @{
+    Body  = [System.Drawing.Color]::FromArgb(0x1C, 0x33, 0x3F)
+    Fill  = [System.Drawing.Color]::FromArgb(0x36, 0x6B, 0x4A)
+    Guard = [System.Drawing.Color]::FromArgb(0x99, 0x59, 0x2C)
+}
+
+# Plate (SetupIcon's 32 px+ frames only): a dark rounded square that guarantees the light product
+# glyph a dark backdrop regardless of what Explorer paints behind the icon.
+$plateFill = [System.Drawing.Color]::FromArgb(0x0e, 0x16, 0x20)
+$plateEdge = [System.Drawing.Color]::FromArgb(0x1a, 0x28, 0x40)
+
+# Which treatment a given frame gets. The default (app) icon is uniform — transparent product
+# palette at every size. Only -HighContrast branches, and it branches on the size the consuming
+# surface requests: 16 px is Inno's light wizard title bar (ink, no plate); 32 px and up are
+# Explorer / desktop / taskbar, usually dark (plated product glyph).
+function Get-FramePlan([int]$size) {
+    if ($HighContrast -and $size -gt 16) {
+        return @{ Palette = $productPalette; Plated = $true }
+    }
+    if ($HighContrast) {
+        return @{ Palette = $inkPalette; Plated = $false }
+    }
+    return @{ Palette = $productPalette; Plated = $false }
 }
 
 # Rounded rect as a GraphicsPath; radius clamped to half the shorter side so tiny
@@ -88,9 +140,15 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]
     return $p
 }
 
-# Renders one frame and returns it as a PNG byte array. The background is always transparent;
-# which palette the glyph is drawn in is decided once, above, by -HighContrast.
+# Renders one frame and returns it as a PNG byte array. Palette and plating are decided per frame
+# by Get-FramePlan, because the SetupIcon variant must serve a light 16 px title bar and dark
+# 32 px+ Explorer chrome from the same file.
 function New-IconFramePng([int]$size) {
+    $plan       = Get-FramePlan $size
+    $steelBlue  = $plan.Palette.Body
+    $sageGreen  = $plan.Palette.Fill
+    $terracotta = $plan.Palette.Guard
+
     $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
         $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -100,6 +158,19 @@ function New-IconFramePng([int]$size) {
             $g.Clear([System.Drawing.Color]::Transparent)
 
             [float]$s = $size / 256.0
+
+            # Dark plate behind the glyph (SetupIcon's 32 px+ frames): rounded square inset from the
+            # canvas, ~12 % corner radius, #0e1620 fill with a faint #1a2840 edge. Gives the light
+            # product glyph a dark backdrop on Explorer regardless of the user's theme.
+            if ($plan.Plated) {
+                $platePath = New-RoundedRectPath (10 * $s) (10 * $s) (236 * $s) (236 * $s) (28 * $s)
+                try {
+                    $pf = New-Object System.Drawing.SolidBrush($plateFill)
+                    try { $g.FillPath($pf, $platePath) } finally { $pf.Dispose() }
+                    $pe = New-Object System.Drawing.Pen($plateEdge, [Math]::Max(3 * $s, 1.0))
+                    try { $g.DrawPath($pe, $platePath) } finally { $pe.Dispose() }
+                } finally { $platePath.Dispose() }
+            }
 
             # Flat "0z0 geometric" battery glyph scaled to fill the canvas.
 
@@ -153,7 +224,13 @@ function New-IconFramePng([int]$size) {
 # silently picks a single-byte overload and corrupts the file.
 Write-Host "==> Rendering frames: $($sizes -join ', ') px" -ForegroundColor Cyan
 $frames = [System.Collections.Generic.List[byte[]]]::new()
-foreach ($size in $sizes) { $frames.Add([byte[]](New-IconFramePng $size)) }
+foreach ($size in $sizes) {
+    $plan = Get-FramePlan $size
+    $treatment = if ($plan.Plated) { "plated (product palette, dark plate)" } else { "transparent" }
+    if (-not $plan.Plated -and $HighContrast) { $treatment = "transparent (ink palette)" }
+    Write-Host ("    {0,3}x{0,-3} {1}" -f $size, $treatment)
+    $frames.Add([byte[]](New-IconFramePng $size))
+}
 
 # ── Assemble the ICO (same layout as IconGenerator.SaveAsIco) ─────────────────
 $outDir = Split-Path $OutPath -Parent
