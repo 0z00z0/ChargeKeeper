@@ -176,11 +176,25 @@ jobs:
           $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
           $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
 
-          # Helper: replace a YAML scalar in-place
+          # Helper: replace a YAML scalar in-place, preserving indentation.
+          #
+          # The leading \s* is load-bearing. Without it the pattern was anchored hard to ^, so it
+          # only ever matched TOP-LEVEL keys: PackageVersion (column 0) patched, while the keys
+          # nested under Installers: — InstallerUrl, InstallerSha256, DisplayVersion — silently
+          # never matched and shipped frozen at their 1.0.0 placeholder values in every release up
+          # to and including v1.6.3. -replace returns the string unchanged when nothing matches, so
+          # it failed silently; and `winget validate` passed throughout because it checks the SCHEMA,
+          # not whether InstallerUrl resolves or InstallerSha256 matches the asset. Nobody noticed
+          # because the winget submission (#15) is blocked, so the manifests are never consumed.
+          #
+          # Throws when a key doesn't match, so a future YAML reshuffle fails the release loudly
+          # instead of silently publishing a stale manifest again.
           function Set-YamlValue {
             param([string]$File, [string]$Key, [string]$Value)
             $content = Get-Content $File -Raw
-            $content = $content -replace "(?m)^($Key\s*:\s*).*$", "`${1}$Value"
+            $pattern = "(?m)^(\s*$Key\s*:\s*).*$"
+            if ($content -notmatch $pattern) { throw "Set-YamlValue: key '$Key' not found in $File" }
+            $content = $content -replace $pattern, "`${1}$Value"
             Set-Content $File -Value $content -NoNewline
           }
 
