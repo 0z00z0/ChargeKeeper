@@ -29,6 +29,7 @@ jobs:
 
     outputs:
       version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.sha256.outputs.sha256 }}
 
     steps:
       # ── 1. Checkout (full history so tags resolve) ──────────────────────────
@@ -189,18 +190,41 @@ jobs:
           #
           # Throws when a key doesn't match, so a future YAML reshuffle fails the release loudly
           # instead of silently publishing a stale manifest again.
-          # The (?:-\s+)? is load-bearing too: \s does NOT match '-', so a key that happens to be
-          # FIRST in a YAML sequence entry ("  - InstallerUrl: ...") would not match either. Today's
-          # keys sit inside sequence entries (Installers:, AppsAndFeaturesEntries:) and only match
-          # because they aren't the first key — a benign reorder would silently reintroduce the bug,
-          # or now, with the throw below, fail the release outright AFTER the installer is signed and
-          # the tag is already pushed.
+          # The (?:-[ \t]+)? is load-bearing too: the indent class does NOT match '-', so a key that
+          # happens to be FIRST in a YAML sequence entry ("  - InstallerUrl: ...") would not match
+          # either. Today's keys sit inside sequence entries (Installers:, AppsAndFeaturesEntries:)
+          # and only match because they aren't the first key — a benign reorder would silently
+          # reintroduce the bug, or now, with the throw below, fail the release outright AFTER the
+          # installer is signed and the tag is already pushed.
+          #
+          # Two further subtleties, both of which bit us:
+          #
+          # 1. The value is matched with [^\r\n]* — NOT `.*$`. In a .NET (?m) regex `.` matches \r
+          #    and `$` anchors only BEFORE the \n, so `.*$` swallows the CR of every CRLF line it
+          #    rewrites. The runner checks out CRLF (core.autocrlf=true, no .gitattributes), so the
+          #    old pattern emitted a mixed-EOL manifest — 23 CRLF + 4 bare LF — and published it as
+          #    a release asset. `winget validate` tolerates it, so it never surfaced.
+          #
+          # 2. Indentation is [ \t]*, NOT \s*. \s matches \r and \n, so `^(\s*Key...)` could start
+          #    the match on an earlier line and hoover up newlines into the captured prefix.
+          #
+          # Asserts EXACTLY ONE match, not "at least one": -replace rewrites EVERY match, while the
+          # old `-notmatch` guard only proved a key matched at least once. The old column-0 anchor
+          # made multi-match impossible; allowing indentation removed that guarantee, and this file
+          # already has `InstallerType` at column 0 AND nested under AppsAndFeaturesEntries. Patching
+          # a duplicated key would silently rewrite both lines — the same silent-wrong-artefact class
+          # the throw was added to prevent.
           function Set-YamlValue {
             param([string]$File, [string]$Key, [string]$Value)
             $content = Get-Content $File -Raw
-            $pattern = "(?m)^(\s*(?:-\s+)?$Key\s*:\s*).*$"
-            if ($content -notmatch $pattern) { throw "Set-YamlValue: key '$Key' not found in $File" }
-            $content = $content -replace $pattern, "`${1}$Value"
+            $pattern = "(?m)^([ \t]*(?:-[ \t]+)?$Key[ \t]*:[ \t]*)[^\r\n]*"
+            $hits = [regex]::Matches($content, $pattern)
+            if ($hits.Count -ne 1) {
+              throw "Set-YamlValue: key '$Key' matched $($hits.Count) line(s) in $File — expected exactly 1."
+            }
+            # '$' is the replacement-token sigil; double it so a value containing '$' stays literal.
+            $replacement = '${1}' + ($Value -replace '\$', '$$$$')
+            $content = [regex]::Replace($content, $pattern, $replacement)
             Set-Content $File -Value $content -NoNewline
           }
 
@@ -223,6 +247,86 @@ jobs:
 
           Write-Host "Manifests updated:"
           Get-Content $installerYaml | Write-Host
+
+      # ── 10b. Assert the patched manifests describe THIS build ────────────────
+      # `winget validate` (next step) checks the SCHEMA only. It cannot see that an
+      # InstallerSha256 belongs to a different build or that an InstallerUrl 404s —
+      # which is exactly why the 1.0.0 placeholders sailed through six releases.
+      # These are content assertions, and they run BEFORE the release is created so a
+      # mismatch fails while the only sunk cost is a build.
+      - name: Verify patched manifests
+        shell: pwsh
+        run: |
+          $ver   = '${{ steps.version.outputs.version }}'
+          $tag   = "v$ver"
+          $setup = "installer\Output\ChargeKeeper-Setup-$ver.exe"
+
+          $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
+          $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
+
+          $errors = @()
+
+          function Get-YamlValue([string]$File, [string]$Key) {
+            $content = Get-Content $File -Raw
+            $m = [regex]::Matches($content, "(?m)^[ \t]*(?:-[ \t]+)?$Key[ \t]*:[ \t]*([^\r\n]*)")
+            if ($m.Count -ne 1) { throw "Get-YamlValue: key '$Key' matched $($m.Count) line(s) in $File — expected exactly 1." }
+            $m[0].Groups[1].Value.Trim()
+          }
+
+          # 1. The SHA in the manifest must be the SHA of the installer we are shipping.
+          $actualSha   = (Get-FileHash $setup -Algorithm SHA256).Hash.ToUpper()
+          $manifestSha = (Get-YamlValue $installerYaml 'InstallerSha256').ToUpper()
+          if ($manifestSha -ne $actualSha) {
+            $errors += "InstallerSha256 mismatch:`n    manifest: $manifestSha`n    installer: $actualSha"
+          } else {
+            Write-Host "OK  InstallerSha256 matches $setup ($actualSha)"
+          }
+
+          # 2. The URL must point at this tag's asset.
+          $expectedUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/ChargeKeeper-Setup-$ver.exe"
+          $manifestUrl = Get-YamlValue $installerYaml 'InstallerUrl'
+          if ($manifestUrl -ne $expectedUrl) {
+            $errors += "InstallerUrl mismatch:`n    manifest: $manifestUrl`n    expected: $expectedUrl"
+          } else {
+            Write-Host "OK  InstallerUrl points at $tag"
+          }
+
+          # 3. Every manifest must carry this version.
+          foreach ($f in @($installerYaml, $versionYaml, $localeYaml)) {
+            $pv = Get-YamlValue $f 'PackageVersion'
+            if ($pv -ne $ver) { $errors += "PackageVersion in $f is '$pv', expected '$ver'." }
+            else { Write-Host "OK  PackageVersion $pv in $(Split-Path $f -Leaf)" }
+          }
+          $dv = Get-YamlValue $installerYaml 'DisplayVersion'
+          if ($dv -ne $ver) { $errors += "DisplayVersion is '$dv', expected '$ver'." }
+          else { Write-Host "OK  DisplayVersion $dv" }
+
+          # 4. No mixed line endings. Patching used to strip the CR from just the lines it
+          #    rewrote, shipping a half-CRLF file. All-CRLF or all-LF is fine; a mix means
+          #    Set-YamlValue has regressed.
+          foreach ($f in @($installerYaml, $versionYaml, $localeYaml)) {
+            $bytes = [IO.File]::ReadAllBytes($f)
+            $crlf = 0; $bare = 0
+            for ($i = 0; $i -lt $bytes.Length; $i++) {
+              if ($bytes[$i] -eq 10) {
+                if ($i -gt 0 -and $bytes[$i - 1] -eq 13) { $crlf++ } else { $bare++ }
+              }
+            }
+            if ($crlf -gt 0 -and $bare -gt 0) {
+              $errors += "$f has mixed line endings ($crlf CRLF + $bare bare LF) — Set-YamlValue is stripping CRs again."
+            } else {
+              Write-Host "OK  $(Split-Path $f -Leaf) line endings consistent ($crlf CRLF, $bare LF)"
+            }
+          }
+
+          if ($errors.Count -gt 0) {
+            Write-Host ''
+            foreach ($e in $errors) { Write-Host "FAIL  $e" }
+            throw "Patched winget manifests do not describe this build ($($errors.Count) problem(s)). Refusing to publish."
+          }
+          Write-Host ''
+          Write-Host 'All manifest content assertions passed.'
 
       # ── 11. Validate winget manifests (against the patched files) ───────────────
       - name: Validate winget manifests
@@ -303,13 +407,60 @@ jobs:
         run: |
           $wg = Get-Command winget -ErrorAction SilentlyContinue
           if (-not $wg) {
-            Write-Warning 'winget not found on this runner; skipping manifest validation.'
-            exit 0
+            Write-Warning 'winget not found on this runner; skipping schema validation.'
+          } else {
+            winget validate --manifest winget-validate
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "winget validate failed (exit $LASTEXITCODE)."
+              exit $LASTEXITCODE
+            }
+            Write-Host 'Released manifests pass schema validation.'
           }
 
-          winget validate --manifest winget-validate
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "winget validate failed (exit $LASTEXITCODE)."
-            exit $LASTEXITCODE
+      # The check that actually matters: follow the PUBLISHED manifest's own InstallerUrl,
+      # download whatever is really at the other end, and hash it. `winget validate` above is
+      # schema-only — it cannot tell that a URL 404s or that a SHA belongs to another build,
+      # which is how the v1.0.0 placeholders survived six releases. This step would have
+      # caught that on v1.0.1.
+      - name: Verify released installer matches released manifest
+        shell: pwsh
+        run: |
+          $manifest = 'winget-validate\0z00z0.ChargeKeeper.installer.yaml'
+          $content  = Get-Content $manifest -Raw
+
+          function Get-YamlValue([string]$Text, [string]$Key) {
+            $m = [regex]::Matches($Text, "(?m)^[ \t]*(?:-[ \t]+)?$Key[ \t]*:[ \t]*([^\r\n]*)")
+            if ($m.Count -ne 1) { throw "key '$Key' matched $($m.Count) line(s) in the released manifest — expected exactly 1." }
+            $m[0].Groups[1].Value.Trim()
           }
-          Write-Host 'Released manifests are valid.'
+
+          $url          = Get-YamlValue $content 'InstallerUrl'
+          $manifestSha  = (Get-YamlValue $content 'InstallerSha256').ToUpper()
+          $expectedTag  = 'v${{ needs.release.outputs.version }}'
+          $expectedSha  = '${{ needs.release.outputs.sha256 }}'.ToUpper()
+
+          Write-Host "Released InstallerUrl: $url"
+
+          if ($url -notlike "*/download/$expectedTag/*") {
+            throw "Released InstallerUrl does not point at $expectedTag — this is the stale-manifest bug: $url"
+          }
+          if ($manifestSha -ne $expectedSha) {
+            throw "Released InstallerSha256 ($manifestSha) != the SHA the build computed ($expectedSha)."
+          }
+
+          # Follow the URL for real. A 404 here means the manifest points at an asset that
+          # does not exist, which no schema check can detect.
+          $dl = Join-Path $env:RUNNER_TEMP 'released-installer.exe'
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $dl -MaximumRedirection 5 -UseBasicParsing
+          } catch {
+            throw "Released InstallerUrl is not downloadable ($url): $($_.Exception.Message)"
+          }
+
+          $actualSha = (Get-FileHash $dl -Algorithm SHA256).Hash.ToUpper()
+          if ($actualSha -ne $manifestSha) {
+            throw "Published installer SHA256 ($actualSha) != released manifest InstallerSha256 ($manifestSha)."
+          }
+
+          Remove-Item $dl -Force
+          Write-Host "OK  $url downloads and hashes to $actualSha, matching the released manifest."
