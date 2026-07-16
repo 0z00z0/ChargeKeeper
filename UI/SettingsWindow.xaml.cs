@@ -154,11 +154,11 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>
     /// The window's opening rect (physical px): the saved size+position when one exists (clamped
     /// onto a currently-connected monitor), otherwise a default centred on the monitor under the
-    /// cursor and capped to its work area so it is never oversized on a large screen. Deliberately
-    /// uses the native MonitorFromPoint / GetCursorMonitorMetrics path, NOT DisplayArea.FindAll —
-    /// the latter faulted in the constructor on a multi-monitor setup and, because a throw there
-    /// left the window unactivated, made the Settings window never appear (the placement was lost
-    /// and the window fell back to its oversized content-default size).
+    /// cursor and capped to its work area so it is never oversized on a large screen. Both paths
+    /// deliberately use the native MonitorFromPoint route, NOT DisplayArea.FindAll — the latter
+    /// faulted in the constructor on a multi-monitor setup and, because a throw there left the
+    /// window unactivated, made the Settings window never appear (the placement was lost and the
+    /// window fell back to its oversized content-default size).
     /// </summary>
     private static RectInt32 ComputeInitialRect()
     {
@@ -171,12 +171,7 @@ internal sealed partial class SettingsWindow : Window
             return new RectInt32(cx, cy, cw, ch);
         }
 
-        var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
-        int workW = work.Right  - work.Left;
-        int workH = work.Bottom - work.Top;
-        int dw = Math.Min((int)(DefaultWidth  * scale), workW);
-        int dh = Math.Min((int)(DefaultHeight * scale), workH);
-        return new RectInt32(work.Left + (workW - dw) / 2, work.Top + (workH - dh) / 2, dw, dh);
+        return NativeMethods.CenterRectOnCursorMonitor(DefaultWidth, DefaultHeight);
     }
 
     /// <summary>

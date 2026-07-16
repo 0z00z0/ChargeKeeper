@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Windows.Graphics;
 
 namespace ChargeKeeper.Helpers;
 
@@ -106,6 +107,33 @@ internal static class NativeMethods
         }
 
         return (GetPrimaryWorkArea(), 1.0);
+    }
+
+    /// <summary>
+    /// Opening rect (physical px) for a window of <paramref name="dipWidth"/> × <paramref name="dipHeight"/>
+    /// DIPs: centred on the monitor under the cursor — the screen the user just acted on — scaled for
+    /// THAT monitor's DPI and capped to its work area so it is never oversized on a small screen or
+    /// hidden behind the taskbar.
+    ///
+    /// <para>Both the size and the position must come from the same monitor's metrics, which is why
+    /// this takes DIPs rather than a caller-computed pixel size: sizing from
+    /// <c>XamlRoot.RasterizationScale</c> (the monitor the window happens to have opened on) and then
+    /// moving it to the cursor's monitor mis-sizes the window on a mixed-DPI setup.</para>
+    ///
+    /// <para>Deliberately built on the native <see cref="GetCursorMonitorMetrics"/> path rather than
+    /// <c>DisplayArea.FindAll</c>, which faulted on a multi-monitor setup and — because the throw
+    /// happened in a window constructor — left the window never shown at all.</para>
+    /// </summary>
+    internal static RectInt32 CenterRectOnCursorMonitor(int dipWidth, int dipHeight)
+    {
+        var (work, scale) = GetCursorMonitorMetrics();
+        int workW = work.Right  - work.Left;
+        int workH = work.Bottom - work.Top;
+        int w = Math.Min((int)Math.Round(dipWidth  * scale), workW);
+        int h = Math.Min((int)Math.Round(dipHeight * scale), workH);
+        return new RectInt32(work.Left + (workW - w) / 2,
+                             work.Top  + (workH - h) / 2,
+                             w, h);
     }
 
     /// <summary>

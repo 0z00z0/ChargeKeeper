@@ -43,35 +43,16 @@ internal sealed partial class AboutWindow : Window
     }
 
     /// <summary>
-    /// Places the window once, on first activation: centred on the monitor under the cursor —
-    /// the one the user just used the tray menu on — and sized for THAT monitor's scaling, so it
-    /// is never half-off a screen or mis-sized on a mixed-DPI setup.
-    ///
-    /// <para>Uses the native <see cref="NativeMethods.GetCursorMonitorMetrics"/> path rather than
-    /// <c>DisplayArea.FindAll</c> for the same reason
-    /// <see cref="SettingsWindow"/>'s placement does — the latter faulted on a multi-monitor setup.
-    /// Scale comes from the cursor's monitor, not <c>XamlRoot.RasterizationScale</c> (the monitor
-    /// the window happens to have opened on): the window is about to be MOVED to the cursor's
-    /// monitor, so position and size must be computed against the same one. Guarded — a placement
-    /// failure must never stop the window from showing.</para>
+    /// Places the window once, on first activation: centred on the monitor under the cursor — the
+    /// one the user just used the tray menu on — and sized for THAT monitor's scaling. Guarded: a
+    /// placement failure must never stop the window from showing.
     /// </summary>
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
         if (_placed) return;
         _placed = true;
 
-        try
-        {
-            var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
-            int workW = work.Right  - work.Left;
-            int workH = work.Bottom - work.Top;
-            int w = Math.Min((int)Math.Round(WidthDip  * scale), workW);
-            int h = Math.Min((int)Math.Round(HeightDip * scale), workH);
-            AppWindow.MoveAndResize(new RectInt32(
-                work.Left + (workW - w) / 2,
-                work.Top  + (workH - h) / 2,
-                w, h));
-        }
+        try { AppWindow.MoveAndResize(NativeMethods.CenterRectOnCursorMonitor(WidthDip, HeightDip)); }
         catch (Exception ex) { AppLog.Error("AboutWindow.MoveAndResize", ex); }
     }
 }
