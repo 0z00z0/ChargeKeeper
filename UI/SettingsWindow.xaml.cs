@@ -95,10 +95,7 @@ internal sealed partial class SettingsWindow : Window
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
         SafeInit(nameof(RefreshAllSections), RefreshAllSections);
         SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
-        // Populate the embedded About panel. One-shot: the payload is static for the process
-        // lifetime (name/version/credits), so unlike the LoadXxx() sections it never needs
-        // re-running from RefreshAllSections.
-        SafeInit("LoadAbout", () => AboutInline.SetInfo(AboutContent.Build()));
+        SafeInit(nameof(LoadAboutOnce), LoadAboutOnce);
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -106,6 +103,38 @@ internal sealed partial class SettingsWindow : Window
         });
 
         Closed += OnClosed;
+    }
+
+    private bool _aboutLoaded;
+
+    /// <summary>
+    /// Populates the embedded About panel — payload and card width both from
+    /// <see cref="AboutContent"/>, so this surface cannot drift from the standalone
+    /// <see cref="AboutWindow"/>.
+    ///
+    /// <para>MUST run at most once per window, and self-enforces that rather than trusting its one
+    /// call site. <c>BrandAboutControl.SetInfo</c> is NOT idempotent: it APPENDS a line per external
+    /// library to its credits panel and ADDS a repo-button Click handler, with no clear or
+    /// unsubscribe. A second call therefore duplicates all six credit rows and makes one "GitHub"
+    /// click open two browser tabs. That matters because this sits next to
+    /// <see cref="RefreshAllSections"/>, which re-runs on every re-activation of an already-open
+    /// window and after a settings reload — moving the About line into it looks like the natural
+    /// tidy-up and would silently grow the credits list on each re-open. The guard makes that
+    /// refactor harmless instead of a bug; the payload is static for the process lifetime
+    /// (name/version/credits), so there is nothing to refresh anyway.</para>
+    ///
+    /// <para>Fixing <c>SetInfo</c> itself is the better repair, but <c>BrandAboutControl</c> lives in
+    /// the shared 0z0-shared repo and is consumed by the sibling tray apps; guard here, from the
+    /// side that knows its own call pattern.</para>
+    /// </summary>
+    private void LoadAboutOnce()
+    {
+        if (_aboutLoaded) return;
+        _aboutLoaded = true;   // set BEFORE the call: a SetInfo that threw half-way through appending
+                               // has already mutated the panel, so a retry would duplicate, not repair
+
+        AboutCard.MaxWidth = AboutContent.ContentWidthDip;
+        AboutInline.SetInfo(AboutContent.Build());
     }
 
     /// <summary>

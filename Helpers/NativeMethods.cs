@@ -129,12 +129,27 @@ internal static class NativeMethods
         var (work, scale) = GetCursorMonitorMetrics();
         int workW = work.Right  - work.Left;
         int workH = work.Bottom - work.Top;
-        int w = Math.Min((int)Math.Round(dipWidth  * scale), workW);
-        int h = Math.Min((int)Math.Round(dipHeight * scale), workH);
-        return new RectInt32(work.Left + (workW - w) / 2,
-                             work.Top  + (workH - h) / 2,
-                             w, h);
+        return CenterInWorkArea(work,
+                                Math.Min((int)Math.Round(dipWidth  * scale), workW),
+                                Math.Min((int)Math.Round(dipHeight * scale), workH));
     }
+
+    /// <summary>
+    /// Centres an already-sized <paramref name="w"/> × <paramref name="h"/> rect (physical px) inside
+    /// <paramref name="work"/>. Split out from <see cref="CenterRectOnCursorMonitor"/> because the
+    /// callers that centre on the cursor's monitor do NOT agree on how the size is derived — a fixed
+    /// DIP size capped to the work area (About/Settings), a percentage of the work area with a DIP
+    /// floor (BatteryHistoryWindow), or an outer size the window manager reports only after a
+    /// ResizeClient (NameLocationWindow) — while the placement maths is identical for all of them.
+    /// Sizing stays with each caller; only this last step is shared.
+    /// <para>Not clamped: <paramref name="w"/>/<paramref name="h"/> larger than the work area
+    /// deliberately centre with symmetric overhang rather than being pinned to the top-left corner,
+    /// which is what callers that intentionally oversize (a DIP floor on a small screen) want.</para>
+    /// </summary>
+    internal static RectInt32 CenterInWorkArea(RECT work, int w, int h)
+        => new(work.Left + (work.Right  - work.Left - w) / 2,
+               work.Top  + (work.Bottom - work.Top  - h) / 2,
+               w, h);
 
     /// <summary>
     /// Usable desktop area on the primary monitor (total area minus the taskbar), in physical

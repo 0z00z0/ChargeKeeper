@@ -70,10 +70,14 @@ internal sealed partial class NameLocationWindow : Window
         int cw = (int)Math.Round(300 * scale);
         int ch = (int)Math.Round((Root.DesiredSize.Height > 0 ? Root.DesiredSize.Height : 120) * scale);
 
+        // Size first, then centre: this window's height is whatever the measured content needs, and
+        // the CLIENT area is what must be exactly that — so it can't use
+        // NativeMethods.CenterRectOnCursorMonitor (one MoveAndResize of an outer rect, which would
+        // shrink the client by the border). ResizeClient adds the non-client border on top, hence
+        // re-reading AppWindow.Size for the outer extent the centring must actually work from.
         AppWindow.ResizeClient(new SizeInt32(cw, ch));
         var outer = AppWindow.Size;
-        AppWindow.Move(new PointInt32(
-            work.Left + (work.Right  - work.Left - outer.Width)  / 2,
-            work.Top  + (work.Bottom - work.Top  - outer.Height) / 2));
+        var rect  = NativeMethods.CenterInWorkArea(work, outer.Width, outer.Height);
+        AppWindow.Move(new PointInt32(rect.X, rect.Y));
     }
 }

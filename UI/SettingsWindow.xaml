@@ -275,7 +275,10 @@
                 <StackPanel x:Name="AboutPanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <Border MaxWidth="460" HorizontalAlignment="Center"
+                    <!-- No MaxWidth here: it is AboutContent.ContentWidthDip (the shared control's
+                         layout measure, also AboutWindow's width) and is applied in code-behind so
+                         the two About surfaces cannot be widened apart. -->
+                    <Border x:Name="AboutCard" HorizontalAlignment="Center"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"

@@ -20,8 +20,10 @@ namespace ChargeKeeper.UI;
 /// </summary>
 internal sealed partial class AboutWindow : Window
 {
-    // Target size in DIPs; scaled to the physical pixels of whichever monitor it lands on.
-    private const int WidthDip  = 460;
+    // Target size in DIPs; scaled to the physical pixels of whichever monitor it lands on. The width
+    // is the shared control's own layout measure (the Settings About card is capped to the same
+    // number), so it lives with the payload rather than being re-stated per host.
+    private const int WidthDip  = AboutContent.ContentWidthDip;
     private const int HeightDip = 660;
 
     private bool _placed;

@@ -222,20 +222,21 @@ public sealed partial class BatteryHistoryWindow : Window
     /// OUTER rect rather than applying a client size — the open animation needs one rect it can
     /// interpolate towards with MoveAndResize, and on a frameless window the non-client area is
     /// only the thin resize border, so outer ≈ client for the 70%/65% target.
+    /// <para/>
+    /// Deliberately NOT <see cref="NativeMethods.CenterRectOnCursorMonitor"/>: that sizes from a fixed
+    /// DIP target capped to the work area, whereas this window wants a proportion of the work area
+    /// with a DIP floor — the floor is allowed to WIN on a small screen (Max, not Min), keeping the
+    /// axis-label columns readable even if that overhangs the work area. Only the shared centring
+    /// step is reused.
     /// </summary>
     private RectInt32 ComputeFinalRect()
     {
         var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
-        int workW = work.Right  - work.Left;
-        int workH = work.Bottom - work.Top;
 
-        int w = Math.Max((int)(MinWidth  * scale), (int)(workW * 0.70));
-        int h = Math.Max((int)(MinHeight * scale), (int)(workH * 0.65));
+        int w = Math.Max((int)(MinWidth  * scale), (int)((work.Right  - work.Left) * 0.70));
+        int h = Math.Max((int)(MinHeight * scale), (int)((work.Bottom - work.Top)  * 0.65));
 
-        return new RectInt32(
-            work.Left + (workW - w) / 2,
-            work.Top  + (workH - h) / 2,
-            w, h);
+        return NativeMethods.CenterInWorkArea(work, w, h);
     }
 
     /// <summary>
