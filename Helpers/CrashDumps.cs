@@ -17,7 +17,15 @@ namespace ChargeKeeper.Helpers;
 /// <see cref="TryDisarmSilentExitMonitor"/> actively removes it from machines that already have it.
 ///
 /// Only WER LocalDumps stays — it triggers solely on a genuine unhandled fault (never on the clean
-/// probe exits), so it keeps a future crash capturable at zero steady-state cost.
+/// probe exits) — and it is now OPT-IN on release builds: a shipped app should not be silently
+/// writing minidumps of itself into a user's profile. Pass <c>/debug</c> (see <see cref="DebugArg"/>)
+/// to arm it; debug builds arm it unconditionally. See <see cref="DumpsEnabled"/>.
+///
+/// Because the switch controls an HKLM registry key that OUTLIVES the process, "off" cannot simply
+/// mean "don't arm" — a machine that once ran with dumps on would keep dumping forever. So a run
+/// without the switch actively DISARMS (<see cref="TryDisarmLocalDumps"/>). That is the same lesson
+/// the retired SilentProcessExit monitor taught: leaving a stale key behind is what caused the
+/// hundreds-of-MB-a-day noise in the first place.
 ///
 /// Writing under HKLM needs admin; the app is requireAdministrator, so this succeeds at startup.
 /// Entirely best-effort — any failure (e.g. a non-elevated run) is swallowed.
@@ -26,6 +34,25 @@ namespace ChargeKeeper.Helpers;
 internal static class CrashDumps
 {
     private const string ExeName = "ChargeKeeper.exe";
+
+    /// <summary>
+    /// Opt-in switch for crash-dump capture on release builds: <c>ChargeKeeper.exe /debug</c>.
+    /// Matched case-insensitively — it is typed by a human, and Windows switches conventionally
+    /// ignore case (unlike the machine-generated <see cref="WatchdogTask.WatchdogArg"/>).
+    /// </summary>
+    internal const string DebugArg = "/debug";
+
+    /// <summary>
+    /// Whether crash-dump capture should be armed for this run: always on debug builds, and only
+    /// with <see cref="DebugArg"/> on release builds. When false the caller must DISARM rather than
+    /// merely skip arming — see the class remarks.
+    /// </summary>
+    internal static bool DumpsEnabled =>
+#if DEBUG
+        true;
+#else
+        Environment.GetCommandLineArgs().Contains(DebugArg, StringComparer.OrdinalIgnoreCase);
+#endif
     private const string LocalDumpsKey =
         @"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\" + ExeName;
     private const string IfeoKey =
@@ -62,6 +89,30 @@ internal static class CrashDumps
         {
             // needs admin / policy-restricted — best-effort only, but log it: see doc comment above.
             AppLog.Error("CrashDumps.TryRegisterLocalDumps", ex);
+        }
+    }
+
+    /// <summary>
+    /// Removes this exe's WER LocalDumps registration — the counterpart to
+    /// <see cref="TryRegisterLocalDumps"/>, run whenever <see cref="DumpsEnabled"/> is false.
+    /// Necessary because the key lives in HKLM and outlives the process: a machine that once ran a
+    /// build (or a <c>/debug</c> session) that armed dumps would otherwise keep writing them
+    /// forever, long after the switch was dropped. Never throws; idempotent.
+    /// </summary>
+    internal static void TryDisarmLocalDumps()
+    {
+        try
+        {
+            using (var key = Registry.LocalMachine.OpenSubKey(LocalDumpsKey))
+            {
+                if (key is null) return;   // never armed on this machine — nothing to undo
+            }
+            Registry.LocalMachine.DeleteSubKeyTree(LocalDumpsKey, throwOnMissingSubKey: false);
+            AppLog.Info($"CrashDumps: WER LocalDumps disarmed (no {DebugArg} switch).");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("CrashDumps.TryDisarmLocalDumps", ex);
         }
     }
 

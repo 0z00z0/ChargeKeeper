@@ -268,18 +268,23 @@ public partial class App : Application
         else
             WatchdogTask.TryClearHoldMarker();   // any deliberate start re-arms resurrection
 
-        // Keep a minidump-on-crash net for genuine unhandled faults (WER LocalDumps). The louder
-        // SilentProcessExit monitor that once helped pin the undock-kill root cause is now retired
-        // and actively disarmed — it dumped ~11 MB on every 5-minute watchdog probe exit — and the
-        // dump folder it filled is trimmed here. See CrashDumps.cs for the full story. Backgrounded:
-        // this only needs to be armed before some FUTURE crash, not before the rest of startup
-        // (window/tray-icon creation below) proceeds — the registry + file I/O here would otherwise
-        // add unaccounted latency to the exact "is the app actually running yet" window this app's
-        // history has repeatedly had trouble with.
+        // Minidump-on-crash net for genuine unhandled faults (WER LocalDumps), now OPT-IN on
+        // release builds: a shipped app shouldn't quietly write minidumps of itself into the user's
+        // profile, so it takes ChargeKeeper.exe /debug (debug builds arm it regardless). A run
+        // WITHOUT the switch actively disarms rather than just skipping — the registration is an
+        // HKLM key that outlives the process, so a machine that once armed it would keep dumping
+        // forever. The louder SilentProcessExit monitor that once helped pin the undock-kill root
+        // cause is retired and disarmed the same way — it dumped ~11 MB on every 5-minute watchdog
+        // probe exit — and the dump folder it filled is trimmed here. See CrashDumps.cs for the
+        // full story. Backgrounded: this only needs to be armed before some FUTURE crash, not
+        // before the rest of startup (window/tray-icon creation below) proceeds — the registry +
+        // file I/O here would otherwise add unaccounted latency to the exact "is the app actually
+        // running yet" window this app's history has repeatedly had trouble with.
         _ = Task.Run(() =>
         {
             string dumpDir = AppPaths.DataFile("dumps");
-            CrashDumps.TryRegisterLocalDumps(dumpDir);
+            if (CrashDumps.DumpsEnabled) CrashDumps.TryRegisterLocalDumps(dumpDir);
+            else                         CrashDumps.TryDisarmLocalDumps();
             CrashDumps.TryDisarmSilentExitMonitor();   // retired: it dumped ~11 MB per 5-min watchdog probe
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();

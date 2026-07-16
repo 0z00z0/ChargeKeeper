@@ -22,6 +22,22 @@ dotnet run
 # or right-click the compiled .exe → "Run as administrator"
 ```
 
+### Command-line switches
+
+| Switch | Purpose |
+|--------|---------|
+| `/debug` | Arms **crash-dump capture** for this run (WER LocalDumps → `%AppData%\ChargeKeeper\dumps`). Off by default on release builds so a shipped app never quietly writes minidumps of itself into your profile; debug builds arm it regardless. |
+| `--watchdog-relaunch` | Internal. Used by the `ChargeKeeper Watchdog` scheduled task's 5-minute probe — not meant to be typed by hand. |
+| `--auto-relaunch` | Internal. Set when the app restarts itself after a GPU-reset teardown. |
+
+Crash-dump capture registers an **HKLM** key that outlives the process, so it is not merely
+"skipped" when `/debug` is absent — a run without the switch actively **removes** the registration.
+That means one `/debug` session cannot leave a machine dumping forever:
+
+```powershell
+ChargeKeeper.exe /debug   # dumps armed until the next plain launch disarms them
+```
+
 ## Tray interactions
 
 | Input | Action |
