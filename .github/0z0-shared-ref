@@ -6,4 +6,11 @@
 # replace the SHA below with `git -C ..\0z0-shared rev-parse origin/main`.
 # Lines starting with '#' and blank lines are ignored; the first non-comment line is
 # the ref. Once 0z0-shared publishes versioned tags, pin a tag string here instead.
-2d89d1050f88eeaa7d64915270522cc30f3c314c
+#
+# ⚠ ADOPTING A NEW SHARED TYPE? BUMP THIS IN THE SAME PR. Local dev builds against the LIVE
+# sibling checkout, so a new type resolves fine on the dev machine while CI — which clones the
+# PINNED commit — fails with CS0234 "type does not exist in namespace ZeroZero.Brand.WinUI".
+# That is exactly what happened: #59 adopted BrandAboutControl but left this pinned at
+# 2d89d105 (which only had BrandAboutWindow), and CI stayed red from 2026-07-15 until 1.6.2.
+# A green local build proves nothing about this pin.
+72b3360b6b0ae345281dd3935c63d33e859e0666
