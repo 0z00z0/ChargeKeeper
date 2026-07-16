@@ -136,10 +136,18 @@ Type: files; Name: "{app}\LenovoRed-*.ico"
 [Icons]
 ; Per-user "All apps" Start-menu entry. IconFilename points at the exe itself (which embeds
 ; the icon via <ApplicationIcon> in the csproj) — same pattern as the desktop shortcut below
-; and UninstallDisplayIcon above. A prior version pointed this at "{app}\AppIcon.ico", a loose
-; file the csproj's Content-include never actually copies to the publish output (no
-; CopyToOutputDirectory) — that path never existed on any install, so the shortcut silently
-; showed a blank/generic icon once Explorer's icon cache stopped masking it.
+; and UninstallDisplayIcon above. A prior version pointed this at "{app}\AppIcon.ico"; that path
+; has never existed on any install, so the shortcut silently showed a blank/generic icon once
+; Explorer's icon cache stopped masking it.
+; The reason is the PATH, not the file: the csproj ships Assets\AppIcon.ico with
+; CopyToOutputDirectory=PreserveNewest, so it DOES publish — but to "Assets\AppIcon.ico", and
+; [Files] copies {#PublishDir}\* with recursesubdirs, preserving that folder. The installed icon
+; is therefore "{app}\Assets\AppIcon.ico", never "{app}\AppIcon.ico". (An earlier version of this
+; comment claimed the file never publishes at all. It was wrong then and is wrong twice over now —
+; even without CopyToOutputDirectory the WinUI targets copy globbed Content to the output anyway.)
+; So: don't "fix" this by pointing IconFilename at {app}\AppIcon.ico after checking the csproj and
+; seeing that the icon does ship — the loose root-level path is still what doesn't exist. Pointing
+; at the exe stays correct and needs no [Files] entry, so leave it alone.
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Comment: "{#AppName}"
 ; Optional desktop shortcut (off by default; ticked via the task below).
 Name: "{userdesktop}\{#AppName}";  Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Tasks: desktopicon

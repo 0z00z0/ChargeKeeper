@@ -83,6 +83,37 @@
     <Content Remove="Vendors\**" />
   </ItemGroup>
 
+  <!-- publish\ is this project's OWN publish output (installer\build-installer.ps1 publishes the
+       app into <repo>\publish, which ISCC then packs). It sits under the project directory, so the
+       default globs suck the previous publish back in as INPUT to the next build — the same
+       feedback loop the Tests\** Content Remove above documents, and the reason to kill it here.
+       It is gitignored, so these item groups are invisible in review and only reproduce on a
+       machine that has actually built an installer.
+       Not theoretical: without these Removes, `-getItem:Content` lists publish\Assets\AppIcon.png
+       and publish\Microsoft.UI.Xaml\Assets\NoiseAsset_256x256_PNG.png, and the WinUI targets copy
+       Content to the output preserving RelativeDir — bin\...\win-x64\publish\Assets\AppIcon.png
+       was present in the Debug, Release and x64\Debug trees when this guard was added. (Note the
+       trap: a glob-only Content item has NO CopyToOutputDirectory, but the WinUI/Windows App SDK
+       targets copy it anyway — CopyToOutputDirectory governs the plain SDK's copy, not theirs. So
+       "no metadata" does NOT mean "not copied".) Each installer build then republishes that copy
+       one level deeper, which is how the Tests\** case ended in MAX_PATH/MSB3021.
+       The None glob is the bulk of it by count: 559 items, nearly all Microsoft.UI.Xaml *.mui
+       satellites.
+       Page is removed pre-emptively rather than reactively — an OUTPUT tree demonstrably can carry
+       a referenced WinUI library's loose .xaml (Tests\bin holds ZeroZero.Brand.WinUI's
+       BrandAboutWindow.xaml today, which is exactly why Tests\** needs its own Page Remove); a
+       second copy makes the XAML compiler emit a colliding *.g.i.cs (CS0436). publish\ carries no
+       .xaml only because an unpackaged publish folds XAML into the .pri — a property of the
+       publish pipeline, not a guarantee worth relying on.
+       No Compile/EmbeddedResource Remove here, unlike Tests\** and Vendors\**: those hold SOURCES
+       that would compile into two assemblies as duplicate types, whereas publish\ is build output
+       and contains no .cs/.resx (verified zero). Add them if that ever stops being true. -->
+  <ItemGroup>
+    <Content Remove="publish\**" />
+    <None Remove="publish\**" />
+    <Page Remove="publish\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="Vendors\Abstractions\ChargeKeeper.Vendors.Abstractions.csproj" />
     <ProjectReference Include="Vendors\Lenovo\ChargeKeeper.Vendors.Lenovo.csproj" />
@@ -103,7 +134,14 @@
     <!-- SetupIcon.ico is the INSTALLER's dense light-chrome variant: Inno reads it straight from
          the repo (SetupIconFile=..\Assets\SetupIcon.ico), and nothing in the app references it.
          WinUI's targets glob every image file into Content, so without this Remove it would be
-         copied into the app output as dead weight. -->
+         copied into the app output as dead weight AND indexed into ChargeKeeper.pri. Verified by
+         toggling the Remove: without it, bin\...\Assets\SetupIcon.ico exists and "SetupIcon"
+         appears in the .pri; with it, neither does.
+         Do NOT "correct" this to say a glob-only item is never copied because it carries no
+         CopyToOutputDirectory. That metadata gates the plain .NET SDK's copy — the WinUI/Windows
+         App SDK targets copy Content regardless, which is why the metadata-less Assets\StoreLogo
+         .png and friends reach the output too. Deleting an explicit Include is therefore NOT
+         sufficient to keep a file out; this Remove is what does it. -->
     <Content Remove="Assets\SetupIcon.ico" />
     <!-- Ship the PNG icon too so ms-appx:///Assets/AppIcon.png resolves at runtime
          (Settings pane footer + Dashboard header). Without CopyToOutputDirectory the
