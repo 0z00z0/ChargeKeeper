@@ -34,17 +34,14 @@ internal static class TitleBarTheme
             if (appWindow is null) return;
 
             // Make the taskbar / Alt-Tab / title-bar icon the current steel battery rather than
-            // whatever the window inherited or cached. Use the PLATED SetupIcon.ico (steel battery
-            // on a #0e1620 rounded plate) rather than the transparent AppIcon.ico — the plate keeps
-            // the icon visible against the dark title bar, where the plain transparent icon washed
-            // out. Both ship to the output dir (Content). Falls back to AppIcon.ico if the plated
-            // one is missing.
+            // whatever the window inherited or cached. AppIcon.ico is the transparent
+            // product-palette glyph: its light SteelBlue/Sage tones read well against this dark
+            // title bar, and having no plate means nothing boxes the icon in. (SetupIcon.ico is
+            // the installer's dense variant for Inno's LIGHT chrome — deliberately not used here;
+            // its ink tones would disappear against #0a0f17.)
             try
             {
-                var platedIco = Path.Combine(AppContext.BaseDirectory, "Assets", "SetupIcon.ico");
-                var icoPath = File.Exists(platedIco)
-                    ? platedIco
-                    : Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+                var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
                 if (File.Exists(icoPath)) appWindow.SetIcon(icoPath);
             }
             catch (Exception ex) { AppLog.Error("TitleBarTheme.SetIcon", ex); }

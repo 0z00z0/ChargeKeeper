@@ -293,6 +293,8 @@ ChargeKeeper/
 │
 └── scripts/
     ├── make-appicon.ps1             — Regenerates Assets\AppIcon.ico from the brand geometry
+    │                                  (-HighContrast → Assets\SetupIcon.ico, dense tones for the
+    │                                   installer's light title bar)
     └── sign.ps1                     — Authenticode signing (Release builds + one-time cert setup)
 ```
 

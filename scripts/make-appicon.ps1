@@ -12,11 +12,23 @@
     .ico for in-app use (the Settings pane-footer image references ms-appx:///Assets/AppIcon.png).
 
     The geometry matches brand\chargekeeper-icon.svg (the authoritative vector),
-    expressed on a 256-unit reference canvas and scaled per frame. No background plate —
-    fully transparent, battery glyph scaled to fill the canvas. Flat "0z0 geometric" style:
-    a squared SteelBlue body+cap, a Sage-green interior fill, and a Terracotta guard line
-    (ChargeKeeper's own GaugePalette colours — no gradients). Stroke widths are clamped so
-    the battery outline and the guard line stay legible at 16 px.
+    expressed on a 256-unit reference canvas and scaled per frame. ALWAYS fully transparent —
+    no background plate — with the battery glyph scaled to fill the canvas. Flat "0z0 geometric"
+    style: a squared body+cap, an interior charge fill, and a guard line (no gradients). Stroke
+    widths are clamped so the battery outline and the guard line stay legible at 16 px.
+
+    Two palettes, because one icon cannot serve both a dark and a light title bar:
+
+      (default)       ChargeKeeper's GaugePalette (SteelBlue / Sage / Terracotta) — light tones
+                      that read on DARK backgrounds: the app's own #0a0f17 title bar, the taskbar,
+                      Alt-Tab. Written to Assets\AppIcon.ico (+ Assets\AppIcon.png).
+
+      -HighContrast   Dense "ink" tones that read on LIGHT backgrounds: Inno Setup's light wizard
+                      title bar. Written to Assets\SetupIcon.ico (SetupIconFile).
+
+    Neither uses a plate. An earlier revision drew the glyph on a dark rounded-square plate so one
+    file could serve both, but on Inno's light title bar that plate reads as a dark box that
+    refuses to blend — dropping it and re-tinting the glyph per background is what actually works.
 
     After writing, the ICO is round-tripped through System.Drawing.Icon at several
     sizes as a sanity check that the file parses.
@@ -24,15 +36,14 @@
 .EXAMPLE
     .\scripts\make-appicon.ps1                    # writes Assets\AppIcon.ico + Assets\AppIcon.png
     .\scripts\make-appicon.ps1 -OutPath my.ico    # writes elsewhere
-    .\scripts\make-appicon.ps1 -Plated            # writes Assets\SetupIcon.ico (glyph on a dark plate)
+    .\scripts\make-appicon.ps1 -HighContrast      # writes Assets\SetupIcon.ico (dense, for light chrome)
 #>
 [CmdletBinding()]
 param(
-    [string] $OutPath = "",  # default: <repo>\Assets\AppIcon.ico (or SetupIcon.ico with -Plated)
-    # -Plated: draw the glyph on a subtle rounded-square dark plate so the icon stays visible on ANY
-    # title-bar colour. Used for the installer's SetupIconFile (#60) — the transparent AppIcon.ico is
-    # near-invisible on Inno's light title bar. The app itself keeps the plain transparent AppIcon.ico.
-    [switch] $Plated
+    [string] $OutPath = "",  # default: <repo>\Assets\AppIcon.ico (or SetupIcon.ico with -HighContrast)
+    # -HighContrast: draw the glyph in dense "ink" tones for LIGHT chrome (Inno's wizard title bar).
+    # Background stays transparent so the icon blends into the title bar instead of sitting in a box.
+    [switch] $HighContrast
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,19 +51,28 @@ Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path $PSScriptRoot -Parent
 if (-not $OutPath) {
-    $OutPath = Join-Path $root ($Plated ? "Assets\SetupIcon.ico" : "Assets\AppIcon.ico")
+    $OutPath = Join-Path $root ($HighContrast ? "Assets\SetupIcon.ico" : "Assets\AppIcon.ico")
 }
 
 $sizes = 256, 128, 64, 48, 32, 16
 
-# ── Palette (matches brand\chargekeeper-icon.svg / Helpers\IconGenerator.cs) ──
-# ChargeKeeper's own muted product palette (== GaugePalette SteelBlue / SageGreen / Terracotta).
+# ── Palettes ──────────────────────────────────────────────────────────────────
+# Default: ChargeKeeper's muted product palette (== GaugePalette SteelBlue / SageGreen /
+# Terracotta), matching brand\chargekeeper-icon.svg and Helpers\IconGenerator.cs. Light tones,
+# so it reads on DARK chrome (the app's #0a0f17 title bar, the taskbar).
 $steelBlue  = [System.Drawing.Color]::FromArgb(0x7F, 0xA8, 0xB8)   # body outline + cap
 $sageGreen  = [System.Drawing.Color]::FromArgb(0x7A, 0xB8, 0x8F)   # interior fill
-$terracotta = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)  # guard line
-# Plate (only used with -Plated): studio bg2 fill + faint studio border edge.
-$plateFill  = [System.Drawing.Color]::FromArgb(0x0e, 0x16, 0x20)   # #0e1620
-$plateEdge  = [System.Drawing.Color]::FromArgb(0x1a, 0x28, 0x40)   # #1a2840
+$terracotta = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)   # guard line
+
+# -HighContrast: the same three roles taken to dense "ink" tones so the glyph reads on LIGHT
+# chrome (Inno's wizard title bar) with no plate behind it. Darker than the "dense on-white"
+# tones used by the installer's wizard-small image, because a 16 px title-bar icon needs more
+# separation than a 55 px header glyph does.
+if ($HighContrast) {
+    $steelBlue  = [System.Drawing.Color]::FromArgb(0x1C, 0x33, 0x3F)
+    $sageGreen  = [System.Drawing.Color]::FromArgb(0x36, 0x6B, 0x4A)
+    $terracotta = [System.Drawing.Color]::FromArgb(0x99, 0x59, 0x2C)
+}
 
 # Rounded rect as a GraphicsPath; radius clamped to half the shorter side so tiny
 # frames can't produce arcs larger than the rect itself.
@@ -68,9 +88,9 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]
     return $p
 }
 
-# Renders one frame and returns it as a PNG byte array. With -Plated, a dark rounded-square plate is
-# drawn behind the glyph so the icon reads on any background (installer title bar).
-function New-IconFramePng([int]$size, [bool]$plated = $false) {
+# Renders one frame and returns it as a PNG byte array. The background is always transparent;
+# which palette the glyph is drawn in is decided once, above, by -HighContrast.
+function New-IconFramePng([int]$size) {
     $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
         $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -81,22 +101,9 @@ function New-IconFramePng([int]$size, [bool]$plated = $false) {
 
             [float]$s = $size / 256.0
 
-            # Optional dark plate behind the glyph (-Plated): rounded square inset from the canvas,
-            # ~12% corner radius, #0e1620 fill with a faint #1a2840 edge. Keeps the otherwise
-            # transparent light-steel glyph visible on a light title bar.
-            if ($plated) {
-                $platePath = New-RoundedRectPath (10 * $s) (10 * $s) (236 * $s) (236 * $s) (28 * $s)
-                try {
-                    $pf = New-Object System.Drawing.SolidBrush($plateFill)
-                    try { $g.FillPath($pf, $platePath) } finally { $pf.Dispose() }
-                    $pe = New-Object System.Drawing.Pen($plateEdge, [Math]::Max(3 * $s, 1.0))
-                    try { $g.DrawPath($pe, $platePath) } finally { $pe.Dispose() }
-                } finally { $platePath.Dispose() }
-            }
-
             # Flat "0z0 geometric" battery glyph scaled to fill the canvas.
 
-            # Battery body outline: flat SteelBlue stroke (clamped ≥1.6 px), round line-join.
+            # Battery body outline: flat stroke (clamped ≥1.6 px), round line-join.
             $bodyPath = New-RoundedRectPath (15 * $s) (80 * $s) (191 * $s) (96 * $s) (6 * $s)
             try {
                 $bodyPen = New-Object System.Drawing.Pen($steelBlue, [Math]::Max(13 * $s, 1.6))
@@ -106,7 +113,7 @@ function New-IconFramePng([int]$size, [bool]$plated = $false) {
                 } finally { $bodyPen.Dispose() }
             } finally { $bodyPath.Dispose() }
 
-            # Battery cap (positive terminal): solid SteelBlue.
+            # Battery cap (positive terminal): solid, same tone as the body.
             $capPath = New-RoundedRectPath (221 * $s) (106 * $s) (20 * $s) (44 * $s) (3 * $s)
             try {
                 $cap = New-Object System.Drawing.SolidBrush($steelBlue)
@@ -114,7 +121,7 @@ function New-IconFramePng([int]$size, [bool]$plated = $false) {
                 finally { $cap.Dispose() }
             } finally { $capPath.Dispose() }
 
-            # Interior charge fill: solid Sage green at ~90 % opacity (alpha ≈ 230).
+            # Interior charge fill: solid at ~90 % opacity (alpha ≈ 230).
             $fillPath = New-RoundedRectPath (36 * $s) (101 * $s) (110 * $s) (55 * $s) (3 * $s)
             try {
                 $fillBrush = New-Object System.Drawing.SolidBrush(
@@ -123,7 +130,7 @@ function New-IconFramePng([int]$size, [bool]$plated = $false) {
                 finally { $fillBrush.Dispose() }
             } finally { $fillPath.Dispose() }
 
-            # Terracotta guard line crossing the body — flat/butt caps (NOT round).
+            # Guard line crossing the body — flat/butt caps (NOT round).
             # Clamped to ≥2 px so it survives the 16 px frame.
             $limitPen = New-Object System.Drawing.Pen($terracotta, [Math]::Max(9 * $s, 2.0))
             try {
@@ -146,7 +153,7 @@ function New-IconFramePng([int]$size, [bool]$plated = $false) {
 # silently picks a single-byte overload and corrupts the file.
 Write-Host "==> Rendering frames: $($sizes -join ', ') px" -ForegroundColor Cyan
 $frames = [System.Collections.Generic.List[byte[]]]::new()
-foreach ($size in $sizes) { $frames.Add([byte[]](New-IconFramePng $size ([bool]$Plated))) }
+foreach ($size in $sizes) { $frames.Add([byte[]](New-IconFramePng $size)) }
 
 # ── Assemble the ICO (same layout as IconGenerator.SaveAsIco) ─────────────────
 $outDir = Split-Path $OutPath -Parent
@@ -195,9 +202,9 @@ Write-Host "==> ICO verified OK." -ForegroundColor Green
 
 # ── Also emit a 256x256 transparent PNG for in-app use ────────────────────────
 # The Settings pane-footer <Image> references ms-appx:///Assets/AppIcon.png; the .ico can't be
-# bound directly there. Same 256-unit geometry, single frame. Skipped with -Plated (that run only
-# produces the plated SetupIcon.ico and must not touch the app's transparent AppIcon.png).
-if (-not $Plated) {
+# bound directly there. Same 256-unit geometry, single frame. Skipped with -HighContrast (that run
+# only produces the dense SetupIcon.ico and must not overwrite the app's product-palette PNG).
+if (-not $HighContrast) {
     $pngPath = Join-Path (Split-Path $OutPath -Parent) "AppIcon.png"
     [System.IO.File]::WriteAllBytes($pngPath, [byte[]](New-IconFramePng 256))
     $pngBytes = (Get-Item $pngPath).Length

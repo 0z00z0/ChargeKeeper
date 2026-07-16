@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.6.0</Version>
+    <Version>1.6.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Identity / packaging metadata -->
@@ -95,13 +95,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\AppIcon.ico" />
-    <!-- Ship the plated icon (steel battery on a #0e1620 rounded plate) into the app output so
-         TitleBarTheme can point the window/title-bar icon at it — visible on the dark title bar
-         where the transparent AppIcon.ico washed out. Same file the installer's SetupIconFile uses. -->
-    <Content Include="Assets\SetupIcon.ico">
+    <!-- CopyToOutputDirectory matters: TitleBarTheme.ApplyDark resolves this by path at runtime
+         (AppWindow.SetIcon) and silently does nothing if the file isn't beside the exe. -->
+    <Content Include="Assets\AppIcon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- SetupIcon.ico is the INSTALLER's dense light-chrome variant: Inno reads it straight from
+         the repo (SetupIconFile=..\Assets\SetupIcon.ico), and nothing in the app references it.
+         WinUI's targets glob every image file into Content, so without this Remove it would be
+         copied into the app output as dead weight. -->
+    <Content Remove="Assets\SetupIcon.ico" />
     <!-- Ship the PNG icon too so ms-appx:///Assets/AppIcon.png resolves at runtime
          (Settings pane footer + Dashboard header). Without CopyToOutputDirectory the
          PNG is stripped from the output and the image renders blank. -->
