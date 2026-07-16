@@ -9,9 +9,18 @@
   background plate — scaled to fill the canvas (matching modern Windows 11 icon conventions,
   where the shell supplies its own rounded-square mask/backdrop rather than the app baking one in).
 
-  This file is the authoritative vector. The shipped Assets\AppIcon.ico is generated from
-  the same geometry by scripts\make-appicon.ps1 (which redraws it natively per size), and
-  Helpers\IconGenerator.cs redraws it at runtime for the startup tray icon.
+  This file is the authoritative vector — change it FIRST. There is no SVG rasteriser on the
+  build machine, so nothing consumes it directly; it is transcribed into GDI+ geometry in two
+  places, and a change here is not real until both follow:
+
+    scripts\BatteryGlyph.ps1    — shared by scripts\make-appicon.ps1 (Assets\AppIcon.ico/.png,
+                                  Assets\SetupIcon.ico) and installer\make-wizard-images.ps1
+                                  (the wizard banners). Re-run both after editing.
+    Helpers\IconGenerator.cs    — redraws it at runtime for the startup tray icon. Separate copy
+                                  by necessity (in-process C#); see its RenderIconBitmap remarks.
+
+  No test catches drift between the three. The shipped bitmaps are tracked in git, so a mismatch
+  at least shows up as a binary diff when the generators are re-run.
 -->
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
   <!-- Battery body outline: flat SteelBlue, round line-join -->

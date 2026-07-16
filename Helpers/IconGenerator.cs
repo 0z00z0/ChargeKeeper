@@ -71,6 +71,10 @@ internal static class IconGenerator
     // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
     // vector), redrawn natively per frame from a 256-unit reference canvas. Flat "0z0
     // geometric" colours from the product's own GaugePalette — no gradients.
+    //
+    // These three DON'T need to be kept in sync with the build-time generators by hand: they read
+    // from GaugePalette, which is the same source scripts\BatteryGlyph.ps1's Product palette
+    // transcribes. The GEOMETRY does — see RenderIconBitmap.
     private static readonly Color MarkSteel      = FromPacked(GaugePalette.SteelBlue);  // body outline + cap
     private static readonly Color MarkSage       = FromPacked(GaugePalette.SageGreen);  // interior fill
     private static readonly Color MarkTerracotta = FromPacked(GaugePalette.Terracotta); // guard line
@@ -214,6 +218,17 @@ internal static class IconGenerator
     /// scaled to <paramref name="size"/>, with minimum stroke widths so the mark stays legible
     /// at 16 px.
     /// </summary>
+    /// <remarks>
+    /// This is a HAND-MAINTAINED THIRD COPY of the glyph geometry, and deliberately so. The two
+    /// build-time generators (scripts\make-appicon.ps1, installer\make-wizard-images.ps1) share
+    /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process at startup: reaching it
+    /// would mean shelling out to PowerShell on the tray-icon path, which is far worse than the
+    /// duplication. The numbers below are identical to Draw-BatteryGlyph's (same 256-unit canvas,
+    /// same 1.6/2.0 stroke floors), and there is NO test that will catch them drifting apart.
+    ///
+    /// So: brand\chargekeeper-icon.svg is authoritative — change it first, then BatteryGlyph.ps1,
+    /// then here, then re-run both generators and confirm the tray icon still matches.
+    /// </remarks>
     private static Bitmap RenderIconBitmap(int size)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);

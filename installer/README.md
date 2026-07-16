@@ -89,6 +89,10 @@ background tone, not framing:
 | Sage (charge fill)           | `#7AB88F`                 | `#4F8F67`                    |
 | Terracotta (guard line)      | `#C9926B`                 | `#B57745`                    |
 
+Both columns (plus the denser still "ink" tones the setup icon's 16 px frame uses) live in one
+table in `scripts\BatteryGlyph.ps1` — `$BatteryGlyphPalettes.Product` / `.Dense` / `.Ink`. Retint
+there, re-run both generators, and every surface follows.
+
 **Inner pages stay light.** The wizard runs `WizardStyle=modern` (light modern inner pages) with
 dense-steel headings. The brand typeface (Cascadia Mono) appears **only in the pre-rendered
 bitmaps** — it is never set as the wizard dialog font, so the inner pages use the native system UI
@@ -105,7 +109,8 @@ with System.Drawing (GDI+) from the same geometry the reference SVGs describe:
 
 | Artefact                                   | Generator                             | Notes |
 |--------------------------------------------|---------------------------------------|-------|
-| `installer\wizard\wizimg-*.bmp` (side banner) and `wizsmall-*.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs. `ChargeKeeper.iss` references a **single 300 %-resolution hero** of each (`wizimg-492x942.bmp`, `wizsmall-165x174.bmp`) via `WizardImageFile` / `WizardSmallImageFile`, so Inno only ever **downscales** it (crisp at every 100–300 % display scaling). The intermediate per-DPI variants are still emitted but unused — see the "blurry banner" note below. |
+| `installer\wizard\wizimg-492x942.bmp` (side banner) and `wizsmall-165x174.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs. **One bitmap each**, rendered at 300 % and referenced by `ChargeKeeper.iss` via `WizardImageFile` / `WizardSmallImageFile`, so Inno only ever **downscales** it (crisp at every 100–300 % display scaling) — see the "blurry banner" note below. |
+| The battery glyph inside all of the above | `scripts\BatteryGlyph.ps1` | Dot-sourced by **both** `make-wizard-images.ps1` and `scripts\make-appicon.ps1`: one copy of the geometry, and one palette table (Product / Dense / Ink) so a brand tint change is a single edit. Callers own their own surface (plates, banners, text); this file owns the glyph. |
 | `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -HighContrast` | The steel battery glyph, rendered **per frame size** because this file is Setup.exe's own icon and lands on two opposite surfaces: the **16 px** frame is dense "ink" (`#1C333F`/`#366B4A`/`#99592C`) on transparent, for Inno's light wizard title bar; the **32/48/64/128/256 px** frames are **plated** (dark `#0e1620` square, light product glyph) for dark Explorer. See "one glyph, two treatments" below. The app's own icon is the plain product-palette `Assets\AppIcon.ico`. |
 
 `installer\wizard\*.svg` (`wizard-image.svg`, `wizard-small.svg`) are **design references only** —
@@ -144,8 +149,13 @@ by path at runtime and silently does nothing if it isn't beside the exe.
 Setup *starts* on and then **upscales** it when the wizard is shown on / dragged to the higher-DPI
 monitor — and upscaling a bitmap is what made the banner text look soft. Shipping one bitmap
 rendered at the top of the range (300 %) means Inno can only ever **downscale**, which stays crisp
-at every scaling factor. The intermediate variants are still generated (they keep the reference
-SVGs honest and are handy for inspection) but are not referenced by `ChargeKeeper.iss`.
+at every scaling factor.
+
+The script used to also emit 100/125/150/175/200 % variants of each, and this section used to say
+they were kept because they "keep the reference SVGs honest". They didn't — rendering a bitmap that
+nothing opens, references, or compares validates nothing, and the ten files were ~1.9 MB tracked in
+git and rewritten on every run. They are gone; `make-wizard-images.ps1` now emits exactly the two
+bitmaps `ChargeKeeper.iss` consumes. Keeping the SVGs honest is still a manual review job (below).
 
 ## Releasing
 

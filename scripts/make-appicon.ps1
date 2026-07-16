@@ -11,10 +11,13 @@
     A single 256x256 transparent PNG (Assets\AppIcon.png) is also emitted alongside the
     .ico for in-app use (the Settings pane-footer image references ms-appx:///Assets/AppIcon.png).
 
-    The geometry matches brand\chargekeeper-icon.svg (the authoritative vector),
-    expressed on a 256-unit reference canvas and scaled per frame. Flat "0z0 geometric" style:
-    a squared body+cap, an interior charge fill, and a guard line (no gradients). Stroke widths
-    are clamped so the battery outline and the guard line stay legible at 16 px.
+    The glyph itself — geometry and palettes — comes from scripts\BatteryGlyph.ps1, shared with
+    installer\make-wizard-images.ps1; see that file for the list of representations that must stay
+    in sync. It matches brand\chargekeeper-icon.svg (the authoritative vector), expressed on a
+    256-unit reference canvas and scaled per frame. Flat "0z0 geometric" style: a squared body+cap,
+    an interior charge fill, and a guard line (no gradients). Stroke widths are clamped so the
+    battery outline and the guard line stay legible at 16 px. This script owns only what is
+    specific to an ICO: the per-frame plan, the plate, and the file assembly.
 
     Two outputs, because the two files are drawn on different surfaces:
 
@@ -80,6 +83,9 @@ param(
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
+# Glyph geometry + the Product/Ink palettes, shared with installer\make-wizard-images.ps1.
+. (Join-Path $PSScriptRoot "BatteryGlyph.ps1")
+
 $root = Split-Path $PSScriptRoot -Parent
 if (-not $OutPath) {
     $OutPath = Join-Path $root ($HighContrast ? "Assets\SetupIcon.ico" : "Assets\AppIcon.ico")
@@ -87,26 +93,10 @@ if (-not $OutPath) {
 
 $sizes = 256, 128, 64, 48, 32, 16
 
-# ── Palettes ──────────────────────────────────────────────────────────────────
-# Product: ChargeKeeper's muted product palette (== GaugePalette SteelBlue / SageGreen /
-# Terracotta), matching brand\chargekeeper-icon.svg and Helpers\IconGenerator.cs. Light tones,
-# so it reads on DARK chrome (the app's #0a0f17 title bar, the taskbar) — or, in the SetupIcon's
-# 32 px+ frames, on the dark plate.
-$productPalette = @{
-    Body  = [System.Drawing.Color]::FromArgb(0x7F, 0xA8, 0xB8)   # body outline + cap
-    Fill  = [System.Drawing.Color]::FromArgb(0x7A, 0xB8, 0x8F)   # interior fill
-    Guard = [System.Drawing.Color]::FromArgb(0xC9, 0x92, 0x6B)   # guard line
-}
-
-# Ink: the same three roles taken to dense tones so the glyph reads on LIGHT chrome with no plate
-# behind it. Darker than the "dense on-white" tones used by the installer's wizard-small image,
-# because a 16 px title-bar icon needs more separation than a 55 px header glyph does.
-$inkPalette = @{
-    Body  = [System.Drawing.Color]::FromArgb(0x1C, 0x33, 0x3F)
-    Fill  = [System.Drawing.Color]::FromArgb(0x36, 0x6B, 0x4A)
-    Guard = [System.Drawing.Color]::FromArgb(0x99, 0x59, 0x2C)
-}
-
+# ── Plate ─────────────────────────────────────────────────────────────────────
+# The glyph palettes (Product / Ink) come from BatteryGlyph.ps1. The plate is this script's own —
+# no other surface renders it.
+#
 # Plate (SetupIcon's 32 px+ frames only): a dark rounded square that guarantees the light product
 # glyph a dark backdrop regardless of what Explorer paints behind the icon.
 $plateFill = [System.Drawing.Color]::FromArgb(0x0e, 0x16, 0x20)
@@ -118,36 +108,19 @@ $plateEdge = [System.Drawing.Color]::FromArgb(0x1a, 0x28, 0x40)
 # Explorer / desktop / taskbar, usually dark (plated product glyph).
 function Get-FramePlan([int]$size) {
     if ($HighContrast -and $size -gt 16) {
-        return @{ Palette = $productPalette; Plated = $true }
+        return @{ Palette = $BatteryGlyphPalettes.Product; Plated = $true }
     }
     if ($HighContrast) {
-        return @{ Palette = $inkPalette; Plated = $false }
+        return @{ Palette = $BatteryGlyphPalettes.Ink; Plated = $false }
     }
-    return @{ Palette = $productPalette; Plated = $false }
-}
-
-# Rounded rect as a GraphicsPath; radius clamped to half the shorter side so tiny
-# frames can't produce arcs larger than the rect itself.
-function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]$r) {
-    $r = [Math]::Min($r, [Math]::Min($w, $h) / 2)
-    $d = $r * 2
-    $p = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $p.AddArc($x,          $y,          $d, $d, 180, 90)
-    $p.AddArc($x + $w - $d, $y,          $d, $d, 270, 90)
-    $p.AddArc($x + $w - $d, $y + $h - $d, $d, $d,   0, 90)
-    $p.AddArc($x,          $y + $h - $d, $d, $d,  90, 90)
-    $p.CloseFigure()
-    return $p
+    return @{ Palette = $BatteryGlyphPalettes.Product; Plated = $false }
 }
 
 # Renders one frame and returns it as a PNG byte array. Palette and plating are decided per frame
 # by Get-FramePlan, because the SetupIcon variant must serve a light 16 px title bar and dark
 # 32 px+ Explorer chrome from the same file.
 function New-IconFramePng([int]$size) {
-    $plan       = Get-FramePlan $size
-    $steelBlue  = $plan.Palette.Body
-    $sageGreen  = $plan.Palette.Fill
-    $terracotta = $plan.Palette.Guard
+    $plan = Get-FramePlan $size
 
     $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
@@ -172,43 +145,11 @@ function New-IconFramePng([int]$size) {
                 } finally { $platePath.Dispose() }
             }
 
-            # Flat "0z0 geometric" battery glyph scaled to fill the canvas.
-
-            # Battery body outline: flat stroke (clamped ≥1.6 px), round line-join.
-            $bodyPath = New-RoundedRectPath (15 * $s) (80 * $s) (191 * $s) (96 * $s) (6 * $s)
-            try {
-                $bodyPen = New-Object System.Drawing.Pen($steelBlue, [Math]::Max(13 * $s, 1.6))
-                try {
-                    $bodyPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-                    $g.DrawPath($bodyPen, $bodyPath)
-                } finally { $bodyPen.Dispose() }
-            } finally { $bodyPath.Dispose() }
-
-            # Battery cap (positive terminal): solid, same tone as the body.
-            $capPath = New-RoundedRectPath (221 * $s) (106 * $s) (20 * $s) (44 * $s) (3 * $s)
-            try {
-                $cap = New-Object System.Drawing.SolidBrush($steelBlue)
-                try   { $g.FillPath($cap, $capPath) }
-                finally { $cap.Dispose() }
-            } finally { $capPath.Dispose() }
-
-            # Interior charge fill: solid at ~90 % opacity (alpha ≈ 230).
-            $fillPath = New-RoundedRectPath (36 * $s) (101 * $s) (110 * $s) (55 * $s) (3 * $s)
-            try {
-                $fillBrush = New-Object System.Drawing.SolidBrush(
-                    [System.Drawing.Color]::FromArgb(230, $sageGreen))
-                try   { $g.FillPath($fillBrush, $fillPath) }
-                finally { $fillBrush.Dispose() }
-            } finally { $fillPath.Dispose() }
-
-            # Guard line crossing the body — flat/butt caps (NOT round).
-            # Clamped to ≥2 px so it survives the 16 px frame.
-            $limitPen = New-Object System.Drawing.Pen($terracotta, [Math]::Max(9 * $s, 2.0))
-            try {
-                $limitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Flat
-                $limitPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Flat
-                $g.DrawLine($limitPen, (161 * $s), (66 * $s), (161 * $s), (190 * $s))
-            } finally { $limitPen.Dispose() }
+            # Flat "0z0 geometric" battery glyph scaled to fill the canvas (offset 0,0 — the glyph
+            # IS the icon here, unlike the wizard banners which place it on a larger composition).
+            # The stroke floors are what make the 16 px frame legible: below ~31 px the body
+            # outline and the guard line would otherwise render sub-pixel and wash out.
+            Draw-BatteryGlyph $g 0 0 $s $plan.Palette -MinBodyPen 1.6 -MinGuardPen 2.0
         } finally { $g.Dispose() }
 
         $ms = New-Object System.IO.MemoryStream

@@ -4,17 +4,18 @@
     (WizardImageFile + WizardSmallImageFile) as 24-bit BMPs.
 
 .DESCRIPTION
-    Draws the banners natively at each Inno DPI size with System.Drawing (GDI+) — there is
-    no SVG rasteriser on the build machine, the same constraint scripts\make-appicon.ps1 and
-    the 0z0-design asset scripts work around. The geometry matches installer\wizard\*.svg
-    (the design reference) and reuses the [Ø] studio-mark geometry from 0z0-design and the
-    ChargeKeeper battery-glyph geometry from brand\chargekeeper-icon.svg.
+    Draws the banners natively with System.Drawing (GDI+) — there is no SVG rasteriser on the
+    build machine, the same constraint scripts\make-appicon.ps1 and the 0z0-design asset scripts
+    work around. The geometry matches installer\wizard\*.svg (the design reference) and reuses the
+    [Ø] studio-mark geometry from 0z0-design; the battery glyph itself comes from the shared
+    scripts\BatteryGlyph.ps1 (see that file for what must stay in sync with it).
 
-    Output: installer\wizard\wizimg-{WxH}.bmp   (large side banner, base 164x314)
-            installer\wizard\wizsmall-{WxH}.bmp  (small header,      base 55x58)
-    Each at 100/125/150/175/200 % so Inno can pick the best for the display DPI.
+    Output: installer\wizard\wizimg-492x942.bmp   (large side banner, base 164x314 @ 300 %)
+            installer\wizard\wizsmall-165x174.bmp (small header,      base 55x58   @ 300 %)
+    ONE bitmap each, rendered at the top of the DPI range — see the emit section for why a
+    per-DPI variant list is the wrong shape here.
 
-    BMPs are 24-bit (opaque dark background — no alpha needed) which Inno Setup accepts.
+    BMPs are 24-bit (opaque background — no alpha needed) which Inno Setup accepts.
 
 .EXAMPLE
     .\installer\make-wizard-images.ps1
@@ -26,6 +27,10 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
 $root    = Split-Path $PSScriptRoot -Parent          # repo root
+
+# Battery-glyph geometry + the Product/Dense palettes, shared with scripts\make-appicon.ps1.
+# Also supplies New-RoundedRectPath, which the [Ø] studio mark below uses.
+. (Join-Path $root "scripts\BatteryGlyph.ps1")
 $outDir  = Join-Path $PSScriptRoot "wizard"
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
@@ -43,10 +48,12 @@ $cBlue    = C 0x11 0xa9 0xd6
 $cPurple  = C 0x7b 0x8c 0xff
 $cIndigo  = C 0x3f 0x5b 0xe0
 $cAmber   = C 0xd8 0xa6 0x57
-# ── ChargeKeeper product palette (== GaugePalette): 0z0-steel battery glyph ────
-$cSteel   = C 0x7f 0xa8 0xb8   # SteelBlue  body outline + cap
-$cSage    = C 0x7a 0xb8 0x8f   # Sage       interior charge fill
-$cTerra   = C 0xc9 0x92 0x6b   # Terracotta guard line
+# ── ChargeKeeper product palette (== GaugePalette) ────────────────────────────
+# Aliases into the shared table, for the flat accent bars this script draws around the glyph —
+# the bars are "a quiet echo of the app's GaugePalette", so they must track it, not shadow it.
+$cSteel   = $BatteryGlyphPalettes.Product.Body
+$cSage    = $BatteryGlyphPalettes.Product.Fill
+$cTerra   = $BatteryGlyphPalettes.Product.Guard
 
 # ── Brand typeface: Cascadia Mono, loaded privately from the sibling design/shared repo ──
 $fontPaths = @(
@@ -61,16 +68,6 @@ foreach ($fp in $fontPaths) {
 if (-not $brandFamily) {
     Write-Warning "CascadiaMono.ttf not found beside the repo; falling back to Consolas."
     $brandFamily = New-Object System.Drawing.FontFamily("Consolas")
-}
-
-function New-RoundedRectPath([float]$x,[float]$y,[float]$w,[float]$h,[float]$r) {
-    $r = [Math]::Min($r, [Math]::Min($w,$h)/2); $d = $r*2
-    $p = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $p.AddArc($x,$y,$d,$d,180,90)
-    $p.AddArc($x+$w-$d,$y,$d,$d,270,90)
-    $p.AddArc($x+$w-$d,$y+$h-$d,$d,$d,0,90)
-    $p.AddArc($x,$y+$h-$d,$d,$d,90,90)
-    $p.CloseFigure(); return $p
 }
 
 # Draw the [Ø] studio mark on a 256-unit sub-canvas at (ox,oy), scaled by $s (target-px per unit).
@@ -122,34 +119,6 @@ function Draw-Mark($g,[float]$ox,[float]$oy,[float]$s) {
         $slashPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Round
         $g.DrawLine($slashPen, ($ox+148*$s),($oy+92*$s), ($ox+108*$s),($oy+164*$s))
     } finally { $slashPen.Dispose() }
-}
-
-# Draw the ChargeKeeper battery glyph on a 256-unit sub-canvas at (ox,oy), scaled by $s.
-# 0z0-steel: flat SteelBlue outline + cap, Sage interior fill, Terracotta guard line —
-# geometry matches brand\chargekeeper-icon.svg (no gradients).
-function Draw-Battery($g,[float]$ox,[float]$oy,[float]$s) {
-    $bodyPath = New-RoundedRectPath ($ox+15*$s) ($oy+80*$s) (191*$s) (96*$s) (6*$s)
-    try {
-        $pen = New-Object System.Drawing.Pen($cSteel, (13*$s))
-        try { $pen.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round; $g.DrawPath($pen,$bodyPath) }
-        finally { $pen.Dispose() }
-    } finally { $bodyPath.Dispose() }
-
-    $capPath = New-RoundedRectPath ($ox+221*$s) ($oy+106*$s) (20*$s) (44*$s) (3*$s)
-    try { $cap = New-Object System.Drawing.SolidBrush($cSteel); try { $g.FillPath($cap,$capPath) } finally { $cap.Dispose() } }
-    finally { $capPath.Dispose() }
-
-    $fillPath = New-RoundedRectPath ($ox+36*$s) ($oy+101*$s) (110*$s) (55*$s) (3*$s)
-    try {
-        $fb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(230,$cSage))
-        try { $g.FillPath($fb,$fillPath) } finally { $fb.Dispose() }
-    } finally { $fillPath.Dispose() }
-
-    $limPen = New-Object System.Drawing.Pen($cTerra, (9*$s))
-    try {
-        $limPen.StartCap=[System.Drawing.Drawing2D.LineCap]::Flat; $limPen.EndCap=[System.Drawing.Drawing2D.LineCap]::Flat
-        $g.DrawLine($limPen, ($ox+161*$s),($oy+66*$s), ($ox+161*$s),($oy+190*$s))
-    } finally { $limPen.Dispose() }
 }
 
 function Fill-FlatBar($g,[float]$x,[float]$y,[float]$w,[float]$h,$color) {
@@ -231,7 +200,7 @@ function Render-Large([int]$w,[int]$h) {
                 # Battery glyph: 110-unit box, placed low. Its drawn extent is ~y166..y222; the
                 # wordmark below starts ~y242, so glyph and wordmark never overlap.
                 $glyphW = 110*$k
-                Draw-Battery $g (($w-$glyphW)/2) (138*$k) ($glyphW/256.0)
+                Draw-BatteryGlyph $g (($w-$glyphW)/2) (138*$k) ($glyphW/256.0) $BatteryGlyphPalettes.Product
 
                 # "ChargeKeeper" wordmark BELOW the battery, with a clear gap. No tagline under it.
                 $g.DrawString("ChargeKeeper",$wordFont,$tb,(New-Object System.Drawing.RectangleF(0,(236*$k),$w,(28*$k))),$fmtC)
@@ -244,26 +213,19 @@ function Render-Large([int]$w,[int]$h) {
 # ── Small header image (base 55x58) — product battery glyph on WHITE ──────────
 # The inner wizard pages are the light/modern Inno theme, so this clears to WHITE (not the studio
 # dark) to blend in rather than float as a dark box. The app's light-steel palette washes out on
-# white, so this draws the glyph in DENSER/darker muted tones (deeper steel/sage/terracotta) purely
-# for this on-white variant — swapped in via $script scope so Draw-Battery picks them up, then
-# restored. The transparent-on-dark app icon itself is unchanged.
-$cSteelDense = C 0x3f 0x63 0x74   # deeper SteelBlue  — reads on white
-$cSageDense  = C 0x4f 0x8f 0x67   # deeper Sage
-$cTerraDense = C 0xb5 0x77 0x45   # deeper Terracotta
+# white, so this variant uses the shared Dense palette. Passing it as an argument is why this
+# function no longer save/restores $script:cSteel et al around the call.
 function Render-Small([int]$w,[int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w,$h,[System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
     $g = New-Graphics $bmp
-    $savedSteel = $script:cSteel; $savedSage = $script:cSage; $savedTerra = $script:cTerra
-    $script:cSteel = $cSteelDense; $script:cSage = $cSageDense; $script:cTerra = $cTerraDense
     try {
         [float]$k = $w / 55.0
         $g.Clear([System.Drawing.Color]::White)
         # battery glyph ~46 units wide, centred.
         $glyphW = 46*$k
-        Draw-Battery $g (($w-$glyphW)/2) ((($h-$glyphW*(256.0/256.0))/2)) ($glyphW/256.0)
+        Draw-BatteryGlyph $g (($w-$glyphW)/2) (($h-$glyphW)/2) ($glyphW/256.0) $BatteryGlyphPalettes.Dense
     } finally {
         $g.Dispose()
-        $script:cSteel = $savedSteel; $script:cSage = $savedSage; $script:cTerra = $savedTerra
     }
     return $bmp
 }
@@ -280,23 +242,22 @@ function Save-Bmp($bmp,$path) { $bmp.Save($path,[System.Drawing.Imaging.ImageFor
 # the top of the DPI range (300 %) means Inno can only ever DOWNSCALE it, and downscaling
 # stays crisp at every scaling factor from 100 % to 300 %.
 #
-# The intermediate per-DPI variants are still emitted (harmless, and they keep the design
-# reference SVGs honest), but ChargeKeeper.iss points only at the 300 % hero pair.
-$heroLarge  = @(492,942)                                                   # 300 % hero (WizardImageFile)
-$heroSmall  = @(165,174)                                                   # 300 % hero (WizardSmallImageFile)
-$largeSizes = @(@(164,314),@(205,392),@(246,471),@(287,549),@(328,628),$heroLarge)   # 100/125/150/175/200/300 %
-$smallSizes = @(@(55,58),@(69,73),@(83,87),@(96,102),@(110,116),$heroSmall)
+# This script used to also emit 100/125/150/175/200 % variants of each. Nothing referenced them:
+# they were ten tracked BMPs (~1.95 MB) rewritten on every run, justified as "keeping the design
+# reference SVGs honest" — which they cannot do, since rendering a bitmap nobody opens or compares
+# validates nothing. The base sizes they were derived from survive as the render functions'
+# divisors ($w/164.0, $w/55.0), which is where that information actually mattered.
+$heroLarge = @(492,942)   # 300 % of the 164x314 base — WizardImageFile
+$heroSmall = @(165,174)   # 300 % of the 55x58   base — WizardSmallImageFile
 
-Write-Host "==> Rendering large wizard banner variants..." -ForegroundColor Cyan
-foreach ($sz in $largeSizes) {
-    $p = Join-Path $outDir ("wizimg-{0}x{1}.bmp" -f $sz[0],$sz[1])
-    Save-Bmp (Render-Large $sz[0] $sz[1]) $p
-    Write-Host ("    {0}" -f $p)
-}
-Write-Host "==> Rendering small header image variants..." -ForegroundColor Cyan
-foreach ($sz in $smallSizes) {
-    $p = Join-Path $outDir ("wizsmall-{0}x{1}.bmp" -f $sz[0],$sz[1])
-    Save-Bmp (Render-Small $sz[0] $sz[1]) $p
-    Write-Host ("    {0}" -f $p)
-}
+Write-Host "==> Rendering wizard banner (300 % hero)..." -ForegroundColor Cyan
+$p = Join-Path $outDir ("wizimg-{0}x{1}.bmp" -f $heroLarge[0],$heroLarge[1])
+Save-Bmp (Render-Large $heroLarge[0] $heroLarge[1]) $p
+Write-Host ("    {0}" -f $p)
+
+Write-Host "==> Rendering small header image (300 % hero)..." -ForegroundColor Cyan
+$p = Join-Path $outDir ("wizsmall-{0}x{1}.bmp" -f $heroSmall[0],$heroSmall[1])
+Save-Bmp (Render-Small $heroSmall[0] $heroSmall[1]) $p
+Write-Host ("    {0}" -f $p)
+
 Write-Host "==> Done." -ForegroundColor Green
