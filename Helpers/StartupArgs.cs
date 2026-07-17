@@ -24,7 +24,7 @@ internal sealed record StartupArgs(bool IsDebugCommand, bool IsWatchdogProbe, bo
     /// (element 0 is the exe path and is matched like any other token — it can equal none of these).</param>
     internal static StartupArgs Parse(string[] args) => new(
         IsDebugCommand:  CrashDumps.ParseDebugCommand(args) != CrashDumps.DebugCommand.None,
-        IsWatchdogProbe: args.Contains(WatchdogTask.WatchdogArg),
+        IsWatchdogProbe: args.Contains(TaskDefinitions.WatchdogArg),
         IsAutoRelaunch:  args.Contains(AutoRelaunchArg));
 
     /// <summary>

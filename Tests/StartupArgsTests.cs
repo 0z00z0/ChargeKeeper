@@ -51,7 +51,7 @@ public class StartupArgsTests
     {
         // They must never collide: one means "check whether the app is gone", the other means "the
         // app just died and this IS the replacement" — and they get opposite retry budgets below.
-        Assert.NotEqual(StartupArgs.AutoRelaunchArg, WatchdogTask.WatchdogArg);
+        Assert.NotEqual(StartupArgs.AutoRelaunchArg, TaskDefinitions.WatchdogArg);
     }
 
     [Fact]

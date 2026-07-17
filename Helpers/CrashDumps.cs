@@ -51,7 +51,7 @@ internal static class CrashDumps
     /// <summary>
     /// Opt-in switch for crash-dump capture: <c>ChargeKeeper.exe /debug [on|off]</c>.
     /// Matched case-insensitively — it is typed by a human, and Windows switches conventionally
-    /// ignore case (unlike the machine-generated <see cref="WatchdogTask.WatchdogArg"/>).
+    /// ignore case (unlike the machine-generated <see cref="TaskDefinitions.WatchdogArg"/>).
     /// </summary>
     internal const string DebugArg = "/debug";
 
