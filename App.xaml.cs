@@ -17,6 +17,21 @@ public partial class App : Application
 {
     // Invisible WinUI 3 host — the framework exits when every window is closed.
     private Window?              _hostWindow;
+
+    // Completes when the display subsystem is considered settled enough to create WINDOWS (issue
+    // #76). The tray icon is deliberately NOT behind this gate — see OnLaunched. Every window the
+    // user can ask for awaits it, so a click that lands during the settle is served afterwards
+    // rather than dropped: in the overwhelmingly common case the gate is already complete and the
+    // await finishes synchronously, leaving those paths byte-for-byte as they were.
+    // RunContinuationsAsynchronously is load-bearing, not boilerplate. TrySetResult runs on the UI
+    // thread, and a parked awaiter that captured this same DispatcherQueueSynchronizationContext
+    // would otherwise be resumed INLINE at the TrySetResult call site (TaskAwaiter skips the Post
+    // when the captured context is already current) — building and showing the dashboard nested
+    // inside OnLaunched, before _hostWindow, the battery subscription and _ha exist. Nothing today
+    // reads those from that path, so this is pre-emptive; the comment at the gate says the resume is
+    // queued, and this is what makes that true.
+    private readonly TaskCompletionSource _windowsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Task WindowsReady => _windowsReady.Task;
     private TaskbarIcon?         _trayIcon;
     private DashboardWindow?     _dashboard;
     private BatteryHistoryWindow? _historyWindow;
@@ -252,10 +267,45 @@ public partial class App : Application
         // Logoff/shutdown must not trigger the self-heal relaunch in OnProcessExit.
         Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
 
+        // THE TRAY ICON GOES UP FIRST — ahead of both waits below (issue #76). It used to sit after
+        // them, which on the paths that matter most (a watchdog restore after unlock, an auto-relaunch)
+        // cost 10-20s of "where is my tray icon?" — the tray icon IS this app, so that window is the
+        // app being absent.
+        //
+        // Moving it is sound because the waits guard a hazard the icon does not share. The settle
+        // exists because a fresh WinUI WINDOW can die to the same GPU/compositor reset it was born
+        // from (see the teardown forensics at the top of this file). A tray icon is not a window: it
+        // is a message-only HWND plus a Shell_NotifyIcon registration, and even the right-click menu
+        // is a native Win32 PopupMenu built from the flyout on the message window — no compositor, no
+        // XamlRoot, nothing that a mid-recovery display subsystem can pull out from under it.
+        // (Verified against H.NotifyIcon 2.4.1: ForceCreate → TrayIcon.Create; ContextMenuMode
+        // defaults to PopupMenu, so the XAML flyout is only a template for the native menu.)
+        //
+        // The startup delay is likewise about keeping HEAVY work off a contended sign-in, not about
+        // the icon: registering a tray icon costs no RPC, no disk, no GPU. Window creation and the
+        // history disk scan — the bulk of what the delay was written for — still wait it out below.
+        //
+        // ONE THING DID MOVE AHEAD OF THE DELAY, deliberately and with eyes open: TrayMenu's ctor
+        // ends in QueueRefresh(), so the menu's state seed (a Lenovo EC RPC + an SCM query + a Task
+        // Scheduler COM connect) now starts here rather than after the waits. That is the price of
+        // an icon that can answer a right-click the moment it appears — a menu whose every toggle
+        // reads unchecked is worse than no menu. It is bounded: the seed runs on a thread-pool
+        // thread (never the sign-in critical path this delay protects), it is three short
+        // out-of-process reads rather than the delay's real targets, and each one is individually
+        // guarded. NetworkLocationService's NIC enumeration is NOT part of it — that is on Start()
+        // below, still behind the delay.
+        //
+        // Registering the notification platform (ToastService.Register — a COM/registry call,
+        // tens–hundreds of ms cold for an unpackaged app) used to sit between the icon's creation and
+        // the pump getting back to it: the icon existed but could not answer a click for as long as
+        // the registration took. It now rides SubscribeBatteryEvents' background seed sequence, which
+        // is also the only thing ordered against it (a startup low-battery toast must not race it).
+        InitTrayIcon();
+
         // When OnProcessExit resurrected us after a GPU-reset teardown — or a watchdog probe is
         // restoring us right after an unlock/resume — the display subsystem may still be
-        // mid-recovery: give it a moment before creating windows and the tray icon, or the
-        // fresh instance can die to the same reset it was born from.
+        // mid-recovery: give it a moment before creating windows, or the fresh instance can die to
+        // the same reset it was born from.
         if (watchdogStart || _startup.IsAutoRelaunch)
         {
             if (!watchdogStart)
@@ -269,15 +319,27 @@ public partial class App : Application
         if (delay > 0)
             await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(true);
 
+        // Exit is reachable from the moment InitTrayIcon returns, so the two waits above are the one
+        // window in which Shutdown() can run BEFORE the startup it is tearing down. Application.Exit()
+        // normally unwinds the message loop long before a pending delay fires, but the race is real at
+        // the margin (a delay whose continuation is already queued when the Exit click is dispatched),
+        // and the whole block below is exactly what must not run afterwards: it would re-subscribe the
+        // battery events Shutdown just detached, re-arm the history timer, and stand up a fresh
+        // HomeAssistantService — publishing 'online' to the broker after _ha was disposed — leaving a
+        // headless process with no icon behind a hold marker that keeps the watchdog from noticing.
+        if (_intentionalExit)
+        {
+            AppLog.Info("Exit was chosen during the startup wait — abandoning the rest of startup.");
+            return;
+        }
+
+        // Windows are safe to create from here on. Opening this gate BEFORE the first one is created
+        // is deliberate: a tray click that arrived while the icon was up but the display was still
+        // settling parked on WindowsReady, and this is the point it may proceed.
+        _windowsReady.TrySetResult();
+
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
-        // InitTrayIcon first so the tray icon appears as early as possible. Registering the
-        // notification platform (ToastService.Register — a COM/registry call, tens–hundreds of ms
-        // cold for an unpackaged app) used to sit right here, between the icon's creation and the
-        // pump getting back to it: the icon existed but could not answer a click for as long as the
-        // registration took. It now rides SubscribeBatteryEvents' background seed sequence, which
-        // is also the only thing ordered against it (a startup low-battery toast must not race it).
-        InitTrayIcon();
         SubscribeBatteryEvents();
         StartHistorySampling();
         ScheduleUpdateCheck();
@@ -328,7 +390,8 @@ public partial class App : Application
             new SmartStandbyFeature(),
             new AutoStartFeature(),
         ];
-        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow);
+        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
+                             windowsReady: WindowsReady);
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());
@@ -839,12 +902,35 @@ public partial class App : Application
     // (auto-hiding it); guard against immediately re-showing it from the same click.
     private const int ReopenGuardMs = 300;
 
-    private void ToggleDashboard()
+    // True while a tray click is parked on the settle gate. UI thread only, so no locking.
+    private bool _clickParkedOnGate;
+
+    // async void is deliberate (and safe): this is an ICommand handler, and the try/catch below spans
+    // the await. The await is the settle gate — normally already complete, so it does not yield and
+    // this runs exactly as the synchronous version did. Only on a watchdog/auto-relaunch start can a
+    // click land early enough to actually suspend here; it then resumes on the UI thread once windows
+    // are allowed, so the user's click opens the dashboard a moment later instead of doing nothing.
+    private async void ToggleDashboard()
     {
         // Guard the whole open path: a failure building or showing the popup must not take
         // down the tray app. Log it and stay alive so the menu/icon keep working.
         try
         {
+            if (!WindowsReady.IsCompleted)
+            {
+                // The icon is up but windows are not allowed yet (watchdog/auto-relaunch settle).
+                // Park the FIRST click and drop the rest: an icon that visibly does nothing invites
+                // re-clicking, and those extra clicks are the user asking for the same window, not
+                // asking to toggle it. Replaying them all would resume in order and read as
+                // open-then-hide — the popup flashes and the user has to click a third time.
+                // ReopenGuardMs cannot absorb this: the second click takes the IsVisible branch and
+                // never reaches the guard.
+                if (_clickParkedOnGate) return;
+                _clickParkedOnGate = true;
+                try     { await WindowsReady.ConfigureAwait(true); }
+                finally { _clickParkedOnGate = false; }
+            }
+
             // Lazily create the window once and reuse it; subscribe Closed only at creation
             // so handlers don't accumulate on every click.
             if (_dashboard is null)
@@ -921,10 +1007,12 @@ public partial class App : Application
     /// creation the same way <see cref="ToggleDashboard"/> does: a failure here must not take down
     /// the tray app.
     /// </summary>
-    private void ShowSettingsWindow()
+    private async void ShowSettingsWindow()
     {
         try
         {
+            await WindowsReady.ConfigureAwait(true);   // see ToggleDashboard for why this is async void
+
             if (_settings is not null)
             {
                 _settings.RefreshAllSections();   // pick up any change made while it sat in the background

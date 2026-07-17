@@ -56,15 +56,22 @@ internal sealed class TrayMenu
     private readonly Action _onExit;
     private readonly Action _onOpenSettings;
 
+    // App's window-creation gate (issue #76). The menu is now live before the display subsystem has
+    // settled, so About — the one window this class creates itself — has to respect it exactly as
+    // App's own window entry points do. Everything else on the menu (the toggles, Exit) touches no
+    // window and stays immediate.
+    private readonly Task _windowsReady;
+
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
 
     public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
-                    Action onOpenSettings)
+                    Action onOpenSettings, Task windowsReady)
     {
         _onExit            = onExit;
         _onIconModeChanged = onIconModeChanged;
         _onOpenSettings    = onOpenSettings;
+        _windowsReady      = windowsReady;
         Flyout = new MenuFlyout();
 
         // Builds a toggle for one feature and registers it for the state refresh. The item is added
@@ -374,17 +381,31 @@ internal sealed class TrayMenu
     /// dialog on top of itself is a pointless hop — so there is no longer an <c>onShowAbout</c>
     /// callback from App.</para>
     /// </summary>
-    internal void ShowAbout()
+    internal async void ShowAbout()
     {
-        if (_aboutWindow is not null)
+        try
         {
-            _aboutWindow.Activate();
-            return;
-        }
+            // Normally already complete, so this does not yield — see the _windowsReady field.
+            await _windowsReady.ConfigureAwait(true);
 
-        _aboutWindow = new AboutWindow();
-        _aboutWindow.Closed += (_, _) => _aboutWindow = null;
-        _aboutWindow.Activate();
+            if (_aboutWindow is not null)
+            {
+                _aboutWindow.Activate();
+                return;
+            }
+
+            _aboutWindow = new AboutWindow();
+            _aboutWindow.Closed += (_, _) => _aboutWindow = null;
+            _aboutWindow.Activate();
+        }
+        catch (Exception ex)
+        {
+            // async void: an escaping exception would tear the process down rather than surface. The
+            // tray app must survive a failed About window — drop the half-built one so a second
+            // attempt starts clean, exactly as App does for the dashboard/settings windows.
+            AppLog.Error("TrayMenu.ShowAbout", ex);
+            _aboutWindow = null;
+        }
     }
 
     // Returns true only if the caller (the shared About window) should now drive an app exit for an
