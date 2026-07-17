@@ -138,12 +138,16 @@ internal sealed class TrayMenu
         // here regardless of what the menu itself shows.
         NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
 
-        // QueueRefresh, not RefreshState: the initial state read (ReadState) does a Lenovo RPC +
-        // Task Scheduler COM connect + SCM query + NIC enumeration, and this constructor runs on the
-        // UI thread inside InitTrayIcon — BEFORE the tray icon is created. Doing that work
+        // QueueRefresh, not a synchronous read: the initial state read (ReadState) does a Lenovo RPC
+        // + Task Scheduler COM connect + SCM query + NIC enumeration, and this constructor runs on
+        // the UI thread inside InitTrayIcon — BEFORE the tray icon is created. Doing that work
         // synchronously here delayed the icon appearing. QueueRefresh does the read off-thread and
-        // marshals ApplyState back, and it's redundant for correctness anyway (RightClickCommand
-        // calls RefreshState on every right-click, so the user never sees pre-refresh state).
+        // marshals ApplyState back.
+        //
+        // This seed is load-bearing, not just an optimisation: it produces the first snapshot
+        // RefreshState has to apply, so a right-click landing before it completes is the one open
+        // with nothing to show. It is also the only such open — every later one has the previous
+        // snapshot to fall back on.
         QueueRefresh();
     }
 
@@ -171,11 +175,30 @@ internal sealed class TrayMenu
     }
 
     /// <summary>
-    /// Re-reads live state into every item's check mark / availability, synchronously on the UI
-    /// thread. Call right before the menu opens: H.NotifyIcon builds the native popup from the
-    /// flyout at right-click time, so the snapshot must be applied before it is shown.
+    /// Readies the menu for an imminent open, then kicks a refresh for the next one. Call right
+    /// before the menu opens: H.NotifyIcon builds the native popup from the flyout at right-click
+    /// time, so whatever the items say by the time this returns is what the user sees.
+    ///
+    /// <para>It applies the LAST KNOWN snapshot and returns immediately; the fresh read happens off
+    /// the UI thread via <see cref="QueueRefresh"/>. It used to do <c>ApplyState(ReadState())</c>
+    /// inline — three synchronous out-of-process reads (a Lenovo EC RPC that the vendor bridge warns
+    /// can block for SECONDS, an SCM query, and a Task Scheduler lookup) on the UI thread, on every
+    /// single right-click, with the menu unable to appear until all three came back. That was the
+    /// menu's whole perceived latency, and it was self-inflicted: every OTHER caller already went
+    /// through QueueRefresh precisely because the read is too expensive to hold the UI thread for.
+    /// </para>
+    ///
+    /// <para>The cost is that an open can show check marks one refresh old. The popup is a snapshot
+    /// by design either way (QueueRefresh's own comment: an already-open native menu never
+    /// repaints), the state it reflects only changes via paths that all funnel through QueueRefresh
+    /// anyway, and the next open is correct. A stale check mark for one open beats a menu that takes
+    /// a second to appear on every one.</para>
     /// </summary>
-    public void RefreshState() => ApplyState(ReadState());
+    public void RefreshState()
+    {
+        if (_lastApplied is { } cached) ApplyState(cached);
+        QueueRefresh();
+    }
 
     /// <summary>
     /// Silent resync for a settings change made OUTSIDE the tray menu itself — i.e. from
@@ -183,18 +206,17 @@ internal sealed class TrayMenu
     /// (Reload keeps its own toast; the Settings window calls this bare — showing a toast on top
     /// of the very window the user is looking at would be noise). Refreshes exactly what a
     /// settings edit can invalidate: the icon-mode callback (in case IconMode changed) and every
-    /// item's check marks/availability via <see cref="RefreshState"/>. The tray menu no longer
+    /// item's check marks/availability via <see cref="QueueRefresh"/>. The tray menu no longer
     /// carries a Presets submenu (TODO #28 moved it fully into the Settings window), so there is
     /// nothing here to rebuild from the edited preset list — only the toggles resync.
     /// </summary>
     public void ReconcileFromExternalChange()
     {
         _onIconModeChanged();
-        // QueueRefresh, not RefreshState: ReadState() does a Lenovo RPC + SCM query + Task
-        // Scheduler COM connect (see the constructor's own reasoning above), and this method is
-        // now called on every Settings-window preset edit/add/delete, not just the rare menu-open
-        // or Reload path — calling the synchronous version here would freeze the UI thread on
-        // every such edit.
+        // Bare QueueRefresh rather than RefreshState: no menu is about to be shown here, so there is
+        // nothing to re-apply a cached snapshot FOR — just take the fresh read off-thread (a Lenovo
+        // RPC + SCM query + Task Scheduler COM connect; see the constructor's own reasoning above).
+        // This runs on every Settings-window preset edit/add/delete, not just the rare Reload path.
         QueueRefresh();
     }
 
@@ -250,8 +272,15 @@ internal sealed class TrayMenu
         return new MenuState(features);
     }
 
+    // The most recent snapshot ApplyState was given — what RefreshState re-applies to have the menu
+    // ready instantly on right-click. UI thread only, like ApplyState itself (the sole writer) and
+    // RefreshState (the sole reader), so it needs no synchronisation. Null until the constructor's
+    // QueueRefresh lands, which is the one open that can find nothing to apply.
+    private MenuState? _lastApplied;
+
     private void ApplyState(MenuState state)
     {
+        _lastApplied = state;
         for (int i = 0; i < _toggles.Count; i++)
         {
             var (available, enabled) = state.Features[i];

@@ -12,13 +12,26 @@ internal static class TaskSchedulerHelper
 {
     private const string TaskName = "ChargeKeeper AutoStart";
 
-    /// <summary>Returns <c>true</c> when the auto-start task exists and is enabled.</summary>
+    /// <summary>
+    /// The task's full path. SetAutoStart registers it in the root folder, so this is where it is —
+    /// there is nothing to search for.
+    /// </summary>
+    private const string TaskPath = @"\" + TaskName;
+
+    /// <summary>
+    /// Returns <c>true</c> when the auto-start task exists and is enabled.
+    ///
+    /// <para>GetTask (a direct lookup by path) rather than FindTask (which walks the ENTIRE
+    /// task-folder tree recursively, 100–500 ms on a machine with the usual vendor/Windows task
+    /// libraries). This is read on every tray-menu state refresh, so the tree walk was pure cost —
+    /// spent to find a task whose exact path we chose ourselves.</para>
+    /// </summary>
     internal static bool IsAutoStartEnabled()
     {
         try
         {
-            using var ts   = new TaskService();
-            var task       = ts.FindTask(TaskName);
+            using var ts = new TaskService();
+            using var task = ts.GetTask(TaskPath);
             return task?.Enabled == true;
         }
         catch { return false; }

@@ -54,52 +54,17 @@ public partial class App : Application
     private static volatile bool _sessionEnding;
     private static readonly DateTime _processStartUtc = DateTime.UtcNow;
 
-    // Watchdog probes (see WatchdogTask.cs) start this exe every ~5 minutes; when the app is
-    // alive or was deliberately exited, the probe must exit without leaving a trace in app.log —
-    // 288 "duplicate instance" + "ProcessExit" pairs a day would bury the real forensics.
-    private static volatile bool _quietExit;
+    // How this process was started. Parsed once in Program.Main (argv is immutable, and OnLaunched
+    // used to re-read it three times) and handed in, so the launch decisions Main already took —
+    // which is what makes the watchdog probe cheap — and the ones left to OnLaunched read the same
+    // answer rather than two independent parses that can drift.
+    private readonly StartupArgs _startup;
 
-    // ── Single-instance guard ───────────────────────────────────────────────────
-    // Diagnosed 2026-07-03: after install, the elevated post-install launch can go unnoticed (the
-    // UAC prompt isn't always where the user is looking), so they launch the app again themselves
-    // — nothing stopped a second process from running alongside the first. Two instances would
-    // both claim the tray icon and write to battery-level-history.csv with no cross-process locking. Held for
-    // the whole process lifetime; Windows releases it automatically on termination (clean exit,
-    // crash, or kill) — no explicit Release() needed, which also sidesteps Mutex's normal
-    // same-thread-release requirement (ProcessExit handlers aren't guaranteed to run on the
-    // thread that acquired it).
-    private static Mutex? _singleInstanceMutex;
-    private const string SingleInstanceMutexName = "Local\\ChargeKeeper.SingleInstance";
-
-    /// <summary>
-    /// Retries a non-blocking mutex acquire for a few seconds before giving up. A single instant
-    /// check isn't enough: the self-heal relaunch (<see cref="OnProcessExit"/>) spawns a new
-    /// process while the OLD one may still be a few milliseconds from fully terminating and
-    /// releasing the mutex — an instant WaitOne(0) would then wrongly treat that legitimate
-    /// relaunch as "already running" and exit.
-    /// </summary>
-    private static async Task<bool> AcquireSingleInstanceLockAsync(int attempts = 15)
+    // internal, not public: Program.Main is the only caller (and StartupArgs is internal too). The
+    // XAML-generated partial never constructs App — the generated Main that did is disabled.
+    internal App(StartupArgs startup)
     {
-        for (int attempt = 0; attempt < attempts; attempt++)
-        {
-            _singleInstanceMutex = new Mutex(initiallyOwned: false, SingleInstanceMutexName);
-            if (_singleInstanceMutex.WaitOne(TimeSpan.Zero))
-                return true;
-
-            _singleInstanceMutex.Dispose();
-            _singleInstanceMutex = null;
-            await Task.Delay(200).ConfigureAwait(true);
-        }
-        return false;
-    }
-
-    public App()
-    {
-        // Must run before ANYTHING touches %AppData%\ChargeKeeper: the first AppLog write (or a
-        // settings/history read) would create the new folder, and Directory.Move refuses to move
-        // onto an existing destination — which would strand the user's settings + battery history
-        // in the old folder forever.
-        MigrateLegacyAppDataFolder();
+        _startup = startup;
 
         InitializeComponent();
 
@@ -130,32 +95,6 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// One-time migration for the rename from Lenovo Power Tray to ChargeKeeper: moves the old
-    /// <c>%AppData%\LenovoPowerTray</c> folder to <c>%AppData%\ChargeKeeper</c> so settings,
-    /// battery history, and logs survive the upgrade. Runs only when the old folder exists and the
-    /// new one doesn't (i.e. exactly once); a failure is logged and never crashes startup — the
-    /// app then simply starts with fresh defaults, same as a clean install.
-    /// </summary>
-    private static void MigrateLegacyAppDataFolder()
-    {
-        try
-        {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var oldDir  = Path.Combine(appData, "LenovoPowerTray");   // legacy name — kept as-is
-            var newDir  = AppPaths.DataDir;
-            if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return;
-
-            Directory.Move(oldDir, newDir);
-            AppLog.Info("Migrated legacy %AppData%\\LenovoPowerTray folder to %AppData%\\ChargeKeeper.");
-        }
-        catch (Exception ex)
-        {
-            // Logged only AFTER the move attempt — AppLog itself creates the new folder.
-            AppLog.Error("MigrateLegacyAppDataFolder", ex);
-        }
-    }
-
-    /// <summary>
     /// Fires on every CLEAN process teardown (it does NOT fire for hard kills like taskkill or a
     /// native access violation — which is exactly what makes it the right hook: an installer's
     /// taskkill must not trigger a relaunch that races the file copy). If the exit was neither
@@ -165,8 +104,11 @@ public partial class App : Application
     /// </summary>
     private void OnProcessExit(object? sender, EventArgs e)
     {
-        if (_quietExit) return;
-
+        // No "quiet exit" flag guards this any more. It used to suppress the 288 duplicate-instance
+        // + ProcessExit line pairs a day (which would bury the real forensics) that the watchdog
+        // probes and the /debug command produced. Those never reach this handler now: they resolve
+        // and exit inside Program.Main, so no App is constructed and nothing subscribes here. Every
+        // process that DOES get here is a real running instance whose teardown is worth a line.
         var uptime = DateTime.UtcNow - _processStartUtc;
         AppLog.Info($"ProcessExit: clean teardown after {uptime:hh\\:mm\\:ss} " +
                     $"(intentional={_intentionalExit}, sessionEnding={_sessionEnding}).");
@@ -187,7 +129,7 @@ public partial class App : Application
         {
             if (Environment.ProcessPath is not { } exe) return;
             System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(exe, AutoRelaunchArg) { UseShellExecute = false });
+                new System.Diagnostics.ProcessStartInfo(exe, StartupArgs.AutoRelaunchArg) { UseShellExecute = false });
             AppLog.Info("Unexpected teardown — relaunched a fresh instance.");
         }
         catch (Exception ex)
@@ -195,8 +137,6 @@ public partial class App : Application
             AppLog.Error("OnProcessExit.Relaunch", ex);
         }
     }
-
-    private const string AutoRelaunchArg = "--auto-relaunch";
 
     /// <summary>
     /// Sliding-window rate limiter for the self-heal relaunch: returns false once 3 relaunches
@@ -236,44 +176,31 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // "/debug [on|off]" is a COMMAND, not a launch: it records whether crash-dump capture should
-        // be armed, applies that to the registry, and exits without ever showing a tray icon. It has
-        // to be handled HERE, ahead of the single-instance guard below — the tray app already
-        // running is this app's steady state, i.e. precisely the situation in which the user types
-        // this, so the /debug process would otherwise lose the mutex and exit before doing anything.
-        // No elevation dance needed: the manifest is requireAdministrator, so this process is
-        // already elevated for the HKLM write. CrashDumps owns the rest of the reasoning.
-        if (CrashDumps.TryHandleDebugCommand(Environment.GetCommandLineArgs(), AppPaths.DataFile("dumps")))
-        {
-            _intentionalExit = true;   // a command that did its job and stopped — never a teardown to self-heal
-            _quietExit       = true;   // ...and not worth a ProcessExit line; the command logged itself
-            Application.Current.Exit();
-            return;
-        }
-
-        // Watchdog probes must respect a deliberate tray-menu Exit: the hold-marker written by
-        // Shutdown() keeps them from resurrecting an app the user chose to stop.
-        bool watchdogStart = Environment.GetCommandLineArgs().Contains(WatchdogTask.WatchdogArg);
-        if (watchdogStart && WatchdogTask.HoldMarkerExists)
-        {
-            _intentionalExit = true;
-            _quietExit = true;
-            Application.Current.Exit();
-            return;
-        }
+        // The /debug command and the "should this probe resurrect the app at all?" question are
+        // both settled in Program.Main, before WinUI loads — that is the whole point of the custom
+        // entry point, so do NOT reintroduce either check here.
+        bool watchdogStart = _startup.IsWatchdogProbe;
 
         // Must be the very first thing: exit before any window or tray icon is created if another
-        // instance already holds the lock. Watchdog probes use a single instant attempt — the 3s
-        // retry below exists for the self-heal relaunch race, and a probe finding a live instance
-        // is the expected steady state, not a race worth waiting out.
-        if (!await AcquireSingleInstanceLockAsync(watchdogStart ? 1 : 15).ConfigureAwait(true))
+        // instance already holds the lock.
+        //
+        // The mutex has exactly two acquire sites, and IsHeld is the handoff between them. A
+        // watchdog probe that got this far ALREADY owns the lock — claiming it is how Main decided
+        // the app was gone, and it deliberately kept it (releasing it just to re-take it here would
+        // open a window for another instance, and the re-take could fail). So IsHeld short-circuits
+        // this acquire for that path. Every OTHER launch reaches Main's fall-through without ever
+        // touching the mutex, so IsHeld is false and it is acquired here exactly as it always was.
+        // Neither path may acquire twice: a Mutex is re-entrant per owning thread, so a second
+        // WaitOne would silently bump the recursion count rather than fail — no crash, just a lie.
+        if (!SingleInstance.IsHeld &&
+            !await SingleInstance.TryAcquireAsync(_startup.SingleInstanceAttempts).ConfigureAwait(true))
         {
-            if (!watchdogStart)
-                AppLog.Info("Another instance already holds the single-instance lock — exiting.");
+            // Only a real duplicate launch can land here now (a probe holds the lock, and one that
+            // didn't get it never constructed this App), which is precisely the case worth logging.
+            AppLog.Info("Another instance already holds the single-instance lock — exiting.");
             _intentionalExit = true;   // must be set — otherwise OnProcessExit's self-heal relaunches
                                         // this "duplicate" exit, and the relaunch detects a duplicate
                                         // too, looping forever
-            _quietExit = watchdogStart;
             Application.Current.Exit();
             return;
         }
@@ -285,8 +212,8 @@ public partial class App : Application
 
         // Minidump-on-crash net for genuine unhandled faults (WER LocalDumps), now OPT-IN on
         // release builds: a shipped app shouldn't quietly write minidumps of itself into the user's
-        // profile, so it follows the stored intent the /debug command above sets (debug builds arm
-        // it regardless). "Off" actively disarms rather than just skipping — the registration is an
+        // profile, so it follows the stored intent the /debug command (handled in Program.Main) sets
+        // (debug builds arm it regardless). "Off" actively disarms rather than just skipping — the registration is an
         // HKLM key that outlives the process, so a machine that once armed it would keep dumping
         // forever. Every instance runs this unconditionally, however it was spawned: the intent is
         // read from settings, so a watchdog probe or self-heal relaunch re-asserts the user's answer
@@ -329,7 +256,7 @@ public partial class App : Application
         // restoring us right after an unlock/resume — the display subsystem may still be
         // mid-recovery: give it a moment before creating windows and the tray icon, or the
         // fresh instance can die to the same reset it was born from.
-        if (watchdogStart || Environment.GetCommandLineArgs().Contains(AutoRelaunchArg))
+        if (watchdogStart || _startup.IsAutoRelaunch)
         {
             if (!watchdogStart)
                 AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
@@ -344,13 +271,13 @@ public partial class App : Application
 
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
-        // InitTrayIcon first so the tray icon appears as early as possible: registering the
+        // InitTrayIcon first so the tray icon appears as early as possible. Registering the
         // notification platform (ToastService.Register — a COM/registry call, tens–hundreds of ms
-        // cold for an unpackaged app) doesn't need to gate icon creation. Kept BEFORE
-        // SubscribeBatteryEvents so a startup low-battery toast (raised by the forced first battery
-        // read there) can still fire.
+        // cold for an unpackaged app) used to sit right here, between the icon's creation and the
+        // pump getting back to it: the icon existed but could not answer a click for as long as the
+        // registration took. It now rides SubscribeBatteryEvents' background seed sequence, which
+        // is also the only thing ordered against it (a startup low-battery toast must not race it).
         InitTrayIcon();
-        ToastService.Register();
         SubscribeBatteryEvents();
         StartHistorySampling();
         ScheduleUpdateCheck();
@@ -441,6 +368,11 @@ public partial class App : Application
         // itself captures current state, and every change after subscription is delivered.
         _ = Task.Run(() =>
         {
+            // Registration leads the seed because the seed is what can raise the startup low-battery
+            // warning, and a toast shown before the notification platform is registered is silently
+            // dropped. That ordering is the ONLY constraint on it (see OnLaunched), so this one
+            // background sequence satisfies it without either half costing the UI thread anything.
+            ToastService.Register();
             OnBatteryReportUpdated(Battery.AggregateBattery, null!);
             Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
         });

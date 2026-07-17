@@ -7,6 +7,14 @@
     <Version>1.6.4</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
+    <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
+         straight to Application.Start, so the whole Windows App SDK + XAML stack (234 MB / 302 DLLs
+         of install) booted before any of our code could decide the process had no business running
+         — which the ~288 watchdog probes a day, and every /debug command, then paid for only to
+         exit. Program.cs owns the reasoning. Append, never assign: the SDK puts DEBUG/TRACE in
+         $(DefineConstants) and a bare value would drop them. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
     <!-- Identity / packaging metadata -->
     <AssemblyTitle>ChargeKeeper</AssemblyTitle>
     <Product>ChargeKeeper</Product>
