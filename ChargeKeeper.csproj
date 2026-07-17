@@ -134,6 +134,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- NLog auto-discovers nlog.config BESIDE THE EXE at runtime, so it must reach both the build
+         output and the publish output (installer\build-installer.ps1 publishes into <repo>\publish,
+         which ISCC packs with recursesubdirs). Without CopyToOutputDirectory it would stay in the
+         repo, NLog would find no config, and the app's only forensic trail would go silent with no
+         error — the same shape of bug as Assets\AppIcon.ico shipping without this metadata and
+         SetIcon then quietly no-op'ing. AppLog degrades to a code-built config rather than going
+         dark if this ever fails anyway, and NLogConfigTests asserts the file is in the test output
+         (which is fed by this very item through the ProjectReference). -->
+    <Content Include="nlog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- CopyToOutputDirectory matters: TitleBarTheme.ApplyDark resolves this by path at runtime
          (AppWindow.SetIcon) and silently does nothing if the file isn't beside the exe. -->
     <Content Include="Assets\AppIcon.ico">
@@ -189,6 +200,12 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
     <PackageReference Include="MQTTnet" Version="5.2.0.1603" />
+    <!-- Pinned exact (not floating), like WinUIEx below — latest stable as of 2026-07-17. Backs
+         Services/AppLog; adopted to get bounded log rotation (app.log grew unbounded) rather than
+         re-inventing it. NB the MAJOR matters: NLog 6 removed FileTarget.concurrentWrites and
+         silently IGNORES unknown attributes, so nlog.config's concurrency settings are version-
+         specific — read AppLog's remarks and NLogConfigTests before bumping this. -->
+    <PackageReference Include="NLog" Version="6.1.4" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
     <PackageReference Include="TaskScheduler" Version="2.12.2" />
