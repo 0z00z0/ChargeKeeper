@@ -61,6 +61,11 @@ public sealed partial class DashboardWindow : Window
     // Debounces auto-apply: each slider move restarts it; it fires once the user pauses.
     private readonly DispatcherTimer _thresholdApplyTimer;
 
+    // Destroys the window once it has sat hidden long enough (issue #76 / DashboardIdlePolicy).
+    // Runs while HIDDEN — the inverse of _refreshTimer, which runs only while shown — so the two
+    // are never armed at the same time.
+    private readonly DispatcherTimer _idleCloseTimer;
+
     /// <summary>Time elapsed since the window was last hidden.</summary>
     public TimeSpan SinceHidden => DateTime.UtcNow - _hiddenAtUtc;
 
@@ -98,13 +103,59 @@ public sealed partial class DashboardWindow : Window
         _thresholdApplyTimer          = new() { Interval = TimeSpan.FromMilliseconds(700) };
         _thresholdApplyTimer.Tick    += (_, _) => CommitThresholds();
 
+        _idleCloseTimer       = new() { Interval = DashboardIdlePolicy.IdleCloseAfter };
+        _idleCloseTimer.Tick += (_, _) => CloseIfIdle();
+
         Activated += OnActivated;
         Closed    += (_, _) =>
         {
             _closed = true;   // gates RunOnUi: in-flight background reads must not touch a dead window
             _refreshTimer.Stop();
             _thresholdApplyTimer.Stop();
+            // Also covers the window being destroyed from BELOW (a GPU/compositor reset), which is
+            // the one way _idleCloseTimer can still be armed on a dead window: stopping it here means
+            // its tick can never reach Close() on something already gone.
+            _idleCloseTimer.Stop();
         };
+    }
+
+    /// <summary>
+    /// Destroys the window after a long idle spell rather than holding its XAML tree, graph control
+    /// and composition surface for a re-show that may never come. App's Closed handler nulls its
+    /// reference, so the next tray click lazily rebuilds it — the same path a compositor reset
+    /// already forces today.
+    /// </summary>
+    private void CloseIfIdle()
+    {
+        // One-shot: stop first, so nothing re-enters here whichever branch we take below.
+        _idleCloseTimer.Stop();
+
+        // This is the ONE timer whose job is to touch a window that may have died in the meantime,
+        // so it carries the same guaranteed catch RunOnUi does: reclaiming idle memory is a nicety
+        // and must never be able to take the tray app down with it.
+        try
+        {
+            if (_closed) return;   // destroyed from below already — Close() would throw on a dead window
+
+            if (!DashboardIdlePolicy.ShouldClose(AppWindow.IsVisible, SinceHidden))
+            {
+                // Not closable yet, and the timer is already stopped — so re-arm rather than return
+                // bare, which would silently retire the reclaim until the next hide. Two ways to get
+                // here: the window is visible again (a stale tick raced ShowNearTray — the next
+                // HideWindow re-arms us anyway, and this tick is spent), or the hidden window is a
+                // hair short of the period (DispatcherTimer promises no lower bound on its interval).
+                // Re-arming makes both self-correcting instead of one-shot.
+                if (!AppWindow.IsVisible) _idleCloseTimer.Start();
+                return;
+            }
+
+            AppLog.Info($"Dashboard idle for {DashboardIdlePolicy.IdleCloseAfter:g} — closing to release its UI resources.");
+            Close();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("DashboardWindow.CloseIfIdle", ex);
+        }
     }
 
     // Set when the window closes (user action or the framework destroying windows during a GPU/
@@ -163,6 +214,11 @@ public sealed partial class DashboardWindow : Window
     /// <summary>Positions the window above the system tray and shows it with fresh data.</summary>
     public void ShowNearTray()
     {
+        // The window is wanted again — disarm the idle close before any of the work below. A tick
+        // already queued on the dispatcher can still arrive after this, which is what CloseIfIdle's
+        // visibility check is for.
+        _idleCloseTimer.Stop();
+
         // Load data before making the window visible to avoid a "Loading…" flash.
         Refresh();
 
@@ -198,11 +254,18 @@ public sealed partial class DashboardWindow : Window
             work.Bottom - h - margin));
     }
 
-    /// <summary>Hides the window without destroying it so it can be shown again cheaply.</summary>
+    /// <summary>
+    /// Hides the window without destroying it so it can be shown again cheaply — but only for a
+    /// while: <see cref="_idleCloseTimer"/> reclaims it if the user never comes back (issue #76).
+    /// </summary>
     public void HideWindow()
     {
         _refreshTimer.Stop();
         _hiddenAtUtc = DateTime.UtcNow;
+        // Restart (not just start) so each hide gets a full idle period measured from ITSELF: a
+        // show/hide cycle must not inherit the countdown of the previous one and close early.
+        _idleCloseTimer.Stop();
+        _idleCloseTimer.Start();
         AppWindow.Hide();
     }
 
