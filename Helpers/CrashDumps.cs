@@ -91,8 +91,13 @@ internal static class CrashDumps
                 // self-explaining to whoever finds it in the data folder.
                 File.WriteAllText(path, DateTimeOffset.Now.ToString("O"));
             }
-            else
+            else if (File.Exists(path))
             {
+                // File.Exists rather than a bare Delete: deleting a missing FILE is a no-op, but a
+                // missing parent DIRECTORY throws DirectoryNotFoundException — so `/debug off` on a
+                // machine that has never written its data folder logged an ERROR while claiming to
+                // be idempotent. (Caught here in the wild by a test run: the swallowed throw still
+                // reached the real app.log.)
                 File.Delete(path);
             }
         }
