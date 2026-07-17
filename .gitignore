@@ -72,3 +72,7 @@ TODO.md
 
 # Stray Explorer shortcut that lands in the folder — not part of the project.
 Projects.lnk
+
+# Session handoff: exported Claude memory + transcript for a session rooted in this dir.
+# Personal detail (HA broker, gh accounts, preferences) + a 12 MB transcript — never commit.
+.claude-handoff/
