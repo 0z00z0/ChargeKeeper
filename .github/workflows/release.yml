@@ -76,7 +76,7 @@ jobs:
 
       # ── 3. Set up .NET 10 ────────────────────────────────────────────────────
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.x'
 
