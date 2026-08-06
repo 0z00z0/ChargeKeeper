@@ -135,7 +135,12 @@ internal sealed class ChargeControlActions : IChargeControlActions
     public void ApplyThresholds(int start, int stop)
     {
         // Shared composition (fires ChargeControlService.StateChanged → tray/tooltip/dashboard/MQTT reflect).
-        try { ChargeControlService.SetExplicitThresholds(start, stop); } catch { }
+        // clearActivePreset:true because the HA charge_start/charge_stop numbers are the MQTT twin of the
+        // dashboard's threshold slider, and carry the same meaning: the range is now hand-picked, so it no
+        // longer belongs to a named preset. Left false, the persisted name outlived the range it named and
+        // every view that reads it — the HA preset select, the tray check mark, the dashboard's preset
+        // label — went on claiming a preset the device had already moved off.
+        try { ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true); } catch { }
     }
 
     public void SetSmartChargeEnabled(bool enable)

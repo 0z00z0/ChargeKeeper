@@ -146,6 +146,23 @@ public class ChargeControlServiceTests
         });
     }
 
+    [Fact]
+    public void MqttApplyThresholds_ClearsActivePreset_LikeTheDashboardSlider()
+    {
+        // The HA charge_start/charge_stop numbers are the MQTT twin of the dashboard slider — the range
+        // becomes hand-picked, so the preset name must not survive it. It used to: the live actions
+        // took the clearActivePreset:false default, and the HA select, the tray check mark and the
+        // dashboard label all went on naming a preset the device had already moved off.
+        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        {
+            new ChargeControlActions().ApplyThresholds(45, 70);
+            Assert.Equal((45, 70), fake.ApplyThresholdsArg);
+            Assert.Equal(1, fake.SetActivePresetCalls);
+            Assert.Null(fake.SetActivePresetArg);   // cleared, not renamed
+            Assert.Equal(1, fired());
+        });
+    }
+
     // ── Apply preset ───────────────────────────────────────────────────────────────
 
     [Fact]

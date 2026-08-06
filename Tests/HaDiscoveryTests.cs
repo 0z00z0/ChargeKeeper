@@ -209,7 +209,19 @@ public class HaDiscoveryTests
         Assert.False(root.TryGetProperty("remaining_min", out _));
         Assert.False(root.TryGetProperty("charge_start", out _));
         Assert.False(root.TryGetProperty("adapter_watts", out _));
-        Assert.False(root.TryGetProperty("active_preset", out _));
+    }
+
+    [Fact]
+    public void StatePayload_NoActivePreset_PublishesNone_RatherThanOmittingTheField()
+    {
+        // active_preset is deliberately NOT omit-when-unknown like the other optionals: HA's MQTT
+        // select ignores an empty payload and keeps the last option it saw, so omitting it left the
+        // select claiming a preset that a custom-threshold write had already cleared. "None" is HA's
+        // documented reset-to-unknown payload for a select.
+        var json = HaDiscovery.StatePayload(State(preset: null));
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(HaDiscovery.PresetNone, doc.RootElement.GetProperty("active_preset").GetString());
     }
 
     [Fact]

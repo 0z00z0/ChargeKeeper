@@ -103,6 +103,16 @@ internal static class HaDiscovery
     /// rejects a select with an empty <c>options</c> list, so we publish a single safe non-empty value.</summary>
     public const string NoPresetOption = "(none)";
 
+    /// <summary>
+    /// State payload that resets the preset <c>select</c> to <c>unknown</c>. The select is the one
+    /// entity that must be told EXPLICITLY when nothing is selected: HA documents "A 'None' payload
+    /// resets to an <c>unknown</c> state. An empty payload is ignored." — so the omit-when-unknown
+    /// treatment every other optional field gets would leave the select showing the LAST preset name
+    /// it ever saw, forever. (A user-defined preset actually named "None" would be indistinguishable
+    /// from a reset here; that's HA's protocol, not something this end can encode around.)
+    /// </summary>
+    public const string PresetNone = "None";
+
     // Battery-state strings, aligned with the HA mobile app's sensor.battery_state values.
     public const string StateCharging    = "Charging";
     public const string StateNotCharging = "Not Charging";
@@ -292,7 +302,9 @@ internal static class HaDiscovery
     /// The shared state payload. Always-present battery fields plus optional fields only when known —
     /// an omitted field renders its entity "unknown" in HA. <c>remaining_min</c> is omitted while
     /// discharging (issue #29), <c>charge_start</c> is omitted with Smart Charge off, and
-    /// <c>adapter_watts</c>/<c>battery_health</c>/<c>active_preset</c> are omitted when unknown.
+    /// <c>adapter_watts</c>/<c>battery_health</c> are omitted when unknown. <c>active_preset</c> is the
+    /// exception: it is ALWAYS published, as <see cref="PresetNone"/> when there is no active preset,
+    /// because HA's select ignores an empty payload and would keep displaying the previous name.
     /// </summary>
     public static string StatePayload(HaState s)
     {
@@ -311,7 +323,7 @@ internal static class HaDiscovery
         if (s.ChargeStart is { } cs)    payload["charge_start"]   = cs;
         if (s.ChargeStop  is { } ce)    payload["charge_stop"]    = ce;
         if (s.AdapterWatts is { } w)    payload["adapter_watts"]  = w;
-        if (s.ActivePreset is { } p)    payload["active_preset"]  = p;
+        payload["active_preset"] = s.ActivePreset ?? PresetNone;   // never omitted — see PresetNone
         return JsonSerializer.Serialize(payload);
     }
 }

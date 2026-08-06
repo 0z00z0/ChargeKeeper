@@ -106,6 +106,16 @@ public sealed partial class DashboardWindow : Window
         _idleCloseTimer       = new() { Interval = DashboardIdlePolicy.IdleCloseAfter };
         _idleCloseTimer.Tick += (_, _) => CloseIfIdle();
 
+        // A charge-control change made ANYWHERE else — an inbound MQTT command, the tray menu, a
+        // network-location auto-apply, the Settings preset editor, or the travel override's own
+        // auto-revert — must reach an already-open dashboard immediately. Without this the popup
+        // only converged on its next 5 s poll, and never at all for state that isn't derivable from
+        // a device read (the active preset name lives in settings, not in the EC). These are the
+        // same two events the tray and HomeAssistantService already reconcile from; both fire on a
+        // background thread, so the handler marshals via RunOnUi.
+        ChargeControlService.StateChanged  += OnExternalStateChanged;
+        TravelOverrideService.StateChanged += OnExternalStateChanged;
+
         Activated += OnActivated;
         Closed    += (_, _) =>
         {
@@ -116,8 +126,23 @@ public sealed partial class DashboardWindow : Window
             // the one way _idleCloseTimer can still be armed on a dead window: stopping it here means
             // its tick can never reach Close() on something already gone.
             _idleCloseTimer.Stop();
+            // Static events outlive this window, and App rebuilds a fresh DashboardWindow after every
+            // close (idle reclaim, issue #76) — leaving these attached would pin every dead instance
+            // and make the reclaim pointless.
+            ChargeControlService.StateChanged  -= OnExternalStateChanged;
+            TravelOverrideService.StateChanged -= OnExternalStateChanged;
         };
     }
+
+    /// <summary>
+    /// A charge-control change settled elsewhere. Refreshes only while the popup is actually on
+    /// screen: a hidden window re-reads everything in <see cref="ShowNearTray"/> anyway, and
+    /// <see cref="Refresh"/> costs a blocking vendor RPC.
+    /// </summary>
+    private void OnExternalStateChanged() => RunOnUi(() =>
+    {
+        if (AppWindow.IsVisible) Refresh();
+    });
 
     /// <summary>
     /// Destroys the window after a long idle spell rather than holding its XAML tree, graph control
@@ -387,7 +412,7 @@ public sealed partial class DashboardWindow : Window
             SmartChargeDetailText.Text = chargeState.Enabled switch
             {
                 true when chargeState.Start > 0 && chargeState.Stop > 0
-                    => $"Custom: {chargeState.Start}% → {chargeState.Stop}%",
+                    => $"{PresetLabel(chargeState)} · {chargeState.Start}% → {chargeState.Stop}%",
                 true  => "On — reading thresholds…",
                 false => "Off — charges to 100%"
             };
@@ -453,6 +478,26 @@ public sealed partial class DashboardWindow : Window
         SmartStandbyDetailText.Text = standbyOn
             ? "Active — scheduling idle sleep"
             : "Off — always Modern Standby";
+    }
+
+    /// <summary>
+    /// Which preset the device's CURRENT thresholds came from, or "Custom" when none does — the
+    /// dashboard had no place showing this at all, so a preset applied over MQTT (or from the tray,
+    /// or by a network rule) was invisible whenever its range happened to match what was already on
+    /// screen. <see cref="AppSettings.ActivePreset"/> alone isn't enough to answer it: the MQTT
+    /// charge_start/charge_stop numbers write thresholds with <c>clearActivePreset:false</c>, so the
+    /// persisted name outlives the range it named. Matching it against the live Start/Stop keeps the
+    /// label honest — a drifted preset reads as "Custom", which is exactly what it has become.
+    /// </summary>
+    private static string PresetLabel(ChargeThresholdState state)
+    {
+        var s = SettingsService.Current;
+        if (string.IsNullOrWhiteSpace(s.ActivePreset)) return "Custom";
+
+        var preset = s.Presets.FirstOrDefault(p => p.Name == s.ActivePreset);
+        return preset is not null && preset.Start == state.Start && preset.Stop == state.Stop
+            ? s.ActivePreset!
+            : "Custom";
     }
 
     /// <summary>Applies active/inactive colours to a feature badge + indicator pair.</summary>
