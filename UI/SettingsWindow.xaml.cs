@@ -178,6 +178,91 @@ internal sealed partial class SettingsWindow : Window
 
         // Dark-theme the standard title bar so it matches the Mica BaseAlt backdrop.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+
+        // The content cannot be measured yet — SettingsCard is templated, and a control outside a
+        // live visual tree reports no useful size. Grow to fit once it has laid out.
+        ContentScroller.Loaded += OnContentScrollerLoaded;
+    }
+
+    private bool _fittedToContent;
+
+    private void OnContentScrollerLoaded(object sender, RoutedEventArgs e)
+    {
+        ContentScroller.Loaded -= OnContentScrollerLoaded;
+        if (_fittedToContent) return;
+        _fittedToContent = true;
+        try { FitWindowToContent(); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.FitWindowToContent", ex); }
+    }
+
+    /// <summary>
+    /// Grows the window so the tallest page fits without a vertical scrollbar, then re-clamps it to
+    /// the work area (issue: Settings opened scrolled, and with a rect saved while docked it opened
+    /// taller than the laptop panel).
+    ///
+    /// <para>The extra height is taken from the ScrollViewer's own overflow — extent minus viewport —
+    /// rather than by adding up padding, the NavigationView header and the title bar. Those are what
+    /// the two differ by, so measuring the difference gets all of them for free and cannot drift when
+    /// the chrome changes.</para>
+    /// </summary>
+    private void FitWindowToContent()
+    {
+        double viewport = ContentScroller.ViewportHeight;
+        double extent   = MeasureTallestPageExtent();
+        if (viewport <= 0 || extent <= 0) return;   // not laid out yet — leave the opening rect alone
+
+        var pos  = AppWindow.Position;
+        var size = AppWindow.Size;
+
+        // DesiredSize/extent are DIPs, MoveAndResize takes physical px — unscaled, this is 75% short
+        // on the 175% laptop panel.
+        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
+        int required = size.Height + (int)Math.Ceiling(Math.Max(0, extent - viewport) * scale);
+
+        if (NativeMethods.WorkAreaForRect(pos.X, pos.Y, size.Width, size.Height) is not { } work) return;
+
+        var (x, y, w, h) = WindowFit.Fit((pos.X, pos.Y, size.Width, size.Height), required, work);
+        AppLog.Info($"SettingsWindow fit: extent={extent:F0} viewport={viewport:F0} scale={scale} " +
+                    $"required={required} work={work.W}x{work.H} -> {w}x{h} @ {x},{y}");
+        if (x == pos.X && y == pos.Y && w == size.Width && h == size.Height) return;
+
+        try { AppWindow.MoveAndResize(new RectInt32(x, y, w, h)); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.FitMoveAndResize", ex); }
+    }
+
+    /// <summary>
+    /// Height (DIPs) the scrollable content would take on its LONGEST page — currently Smart Charge,
+    /// which absorbed the network profiles.
+    ///
+    /// <para>All five panels are siblings in one Grid cell and every inactive one is Collapsed, so
+    /// measuring as-is only ever sizes the page that happens to be open. Making them all visible
+    /// makes the Grid report the tallest of them (they overlap, so it is a max, not a sum), which is
+    /// the number the window must fit. Visibility is restored before returning, so nothing the user
+    /// sees changes.</para>
+    /// </summary>
+    private double MeasureTallestPageExtent()
+    {
+        FrameworkElement[] panels =
+            [GeneralPanel, SmartChargePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+
+        var saved = new Visibility[panels.Length];
+        for (int i = 0; i < panels.Length; i++)
+        {
+            saved[i] = panels[i].Visibility;
+            panels[i].Visibility = Visibility.Visible;
+        }
+
+        try
+        {
+            SectionHost.UpdateLayout();
+            SectionHost.Measure(new Windows.Foundation.Size(SectionHost.ActualWidth, double.PositiveInfinity));
+            return SectionHost.DesiredSize.Height + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
+        }
+        finally
+        {
+            for (int i = 0; i < panels.Length; i++) panels[i].Visibility = saved[i];
+            SectionHost.UpdateLayout();
+        }
     }
 
     /// <summary>
@@ -212,12 +297,18 @@ internal sealed partial class SettingsWindow : Window
     {
         var pos  = AppWindow.Position;
         var size = AppWindow.Size;
+
+        // Clamp before storing, never after reading: a rect saved on a monitor that is later gone
+        // (docked, then closed on the laptop panel) is what put the window off-screen and oversized
+        // in the first place. requiredHeight 0 — this must validate what the user chose, not resize it.
+        var (x, y, w, h) = NativeMethods.ClampRectToNearestMonitor(pos.X, pos.Y, size.Width, size.Height);
+
         SettingsService.Update(s =>
         {
-            s.SettingsWindowX      = pos.X;
-            s.SettingsWindowY      = pos.Y;
-            s.SettingsWindowWidth  = size.Width;
-            s.SettingsWindowHeight = size.Height;
+            s.SettingsWindowX      = x;
+            s.SettingsWindowY      = y;
+            s.SettingsWindowWidth  = w;
+            s.SettingsWindowHeight = h;
         });
 
         StopAllPresetDebounceTimers();

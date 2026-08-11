@@ -99,8 +99,8 @@
             </StackPanel>
         </NavigationView.PaneFooter>
 
-        <ScrollViewer Padding="20,8,20,12" VerticalScrollBarVisibility="Auto">
-            <Grid>
+        <ScrollViewer x:Name="ContentScroller" Padding="20,8,20,12" VerticalScrollBarVisibility="Auto">
+            <Grid x:Name="SectionHost">
 
                 <!-- Density (issue #22): the SettingsCards are the same control PowerToys Settings
                      uses, so their intrinsic density already matches. This lightweight-styling

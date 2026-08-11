@@ -174,21 +174,26 @@ internal static class NativeMethods
     /// input rect unchanged if the monitor query fails.
     /// </summary>
     internal static (int X, int Y, int W, int H) ClampRectToNearestMonitor(int x, int y, int w, int h)
+        => WorkAreaForRect(x, y, w, h) is { } work
+               ? WindowFit.Fit((x, y, w, h), requiredHeight: 0, work)
+               : (x, y, w, h);
+
+    /// <summary>
+    /// Work area (physical px) of the monitor nearest the given rect's centre, or null if the monitor
+    /// query fails. Exposed separately from <see cref="ClampRectToNearestMonitor"/> because callers
+    /// that also grow a window to fit its content need the work area itself to hand to
+    /// <see cref="WindowFit.Fit"/>, not just the clamped result.
+    /// </summary>
+    internal static (int X, int Y, int W, int H)? WorkAreaForRect(int x, int y, int w, int h)
     {
         var center  = new POINT { X = x + w / 2, Y = y + h / 2 };
         var monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST);
         var info    = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
         if (!GetMonitorInfo(monitor, ref info))
-            return (x, y, w, h);
+            return null;
 
-        var work  = info.rcWork;
-        int workW = work.Right  - work.Left;
-        int workH = work.Bottom - work.Top;
-        int cw = Math.Min(w, workW);
-        int ch = Math.Min(h, workH);
-        int cx = Math.Clamp(x, work.Left, work.Right  - cw);
-        int cy = Math.Clamp(y, work.Top,  work.Bottom - ch);
-        return (cx, cy, cw, ch);
+        var work = info.rcWork;
+        return (work.Left, work.Top, work.Right - work.Left, work.Bottom - work.Top);
     }
 
     // ── Native Win32 dark-mode support ─────────────────────────────────────────
