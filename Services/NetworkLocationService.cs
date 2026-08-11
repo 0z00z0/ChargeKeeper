@@ -181,7 +181,7 @@ internal static class NetworkLocationService
     /// <summary>
     /// Formats a human-readable "current network" status line — the matching rule's name, or a
     /// fallback when nothing matches / nothing is detected. Shared (TODO #19) by the Settings
-    /// window's Network section; originally lived on TrayMenu when it had its own "Current: …"
+    /// window's Smart Charge page; originally lived on TrayMenu when it had its own "Current: …"
     /// status row, before that row moved into the Settings window. Prefers <see cref="LastKnown"/>
     /// over a fresh <see cref="DetectCurrent"/>: a full adapter enumeration + routing-table
     /// P/Invoke is wasted work when <see cref="LocationChanged"/> already keeps callers current.

@@ -63,9 +63,9 @@
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Network"          Tag="Network">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/network.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
-            </NavigationViewItem>
+            <!-- Network profiles live on the Smart Charge page, not a nav item of their own: a
+                 profile's only effect is which preset gets applied, so the two were unusable
+                 apart. Icon asset Assets/nav/network.svg is retained for a future section. -->
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -162,7 +162,7 @@
                     </controls:SettingsCard>
                 </StackPanel>
 
-                <!-- ── Smart Charge (presets) ──────────────────────────────────── -->
+                <!-- ── Smart Charge (presets + the network profiles that pick them) ─── -->
                 <StackPanel x:Name="SmartChargePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Smart Charge" Style="{StaticResource SectionHeaderStyle}"/>
 
@@ -170,8 +170,24 @@
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,12"/>
 
+                    <!-- Reads in the order the feature works: define presets, then say which
+                         network picks which, then the fallback for everything unmatched. -->
+                    <TextBlock Text="Network profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
+
+                    <controls:SettingsCard Header="Enable network profiles"
+                                            Description="Automatically apply a preset when the detected network location changes. Matching is by adapter MAC address and/or IP subnet only — never by Wi-Fi network name.">
+                        <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Current network">
+                        <TextBlock x:Name="CurrentNetworkText" Text="—" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </controls:SettingsCard>
+
+                    <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
+                    <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,12"/>
+
                     <controls:SettingsCard Header="Unknown-network preset"
-                                            Description="Preset to apply when the current network matches none of the profiles in the Network section, and network profiles are enabled.">
+                                            Description="Preset to apply when the current network matches none of the profiles above, and network profiles are enabled.">
                         <ComboBox x:Name="UnknownPresetCombo" MinWidth="200" SelectionChanged="OnUnknownPresetChanged"/>
                     </controls:SettingsCard>
                 </StackPanel>
@@ -197,24 +213,6 @@
                             <ToggleSwitch x:Name="DrainEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnDrainEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
-                </StackPanel>
-
-                <!-- ── Network ──────────────────────────────────────────────────── -->
-                <StackPanel x:Name="NetworkPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Network" Style="{StaticResource SectionHeaderStyle}"/>
-
-                    <controls:SettingsCard Header="Enable network profiles"
-                                            Description="Automatically apply a preset when the detected network location changes. Matching is by adapter MAC address and/or IP subnet only — never by Wi-Fi network name.">
-                        <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Current network">
-                        <TextBlock x:Name="CurrentNetworkText" Text="—" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </controls:SettingsCard>
-
-                    <TextBlock Text="Profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
-                    <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
-                    <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <!-- ── MQTT (section label; the publisher defaults to HA's discovery convention) ── -->

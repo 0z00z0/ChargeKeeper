@@ -275,13 +275,13 @@ internal sealed partial class SettingsWindow : Window
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
-        NetworkPanel.Visibility       = tag == "Network"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
         // Cheap to refresh every time the tab is opened rather than on a timer — reflects a
-        // network change made while the window was on a different tab.
-        if (tag == "Network") RefreshCurrentNetworkText();
+        // network change made while the window was on a different tab. The network profiles
+        // now live on the Smart Charge page.
+        if (tag == "SmartCharge") RefreshCurrentNetworkText();
     }
 
     // ── Preset-picker plumbing (issue #22) ─────────────────────────────────────────

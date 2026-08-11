@@ -29,7 +29,8 @@ number.
   restart mid-charge.
 - **Network-aware presets** — automatically apply a preset when the detected network location
   (adapter MAC + IP subnet — never Wi-Fi network name) changes, e.g. a different preset at the
-  office dock vs. on the road. Configured in the Settings window's Network section.
+  office dock vs. on the road. Configured under **Network profiles** in the Settings window's
+  Smart Charge section, next to the presets they select.
 - **Custom low-battery warning** — a toast at a user-set battery % while discharging (Settings
   window → Notifications).
 - **Time remaining / time to full** — the dashboard shows estimated time-to-full (charging) or
@@ -41,8 +42,8 @@ number.
 - **Numeric % tray icon** — show the battery percentage as a number instead of the arc gauge
   (toggle in the tray menu, dashboard, and Settings window).
 - **Settings window** — a proper titled window (tray icon → **Settings…**) with a General/Smart
-  Charge/Notifications/Network/Home Assistant/Appearance sidebar, replacing the old nested tray
-  submenus. Settings are stored as human-readable JSON at `%AppData%\ChargeKeeper\settings.json`
+  Charge/Notifications/MQTT/About sidebar, replacing the old nested tray submenus. Settings are
+  stored as human-readable JSON at `%AppData%\ChargeKeeper\settings.json`
   (tray icon → **Open settings folder**); an out-of-band edit to that file can be picked up without
   restarting via tray icon → **Reload settings from file**. Settings are portable across machines by
   copying this file; automatic cloud sync is not yet implemented.
