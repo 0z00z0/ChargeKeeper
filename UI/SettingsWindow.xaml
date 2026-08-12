@@ -173,12 +173,20 @@
                          feature is misleading rather than merely limited. Text is set in
                          code-behind because the cap figure comes from the active vendor. -->
                     <StackPanel x:Name="FixedModeSettings" Spacing="4" Visibility="Collapsed">
-                        <controls:SettingsCard x:Name="FixedModeCard" Header="Charge limit">
-                            <TextBlock x:Name="FixedModeText"
-                                       TextWrapping="Wrap"
-                                       MaxWidth="420"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </controls:SettingsCard>
+                        <TextBlock Text="Charge limit" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
+
+                        <!-- Items are built in code-behind from the active vendor's AvailableModes,
+                             so the firmware owns both the option list and its order. A radio group
+                             (not a toggle) because HP has THREE states — the adaptive middle one has
+                             no on/off equivalent and would otherwise be unreachable. -->
+                        <RadioButtons x:Name="ChargeModeRadios"
+                                      SelectionChanged="OnChargeModeSelectionChanged"
+                                      Margin="0,0,0,8"/>
+
+                        <TextBlock x:Name="FixedModeText"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,0,0,12"/>
                     </StackPanel>
 
                     <!-- Presets and network profiles both require arbitrary percentages. Grouped

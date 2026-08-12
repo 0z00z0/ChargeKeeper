@@ -25,4 +25,18 @@ internal static class ChargeThresholdService
 
     internal static bool SetThresholds(int start, int stop) =>
         VendorCatalog.Active.ChargeThreshold.SetThresholds(start, stop);
+
+    /// <summary>
+    /// Discrete modes the active vendor offers instead of percentages — empty on Lenovo, three
+    /// entries on HP. Mutually exclusive with <see cref="SupportsNumericThresholds"/>.
+    /// </summary>
+    internal static IReadOnlyList<ChargeMode> AvailableModes =>
+        VendorCatalog.Active.ChargeThreshold.AvailableModes;
+
+    /// <summary>The currently selected mode id, or null if unavailable or not mode-based.</summary>
+    internal static string? ReadMode() =>
+        VendorCatalog.Active.ChargeThreshold.ReadMode();
+
+    internal static bool SetMode(string id) =>
+        VendorCatalog.Active.ChargeThreshold.SetMode(id);
 }

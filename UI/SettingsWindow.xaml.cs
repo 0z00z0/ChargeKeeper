@@ -402,18 +402,96 @@ internal sealed partial class SettingsWindow : Window
 
         if (numeric) return;
 
+        BuildChargeModeRadios();
+
         // Read the cap back from the device rather than hardcoding it, so the figure shown here
         // always matches what the dashboard and the hardware report.
         var state = ChargeThresholdService.Read();
         string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
 
         FixedModeText.Text =
-            $"This laptop's firmware offers a fixed charge limit ({cap} of design capacity) rather "
+            $"This laptop's firmware offers fixed modes ({cap} of design capacity when limited) rather "
             + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
-            + "Turn the limit on or off with the Smart Charge toggle in the tray menu.\n\n"
-            + "Windows will still report 100 % while the limit is active — this hardware lowers the "
+            + "Windows will still report 100 % while a limit is active — this hardware lowers the "
             + "battery's reported full-charge capacity instead of stopping the charge early. "
             + "Changes take effect after a restart.";
+    }
+
+    /// <summary>
+    /// Populates the mode radio group from the active vendor and selects whatever the firmware
+    /// currently reports.
+    /// </summary>
+    private void BuildChargeModeRadios()
+    {
+        var modes = ChargeThresholdService.AvailableModes;
+
+        _suppressChargeModeEvent = true;
+        try
+        {
+            ChargeModeRadios.Items.Clear();
+
+            foreach (var mode in modes)
+            {
+                var label = new TextBlock { Text = mode.Label };
+                var description = new TextBlock
+                {
+                    Text         = mode.Description,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth     = 400,
+                    FontSize     = 12,
+                    Opacity      = 0.7,
+                };
+
+                ChargeModeRadios.Items.Add(new RadioButton
+                {
+                    // Tag carries the firmware id; the display text is never parsed back.
+                    Tag     = mode.Id,
+                    Content = new StackPanel { Children = { label, description } },
+                });
+            }
+
+            // A null id — firmware reporting a mode this build doesn't list — deliberately leaves
+            // every button unselected rather than highlighting a wrong one.
+            string? current = ChargeThresholdService.ReadMode();
+            ChargeModeRadios.SelectedIndex = current is null
+                ? -1
+                : IndexOfMode(modes, current);
+        }
+        finally { _suppressChargeModeEvent = false; }
+    }
+
+    private static int IndexOfMode(IReadOnlyList<ChargeMode> modes, string id)
+    {
+        for (int i = 0; i < modes.Count; i++)
+            if (string.Equals(modes[i].Id, id, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Guards the SelectionChanged handler against the programmatic selection made while
+    /// populating the list, which would otherwise write the mode straight back to the firmware
+    /// every time the Settings window opened.
+    /// </summary>
+    private bool _suppressChargeModeEvent;
+
+    private void OnChargeModeSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressChargeModeEvent) return;
+        if (ChargeModeRadios.SelectedItem is not RadioButton { Tag: string id }) return;
+
+        if (!ChargeThresholdService.SetMode(id))
+        {
+            // Write refused (firmware rejected it, or the setting is read-only). Snap the UI back
+            // to what the device actually reports rather than leaving a selection that lies.
+            AppLog.Info($"Charge mode write refused by firmware: {id}");
+            BuildChargeModeRadios();
+            return;
+        }
+
+        // Re-read rather than trusting the write: the dashboard's cap figure is derived from the
+        // mode, and on this hardware a successful write can still be overridden by the firmware's
+        // own adaptive logic.
+        BuildChargeModeRadios();
     }
 
     // ── Preset-picker plumbing (issue #22) ─────────────────────────────────────────
