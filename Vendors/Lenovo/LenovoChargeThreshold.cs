@@ -33,6 +33,13 @@ internal sealed class LenovoChargeThreshold : IChargeThresholdProvider
     /// <summary>Lenovo's firmware takes a real numeric start/stop pair.</summary>
     public bool SupportsNumericThresholds => true;
 
+    /// <summary>Empty: Lenovo is numeric, so it has no discrete modes to choose between.</summary>
+    public IReadOnlyList<ChargeMode> AvailableModes => [];
+
+    public string? ReadMode() => null;
+
+    public bool SetMode(string id) => false;
+
     public ChargeThresholdState? Read()
     {
         try

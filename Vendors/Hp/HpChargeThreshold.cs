@@ -30,7 +30,26 @@ internal sealed class HpChargeThreshold : IChargeThresholdProvider
     // The three modes. Spelling must match the firmware's PossibleValues exactly — HP rejects
     // anything else with a non-zero return rather than coercing it.
     private const string ModeMaximize = "Maximize Battery Health Management";
+    private const string ModeAdaptive = "Let HP Manage My Battery Health";
     private const string ModeMinimize = "Minimize Battery Health Management";
+
+    /// <summary>
+    /// The three modes as the UI should present them, in HP Power Manager's own order (most
+    /// protective first). Ids are the raw firmware strings and are written back verbatim.
+    ///
+    /// Note the middle one has no on/off equivalent, which is exactly why the mode API exists:
+    /// <see cref="SetEnabled"/> can only reach Maximize and Minimize, so a machine left on
+    /// "Let HP Manage" by HP's own app could previously be reported but never selected.
+    /// </summary>
+    private static readonly ChargeMode[] Modes =
+    [
+        new(ModeMaximize, "Maximise battery health",
+            "Caps the charge to protect the battery. Reduces how long a full charge lasts."),
+        new(ModeAdaptive, "Let HP manage it",
+            "HP's firmware decides when to cap, based on how the laptop is used."),
+        new(ModeMinimize, "Charge to 100 %",
+            "No limit. Longest runtime per charge, at the cost of battery ageing."),
+    ];
 
     /// <summary>
     /// The cap "Maximize Battery Health Management" nominally applies. HP documents this as
@@ -50,6 +69,33 @@ internal sealed class HpChargeThreshold : IChargeThresholdProvider
     /// The UI must not offer a percentage picker on this hardware.
     /// </summary>
     public bool SupportsNumericThresholds => false;
+
+    public IReadOnlyList<ChargeMode> AvailableModes => Modes;
+
+    /// <summary>
+    /// The firmware's current mode, or null when unavailable — or when the firmware reports a
+    /// value this build does not list, so the UI shows "no selection" rather than silently
+    /// highlighting the wrong radio button.
+    /// </summary>
+    public string? ReadMode()
+    {
+        var setting = HpBios.ReadEnumSetting(SettingName);
+        if (setting is null) return null;
+
+        return Modes.FirstOrDefault(m =>
+            string.Equals(m.Id, setting.CurrentValue, StringComparison.OrdinalIgnoreCase))?.Id;
+    }
+
+    /// <summary>
+    /// Writes a mode by id. Unknown ids are rejected WITHOUT contacting the firmware — HP fails a
+    /// bad value with a non-zero return anyway, but validating here keeps the "no device contact
+    /// on invalid input" guarantee the rest of this interface makes.
+    /// </summary>
+    public bool SetMode(string id)
+    {
+        var mode = Modes.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
+        return mode is not null && HpBios.SetSetting(SettingName, mode.Id);
+    }
 
     public ChargeThresholdState? Read()
     {

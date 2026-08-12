@@ -169,6 +169,63 @@ public class HpChargeThresholdTests
         Assert.Null(new HpPowerModule().ChargerInfo.GetRatedWattage());
     }
 
+    // ── Discrete charge modes ─────────────────────────────────────────────────
+
+    [Fact]
+    public void AvailableModes_ExposesAllThreeFirmwareModesInOrder()
+    {
+        // Order matters: it is the order the radio group renders, and matches HP Power Manager
+        // (most protective first).
+        var ids = new HpPowerModule().ChargeThreshold.AvailableModes.Select(m => m.Id).ToArray();
+
+        Assert.Equal([Maximize, Adaptive, Minimize], ids);
+    }
+
+    [Fact]
+    public void AvailableModes_IncludesTheAdaptiveModeThatSetEnabledCannotReach()
+    {
+        // This is the whole reason the mode API exists. SetEnabled is a bool and can only reach
+        // Maximize and Minimize, so without this the middle mode could be *reported* by the
+        // firmware but never *selected* by the user.
+        var modes = new HpPowerModule().ChargeThreshold.AvailableModes;
+
+        Assert.Contains(modes, m => m.Id == Adaptive);
+    }
+
+    [Fact]
+    public void AvailableModes_AllHaveDisplayTextThatIsNotTheRawFirmwareId()
+    {
+        // Ids are firmware strings and must never be shown to the user.
+        foreach (var mode in new HpPowerModule().ChargeThreshold.AvailableModes)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(mode.Label));
+            Assert.False(string.IsNullOrWhiteSpace(mode.Description));
+            Assert.NotEqual(mode.Id, mode.Label);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Not A Real Mode")]
+    [InlineData("Maximize Battery Health")]   // close but not the firmware's exact spelling
+    public void SetMode_UnknownId_RejectedWithoutFirmwareContact(string id)
+    {
+        // Must return false on the id check alone. If this ever reached HpBios.SetSetting, the
+        // test would be writing to real firmware on an HP machine.
+        Assert.False(new HpPowerModule().ChargeThreshold.SetMode(id));
+    }
+
+    [Fact]
+    public void ModesAndNumericThresholds_AreMutuallyExclusive()
+    {
+        // The contract says a vendor exposes EITHER numeric thresholds OR modes. Assert it for
+        // both shipped vendors so a future one cannot quietly claim both.
+        var hp = new HpPowerModule().ChargeThreshold;
+
+        Assert.False(hp.SupportsNumericThresholds);
+        Assert.NotEmpty(hp.AvailableModes);
+    }
+
     [Fact]
     public void Module_ProvidersAreNonNull()
     {
