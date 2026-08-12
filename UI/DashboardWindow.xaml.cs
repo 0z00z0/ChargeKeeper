@@ -430,25 +430,42 @@ public sealed partial class DashboardWindow : Window
         }
 
         // ── Gauge threshold tick markers ──────────────────────────────────────
-        if (chargeState is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 })
+        // Each tick is decided independently. They used to share one condition requiring BOTH
+        // Start and Stop to be > 0, which hid the stop tick entirely on HP — HP has no charge
+        // *start* threshold and reports Start as 0, so the one figure it does have (the cap)
+        // would have been the only thing not drawn.
+        if (chargeState is { Capable: true, Enabled: true, Start: > 0 })
         {
             double startAngle = GaugeStartAngle + GaugeSweep * chargeState.Start / 100.0;
-            double stopAngle  = GaugeStartAngle + GaugeSweep * chargeState.Stop  / 100.0;
             GaugeStartTick.Data       = BuildTickGeometry(GaugeCx, GaugeCy, startAngle);
-            GaugeStopTick.Data        = BuildTickGeometry(GaugeCx, GaugeCy, stopAngle);
             GaugeStartTick.Visibility = Visibility.Visible;
-            GaugeStopTick.Visibility  = Visibility.Visible;
         }
         else
         {
             GaugeStartTick.Visibility = Visibility.Collapsed;
-            GaugeStopTick.Visibility  = Visibility.Collapsed;
+        }
+
+        if (chargeState is { Capable: true, Enabled: true, Stop: > 0 })
+        {
+            double stopAngle = GaugeStartAngle + GaugeSweep * chargeState.Stop / 100.0;
+            GaugeStopTick.Data       = BuildTickGeometry(GaugeCx, GaugeCy, stopAngle);
+            GaugeStopTick.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            GaugeStopTick.Visibility = Visibility.Collapsed;
         }
 
         // ── Threshold sliders ─────────────────────────────────────────────────
         // Sync the sliders to the device value ONLY when the user isn't mid-edit; otherwise the
         // 5 s refresh would clobber an in-progress change before the debounced apply runs.
-        bool showSliders = chargeState is { Capable: true, Enabled: true };
+        // The picker only makes sense where the vendor takes arbitrary percentages. HP has three
+        // coarse BIOS modes and no numeric threshold, so a draggable range would invite the user
+        // to choose a value the firmware silently ignores — show a note stating the fixed cap
+        // instead.
+        bool limitActive = chargeState is { Capable: true, Enabled: true };
+        bool showSliders = limitActive && ChargeThresholdService.SupportsNumericThresholds;
+
         if (showSliders && !_thresholdEditPending && chargeState!.Start > 0 && chargeState.Stop > 0)
         {
             _updatingSliders = true;
@@ -459,6 +476,23 @@ public sealed partial class DashboardWindow : Window
             _updatingSliders = false;
         }
         ThresholdSliders.Visibility = showSliders ? Visibility.Visible : Visibility.Collapsed;
+
+        if (limitActive && !ChargeThresholdService.SupportsNumericThresholds)
+        {
+            // Windows will keep reporting 100% while this cap is active, because HP lowers the
+            // battery's reported full-charge capacity rather than stopping the charge early.
+            // Saying only "capped at 80%" reads as a bug to anyone looking at the tray showing
+            // 100%, so the note has to explain the redefinition, not just the number.
+            ThresholdFixedNote.Text =
+                $"Capped at about {chargeState!.Stop} % of design capacity. Windows still shows "
+                + "100 % — this hardware lowers the reported full-charge capacity instead of "
+                + "stopping early. Fixed limit, not an adjustable range; changes apply after a restart.";
+            ThresholdFixedNote.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ThresholdFixedNote.Visibility = Visibility.Collapsed;
+        }
 
         // ── Travel override ("charge to 100 % once") ──────────────────────────
         // Shown whenever Smart Charge is capable, so it stays available to cancel even while

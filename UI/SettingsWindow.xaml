@@ -166,6 +166,32 @@
                 <StackPanel x:Name="SmartChargePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Smart Charge" Style="{StaticResource SectionHeaderStyle}"/>
 
+                    <!-- Shown INSTEAD of everything below on hardware with no numeric charge
+                         threshold (HP: three coarse BIOS modes and no percentage). Presets and
+                         network profiles are both expressed purely as start/stop percentages, so
+                         on such hardware every preset collapses to the same on/off and the whole
+                         feature is misleading rather than merely limited. Text is set in
+                         code-behind because the cap figure comes from the active vendor. -->
+                    <StackPanel x:Name="FixedModeSettings" Spacing="4" Visibility="Collapsed">
+                        <TextBlock Text="Charge limit" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
+
+                        <!-- Items are built in code-behind from the active vendor's AvailableModes,
+                             so the firmware owns both the option list and its order. A radio group
+                             (not a toggle) because HP has THREE states — the adaptive middle one has
+                             no on/off equivalent and would otherwise be unreachable. -->
+                        <RadioButtons x:Name="ChargeModeRadios"
+                                      SelectionChanged="OnChargeModeSelectionChanged"
+                                      Margin="0,0,0,8"/>
+
+                        <TextBlock x:Name="FixedModeText"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,0,0,12"/>
+                    </StackPanel>
+
+                    <!-- Presets and network profiles both require arbitrary percentages. Grouped
+                         so they can be hidden together on fixed-mode hardware. -->
+                    <StackPanel x:Name="NumericThresholdSettings" Spacing="4">
                     <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,12"/>
@@ -190,6 +216,7 @@
                                             Description="Preset to apply when the current network matches none of the profiles above, and network profiles are enabled.">
                         <ComboBox x:Name="UnknownPresetCombo" MinWidth="200" SelectionChanged="OnUnknownPresetChanged"/>
                     </controls:SettingsCard>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- ── Notifications ────────────────────────────────────────────── -->

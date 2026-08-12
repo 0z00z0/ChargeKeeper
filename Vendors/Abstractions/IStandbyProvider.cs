@@ -8,6 +8,16 @@ namespace ChargeKeeper.Vendors;
 /// </summary>
 public interface IStandbyProvider
 {
+    /// <summary>
+    /// Whether this vendor implements standby scheduling at all.
+    ///
+    /// Distinct from <see cref="IsRunning"/>: "supported but currently off" is a togglable
+    /// state, whereas "not supported" means the feature should not be offered. Lenovo backs
+    /// this with the <c>LenovoSmartStandby</c> service; HP has no equivalent, so the toggle
+    /// must be hidden rather than shown enabled and doing nothing.
+    /// </summary>
+    bool IsSupported { get; }
+
     /// <summary>Whether the vendor's standby-scheduling component is currently active.</summary>
     bool IsRunning();
 

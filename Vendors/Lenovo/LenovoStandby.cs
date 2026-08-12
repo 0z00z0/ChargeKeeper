@@ -15,6 +15,13 @@ internal sealed class LenovoStandby : IStandbyProvider
 
     private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// True: the service ships with the Lenovo power stack. This says the FEATURE exists on
+    /// this vendor, not that the service is installed and running right now — that is
+    /// <see cref="IsRunning"/>, and a missing service simply reports not-running.
+    /// </summary>
+    public bool IsSupported => true;
+
     public bool IsRunning()
     {
         try
