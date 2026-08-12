@@ -1,17 +1,20 @@
 # ChargeKeeper
 
 **Battery care from the system tray** — charge limits, a live battery gauge, and smart standby
-control. ChargeKeeper runs on Lenovo ThinkPads today (it requires the Lenovo Power Management
-Driver) and is built to support more hardware over time.
+control. ChargeKeeper runs on Lenovo ThinkPads (via the Lenovo Power Management Driver) and on
+HP's commercial laptops (via HP's BIOS WMI interface), and is built to support more hardware
+over time.
 
 > Formerly published as **Lenovo Power Tray**. See
 > [Upgrading from Lenovo Power Tray](#upgrading-from-lenovo-power-tray).
 
 Two power features, without opening the slow Lenovo Vantage app:
 
-- **Smart Charge** — battery charge threshold, via the Lenovo Power Manager local-RPC interface
-  (the same one Lenovo Vantage uses), through a small native bridge (`LenPower.dll`)
-- **Smart Standby** — Modern Standby scheduling, via the `LenovoSmartStandby` Windows service
+- **Smart Charge** — battery charge threshold. On Lenovo, via the Lenovo Power Manager local-RPC
+  interface (the same one Lenovo Vantage uses), through a small native bridge (`LenPower.dll`).
+  On HP, via the `root\HP\InstrumentedBIOS` WMI namespace — no native component needed.
+- **Smart Standby** — Modern Standby scheduling, via the `LenovoSmartStandby` Windows service.
+  Lenovo only.
 
 Left-click the tray icon for a battery dashboard (arc gauge with live % and charge-rate, threshold
 tick markers, adjustable start/stop sliders); right-click for quick toggles, presets, and
@@ -97,10 +100,33 @@ ChargeKeeper is the same app under a new name. Upgrading is safe and mostly auto
 ## Requirements
 
 - Windows 10 (1809+) / Windows 11
-- Currently a **Lenovo ThinkPad** (built and tested on an X1 Yoga Gen 7) — the charge-limit
-  feature talks to Lenovo's power-management driver; support for other vendors is planned
+- A supported laptop — the app picks its vendor module automatically at startup:
+
+  | Vendor | Models | Charge limit | Smart Standby |
+  |---|---|---|---|
+  | **Lenovo** | ThinkPad (built and tested on an X1 Yoga Gen 7) | Adjustable start/stop % | Yes |
+  | **HP** | Commercial lines — EliteBook, ProBook, ZBook (tested on an EliteBook 840 G8) | Fixed cap only, see below | No |
+
+  HP's consumer models (Pavilion, Envy) do **not** ship the BIOS WMI interface and are not
+  supported. Support for other vendors is planned.
 - **Administrator rights** — both features require elevation (the app manifest declares
   `requireAdministrator`)
+
+### HP: what works and what doesn't
+
+HP's firmware has no numeric charge threshold. It exposes a single **Battery Health Manager**
+setting with three coarse modes, so ChargeKeeper can turn limiting on or off but cannot set an
+arbitrary percentage — the dashboard hides the range picker on HP and shows the fixed cap
+(around 80%) instead.
+
+Two further caveats:
+
+- **Changes apply after a restart.** HP does not action battery BIOS settings immediately.
+- **HP's own adaptive logic may override the setting.** "Adaptive Battery Optimizer" is a
+  separate, read-only BIOS setting that cannot be turned off through WMI. Where it is active,
+  HP's firmware decides for itself when to cap.
+
+Smart Standby is Lenovo-only — HP ships no equivalent, so the toggle is not shown.
 
 ### Smart Charge prerequisite — Lenovo Power Management Driver
 
