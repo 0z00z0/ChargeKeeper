@@ -14,6 +14,20 @@ public sealed record ChargeThresholdState(bool Capable, bool Enabled, int Start,
 /// </summary>
 public interface IChargeThresholdProvider
 {
+    /// <summary>
+    /// Whether the vendor can honour arbitrary start/stop percentages.
+    ///
+    /// Lenovo can: its firmware takes a real numeric pair. HP cannot — it exposes three coarse
+    /// named modes and no numeric threshold at all, so <see cref="SetThresholds"/> there snaps
+    /// to the nearest mode and the <see cref="ChargeThresholdState.Start"/>/
+    /// <see cref="ChargeThresholdState.Stop"/> it reports back are nominal labels rather than
+    /// firmware-reported values.
+    ///
+    /// The UI must consult this before offering a percentage picker; otherwise the user drags a
+    /// slider to 60% and the device quietly settles somewhere else.
+    /// </summary>
+    bool SupportsNumericThresholds { get; }
+
     /// <summary>The current threshold state, or <c>null</c> if the interface is unavailable.</summary>
     ChargeThresholdState? Read();
 

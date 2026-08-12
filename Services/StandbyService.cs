@@ -8,6 +8,10 @@ namespace ChargeKeeper.Services;
 /// </summary>
 internal static class StandbyService
 {
+    /// <summary>Whether the active vendor implements standby scheduling at all.</summary>
+    internal static bool IsSupported =>
+        VendorCatalog.Active.Standby.IsSupported;
+
     internal static bool IsRunning() =>
         VendorCatalog.Active.Standby.IsRunning();
 

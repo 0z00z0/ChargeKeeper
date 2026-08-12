@@ -24,7 +24,11 @@ internal sealed class SmartChargeFeature : IToggleFeature
 internal sealed class SmartStandbyFeature : IToggleFeature
 {
     public string Name        => "Smart Standby";
-    public bool   IsAvailable => true; // service is always present on ThinkPads
+    // Vendor-dependent, not universal: this was hardcoded true on the assumption that the
+    // service always ships on ThinkPads, which stopped being safe once HP joined — HP has no
+    // standby-scheduling equivalent, and a toggle that renders enabled and silently does
+    // nothing is worse than one that isn't offered.
+    public bool   IsAvailable => StandbyService.IsSupported;
     public bool   IsEnabled   => StandbyService.IsRunning();
     public bool   SetEnabled(bool enabled) { StandbyService.SetEnabled(enabled); return true; }
 }
