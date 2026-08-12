@@ -479,9 +479,14 @@ public sealed partial class DashboardWindow : Window
 
         if (limitActive && !ChargeThresholdService.SupportsNumericThresholds)
         {
+            // Windows will keep reporting 100% while this cap is active, because HP lowers the
+            // battery's reported full-charge capacity rather than stopping the charge early.
+            // Saying only "capped at 80%" reads as a bug to anyone looking at the tray showing
+            // 100%, so the note has to explain the redefinition, not just the number.
             ThresholdFixedNote.Text =
-                $"Charging is capped at about {chargeState!.Stop} %. This hardware offers a fixed "
-                + "limit rather than an adjustable range, and applies changes after a restart.";
+                $"Capped at about {chargeState!.Stop} % of design capacity. Windows still shows "
+                + "100 % — this hardware lowers the reported full-charge capacity instead of "
+                + "stopping early. Fixed limit, not an adjustable range; changes apply after a restart.";
             ThresholdFixedNote.Visibility = Visibility.Visible;
         }
         else

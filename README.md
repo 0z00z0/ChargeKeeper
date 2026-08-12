@@ -119,6 +119,20 @@ setting with three coarse modes, so ChargeKeeper can turn limiting on or off but
 arbitrary percentage — the dashboard hides the range picker on HP and shows the fixed cap
 (around 80%) instead.
 
+**Windows will still show 100%, and that is correct.** HP's cap works by *lowering the battery's
+reported full-charge capacity*, not by stopping the charge early — so a capped battery reads as
+100% of a deliberately reduced maximum. Verified on an EliteBook 840 G8: full-charge capacity
+42,377 mWh against a design capacity of 53,015 mWh, i.e. **79.93%** where the target is 80.00%.
+
+To check whether the cap is active on your own machine, compare the two capacities rather than
+looking at the percentage:
+
+```powershell
+powercfg /batteryreport /output "$env:TEMP\br.xml" /XML
+([xml](Get-Content "$env:TEMP\br.xml")).BatteryReport.Batteries.Battery |
+    ForEach-Object { "{0:N2}% of design" -f ($_.FullChargeCapacity / $_.DesignCapacity * 100) }
+```
+
 Two further caveats:
 
 - **Changes apply after a restart.** HP does not action battery BIOS settings immediately.
