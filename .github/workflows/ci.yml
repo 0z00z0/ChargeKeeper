@@ -57,3 +57,10 @@ jobs:
 
       - name: Build (Release)
         run: dotnet build ChargeKeeper.csproj -c Release -r win-x64 --no-restore --nologo
+
+      # Restore/Build above are scoped to ChargeKeeper.csproj, so the test project
+      # is not built by them and needs its own restore (--no-restore here fails with
+      # NETSDK1004, no assets file). No -r: ChargeKeeper.Tests.csproj pins
+      # RuntimeIdentifier empty on purpose, so a RID would fight that.
+      - name: Test
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo

@@ -80,6 +80,15 @@ jobs:
         with:
           dotnet-version: '10.x'
 
+      # ── 3b. Test gate ────────────────────────────────────────────────────────
+      # Fail-closed like the unsigned guard in step 8b: a tag push publishes to
+      # users, so red tests must stop the release. Placed before the installer is
+      # built or signed — nothing downstream can then ship on a failed suite.
+      # Restores on its own; no other step in this job restores the test project.
+      - name: Test
+        shell: pwsh
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo
+
       # ── 4. Install Inno Setup 6 via Chocolatey ───────────────────────────────
       - name: Install Inno Setup 6
         shell: pwsh
