@@ -30,6 +30,9 @@ internal sealed class LenovoChargeThreshold : IChargeThresholdProvider
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     private static extern int LenSetChargeThreshold(int battery, int start, int stop);
 
+    /// <summary>Lenovo's firmware takes a real numeric start/stop pair.</summary>
+    public bool SupportsNumericThresholds => true;
+
     public ChargeThresholdState? Read()
     {
         try

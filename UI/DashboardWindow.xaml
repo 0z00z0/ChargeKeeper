@@ -213,6 +213,18 @@
                         </Grid>
                     </StackPanel>
 
+                    <!-- Shown INSTEAD of the range picker on vendors that have no numeric
+                         threshold. HP exposes three coarse BIOS modes ("Battery Health Manager")
+                         and no percentage at all, so a draggable range would invite the user to
+                         pick a value the firmware silently ignores. Text is set in code-behind
+                         because the cap figure comes from the active vendor. -->
+                    <TextBlock x:Name="ThresholdFixedNote"
+                               FontSize="11"
+                               Margin="0,6,0,0"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="Collapsed"/>
+
                     <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
                          Charge is capable so it can also be cancelled while active. -->
                     <Button x:Name="TravelOverrideButton"

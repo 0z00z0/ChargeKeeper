@@ -96,6 +96,11 @@ internal sealed partial class SettingsWindow : Window
         SafeInit(nameof(RefreshAllSections), RefreshAllSections);
         SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
         SafeInit(nameof(LoadAboutOnce), LoadAboutOnce);
+        // Must run BEFORE the first layout pass: MeasureTallestPageExtent sizes the window to the
+        // tallest page, and the Smart Charge page is much shorter once the preset and
+        // network-profile sections are hidden on fixed-mode hardware. Applying it only on tab
+        // switch would size the window for sections that never appear.
+        SafeInit(nameof(ApplyThresholdCapabilityToSmartChargePage), ApplyThresholdCapabilityToSmartChargePage);
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -372,7 +377,43 @@ internal sealed partial class SettingsWindow : Window
         // Cheap to refresh every time the tab is opened rather than on a timer — reflects a
         // network change made while the window was on a different tab. The network profiles
         // now live on the Smart Charge page.
-        if (tag == "SmartCharge") RefreshCurrentNetworkText();
+        if (tag == "SmartCharge")
+        {
+            ApplyThresholdCapabilityToSmartChargePage();
+            RefreshCurrentNetworkText();
+        }
+    }
+
+    /// <summary>
+    /// Shows either the preset/network-profile machinery or a plain explanation, depending on
+    /// whether the active vendor takes arbitrary percentages.
+    ///
+    /// Presets and network profiles are both expressed ONLY as start/stop percentages. On HP
+    /// there is no numeric threshold at all — every preset snaps to the same on/off — so leaving
+    /// the editors visible invites the user to build profiles that cannot differ from each other.
+    /// That is worse than hiding them: it looks like a bug rather than a hardware limit.
+    /// </summary>
+    private void ApplyThresholdCapabilityToSmartChargePage()
+    {
+        bool numeric = ChargeThresholdService.SupportsNumericThresholds;
+
+        NumericThresholdSettings.Visibility = numeric ? Visibility.Visible : Visibility.Collapsed;
+        FixedModeSettings.Visibility        = numeric ? Visibility.Collapsed : Visibility.Visible;
+
+        if (numeric) return;
+
+        // Read the cap back from the device rather than hardcoding it, so the figure shown here
+        // always matches what the dashboard and the hardware report.
+        var state = ChargeThresholdService.Read();
+        string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
+
+        FixedModeText.Text =
+            $"This laptop's firmware offers a fixed charge limit ({cap} of design capacity) rather "
+            + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
+            + "Turn the limit on or off with the Smart Charge toggle in the tray menu.\n\n"
+            + "Windows will still report 100 % while the limit is active — this hardware lowers the "
+            + "battery's reported full-charge capacity instead of stopping the charge early. "
+            + "Changes take effect after a restart.";
     }
 
     // ── Preset-picker plumbing (issue #22) ─────────────────────────────────────────

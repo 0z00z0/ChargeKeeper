@@ -9,6 +9,14 @@ namespace ChargeKeeper.Services;
 /// </summary>
 internal static class ChargeThresholdService
 {
+    /// <summary>
+    /// Whether the active vendor can honour arbitrary percentages. False on HP, which offers
+    /// only coarse modes — the UI hides the percentage picker rather than letting the user set
+    /// a value the hardware will not apply.
+    /// </summary>
+    internal static bool SupportsNumericThresholds =>
+        VendorCatalog.Active.ChargeThreshold.SupportsNumericThresholds;
+
     internal static ChargeThresholdState? Read() =>
         VendorCatalog.Active.ChargeThreshold.Read();
 
