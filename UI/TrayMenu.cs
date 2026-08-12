@@ -327,7 +327,13 @@ internal sealed class TrayMenu
     private void RunApplyPreset(string name)
         => Task.Run(() =>
         {
-            try { ChargeControlService.ApplyPresetByName(name); }
+            // A device-rejected preset returns false; log it, or the apply is completely silent while
+            // the tray check mark and settings still show the preset the device never took.
+            try
+            {
+                if (!ChargeControlService.ApplyPresetByName(name))
+                    AppLog.Info($"Preset '{name}' was not applied — the device rejected the write.");
+            }
             catch { QueueRefresh(); }
         });
 

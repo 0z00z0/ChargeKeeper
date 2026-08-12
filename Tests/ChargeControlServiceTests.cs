@@ -15,6 +15,7 @@ public class ChargeControlServiceTests
     private sealed class FakePrimitives : IChargeControlPrimitives
     {
         public bool OverrideActive;
+        public bool SavedRevertThresholds;
         public int  CancelOverrideCalls;
         public bool? SetEnabledArg;
         public (int Start, int Stop)? ApplyThresholdsArg;
@@ -24,6 +25,7 @@ public class ChargeControlServiceTests
         public readonly Dictionary<string, ThresholdPreset> Presets = new();
 
         public bool IsOverrideActive => OverrideActive;
+        public bool HasSavedRevertThresholds => SavedRevertThresholds;
         public void CancelOverride() => CancelOverrideCalls++;
         public void SetEnabled(bool enable) => SetEnabledArg = enable;
         public bool ApplyExplicitThresholds(int start, int stop)
@@ -54,13 +56,27 @@ public class ChargeControlServiceTests
     // ── Smart Charge enable/disable ────────────────────────────────────────────────
 
     [Fact]
-    public void SetSmartChargeEnabled_EnableWhileOverrideActive_CancelsOverride_NotSetEnabled()
+    public void SetSmartChargeEnabled_EnableWhileOverrideActive_WithSavedThresholds_CancelsOverride_NotSetEnabled()
     {
-        WithFake(new FakePrimitives { OverrideActive = true }, (fake, fired) =>
+        WithFake(new FakePrimitives { OverrideActive = true, SavedRevertThresholds = true }, (fake, fired) =>
         {
             ChargeControlService.SetSmartChargeEnabled(true);
             Assert.Equal(1, fake.CancelOverrideCalls);
-            Assert.Null(fake.SetEnabledArg);       // did NOT fall through to a bare SetEnabled(true)
+            Assert.Null(fake.SetEnabledArg);       // the restore IS the enable — no bare SetEnabled(true)
+            Assert.Equal(1, fired());
+        });
+    }
+
+    [Fact]
+    public void SetSmartChargeEnabled_EnableWhileOverrideActive_WithoutSavedThresholds_AlsoSetsEnabled()
+    {
+        // Activate() saves nothing when Smart Charge was already off, so the cancel's revert writes
+        // nothing to the device — the enable must still reach it instead of being silently dropped.
+        WithFake(new FakePrimitives { OverrideActive = true, SavedRevertThresholds = false }, (fake, fired) =>
+        {
+            ChargeControlService.SetSmartChargeEnabled(true);
+            Assert.Equal(1, fake.CancelOverrideCalls);
+            Assert.True(fake.SetEnabledArg);
             Assert.Equal(1, fired());
         });
     }

@@ -693,9 +693,12 @@ public partial class App : Application
             // so the lock never spans the publish (item 5) even though PublishState is fire-and-forget.
             _ha?.PublishState(haSnapshot);
         }
-        catch
+        catch (Exception ex)
         {
-            // Battery API failure is non-fatal — the tray icon just stays as-is.
+            // Battery API failure is non-fatal — the tray icon just stays as-is. Logged because this
+            // handler owns the icon, the toasts, the history sample and the MQTT publish: a fault
+            // partway through silently drops all of them for that tick.
+            LogCrash("OnBatteryReportUpdated", ex);
         }
     }
 
@@ -1021,7 +1024,8 @@ public partial class App : Application
             }
 
             _settings = new SettingsWindow(_menu!,
-                onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current));
+                onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
+                onPresetsChanged: () => _ha?.RepublishDiscovery());
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }

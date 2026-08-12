@@ -59,6 +59,35 @@ public class NetworkLocationServiceTests
         Assert.False(a.SameLocationAs(b));
     }
 
+    // ── The first-evaluation seed rule ─────────────────────────────────────────────
+
+    [Fact]
+    public void IsLocationChange_FirstEvaluation_SeedsWithoutBeingAChange()
+    {
+        // Start() evaluates immediately; _last is still default there. Raising LocationChanged on that
+        // baseline re-applied a network profile on every app start, cancelling a persisted travel
+        // override. The first reading only seeds.
+        var current = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.1.0/24", true, null);
+        Assert.False(NetworkLocationService.IsLocationChange(seeded: false, current, default));
+    }
+
+    [Fact]
+    public void IsLocationChange_AfterSeeding_DifferentLocation_IsAChange()
+    {
+        var seed  = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.1.0/24", true, null);
+        var moved = new NetworkLocation("11:22:33:44:55:66", "192.168.0.0/24", false, "CafeWiFi");
+        Assert.True(NetworkLocationService.IsLocationChange(seeded: true, moved, seed));
+    }
+
+    [Fact]
+    public void IsLocationChange_AfterSeeding_SameLocation_IsNotAChange()
+    {
+        // NetworkChange fires far more often than the resolved location moves.
+        var seed = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.1.0/24", false, "HomeWiFi");
+        var same = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.1.0/24", false, null);   // hint flapped
+        Assert.False(NetworkLocationService.IsLocationChange(seeded: true, same, seed));
+    }
+
     // ── SelectPrimary: the primary-adapter heuristic (issue #21), exercised without live adapters ──
 
     [Fact]

@@ -577,15 +577,25 @@ public sealed partial class DashboardWindow : Window
         int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
         {
-            // Route through the shared ChargeControlService (issue #40) — the SAME composition the
-            // tray and MQTT paths use — so this slider drag fires StateChanged and reflects to the
-            // tray/tooltip/MQTT immediately instead of waiting for the next battery tick. An explicit
-            // slider write supersedes any in-flight "charge to 100 % once" (ApplyExplicitThresholds
-            // owns the Deactivate-first-then-write ordering). clearActivePreset:true reproduces the
-            // old behaviour — the threshold is now custom, so any active preset name is cleared on a
-            // successful write (via SettingsService.Update inside the service, so a Reload() that
-            // swapped the settings object during the RPC gap can't make it a lost write).
-            bool ok = ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
+            // Nothing in here may skip the RunOnUi below: it owns the release of _thresholdEditPending,
+            // and a latched freeze makes Refresh() stop syncing the sliders for the window's life. The
+            // vendor write returns false rather than throwing, but StateChanged runs the tray/tooltip/
+            // MQTT subscribers inline on this thread, so a throw IS reachable from here.
+            bool ok = false;
+            try
+            {
+                // Route through the shared ChargeControlService (issue #40) — the SAME composition the
+                // tray and MQTT paths use — so this slider drag fires StateChanged and reflects to the
+                // tray/tooltip/MQTT immediately instead of waiting for the next battery tick. An explicit
+                // slider write supersedes any in-flight "charge to 100 % once" (ApplyExplicitThresholds
+                // owns the Deactivate-first-then-write ordering). clearActivePreset:true reproduces the
+                // old behaviour — the threshold is now custom, so any active preset name is cleared on a
+                // successful write (via SettingsService.Update inside the service, so a Reload() that
+                // swapped the settings object during the RPC gap can't make it a lost write).
+                ok = ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
+            }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.CommitThresholds", ex); }
+
             RunOnUi(() =>
             {
                 if (!ok)

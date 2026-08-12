@@ -136,10 +136,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "signtool failed on $path ($LASTEXITCODE)." }
           }
 
-          # 1) Sign the published app exe.
+          # 1) Sign every own binary in the publish tree — the installer ships the WHOLE tree
+          #    (ChargeKeeper.iss: "{#PublishDir}\*"), so the native bridge went out unsigned inside a
+          #    signed installer. Must happen BEFORE the recompile below, or the bundled copy is the
+          #    unsigned one. LenPower.dll is the only native bridge; the managed exe carries the rest.
           Invoke-Sign 'publish\ChargeKeeper.exe'
+          Invoke-Sign 'publish\LenPower.dll'
 
-          # 2) Recompile the installer (now bundling the signed exe), then sign it.
+          # 2) Recompile the installer (now bundling the signed binaries), then sign it.
           $iscc = (Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction SilentlyContinue).FullName
           if (-not $iscc) { throw 'ISCC.exe not found.' }
           & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "/DPublishDir=$(Resolve-Path publish)" installer\ChargeKeeper.iss

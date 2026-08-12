@@ -21,6 +21,13 @@ internal static class TravelOverrideService
     public static bool IsActive => SettingsService.Current.TravelOverrideActive;
 
     /// <summary>
+    /// True when the override has pre-override thresholds saved, i.e. <see cref="Cancel"/> will
+    /// actually write to the device. False when Smart Charge was already off at <see cref="Activate"/>.
+    /// </summary>
+    public static bool HasSavedRevertThresholds =>
+        SettingsService.Current is { TravelOverrideRevertStart: not null, TravelOverrideRevertStop: not null };
+
+    /// <summary>
     /// Raised once the override has been activated or reverted and the state has settled
     /// (threshold written + TravelOverrideActive saved). The tray tooltip isn't driven by a
     /// battery event, so it subscribes to this to refresh immediately instead of staying stale.
@@ -79,8 +86,10 @@ internal static class TravelOverrideService
                 s.TravelOverrideActive = true;
             });
 
-            // Disable threshold (start=0, stop=0 → charge to 100 %).
-            ChargeThresholdService.SetEnabled(false);
+            // Disable threshold (start=0, stop=0 → charge to 100 %). A rejected write leaves the
+            // override armed over an unchanged device — log it, or it looks identical to a success.
+            if (!ChargeThresholdService.SetEnabled(false))
+                AppLog.Info("TravelOverride: activation rejected by the device — thresholds unchanged.");
 
             StateChanged?.Invoke();   // refresh the tooltip now, don't wait for a battery event
         });
@@ -186,17 +195,27 @@ internal static class TravelOverrideService
             {
                 if (revertStart is { } start && revertStop is { } stop)
                 {
-                    ChargeThresholdService.SetEnabled(true);
-                    ChargeThresholdService.SetThresholds(start, stop);
+                    // Attempt both writes, then judge — enabling is not a precondition for the
+                    // threshold write (valid non-zero thresholds enable Smart Charge by themselves).
+                    bool ok = ChargeThresholdService.SetEnabled(true);
+                    ok     &= ChargeThresholdService.SetThresholds(start, stop);
+                    if (!ok)
+                    {
+                        // Persist only on success — same rule as ChargeControlService's threshold
+                        // writes. The saved pair is the ONLY record of the user's real thresholds, and
+                        // the device is still at 0/0, so keep both the flag and the values: the state
+                        // stays honest and the tray's "Revert to charge threshold" can retry.
+                        AppLog.Info($"TravelOverride: revert to {start}/{stop} rejected by the device — " +
+                                    "override left active, saved thresholds kept.");
+                        return;
+                    }
                 }
                 // If there was no threshold before the override, leave Smart Charge disabled.
-            }
-            catch { }
-            finally
-            {
+
                 // Clear flag + saved thresholds and fire StateChanged (tooltip/menu resync).
                 ClearOverrideState();
             }
+            catch (Exception ex) { AppLog.Error("TravelOverrideService.ApplyRevert", ex); }
         });
     }
 }

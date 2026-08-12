@@ -116,7 +116,9 @@ internal static class IconGenerator
     internal static string GenerateAndSaveTrayIcon(string outputDirectory)
     {
         var icoPath = Path.Combine(outputDirectory, $"ChargeKeeper-{IconVersion}.ico");
-        if (File.Exists(icoPath)) return icoPath;
+        // A zero-length file is a killed earlier launch's leftover, not a cached icon — existence
+        // alone treated it as valid, and the shell then failed to load it on every start forever.
+        if (File.Exists(icoPath) && new FileInfo(icoPath).Length > 0) return icoPath;
 
         SaveAsIco(icoPath);
         return icoPath;
@@ -418,10 +420,17 @@ internal static class IconGenerator
         bw.Flush();
     }
 
-    /// <summary>Writes the static brand icon to disk as a multi-resolution ICO file.</summary>
+    /// <summary>
+    /// Writes the static brand icon to disk as a multi-resolution ICO file. Renders to a temp file and
+    /// moves it into place — the same atomic pattern SettingsService.Save and BatteryHistoryService
+    /// use — so a launch killed mid-render leaves no half-written .ico at the final path, which the
+    /// existence check would then serve to the shell for the rest of that version's life.
+    /// </summary>
     private static void SaveAsIco(string filePath)
     {
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-        WriteIco(fs, RenderIconBitmap, IconSizes);
+        var tmp = filePath + ".tmp";
+        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+            WriteIco(fs, RenderIconBitmap, IconSizes);
+        File.Move(tmp, filePath, overwrite: true);
     }
 }
