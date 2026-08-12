@@ -228,6 +228,23 @@
   </ItemGroup>
 
   <!--
+    Guard the pin above. Local dev builds against the LIVE sibling folder while CI clones the
+    commit pinned in .github/0z0-shared-ref, so adopting a new shared type builds green here
+    and fails CI with CS0234 (that is #59: CI red 2026-07-15 → 1.6.2). The ref file warns that
+    "a green local build proves nothing about this pin" — this makes it a build-time check.
+    Warning, never error, and skipped entirely when the ref file or sibling clone is absent,
+    so a docs-only checkout or a machine without git is unaffected.
+  -->
+  <Target Name="CheckSharedPin" BeforeTargets="Build"
+          Condition="Exists('$(MSBuildProjectDirectory)\.github\0z0-shared-ref') And Exists('$(MSBuildProjectDirectory)\..\0z0-shared\.git')">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\check-shared-pin.ps1&quot; -RefFile &quot;$(MSBuildProjectDirectory)\.github\0z0-shared-ref&quot; -SharedPath &quot;$(MSBuildProjectDirectory)\..\0z0-shared&quot;"
+          ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SharedPinMessage" />
+    </Exec>
+    <Warning Condition="'$(_SharedPinMessage)' != ''" Code="ZZ0001" Text="$(_SharedPinMessage)" />
+  </Target>
+
+  <!--
     Authenticode-sign the produced executable on Release builds.
     Delegates to sign.ps1, which signs with the self-signed cert created by
     'sign.ps1 -Setup'. ContinueOnError keeps the build green if no cert is present.
