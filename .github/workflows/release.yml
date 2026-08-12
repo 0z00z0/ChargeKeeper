@@ -149,11 +149,28 @@ jobs:
           Remove-Item $pfxPath -Force
           Write-Host 'Signed app exe + installer; PFX deleted.'
 
-      # ── 8b. Warn if signing was skipped (no secret) ──────────────────────────
-      - name: Warn if unsigned
-        if: ${{ env.CODE_SIGN_PFX == '' }}
+      # ── 8b. Unsigned guard ───────────────────────────────────────────────────
+      # Split by trigger, because only one of the two publishes. A tag push reaches
+      # step 12 and ships the installer to users, so an unsigned build must stop
+      # here rather than warn and carry on. A workflow_dispatch is a dry run that
+      # publishes nothing (step 12 and the validate-manifests job are both gated on
+      # ref_type == 'tag'), so it keeps warning — failing it would take a useful
+      # build/validate check away from anyone without the signing secrets.
+      #
+      # CODE_SIGN_PASSWORD needs no guard of its own: the sign step runs whenever
+      # the PFX is present, and signtool exits non-zero on a wrong/empty password,
+      # which step 8 already turns into a throw.
+      - name: Fail if unsigned (tagged release)
+        if: ${{ env.CODE_SIGN_PFX == '' && github.ref_type == 'tag' }}
         shell: pwsh
-        run: Write-Warning 'CODE_SIGN_PFX secret not set — installer is UNSIGNED. Add the secret to sign CI releases.'
+        run: |
+          Write-Error 'CODE_SIGN_PFX secret is not set — refusing to publish an UNSIGNED release. Restore the signing secrets and re-run this tag.'
+          exit 1
+
+      - name: Warn if unsigned (dry run)
+        if: ${{ env.CODE_SIGN_PFX == '' && github.ref_type != 'tag' }}
+        shell: pwsh
+        run: Write-Warning 'CODE_SIGN_PFX secret not set — installer is UNSIGNED. This dispatch publishes nothing, so it is a warning; a tagged release fails here instead.'
 
       # ── 9. Compute SHA256 of the installer ───────────────────────────────────
       - name: Compute installer SHA256
