@@ -167,25 +167,25 @@ public class HaCommandTests
         Assert.Equal("Travel", spy.Preset);
     }
 
-    // ── Cached-thresholds companion source (review fix #7) ────────────────────────
+    // ── Companion-value source ────────────────────────────────────────────────────
     // The live ChargeControlActions must take a single-bound number-set's companion value from the
-    // app's cached threshold state (no dedicated pre-write EC read), when that cache holds a valid pair.
+    // injected provider (HomeAssistantService.CurrentDeviceThresholds in production), consulted once,
+    // when it yields a valid pair.
 
     [Fact]
-    public void ChargeControlActions_CurrentThresholds_UsesCachedValidPair_WithoutAnEcRead()
+    public void ChargeControlActions_CurrentThresholds_UsesProvidedValidPair_ConsultedOnce()
     {
         int reads = 0;
         var actions = new ChargeControlActions(() => { reads++; return (55, 75); });
 
         Assert.Equal((55, 75), actions.CurrentThresholds());
-        Assert.Equal(1, reads);   // read the CACHE exactly once; the vendor RPC was never touched
+        Assert.Equal(1, reads);   // the provider is the single source; no second read of its own
     }
 
     [Fact]
-    public void ChargeControlActions_CurrentThresholds_FallsBackToValidDefault_WhenCacheEmpty()
+    public void ChargeControlActions_CurrentThresholds_FallsBackToValidDefault_WhenProviderEmpty()
     {
-        // Cache null (Smart Charge off / no reading yet) → a valid default pair, never (0,0), and still
-        // no pre-write EC read (the provider was consulted, the device was not).
+        // Provider null (Smart Charge off / unreadable) → a valid default pair, never (0,0).
         var actions = new ChargeControlActions(() => null);
         var (start, stop) = actions.CurrentThresholds();
 
@@ -195,9 +195,9 @@ public class HaCommandTests
     }
 
     [Fact]
-    public void ChargeControlActions_CurrentThresholds_RejectsInvalidCachedPair_FallsBackToDefault()
+    public void ChargeControlActions_CurrentThresholds_RejectsInvalidProvidedPair_FallsBackToDefault()
     {
-        // A cached pair that isn't a valid Smart Charge pair (too small a gap) is discarded for the default.
+        // A pair that isn't a valid Smart Charge pair (too small a gap) is discarded for the default.
         var actions = new ChargeControlActions(() => (79, 80));
         var (start, stop) = actions.CurrentThresholds();
         Assert.True(stop - start >= PresetEditValidator.MinGap);

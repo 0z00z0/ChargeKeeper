@@ -251,18 +251,47 @@ internal static class SettingsService
         }
     }
 
-    /// <summary>Deserialises settings JSON from <paramref name="path"/>. Null on any I/O/parse failure or a missing file.</summary>
+    /// <summary>
+    /// Deserialises settings JSON from <paramref name="path"/>, or null when there is nothing usable
+    /// to load. "Missing" (first run — defaults are correct) and "present but unreadable" are handled
+    /// separately: for the second, the file is COPIED aside and the failure logged before defaults are
+    /// returned. Without that, the next <see cref="Save"/> overwrites the user's presets, network rules
+    /// and MQTT credentials with defaults, and the only record of them is gone.
+    /// </summary>
     private static AppSettings? ReadFile(string path)
     {
+        if (!File.Exists(path)) return null;
+
         try
         {
-            return File.Exists(path)
-                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), _opts)
-                : null;
+            if (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), _opts) is { } loaded)
+                return loaded;
+            PreserveUnreadable(path, "the file contains no settings object");
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            PreserveUnreadable(path, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Copies an unreadable settings file aside so the defaults-then-Save path cannot destroy it, and
+    /// logs both the reason and where the copy went. Best-effort: a failed copy is logged, never thrown
+    /// (this runs under the load path, which must not take the app down).
+    /// </summary>
+    private static void PreserveUnreadable(string path, string reason)
+    {
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        string copy  = $"{path}.unreadable-{stamp}";
+        try
+        {
+            File.Copy(path, copy, overwrite: true);
+            AppLog.Info($"settings.json could not be read ({reason}); defaults loaded, original kept as '{Path.GetFileName(copy)}'.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"SettingsService: settings.json unreadable ({reason}) and the aside copy failed", ex);
         }
     }
 

@@ -88,12 +88,10 @@ internal sealed class HomeAssistantService : IDisposable
     public HomeAssistantService(string swVersion, IChargeControlActions? actions = null)
     {
         _swVersion = swVersion;
-        // Give the live actions the app's already-maintained cached thresholds (from the same
-        // CurrentStateProvider snapshot the normal publish path trusts) so a single-bound
-        // charge_start/charge_stop set reads its companion value from cache instead of a dedicated
-        // pre-write EC RPC (the guaranteed-fresh read still happens AFTER the write). Late-bound: the
-        // delegate reads CurrentStateProvider at call time, since it's assigned after construction.
-        _actions = actions ?? new ChargeControlActions(CachedThresholds);
+        // Give the live actions the device's current thresholds as the companion value for a
+        // single-bound charge_start/charge_stop set — read fresh, on the command worker, because the
+        // app's cached snapshot is only refreshed on a battery tick (see CurrentDeviceThresholds).
+        _actions = actions ?? new ChargeControlActions(CurrentDeviceThresholds);
         _client = new MqttClientFactory().CreateMqttClient();
         // Route inbound charge-control commands (issue #30). Registered once for the client's life;
         // the handler is a no-op for anything that isn't a recognised command topic. It only enqueues;
@@ -500,16 +498,42 @@ internal sealed class HomeAssistantService : IDisposable
     }
 
     /// <summary>
-    /// The app's already-maintained cached Smart Charge thresholds, taken from the same
-    /// <see cref="CurrentStateProvider"/> snapshot the normal publish path trusts. Supplied to the
-    /// live <see cref="ChargeControlActions"/> so a single-bound charge_start/charge_stop set reads its
-    /// companion value from cache — not a dedicated pre-write EC RPC. Returns null when Smart Charge is
-    /// off/unset or no reading exists yet, so the dispatcher falls back to a sensible default pair.
+    /// The device's CURRENT Smart Charge thresholds, supplied to the live
+    /// <see cref="ChargeControlActions"/> as the companion value a single-bound charge_start/charge_stop
+    /// set is combined with. Returns null when Smart Charge is off/unset or unreadable, so the
+    /// dispatcher falls back to a sensible default pair.
+    /// <para>
+    /// This used to read <see cref="CurrentStateProvider"/> — App's battery-tick snapshot — which
+    /// nothing refreshes after a write: two queued commands (set start, then set stop) both read the
+    /// SAME pre-write pair and the second silently reverted the first. Costs one EC read per
+    /// single-bound number command, on the command worker where the write already blocks.
+    /// </para>
     /// </summary>
-    private (int Start, int Stop)? CachedThresholds() =>
-        CurrentStateProvider?.Invoke() is { SmartChargeEnabled: true, ChargeStart: int start, ChargeStop: int stop }
-            ? (start, stop)
-            : null;
+    private static (int Start, int Stop)? CurrentDeviceThresholds() =>
+        ChargeThresholdService.Read() is { Enabled: true } t ? (t.Start, t.Stop) : null;
+
+    /// <summary>
+    /// Republishes the retained discovery configs with the CURRENT preset names. The "Charge preset"
+    /// select's option list is baked into its discovery config at publish time, so without this an
+    /// added/renamed/deleted preset leaves HA offering the list captured at connect time. No-op while
+    /// disabled or disconnected — the next connect publishes the current names anyway.
+    /// </summary>
+    public void RepublishDiscovery()
+    {
+        if (!_enabled || !_client.IsConnected) return;
+        _ = RepublishDiscoveryAsync();
+    }
+
+    private async Task RepublishDiscoveryAsync()
+    {
+        try
+        {
+            var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+            foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
+                await PublishAsync(topic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitize(ex)); }
+    }
 
     /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>
     private async Task ClearLegacyDiscoveryAsync(CancellationToken ct)

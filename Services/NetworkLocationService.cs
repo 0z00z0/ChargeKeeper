@@ -99,6 +99,13 @@ internal static class NetworkLocationService
     private static NetworkLocation _last;
     private static bool _started;
 
+    // Whether _last holds a real reading yet. The first evaluation after Start() only SEEDS it —
+    // the app has just learned where it already is, nothing changed. Treating that as a change
+    // fired LocationChanged on every app start, which re-applied a network profile and thereby
+    // cancelled an in-flight travel override — the one thing TravelOverrideActive is persisted to
+    // survive.
+    private static bool _seeded;
+
     // Held so Stop() can actually unsubscribe: the previous anonymous-lambda subscriptions could
     // never be removed, so a NetworkChange after Stop() re-armed the timer and a later Start()
     // double-subscribed. Only benign because the real lifecycle is one Start (App init) + one Stop
@@ -116,6 +123,14 @@ internal static class NetworkLocationService
     /// Default (empty) until the first post-<see cref="Start"/> evaluation lands.
     /// </summary>
     public static NetworkLocation LastKnown { get { lock (_sync) return _last; } }
+
+    /// <summary>
+    /// Whether an evaluation is a real location CHANGE (raise <see cref="LocationChanged"/>) rather
+    /// than the first baseline seed. Pure so the seed rule is testable without live adapters (house
+    /// style; see <see cref="SelectPrimary"/>). Comparison is MAC/CIDR only — DisplayHint flaps.
+    /// </summary>
+    internal static bool IsLocationChange(bool seeded, NetworkLocation current, NetworkLocation last) =>
+        seeded && !current.SameLocationAs(last);
 
     public static void Start()
     {
@@ -142,6 +157,7 @@ internal static class NetworkLocationService
         {
             if (!_started) return;
             _started = false;
+            _seeded  = false;   // a later Start() re-seeds instead of firing off a stale baseline
             if (_addressChangedHandler is not null)      NetworkChange.NetworkAddressChanged      -= _addressChangedHandler;
             if (_availabilityChangedHandler is not null) NetworkChange.NetworkAvailabilityChanged -= _availabilityChangedHandler;
             _addressChangedHandler = null;
@@ -165,12 +181,15 @@ internal static class NetworkLocationService
         try
         {
             var current = DetectCurrent();
+            bool changed;
             lock (_sync)
             {
-                if (current.SameLocationAs(_last)) return;   // MAC/CIDR only — ignore DisplayHint flaps
-                _last = current;
+                changed = IsLocationChange(_seeded, current, _last);
+                if (_seeded && !changed) return;
+                _seeded = true;
+                _last   = current;
             }
-            LocationChanged?.Invoke(current);
+            if (changed) LocationChanged?.Invoke(current);
         }
         catch (Exception ex)
         {

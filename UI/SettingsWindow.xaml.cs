@@ -60,6 +60,11 @@ internal sealed partial class SettingsWindow : Window
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
 
+    // Raised after the preset LIST changes (add/rename/delete). HA's "Charge preset" select carries
+    // its options inside the retained discovery config, published at connect time — without this the
+    // dropdown keeps offering the old names until the next reconnect.
+    private readonly Action   _onPresetsChanged;
+
     // Guards LoadXxx()'s programmatic control assignments from re-entering their own
     // changed/toggled/selection handlers and queuing a bogus commit — same pattern as
     // DashboardWindow's _updatingSliders. One shared flag is safe here: every LoadXxx() call runs
@@ -74,10 +79,11 @@ internal sealed partial class SettingsWindow : Window
     // own threshold-debounce timer is stopped in its Closed handler to avoid.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onPresetsChanged)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
+        _onPresetsChanged       = onPresetsChanged;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -567,6 +573,16 @@ internal sealed partial class SettingsWindow : Window
         if (_updating || GraphScaleCombo.SelectedIndex < 0) return;
         var scale = (GraphTimeScale)GraphScaleCombo.SelectedIndex;
         SettingsService.Update(s => s.GraphTimeScale = scale);
+
+        // Persisting alone never took effect: the in-memory window is only (re)loaded when a graph
+        // host finds it EMPTY, so every open graph kept drawing the old span. Reload it exactly as the
+        // graph's own scale buttons do (BatteryHistoryGraphControl.OnTimeScaleButtonClick) — a full CSV
+        // scan, so off the UI thread. Open graphs repaint from the new window on their refresh tick.
+        Task.Run(() =>
+        {
+            BatteryHistoryService.LoadWindow(scale.ToTimeSpan());
+            AppLog.Info($"Time-scale changed to {scale}.");
+        });
     }
 
     // ── Advanced (settings file) ─────────────────────────────────────────────────
@@ -781,10 +797,12 @@ internal sealed partial class SettingsWindow : Window
         // valid final one.
         var debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         _presetDebounceTimers.Add(debounce);
+        // Stays in _presetDebounceTimers for the row's whole life — un-tracking it here would let the
+        // NEXT ValueChanged re-Start an untracked timer that StopAllPresetDebounceTimers can no longer
+        // stop. The list is cleared when the rows are rebuilt or the window closes.
         debounce.Tick += (_, _) =>
         {
             debounce.Stop();
-            _presetDebounceTimers.Remove(debounce);
             CommitPresetRow(presetName, nameBox, range, errorText, expander);
         };
         range.ValueChanged += (_, _) =>
@@ -856,6 +874,7 @@ internal sealed partial class SettingsWindow : Window
             // the old name doesn't keep offering a now-dangling option.
             RebuildPresetRows();
             RebuildNetworkRuleRows();
+            _onPresetsChanged();   // HA's preset select carries the old name until discovery is republished
         }
         else
         {
@@ -909,6 +928,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
+        _onPresetsChanged();   // the deleted name must stop being offered in HA's preset select
         _menu.ReconcileFromExternalChange();
     }
 
@@ -923,6 +943,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();   // the new preset should be selectable from Network rows immediately
+        _onPresetsChanged();        // …and from HA's preset select, which needs the option list republished
         _menu.ReconcileFromExternalChange();
     }
 
@@ -1105,6 +1126,12 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules.RemoveAt(index);
         });
         RebuildNetworkRuleRows();
+        RefreshCurrentNetworkText();   // the deleted rule may have been the one naming this network
+
+        // Deleting the winning rule hands the current network to a later (or no) rule — apply whatever
+        // wins now, same as editing a rule's preset does, so the device doesn't keep running the
+        // deleted rule's preset while the UI says otherwise.
+        ApplyWinningProfile(CurrentLocation());
     }
 
     /// <summary>
@@ -1117,43 +1144,50 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     private async void OnAddNetworkRule(object sender, RoutedEventArgs e)
     {
-        var location = NetworkLocationService.DetectCurrent();
-        if (location.IsEmpty)
+        // async void: an escaping exception tears the process down rather than surfacing. NameLocationWindow's
+        // ctor does the same monitor/placement work this window wraps in SafeInit because it faulted on
+        // multi-monitor — so guard the whole path, exactly as App.ShowSettingsWindow / TrayMenu.ShowAbout do.
+        try
         {
-            NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
-            return;
-        }
-
-        string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-        string? name = await new NameLocationWindow(suggested).ShowAsync();
-        if (name is null) return;   // cancelled
-
-        var s0 = SettingsService.Current;
-        string defaultPreset = s0.ActivePreset ?? s0.Presets.FirstOrDefault()?.Name ?? "";
-
-        SettingsService.Update(s =>
-        {
-            s.NetworkLocationRules.Add(new NetworkLocationRule
+            var location = NetworkLocationService.DetectCurrent();
+            if (location.IsEmpty)
             {
-                Name       = name,
-                AdapterMac = location.AdapterMac,
-                IpCidr     = location.IpCidr,
-                PresetName = defaultPreset,
+                NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
+                return;
+            }
+
+            string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
+            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            if (name is null) return;   // cancelled
+
+            var s0 = SettingsService.Current;
+            string defaultPreset = s0.ActivePreset ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+
+            SettingsService.Update(s =>
+            {
+                s.NetworkLocationRules.Add(new NetworkLocationRule
+                {
+                    Name       = name,
+                    AdapterMac = location.AdapterMac,
+                    IpCidr     = location.IpCidr,
+                    PresetName = defaultPreset,
+                });
+                s.NetworkProfilesEnabled = true;   // configuring a location implies wanting the feature on
             });
-            s.NetworkProfilesEnabled = true;   // configuring a location implies wanting the feature on
-        });
 
-        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
+            WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
 
-        RebuildNetworkRuleRows();
-        RefreshCurrentNetworkText();
+            RebuildNetworkRuleRows();
+            RefreshCurrentNetworkText();
 
-        // Apply the profile that now wins for this network — usually the rule just added, unless an
-        // earlier rule already shadows it — using the SAME first-match resolution the tray
-        // auto-apply uses, so the immediate write agrees with the next reconcile instead of being
-        // reverted by it (decided #19 follow-up; matches the old tray "add configuration → preset"
-        // flow). Reuses the fresh `location` detected above.
-        ApplyWinningProfile(location);
+            // Apply the profile that now wins for this network — usually the rule just added, unless an
+            // earlier rule already shadows it — using the SAME first-match resolution the tray
+            // auto-apply uses, so the immediate write agrees with the next reconcile instead of being
+            // reverted by it (decided #19 follow-up; matches the old tray "add configuration → preset"
+            // flow). Reuses the fresh `location` detected above.
+            ApplyWinningProfile(location);
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddNetworkRule", ex); }
     }
 
     // ── Home Assistant ────────────────────────────────────────────────────────────

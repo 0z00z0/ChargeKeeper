@@ -53,10 +53,22 @@ internal static class ChargeControlService
     /// NOT a bare <c>SetEnabled(true)</c> (that would apply firmware's 0/0 defaults and leave the
     /// revert armed to clobber them at the next full charge). Disabling, or enabling with no override
     /// active, is a plain SetEnabled.
+    /// <para>
+    /// The cancel only counts as "threshold back on" when the override actually saved thresholds to
+    /// restore. <c>Activate</c> saves none when Smart Charge was already off, and then the revert
+    /// writes nothing to the device — so the enable has to fall through to SetEnabled, or it is
+    /// silently dropped. Safe to order after the cancel: with nothing to restore the revert touches
+    /// only settings, so there is no device write to race.
+    /// </para>
     /// </summary>
     public static void SetSmartChargeEnabled(bool enable)
     {
-        if (enable && Primitives.IsOverrideActive) Primitives.CancelOverride();
+        if (enable && Primitives.IsOverrideActive)
+        {
+            bool restoresThresholds = Primitives.HasSavedRevertThresholds;
+            Primitives.CancelOverride();
+            if (!restoresThresholds) Primitives.SetEnabled(true);
+        }
         else Primitives.SetEnabled(enable);
         StateChanged?.Invoke();
     }
@@ -115,6 +127,12 @@ internal interface IChargeControlPrimitives
     /// <summary>Whether a "charge to 100 % once" travel override is currently active.</summary>
     bool IsOverrideActive { get; }
 
+    /// <summary>
+    /// Whether the active override has pre-override thresholds saved to restore. False when Smart
+    /// Charge was already off at activation — cancelling then writes nothing to the device.
+    /// </summary>
+    bool HasSavedRevertThresholds { get; }
+
     /// <summary>Cancel the active override (restore saved thresholds + disarm the auto-revert).</summary>
     void CancelOverride();
 
@@ -135,6 +153,7 @@ internal interface IChargeControlPrimitives
 internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
 {
     public bool IsOverrideActive => TravelOverrideService.IsActive;
+    public bool HasSavedRevertThresholds => TravelOverrideService.HasSavedRevertThresholds;
     public void CancelOverride() => TravelOverrideService.Cancel();
     public void SetEnabled(bool enable) => ChargeThresholdService.SetEnabled(enable);
     public bool ApplyExplicitThresholds(int start, int stop) => TravelOverrideService.ApplyExplicitThresholds(start, stop);
