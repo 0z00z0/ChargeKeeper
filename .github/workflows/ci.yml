@@ -46,7 +46,7 @@ jobs:
           git -C ../0z0-shared checkout --detach $ref
 
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.x'
 
