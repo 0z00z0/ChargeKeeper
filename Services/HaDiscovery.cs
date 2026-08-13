@@ -223,6 +223,26 @@ internal static class HaDiscovery
         _entities.Select(e => (e.Component, e.ObjectId));
 
     /// <summary>
+    /// The entities that only make sense on hardware taking arbitrary start/stop percentages.
+    ///
+    /// On a fixed-mode vendor (HP) these are suppressed from discovery: the entity would ACCEPT a
+    /// write — an automation setting <c>charge_start=50</c> looks like it worked — while
+    /// <c>HpChargeThreshold.SetThresholds</c> silently snaps it to a coarse mode. HA would then
+    /// display 50 while the firmware does something else, with nothing to signal the divergence.
+    /// An absent entity is strictly better than one that cannot be honoured, because absent is
+    /// visible.
+    ///
+    /// The preset select is included because presets are themselves start/stop pairs, so every
+    /// option would collapse to the same on/off.
+    /// </summary>
+    public static readonly (string Component, string ObjectId)[] NumericThresholdEntities =
+    [
+        ("number", CmdChargeStart),
+        ("number", CmdChargeStop),
+        ("select", CmdPreset),
+    ];
+
+    /// <summary>
     /// Config topics for the OLD entity ids that issue #29 renamed. Because the HA component is part
     /// of the discovery config topic, a component change (binary_sensor→switch, sensor→number) or an
     /// object-id rename (soc→battery_level, power→battery_power) leaves the previous retained config
@@ -256,8 +276,15 @@ internal static class HaDiscovery
     /// with default options; value_templates contain
     /// literal <c>{{ }}</c> which are fine inside a JSON string.
     /// </summary>
+    /// <param name="supportsNumericThresholds">
+    /// False on a fixed-mode vendor (HP), which suppresses <see cref="NumericThresholdEntities"/>
+    /// so the MQTT device advertises only what the hardware can actually honour. The Smart Charge
+    /// switch and the charge-to-full button are still published — both map cleanly onto a coarse
+    /// mode.
+    /// </param>
     public static IEnumerable<(string Topic, string Json)> DiscoveryConfigs(
-        string nodeId, string discoveryPrefix, string deviceName, string swVersion, IReadOnlyList<string> presetNames)
+        string nodeId, string discoveryPrefix, string deviceName, string swVersion,
+        IReadOnlyList<string> presetNames, bool supportsNumericThresholds = true)
     {
         string state = StateTopic(nodeId);
         string avail = AvailabilityTopic(nodeId);
@@ -265,6 +292,10 @@ internal static class HaDiscovery
 
         foreach (var e in _entities)
         {
+            if (!supportsNumericThresholds &&
+                NumericThresholdEntities.Any(n => n.ObjectId == e.ObjectId))
+                continue;
+
             var config = new Dictionary<string, object>
             {
                 ["name"]               = e.Name,

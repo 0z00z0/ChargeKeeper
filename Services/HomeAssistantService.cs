@@ -323,11 +323,17 @@ internal sealed class HomeAssistantService : IDisposable
         // Preset names populate the "Charge preset" select's options (issue #30). Read fresh on each
         // connect so a reconnect picks up any preset edits made while offline.
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
+        bool numeric = ChargeThresholdService.SupportsNumericThresholds;
+        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames, numeric))
             await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
         // Evict any retained discovery from the OLD (pre-#29) entity ids so an upgrading user doesn't
         // keep ghost entities alongside the renamed ones.
         await ClearLegacyDiscoveryAsync(ct).ConfigureAwait(false);
+        // Same eviction for the numeric entities on fixed-mode hardware. Suppressing them from the
+        // publish loop above is not enough on its own: a retained config from an earlier build (or
+        // from before this machine's vendor module existed) would otherwise keep the ghost number
+        // entities alive in HA forever, still accepting writes nothing can honour.
+        if (!numeric) await ClearNumericThresholdDiscoveryAsync(ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
 
         // Subscribe to the single command wildcard so HA can drive Smart Charge / thresholds / preset
@@ -529,10 +535,23 @@ internal sealed class HomeAssistantService : IDisposable
         try
         {
             var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-            foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
+            foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion,
+                                                                      presetNames, ChargeThresholdService.SupportsNumericThresholds))
                 await PublishAsync(topic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitize(ex)); }
+    }
+
+    /// <summary>
+    /// Evicts the numeric threshold / preset discovery configs on fixed-mode hardware, so an HA
+    /// instance that saw them from an earlier build stops offering entities this machine cannot
+    /// honour.
+    /// </summary>
+    private async Task ClearNumericThresholdDiscoveryAsync(CancellationToken ct)
+    {
+        foreach (var (component, objectId) in HaDiscovery.NumericThresholdEntities)
+            await PublishAsync(HaDiscovery.ConfigTopic(_discoveryPrefix, component, _nodeId, objectId),
+                               "", retain: true, ct).ConfigureAwait(false);
     }
 
     /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>

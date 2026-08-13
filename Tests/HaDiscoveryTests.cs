@@ -12,6 +12,82 @@ public class HaDiscoveryTests
     private static List<(string Topic, string Json)> Configs(string node) =>
         HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets).ToList();
 
+    private static List<(string Topic, string Json)> Configs(string node, bool numeric) =>
+        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets, numeric).ToList();
+
+    // ── Vendor gating (issue #83) ─────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("number", HaDiscovery.CmdChargeStart)]
+    [InlineData("number", HaDiscovery.CmdChargeStop)]
+    [InlineData("select", HaDiscovery.CmdPreset)]
+    public void DiscoveryConfigs_FixedModeVendor_SuppressesEntitiesItCannotHonour(string component, string objectId)
+    {
+        // An entity that ACCEPTS a write the firmware then silently snaps to something else is
+        // worse than an absent one: HA would display 50% while the machine does something else,
+        // with nothing to signal the divergence. Absent is at least visible.
+        string node = HaDiscovery.NodeId("PC");
+
+        var topics = Configs(node, numeric: false).Select(c => c.Topic);
+
+        Assert.DoesNotContain(HaDiscovery.ConfigTopic("homeassistant", component, node, objectId), topics);
+    }
+
+    [Theory]
+    [InlineData("switch", HaDiscovery.CmdSmartCharge)]
+    [InlineData("button", HaDiscovery.CmdChargeToFull)]
+    public void DiscoveryConfigs_FixedModeVendor_StillPublishesWhatItCanHonour(string component, string objectId)
+    {
+        // On/off and charge-to-full both map cleanly onto a coarse mode, so suppressing them would
+        // strip real functionality from HP machines.
+        string node = HaDiscovery.NodeId("PC");
+
+        var topics = Configs(node, numeric: false).Select(c => c.Topic);
+
+        Assert.Contains(HaDiscovery.ConfigTopic("homeassistant", component, node, objectId), topics);
+    }
+
+    [Fact]
+    public void DiscoveryConfigs_FixedModeVendor_KeepsEveryReadOnlySensor()
+    {
+        // Gating is about COMMAND entities. The battery sensors are vendor-independent and must
+        // survive, or an HP machine would lose its whole HA presence rather than just the
+        // controls it cannot honour.
+        string node = HaDiscovery.NodeId("PC");
+        var topics = Configs(node, numeric: false).Select(c => c.Topic).ToList();
+
+        foreach (var id in new[] { "battery_level", "battery_state", "battery_power", "on_ac" })
+            Assert.Contains(topics, t => t.Contains($"/{id}/config", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DiscoveryConfigs_NumericVendor_PublishesEverything()
+    {
+        string node = HaDiscovery.NodeId("PC");
+
+        int all   = Configs(node, numeric: true).Count;
+        int fixedMode = Configs(node, numeric: false).Count;
+
+        Assert.Equal(all - HaDiscovery.NumericThresholdEntities.Length, fixedMode);
+    }
+
+    [Fact]
+    public void DiscoveryConfigs_DefaultsToNumeric_SoExistingCallersAreUnchanged()
+    {
+        string node = HaDiscovery.NodeId("PC");
+
+        Assert.Equal(Configs(node, numeric: true).Count, Configs(node).Count);
+    }
+
+    [Fact]
+    public void NumericThresholdEntities_AreAllRealEntities()
+    {
+        // Guards against a typo in the gate list silently failing to suppress anything — and
+        // against an entity being renamed without updating the gate.
+        foreach (var gated in HaDiscovery.NumericThresholdEntities)
+            Assert.Contains(HaDiscovery.Entities, e => e.Component == gated.Component && e.ObjectId == gated.ObjectId);
+    }
+
     [Theory]
     [InlineData("ESPEN-X1", "chargekeeper_espen_x1")]
     [InlineData("desk top pc", "chargekeeper_desk_top_pc")]

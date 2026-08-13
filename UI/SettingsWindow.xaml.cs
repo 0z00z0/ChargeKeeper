@@ -175,6 +175,17 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadHomeAssistant();
+
+        // Re-read the firmware charge mode on every re-activation, so a mode changed OUTSIDE this
+        // app (HP's own utility, another tool, the tray) is reflected rather than showing whatever
+        // was read when the window was first built. Issue #84.
+        //
+        // Only the SELECTION is refreshed, deliberately not the whole capability pass: which of the
+        // two Smart Charge layouts applies is decided when the window is built and cannot change
+        // under the user, and re-running it here would also re-do window-sizing work for no reason.
+        // Guarded on the mode list being non-empty so this costs a numeric vendor nothing — on
+        // Lenovo it would otherwise be a pointless vendor round-trip on every re-activation.
+        if (ChargeThresholdService.AvailableModes.Count > 0) BuildChargeModeRadios();
     }
 
     // ── Window chrome / lifecycle ────────────────────────────────────────────────
