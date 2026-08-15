@@ -42,7 +42,8 @@ internal readonly record struct MqttProbeTarget(
 /// first: that is what makes "unreachable" a precise verdict (unknown host vs refused vs no answer)
 /// straight from the OS, instead of an MQTT-library exception that reads the same for a typo'd host
 /// and a wrong password. Only if a socket opens do we send CONNECT, where a rejection can only be
-/// about the credentials or the session.</para>
+/// about the credentials or the session. The cost is one extra TCP connect-and-close per test, which
+/// a broker may log as an anonymous client that hung up — harmless, and paid only on a button press.</para>
 /// </summary>
 internal static class MqttConnectionProbe
 {
@@ -149,7 +150,7 @@ internal static class MqttConnectionProbe
         SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain =>
             new(MqttProbeOutcome.Unreachable, "host name could not be resolved"),
         SocketError.ConnectionRefused =>
-            new(MqttProbeOutcome.Unreachable, "connection refused — nothing is listening on that port"),
+            new(MqttProbeOutcome.Unreachable, "nothing is listening on that port"),
         SocketError.NetworkUnreachable or SocketError.HostUnreachable =>
             new(MqttProbeOutcome.Unreachable, "no route to that host"),
         SocketError.TimedOut =>
@@ -192,12 +193,15 @@ internal static class MqttConnectionProbe
     public static string Describe(MqttProbeResult result) => result.Outcome switch
     {
         MqttProbeOutcome.Success      => "Connected. The broker accepted these settings.",
-        MqttProbeOutcome.Unreachable  => $"Could not reach the broker — {result.Detail}.",
+        MqttProbeOutcome.Unreachable  => $"Could not reach the broker — {Detail(result)}.",
         MqttProbeOutcome.TimedOut     => $"The broker did not answer within {(int)Timeout.TotalSeconds} seconds.",
-        MqttProbeOutcome.AuthRejected => $"The broker answered but rejected these credentials ({result.Detail}).",
-        MqttProbeOutcome.Rejected     => $"The broker refused the connection ({result.Detail}).",
-        _                             => $"The connection failed — {result.Detail}.",
+        MqttProbeOutcome.AuthRejected => $"The broker answered but rejected these credentials ({Detail(result)}).",
+        MqttProbeOutcome.Rejected     => $"The broker refused the connection ({Detail(result)}).",
+        _                             => $"The connection failed — {Detail(result)}.",
     };
+
+    // An exception message usually ends in its own full stop; the sentences above supply one.
+    private static string Detail(MqttProbeResult result) => result.Detail.TrimEnd('.', ' ');
 
     /// <summary>Whether a result should be shown in the error colour rather than as plain status.</summary>
     public static bool IsFailure(MqttProbeResult result) => result.Outcome != MqttProbeOutcome.Success;

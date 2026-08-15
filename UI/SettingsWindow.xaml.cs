@@ -1853,9 +1853,10 @@ internal sealed partial class SettingsWindow : Window
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaTestConnectionClicked", ex); }
         finally
         {
+            bool cancelled = cts.IsCancellationRequested;   // read BEFORE disposing the source
             _haProbeCts = null;
             cts.Dispose();
-            if (!cts.IsCancellationRequested) SetHaTestRunning(false);
+            if (!cancelled) SetHaTestRunning(false);
         }
     }
 
