@@ -261,6 +261,28 @@
                         <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                     </controls:SettingsCard>
 
+                    <!-- ── Device (#87) — above Broker: which device this is comes before how it
+                         connects. The two fields are deliberately NOT treated alike: the name is
+                         cosmetic and rides the Apply batch, the id is destructive and only changes
+                         through its own confirmation dialog. -->
+                    <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
+
+                    <controls:SettingsCard Header="Device name"
+                                            Description="The name Home Assistant shows for this machine. Cosmetic — it renames nothing else.">
+                        <!-- PlaceholderText is set in code-behind: it's the machine-derived default. -->
+                        <TextBox x:Name="HaDeviceNameBox" MinWidth="220"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Device ID"
+                                            Description="Identifies this machine in every MQTT topic and in every Home Assistant entity id. Changing it renames all of them.">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock x:Name="HaNodeIdText" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       IsTextSelectionEnabled="True"/>
+                            <Button x:Name="HaChangeNodeIdBtn" Content="Change ID…" Click="OnChangeNodeIdClicked"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
                     <TextBlock Text="Broker fields below are staged locally and only take effect when you click Apply — so the MQTT connection reconnects once per Apply, not per keystroke."
                                TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>

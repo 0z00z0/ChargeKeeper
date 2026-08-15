@@ -24,10 +24,11 @@ namespace ChargeKeeper.UI;
 /// own <c>Value</c> updates from raw typing until then — see <see cref="OnStartupDelayChanged"/>
 /// and friends; only a spin-button click or a Home-Assistant broker field needs anything hand-
 /// wired).</item>
-/// <item>The Home Assistant/MQTT broker fields (host/port/user/pass/TLS/prefix) are the ONE
-/// exception: they stage locally and commit as a batch behind the explicit "Apply" button (see
-/// <see cref="OnHaApplyClicked"/>), so <c>HomeAssistantService</c> reconnects at most once per
-/// edit session, never per keystroke.</item>
+/// <item>The Home Assistant/MQTT broker fields (host/port/user/pass/TLS/prefix, plus the #87 device
+/// name — it forces the same reconnect/republish) are the ONE exception: they stage locally and
+/// commit as a batch behind the explicit "Apply" button (see <see cref="OnHaApplyClicked"/>), so
+/// <c>HomeAssistantService</c> reconnects at most once per edit session, never per keystroke. The
+/// device ID is deliberately NOT in that batch — see <see cref="OnChangeNodeIdClicked"/>.</item>
 /// </list>
 /// </para>
 ///
@@ -1215,7 +1216,13 @@ internal sealed partial class SettingsWindow : Window
             HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
             HaTlsToggle.IsOn       = s.MqttUseTls;
             HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
+            // Blank means "use the machine-derived default" — show that default as the placeholder
+            // rather than pre-filling it, so an untouched field keeps meaning "default", not a
+            // literal copy of today's machine name.
+            HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
+            HaDeviceNameBox.Text            = s.MqttDeviceName;
         });
+        RefreshHaNodeIdText();
         // A re-sync (reopen / tray Reload) discards any un-applied broker edit, so a leftover
         // "Applied." from a previous session must not linger asserting stale values are live.
         HaAppliedText.Visibility = Visibility.Collapsed;
@@ -1226,11 +1233,12 @@ internal sealed partial class SettingsWindow : Window
     /// Hides the "Applied." confirmation the moment any broker field is edited — under the batch
     /// save model those edits are NOT live until the next Apply click, so the label would
     /// otherwise keep (falsely) asserting the shown values are the ones in effect. Wired once from
-    /// the constructor; the six broker controls have no other change handlers by design.
+    /// the constructor; the seven batched controls have no other change handlers by design.
     /// </summary>
     private void WireHaBrokerFieldEditHandlers()
     {
         void Hide() => HaAppliedText.Visibility = Visibility.Collapsed;
+        HaDeviceNameBox.TextChanged   += (_, _) => Hide();
         HaHostBox.TextChanged         += (_, _) => Hide();
         HaUsernameBox.TextChanged     += (_, _) => Hide();
         HaPrefixBox.TextChanged       += (_, _) => Hide();
@@ -1250,14 +1258,19 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Commits all six broker fields as a single batch — the ONE exception to "commit on change"
+    /// Commits all seven batched fields as one batch — the ONE exception to "commit on change"
     /// in this window's save model, so <c>HomeAssistantService</c> reconnects at most once per
     /// Apply click rather than per keystroke. <see cref="AppSettings.MqttPassword"/> is read here
     /// (not on every keystroke) and is never logged or shown in any toast — see
     /// <c>HomeAssistantService.Sanitize</c>.
+    /// <para><see cref="AppSettings.MqttDeviceName"/> (#87) belongs here: it is cosmetic in Home
+    /// Assistant but reaches it through the same republish every broker field triggers. The device
+    /// ID does NOT — it must be impossible to rename every entity as a side effect of applying a
+    /// host edit, so it has its own dialog (<see cref="OnChangeNodeIdClicked"/>).</para>
     /// </summary>
     private void OnHaApplyClicked(object sender, RoutedEventArgs e)
     {
+        string device = HaDeviceNameBox.Text?.Trim() ?? "";
         string host   = HaHostBox.Text?.Trim() ?? "";
         int    port   = double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
         string user   = HaUsernameBox.Text?.Trim() ?? "";
@@ -1273,6 +1286,7 @@ internal sealed partial class SettingsWindow : Window
             s.MqttPassword         = pass;
             s.MqttUseTls           = tls;
             s.MqttDiscoveryPrefix  = prefix;
+            s.MqttDeviceName       = device;
         });
 
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
@@ -1287,6 +1301,135 @@ internal sealed partial class SettingsWindow : Window
         HaBrokerStatusText.Text = string.IsNullOrWhiteSpace(s.MqttBrokerHost)
             ? "Broker: not set"
             : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
+    }
+
+    // ── Device identity (#87) ────────────────────────────────────────────────────
+
+    /// <summary>The device name used when <see cref="AppSettings.MqttDeviceName"/> is blank — the
+    /// same expression <c>HomeAssistantService.ApplyAsync</c> falls back to, so the placeholder
+    /// cannot promise a name the publisher wouldn't use.</summary>
+    private static string DefaultDeviceName() => $"ChargeKeeper ({Environment.MachineName})";
+
+    /// <summary>The id actually published under, override or machine-derived default.</summary>
+    private static string EffectiveNodeId() =>
+        HaDiscovery.EffectiveNodeId(SettingsService.Current.MqttNodeId, Environment.MachineName);
+
+    private void RefreshHaNodeIdText() => HaNodeIdText.Text = EffectiveNodeId();
+
+    /// <summary>
+    /// The device ID's own confirmation dialog (#87). Deliberately outside the Apply batch: the id is
+    /// the <c>unique_id</c>/<c>object_id</c> stem, the device identifier AND every topic segment, so
+    /// changing it renames every entity in Home Assistant — that must never happen as a side effect
+    /// of clicking Apply after editing a broker host.
+    ///
+    /// <para>Friction is two deliberate interactions (a valid, different id AND the acknowledgement
+    /// tick) and no more: type-the-old-id ceremony buys nothing here, because the change is
+    /// recoverable by typing the old id back — what is not recoverable is the HA-side history, and no
+    /// amount of typing changes that.</para>
+    ///
+    /// <para>async void with the whole body guarded: an exception escaping an async void handler
+    /// tears the process down rather than surfacing — same reasoning as
+    /// <see cref="OnAddNetworkRule"/>.</para>
+    /// </summary>
+    private async void OnChangeNodeIdClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string current = EffectiveNodeId();
+
+            var idBox = new TextBox
+            {
+                Text            = SettingsService.Current.MqttNodeId,
+                PlaceholderText = HaDiscovery.NodeId(Environment.MachineName),
+            };
+            var errorText = new TextBlock
+            {
+                FontSize     = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility   = Visibility.Collapsed,
+                Foreground   = CriticalBrush(),
+            };
+            // The id is sanitised to [a-z0-9_] before it reaches a topic, so echo what will actually
+            // be published — otherwise "Office ThinkPad" silently becomes something else.
+            var previewText = new TextBlock
+            {
+                FontSize     = 11,
+                Opacity      = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            var ack = new CheckBox { Content = "I understand my automations will break" };
+
+            var body = new StackPanel { Spacing = 8, Width = 420 };
+            body.Children.Add(new TextBlock
+            {
+                Text         = $"Current ID: {current}",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            body.Children.Add(new TextBlock { Text = "New ID", Opacity = 0.7, FontSize = 12 });
+            body.Children.Add(idBox);
+            body.Children.Add(previewText);
+            body.Children.Add(errorText);
+            body.Children.Add(new TextBlock
+            {
+                Text = "Changing the ID renames every ChargeKeeper entity in Home Assistant. "
+                     + "Automations, dashboards and history that point at the old entities will stop "
+                     + "working — they will not report an error, the entities simply will not be there "
+                     + "any more.\n\n"
+                     + "ChargeKeeper removes the old entities from Home Assistant when you confirm. "
+                     + "Their recorded history is not carried over to the new ones.\n\n"
+                     + "Leave the box empty to go back to the name derived from this machine.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 4, 0, 0),
+            });
+            body.Children.Add(ack);
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot          = Content.XamlRoot,
+                Title             = "Change device ID",
+                Content           = body,
+                PrimaryButtonText = "Change ID",
+                CloseButtonText   = "Cancel",
+                DefaultButton     = ContentDialogButton.Close,
+                IsPrimaryButtonEnabled = false,
+            };
+
+            // Live validation: the primary button is the only gate, so re-derive it from scratch on
+            // every edit rather than tracking a "was valid" flag that can go stale.
+            void Revalidate()
+            {
+                string raw      = idBox.Text ?? "";
+                string? error   = HaDiscovery.ValidateNodeId(raw);
+                string candidate = HaDiscovery.EffectiveNodeId(raw, Environment.MachineName);
+
+                errorText.Text       = error ?? "";
+                errorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+                previewText.Text     = error is null ? $"Publishes as: {candidate}" : "";
+
+                dialog.IsPrimaryButtonEnabled = error is null && candidate != current && ack.IsChecked == true;
+            }
+
+            idBox.TextChanged += (_, _) => Revalidate();
+            ack.Checked       += (_, _) => Revalidate();
+            ack.Unchecked     += (_, _) => Revalidate();
+            Revalidate();
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            // Store the sanitised form, not the raw text: the read-only card above shows the
+            // effective id, and storing the raw string would leave the two disagreeing. Blank stays
+            // blank — that is the "use the machine default" sentinel, not an id.
+            string entered = (idBox.Text ?? "").Trim();
+            string newId   = entered.Length == 0 ? "" : HaDiscovery.NormalizeNodeId(entered);
+
+            SettingsService.Update(s => s.MqttNodeId = newId);
+            // Same callback the broker Apply uses — HomeAssistantService compares the new effective id
+            // against the one it last published under and evicts the old id's retained topics
+            // (HaDiscovery.TopicsToClear) before republishing discovery under the new one.
+            _onHomeAssistantChanged();
+            RefreshHaNodeIdText();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnChangeNodeIdClicked", ex); }
     }
 
     // ── Appearance ──────────────────────────────────────────────────────────────
