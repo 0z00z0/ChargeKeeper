@@ -379,12 +379,42 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
                         <Button x:Name="HaApplyBtn" Content="Apply" Click="OnHaApplyClicked"/>
+                        <Button x:Name="HaTestBtn" Content="Test connection" Click="OnHaTestConnectionClicked"/>
+                        <ProgressRing x:Name="HaTestProgress" Width="16" Height="16"
+                                      IsActive="False" Visibility="Collapsed"
+                                      VerticalAlignment="Center"/>
                         <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Visibility="Collapsed"/>
                     </StackPanel>
+
+                    <!-- Says WHICH values are tested, because under the batch save model the boxes and
+                         the saved settings can disagree — the user must never have to guess which set
+                         a green result was about. -->
+                    <TextBlock x:Name="HaTestResultText" Margin="0,8,0,0" FontSize="11"
+                               TextWrapping="Wrap" Visibility="Collapsed"/>
+                    <TextBlock Text="“Test connection” tries the values in the boxes above — including ones you have not applied yet. It opens its own throwaway connection, so it never disturbs the running one."
+                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,4,0,0"/>
+
                     <TextBlock x:Name="HaBrokerStatusText" Text="Broker: not set" Margin="0,8,0,0"
                                FontSize="11" Opacity="0.7"/>
+
+                    <!-- ── Status — read-only, same weight as the Smart Charge page's "Current
+                         network" card: secondary-brush text in a SettingsCard, not a panel. These
+                         describe the LIVE connection (what is applied), not the staged boxes. -->
+                    <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+
+                    <controls:SettingsCard Header="Last publish"
+                                            Description="When ChargeKeeper last got a message onto the broker. Unchanged values are not re-sent, so this stands still while nothing changes.">
+                        <TextBlock x:Name="HaLastPublishText" Text="—"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Last command received"
+                                            Description="The most recent command Home Assistant sent this machine.">
+                        <TextBlock x:Name="HaLastCommandText" Text="—"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <!-- #45: the Appearance section (a single dead "Use new styling" toggle) was
