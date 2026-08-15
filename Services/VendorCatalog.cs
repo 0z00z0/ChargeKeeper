@@ -1,6 +1,7 @@
 using ChargeKeeper.Vendors;
 using ChargeKeeper.Vendors.Hp;
 using ChargeKeeper.Vendors.Lenovo;
+using ChargeKeeper.Vendors.Surface;
 
 namespace ChargeKeeper.Services;
 
@@ -23,11 +24,21 @@ internal static class VendorCatalog
     /// only decides a tie that should not occur; Lenovo goes first because its probe is a cheap
     /// P/Invoke that fails immediately when the native bridge is absent, whereas HP's opens a
     /// WMI namespace.
+    ///
+    /// Surface goes LAST because its transport is a stub that returns null without touching
+    /// anything, so its probe is a guaranteed-cheap no-op that must never displace a vendor that
+    /// can actually answer. Revisit the position when the transport becomes real.
     /// </summary>
     private static IVendorPowerModule SelectActive()
-    {
-        IVendorPowerModule[] candidates = [new LenovoPowerModule(), new HpPowerModule()];
+        => SelectFrom([new LenovoPowerModule(), new HpPowerModule(), new SurfacePowerModule()]);
 
+    /// <summary>
+    /// The probe loop, over a caller-supplied list. Split out from <see cref="SelectActive"/> so
+    /// the "a throwing probe must not escape" guarantee is testable — the property this protects
+    /// is app startup, and the only other way to check it is to launch the app.
+    /// </summary>
+    internal static IVendorPowerModule SelectFrom(IReadOnlyList<IVendorPowerModule> candidates)
+    {
         foreach (var candidate in candidates)
         {
             try

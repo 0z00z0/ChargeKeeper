@@ -126,6 +126,7 @@
     <ProjectReference Include="Vendors\Abstractions\ChargeKeeper.Vendors.Abstractions.csproj" />
     <ProjectReference Include="Vendors\Lenovo\ChargeKeeper.Vendors.Lenovo.csproj" />
     <ProjectReference Include="Vendors\Hp\ChargeKeeper.Vendors.Hp.csproj" />
+    <ProjectReference Include="Vendors\Surface\ChargeKeeper.Vendors.Surface.csproj" />
   </ItemGroup>
 
   <!-- ChargeThresholdState (and friends) moved to the vendor-abstractions namespace with the
