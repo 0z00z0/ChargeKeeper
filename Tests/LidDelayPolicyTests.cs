@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using Xunit;
@@ -188,6 +189,46 @@ public class LidDelayPolicyTests
         Assert.True(s.HasSavedLidAction);
 
         Assert.False(new AppSettings().HasSavedLidAction);
+    }
+
+    [Fact]
+    public void SavedLidAction_SurvivesSettingsJson_BecauseThatIsTheCrashRecord()
+    {
+        // These two values ARE the crash recovery: if they do not survive a round trip through
+        // settings.json, the app restarts believing it never touched the power scheme and the user's
+        // lid-close action is stranded on "do nothing" with nothing left that knows better.
+        var settings = new AppSettings { LidDelayEnabled = true, LidDelayMinutes = 15,
+                                         LidDelaySavedAcAction = 1, LidDelaySavedDcAction = 0 };
+        var loaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.LidDelayEnabled);
+        Assert.Equal(15, loaded.LidDelayMinutes);
+        Assert.Equal(1, loaded.LidDelaySavedAcAction);
+        Assert.Equal(0, loaded.LidDelaySavedDcAction);   // a saved zero must not come back as null
+        Assert.True(loaded.HasSavedLidAction);
+    }
+
+    [Fact]
+    public void HasSavedLidAction_IsNotWrittenToSettingsJson()
+    {
+        // It is derived from the two saved values; persisting it would let a stale copy contradict
+        // them after a hand edit.
+        Assert.DoesNotContain(nameof(AppSettings.HasSavedLidAction),
+                              JsonSerializer.Serialize(new AppSettings()), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LidDelaySettings_AbsentFromAnOlderFile_LoadAsOffWithNothingSaved()
+    {
+        // An existing install upgrading into this feature must come up inert — off, nothing saved —
+        // rather than with a half-state that drives a restore of values that were never captured.
+        var loaded = JsonSerializer.Deserialize<AppSettings>("""{"KeepAwakeDisplayOn":true}""");
+
+        Assert.NotNull(loaded);
+        Assert.False(loaded!.LidDelayEnabled);
+        Assert.False(loaded.HasSavedLidAction);
+        Assert.Equal(10, loaded.LidDelayMinutes);
     }
 
     [Fact]
