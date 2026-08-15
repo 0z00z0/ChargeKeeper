@@ -1,6 +1,7 @@
 using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Power;
 using Windows.Foundation;
@@ -46,6 +47,11 @@ public sealed partial class DashboardWindow : Window
     // periodic device-value sync (ApplyStatusBadges) and the handler's own min-gap enforcement
     // set RangeStart/RangeEnd, which would otherwise re-enter the handler and queue a bogus apply.
     private bool _updatingSliders = false;
+
+    // Same idea for the badge switches: ApplyStatusBadges writes IsOn from the 5-second device
+    // read, and ToggleSwitch raises Toggled on a programmatic write exactly as it does on a click —
+    // without this guard every sync would write the value straight back and bounce the device.
+    private bool _updatingBadges = false;
 
     // True from the first user slider move until the debounced apply completes. While set, the
     // periodic Refresh must NOT overwrite the slider values with the device's current thresholds
@@ -334,11 +340,12 @@ public sealed partial class DashboardWindow : Window
         // Power Manager response doesn't freeze the window, then marshal back to apply.
         Task.Run(() =>
         {
-            var chargeState = ChargeThresholdService.Read();
-            bool standbyOn  = StandbyService.IsRunning();
+            var chargeState      = ChargeThresholdService.Read();
+            bool standbySupported = StandbyService.IsSupported;
+            bool standbyOn        = StandbyService.IsRunning();
             // RunOnUi guards the window-may-have-closed-in-the-meantime race: an unhandled throw
             // in a raw dispatcher callback crashes the whole process (stowed exception).
-            RunOnUi(() => ApplyStatusBadges(chargeState, standbyOn));
+            RunOnUi(() => ApplyStatusBadges(chargeState, standbySupported, standbyOn));
         });
     }
 
@@ -406,27 +413,45 @@ public sealed partial class DashboardWindow : Window
         ToolTipService.SetToolTip(StatusGlyph, tip);
     }
 
-    // Called on the UI thread after the background read completes.
-    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbyOn)
+    /// <summary>
+    /// Called on the UI thread after the background read completes. Raises
+    /// <see cref="_updatingBadges"/> for the whole apply, because every switch write inside raises
+    /// <c>Toggled</c> just like a user click would. try/finally, not a bare raise/lower pair: a
+    /// throw part-way through would latch the guard and leave both switches dead for the window's
+    /// life.
+    /// </summary>
+    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
+    {
+        _updatingBadges = true;
+        try { WriteStatusBadges(chargeState, standbySupported, standbyOn); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
     {
         // ── Smart Charge ──────────────────────────────────────────────────────
-        if (chargeState is { Capable: true })
+        // The SAME classifier the Settings page uses, so the two surfaces cannot drift: no vendor
+        // answered (Hidden) means there is nothing to show or configure, and a permanently
+        // "Unavailable" badge is dead UI. Capable:false with a readable state is NOT hidden — the
+        // hardware has the feature, we just cannot drive it, so the badge stays and the switch is
+        // disabled instead.
+        var surface = ThresholdCapabilityPolicy.Classify(chargeState, ChargeThresholdService.SupportsNumericThresholds);
+        bool chargeVisible = surface != SmartChargeSurface.Hidden;
+        SmartChargeBadge.Visibility = chargeVisible ? Visibility.Visible : Visibility.Collapsed;
+
+        if (chargeVisible)
         {
-            SetFeatureBadge(SmartChargeBadge, SmartChargeIndicator, chargeState.Enabled);
-            SmartChargeDetailText.Text = chargeState.Enabled switch
+            SetFeatureBadge(SmartChargeBadge, SmartChargeToggle, chargeState!.Enabled);
+            SmartChargeToggle.IsEnabled = chargeState.Capable;
+            SmartChargeDetailText.Text = (chargeState.Capable, chargeState.Enabled) switch
             {
-                true when chargeState.Start > 0 && chargeState.Stop > 0
+                // Read-only BIOS setting: readable, but every write is refused.
+                (false, _) => "Not supported",
+                (true, true) when chargeState.Start > 0 && chargeState.Stop > 0
                     => $"{PresetLabel(chargeState)} · {chargeState.Start}% → {chargeState.Stop}%",
-                true  => "On — reading thresholds…",
-                false => "Off — charges to 100%"
+                (true, true)  => "On — reading thresholds…",
+                (true, false) => "Off — charges to 100%"
             };
-        }
-        else
-        {
-            // Read failed (driver/DLL missing or RPC error) or firmware reports not capable.
-            SmartChargeBadge.Background     = AppColors.BadgeInactiveBrush;
-            SmartChargeIndicator.Background = AppColors.IndicatorOrangeBrush;
-            SmartChargeDetailText.Text      = chargeState is null ? "Unavailable" : "Not supported";
         }
 
         // ── Gauge threshold tick markers ──────────────────────────────────────
@@ -507,15 +532,24 @@ public sealed partial class DashboardWindow : Window
             TravelOverrideButton.Visibility = Visibility.Collapsed;
         }
 
-        // Resize the window to fit whatever is now visible.
+        // ── Smart Standby ─────────────────────────────────────────────────────
+        // IStandbyProvider.IsSupported exists precisely so a vendor with no standby scheduling
+        // hides the control (the tray menu already does) — a switch that renders and silently does
+        // nothing is worse than one that isn't offered.
+        SmartStandbyBadge.Visibility = standbySupported ? Visibility.Visible : Visibility.Collapsed;
+        if (standbySupported)
+        {
+            SetFeatureBadge(SmartStandbyBadge, SmartStandbyToggle, standbyOn);
+            SmartStandbyDetailText.Text = standbyOn
+                ? "Active — scheduling idle sleep"
+                : "Off — always Modern Standby";
+        }
+
+        // Resize the window to fit whatever is now visible. Last, not before the standby block as
+        // it used to be: that badge can now collapse too, so measuring earlier would size the
+        // window to a row that is about to disappear.
         if (AppWindow.IsVisible)
             PlaceWindow();
-
-        // ── Smart Standby ─────────────────────────────────────────────────────
-        SetFeatureBadge(SmartStandbyBadge, SmartStandbyIndicator, standbyOn);
-        SmartStandbyDetailText.Text = standbyOn
-            ? "Active — scheduling idle sleep"
-            : "Off — always Modern Standby";
     }
 
     /// <summary>
@@ -544,12 +578,87 @@ public sealed partial class DashboardWindow : Window
             : "Custom";
     }
 
-    /// <summary>Applies active/inactive colours to a feature badge + indicator pair.</summary>
-    private static void SetFeatureBadge(Border badge, Border indicator, bool on)
+    /// <summary>
+    /// Applies the active/inactive badge colour and syncs its switch. The switch replaced the old
+    /// indicator dot, so it carries the on/off state the dot's accent/grey brushes used to; the
+    /// badge background keeps the same semantics it always had. Caller holds
+    /// <see cref="_updatingBadges"/> — the IsOn write below raises Toggled.
+    /// </summary>
+    private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on)
     {
-        badge.Background     = on ? AppColors.BadgeActiveBrush     : AppColors.BadgeInactiveBrush;
-        indicator.Background = on ? AppColors.IndicatorAccentBrush : AppColors.IndicatorGreyBrush;
+        badge.Background = on ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
+        toggle.IsOn      = on;
     }
+
+    // ── Badge toggles ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Smart Charge on/off from the dashboard. Routes through the shared
+    /// <see cref="ChargeControlService"/> — the SAME composition the tray menu uses — so the
+    /// "re-enabling mid-override cancels the override" rule stays in one place. That service fires
+    /// <see cref="ChargeControlService.StateChanged"/>, which refreshes this window via
+    /// <see cref="OnExternalStateChanged"/>, so only the throw path needs its own reconcile.
+    /// </summary>
+    private void OnSmartChargeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own device sync, not a user action
+
+        bool on = SmartChargeToggle.IsOn;
+        Task.Run(() =>
+        {
+            try { ChargeControlService.SetSmartChargeEnabled(on); }
+            catch (Exception ex)
+            {
+                AppLog.Error("DashboardWindow.OnSmartChargeToggled", ex);
+                RunOnUi(Refresh);   // StateChanged never fired — put the switch back where the device is
+            }
+        });
+    }
+
+    /// <summary>
+    /// Smart Standby on/off. There is no StateChanged for standby, so this mirrors
+    /// <c>TrayMenu.Toggle</c>'s finally-refresh: the trailing <see cref="Refresh"/> is what puts the
+    /// switch back if the service control refused.
+    /// </summary>
+    private void OnSmartStandbyToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        bool on = SmartStandbyToggle.IsOn;
+        Task.Run(() =>
+        {
+            try
+            {
+                // The write's bool is the only signal a service-control failure gives — dropping it
+                // would make a refused toggle look identical to one that took.
+                if (!StandbyService.SetEnabled(on))
+                    AppLog.Info($"Smart Standby → {on} was not applied — the vendor write returned false.");
+            }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.OnSmartStandbyToggled", ex); }
+            finally { RunOnUi(Refresh); }
+        });
+    }
+
+    // Label taps are a second hit target for the switch beside them; the switch stays the visible
+    // affordance. Disabled means the vendor refuses writes, so the tap must be inert too.
+    private void OnSmartChargeLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartChargeToggle.IsEnabled) SmartChargeToggle.IsOn = !SmartChargeToggle.IsOn;
+    }
+
+    private void OnSmartStandbyLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartStandbyToggle.IsEnabled) SmartStandbyToggle.IsOn = !SmartStandbyToggle.IsOn;
+    }
+
+    // ── Settings shortcut ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the Settings window. The popup auto-dismisses as soon as Settings takes focus (see
+    /// <see cref="OnActivated"/>) — deliberate: this is a widget handing off to a real window, not
+    /// a modeless panel meant to stay behind it.
+    /// </summary>
+    private void OnSettingsButton(object sender, RoutedEventArgs e) => _app.ShowSettingsWindow();
 
     // ── Threshold range handler ───────────────────────────────────────────────
 

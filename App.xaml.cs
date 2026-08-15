@@ -1010,7 +1010,7 @@ public partial class App : Application
     /// creation the same way <see cref="ToggleDashboard"/> does: a failure here must not take down
     /// the tray app.
     /// </summary>
-    private async void ShowSettingsWindow()
+    internal async void ShowSettingsWindow()
     {
         try
         {

@@ -25,17 +25,44 @@
             <RowDefinition Height="Auto"/>  <!-- 4: Status badges -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8"
-                    VerticalAlignment="Center" Margin="0,0,0,14">
-            <Image Source="ms-appx:///Assets/AppIcon.png"
-                   Width="18" Height="18" VerticalAlignment="Center"/>
-            <TextBlock Text="ChargeKeeper"
-                       FontSize="13"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-        </StackPanel>
+        <!-- Header. A Grid rather than the old StackPanel so the settings button can sit hard right
+             — a horizontal StackPanel gives every child its desired width in sequence and has no
+             way to push the last one to the far edge. -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Center">
+                <Image Source="ms-appx:///Assets/AppIcon.png"
+                       Width="18" Height="18" VerticalAlignment="Center"/>
+                <TextBlock Text="ChargeKeeper"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </StackPanel>
+
+            <!-- Settings shortcut. Properties are set inline rather than via a shared style: the
+                 subtle-button style this matches (TimeScaleButtonStyle) lives in
+                 BatteryHistoryGraphControl's own resources and is not in scope here. -->
+            <Button Grid.Column="1"
+                    x:Name="SettingsButton"
+                    Width="28" Height="28"
+                    Padding="0"
+                    CornerRadius="4"
+                    BorderThickness="0"
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Settings"
+                    AutomationProperties.Name="Settings"
+                    Click="OnSettingsButton">
+                <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" FontSize="14"/>
+            </Button>
+        </Grid>
 
         <!-- Battery gauge section: gauge left, stats right filling remaining width -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
@@ -138,13 +165,16 @@
                     CornerRadius="6"
                     Padding="10,8">
                 <StackPanel Spacing="0">
-                    <!-- Header row: title + indicator dot -->
+                    <!-- Header row: title + on/off switch -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="1">
+                        <!-- Tapped: the label block is a second hit target for the switch, so a
+                             click anywhere on the badge text works (issue #86). -->
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Tapped="OnSmartChargeLabelTapped">
                             <TextBlock Text="Smart Charge"
                                        FontSize="12"
                                        FontWeight="SemiBold"
@@ -173,11 +203,18 @@
                                        FontSize="11"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
-                        <Border Grid.Column="1"
-                                x:Name="SmartChargeIndicator"
-                                Width="8" Height="8"
-                                CornerRadius="4"
-                                VerticalAlignment="Center"/>
+                        <!-- Replaces the old read-only 8-px indicator dot. Empty On/OffContent +
+                             MinWidth=0 strip the default 154-px label track so the switch occupies
+                             roughly the space the dot did; the badge background still carries the
+                             active/inactive colour (SetFeatureBadge). -->
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="SmartChargeToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Smart Charge"
+                                      Toggled="OnSmartChargeToggled"/>
                     </Grid>
 
                     <!-- Threshold range — visible when Smart Charge is capable and enabled.
@@ -248,7 +285,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Spacing="1">
+                    <StackPanel Grid.Column="0" Spacing="1"
+                                Tapped="OnSmartStandbyLabelTapped">
                         <TextBlock Text="Smart Standby"
                                    FontSize="12"
                                    FontWeight="SemiBold"
@@ -272,11 +310,14 @@
                                    FontSize="11"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
-                    <Border Grid.Column="1"
-                            x:Name="SmartStandbyIndicator"
-                            Width="8" Height="8"
-                            CornerRadius="4"
-                            VerticalAlignment="Center"/>
+                    <ToggleSwitch Grid.Column="1"
+                                  x:Name="SmartStandbyToggle"
+                                  OnContent=""
+                                  OffContent=""
+                                  MinWidth="0"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Smart Standby"
+                                  Toggled="OnSmartStandbyToggled"/>
                 </Grid>
             </Border>
         </StackPanel>
