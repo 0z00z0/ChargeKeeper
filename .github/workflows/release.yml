@@ -121,12 +121,28 @@ jobs:
             throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
           }
 
+          function Show-Runtime([string]$when) {
+            Write-Host "Windows App Runtime packages $when :"
+            $all = Get-AppxPackage | Where-Object { $_.Name -like '*WindowsAppRuntime*' -or $_.Name -like '*WinAppRuntime*' }
+            if (-not $all) { Write-Host '  (none)' }
+            else { $all | Sort-Object Name, Architecture | ForEach-Object { Write-Host "  $($_.Name) $($_.Version) $($_.Architecture)" } }
+          }
+          Show-Runtime 'BEFORE'
+
           & $exe --quiet
           if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
 
-          $pkg = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2'
-          if (-not $pkg) { throw 'Microsoft.WindowsAppRuntime.2 is not registered after install.' }
-          $pkg | ForEach-Object { Write-Host "Installed $($_.Name) $($_.Version) ($($_.Architecture))" }
+          Show-Runtime 'AFTER'
+
+          # Asserts the bootstrapper's own requirement (framework family
+          # Microsoft.WindowsAppRuntime.2, >= 2.2.0.0, x64) rather than mere presence — the
+          # runner image already carries a framework package, so presence proves nothing.
+          $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.2.0.0' }
+          if (-not $fw) {
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
+          }
+          Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
 
       - name: Restore tests
         shell: pwsh

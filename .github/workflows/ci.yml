@@ -123,15 +123,35 @@ jobs:
             throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
           }
 
+          # Inventory before and after. The DELTA is the record of what the install actually
+          # changed — better evidence than the installer's own text, and the first thing worth
+          # reading if the hang ever comes back. It is not decoration: the runner image already
+          # ships a framework package (2.3.1.0 in run 31874075888), so "a package exists" alone
+          # proves nothing about whether this step did anything.
+          function Show-Runtime([string]$when) {
+            Write-Host "Windows App Runtime packages $when :"
+            $all = Get-AppxPackage | Where-Object { $_.Name -like '*WindowsAppRuntime*' -or $_.Name -like '*WinAppRuntime*' }
+            if (-not $all) { Write-Host '  (none)' }
+            else { $all | Sort-Object Name, Architecture | ForEach-Object { Write-Host "  $($_.Name) $($_.Version) $($_.Architecture)" } }
+          }
+          Show-Runtime 'BEFORE'
+
           & $exe --quiet
           if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
 
-          # Verify rather than trust the exit code: the whole point is that the framework
-          # package is registered, so assert it directly. A silent no-op here would put the
-          # six-hour hang straight back.
-          $pkg = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2'
-          if (-not $pkg) { throw 'Microsoft.WindowsAppRuntime.2 is not registered after install.' }
-          $pkg | ForEach-Object { Write-Host "Installed $($_.Name) $($_.Version) ($($_.Architecture))" }
+          Show-Runtime 'AFTER'
+
+          # Assert the bootstrapper's OWN requirement, not merely that something is installed:
+          # MddBootstrapInitialize2 asks family Microsoft.WindowsAppRuntime.2 for a framework
+          # package of at least 2.2.0.0 for this process architecture. Anything weaker passes on
+          # an image that happens to carry an unrelated runtime and would let a silent no-op put
+          # the six-hour hang straight back.
+          $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.2.0.0' }
+          if (-not $fw) {
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
+          }
+          Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
 
       - name: Restore tests
         timeout-minutes: 10
