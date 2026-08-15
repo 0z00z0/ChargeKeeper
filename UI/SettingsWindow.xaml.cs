@@ -1335,11 +1335,12 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         // LidDelayService owns the setting as well as the power-scheme write, because the two must
         // not drift: a stored "on" with the Windows lid action never overridden is a feature that
-        // silently does nothing. It returns false when the scheme could not be written, and the
-        // toggle then goes back rather than showing an on state the machine will not honour.
+        // silently does nothing. Only ENABLING can fail in a way the user must see — the toggle then
+        // goes back rather than showing an on state the machine will not honour. Turning it off always
+        // takes; a restore that failed stays owed to the next start and is not the toggle's business.
         bool wanted = LidDelayToggle.IsOn;
-        if (!LidDelayService.SetEnabled(wanted))
-            WithUpdatingSuppressed(() => LidDelayToggle.IsOn = SettingsService.Current.LidDelayEnabled);
+        if (!LidDelayService.SetEnabled(wanted) && wanted)
+            WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
     }
 
     private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)

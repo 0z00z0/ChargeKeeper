@@ -503,6 +503,10 @@ public partial class App : Application
     {
         _sessionEnding = true;
         AppLog.Info($"SessionEnding: {e.Reason}.");
+        // issue #90 — a restart or sign-out does not go through Shutdown(), so without this the
+        // Windows lid-close action would stay overridden for the whole time the app is not running,
+        // and permanently if the user then disables autostart or uninstalls.
+        LidDelayService.Stop();
     }
 
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)

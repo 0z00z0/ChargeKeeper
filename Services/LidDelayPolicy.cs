@@ -80,8 +80,11 @@ internal static class LidDelayPolicy
     /// <para><paramref name="keepAwakeActive"/> vetoes the sleep: a running keep-awake session is an
     /// explicit "do not sleep this machine" the user asked for BY HAND, and it outranks a background
     /// rule about lids. Without this, closing the lid on a long build with "keep awake until 17:00"
-    /// running would suspend the machine anyway and kill the build. The hold is still released, so
-    /// the machine sleeps normally once that session ends.</para>
+    /// running would suspend the machine anyway and kill the build.</para>
+    /// <para>The veto releases OUR hold but does not re-arm, and the lid-close action stays overridden
+    /// while the feature is on — so once the keep-awake session ends the machine goes back to sleeping
+    /// on its ordinary idle timeouts, NOT on the lid. Re-closing the lid starts a fresh delay. That is
+    /// the deliberate trade for not chaining a second timer onto another feature's lifetime.</para>
     /// </summary>
     public static LidDelayAction OnTimerFired(bool enabled, bool delayPending, bool keepAwakeActive)
     {

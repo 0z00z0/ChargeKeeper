@@ -122,33 +122,42 @@ internal static class NativeMethods
     }
 
     /// <summary>
-    /// The active scheme's AC and DC lid-close action indices (0 do nothing, 1 sleep, 2 hibernate,
-    /// 3 shut down), or null when the query fails or the scheme carries no lid setting (a desktop).
+    /// The ACTIVE scheme's GUID together with its AC and DC lid-close action indices (0 do nothing,
+    /// 1 sleep, 2 hibernate, 3 shut down), or null when the query fails or the scheme carries no lid
+    /// setting (a desktop).
+    /// <para>The scheme comes back WITH the values because the two are only meaningful together: lid
+    /// actions are PER-SCHEME, so restoring indices into whichever plan happens to be active later
+    /// would overwrite that plan's setting while leaving the captured one parked on the override.</para>
     /// <para>Null must NEVER be read as zero: the caller PERSISTS this as the value it will later
     /// restore, so a bogus zero would put the user's laptop permanently on "do nothing".</para>
     /// </summary>
-    internal static (uint Ac, uint Dc)? ReadLidCloseAction() =>
-        WithActiveScheme<(uint, uint)?>((scheme, _) =>
+    internal static (Guid Scheme, uint Ac, uint Dc)? ReadActiveLidCloseAction() =>
+        WithActiveScheme<(Guid, uint, uint)?>((scheme, _) =>
         {
             var s = scheme; var sub = GUID_SUB_BUTTONS; var setting = GUID_LIDACTION;
             if (PowerReadACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, out uint ac) != 0) return null;
             if (PowerReadDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, out uint dc) != 0) return null;
-            return (ac, dc);
+            return (scheme, ac, dc);
         }, null);
 
     /// <summary>
-    /// Sets the active scheme's AC and DC lid-close action indices. Returns false if any step failed,
-    /// in which case the caller must assume the scheme is in an unknown state and re-read it.
+    /// Sets <paramref name="scheme"/>'s AC and DC lid-close action indices. Returns false if any step
+    /// failed, in which case the caller must assume the scheme is in an unknown state and re-read it.
+    /// <para>Targets an EXPLICIT scheme rather than "whichever is active now", so a power-plan switch
+    /// between capture and restore cannot write one plan's saved values into another — which would
+    /// clobber the second plan AND strand the first on the override.</para>
     /// <para>Writing the value is NOT enough — the docs require re-activating the scheme for a change
-    /// to reach the running system, which is why this ends in PowerSetActiveScheme.</para>
+    /// to reach the running system, which is why this ends in PowerSetActiveScheme. Re-activating the
+    /// ACTIVE scheme is right whichever scheme was edited: it applies the change when the two are the
+    /// same, and is a harmless no-op when they are not.</para>
     /// </summary>
-    internal static bool WriteLidCloseAction(uint ac, uint dc) =>
-        WithActiveScheme((scheme, raw) =>
+    internal static bool WriteLidCloseAction(Guid scheme, uint ac, uint dc) =>
+        WithActiveScheme((_, activeRaw) =>
         {
             var s = scheme; var sub = GUID_SUB_BUTTONS; var setting = GUID_LIDACTION;
             if (PowerWriteACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, ac) != 0) return false;
             if (PowerWriteDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, dc) != 0) return false;
-            return PowerSetActiveScheme(IntPtr.Zero, raw) == 0;
+            return PowerSetActiveScheme(IntPtr.Zero, activeRaw) == 0;
         }, false);
 
     /// <summary>
@@ -156,13 +165,16 @@ internal static class NativeMethods
     /// CLOSED. Returns a registration handle for <see cref="UnregisterLidNotification"/>, or
     /// IntPtr.Zero if the subscription failed.
     /// <para>Uses the CALLBACK form, which needs no HWND. The app owns no message-only window and no
-    /// WndProc, and this API (Windows 7+) avoids having to introduce the first one just to read a
-    /// lid switch.</para>
+    /// WndProc, and this avoids having to introduce the first one just to read a lid switch.</para>
     /// <para>Windows invokes the callback ONCE IMMEDIATELY with the current lid state, before any real
     /// transition — the caller must treat that first reading as a seed, not as a lid close.</para>
+    /// <para>ONE subscription at a time: a second call is refused rather than overwriting
+    /// <see cref="_lidCallback"/>, which would unroot the live delegate while the OS still holds its
+    /// raw thunk — a use-after-free that would only show up on the next lid event.</para>
     /// </summary>
     internal static IntPtr RegisterLidNotification(Action<bool> onLidState)
     {
+        if (_lidCallback is not null) return IntPtr.Zero;
         try
         {
             _lidCallback = (_, type, setting) =>

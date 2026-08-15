@@ -197,8 +197,10 @@ public class LidDelayPolicyTests
         // These two values ARE the crash recovery: if they do not survive a round trip through
         // settings.json, the app restarts believing it never touched the power scheme and the user's
         // lid-close action is stranded on "do nothing" with nothing left that knows better.
+        var scheme = "381b4222-f694-41f0-9685-ff5bb260df2e";
         var settings = new AppSettings { LidDelayEnabled = true, LidDelayMinutes = 15,
-                                         LidDelaySavedAcAction = 1, LidDelaySavedDcAction = 0 };
+                                         LidDelaySavedAcAction = 1, LidDelaySavedDcAction = 0,
+                                         LidDelaySavedScheme = scheme };
         var loaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
 
         Assert.NotNull(loaded);
@@ -206,6 +208,9 @@ public class LidDelayPolicyTests
         Assert.Equal(15, loaded.LidDelayMinutes);
         Assert.Equal(1, loaded.LidDelaySavedAcAction);
         Assert.Equal(0, loaded.LidDelaySavedDcAction);   // a saved zero must not come back as null
+        // Lid actions are per-scheme: without this the restore could write one plan's values into
+        // another, clobbering that plan and leaving the captured one on the override.
+        Assert.Equal(scheme, loaded.LidDelaySavedScheme);
         Assert.True(loaded.HasSavedLidAction);
     }
 
@@ -243,14 +248,14 @@ public class LidDelayPolicyTests
     // ── P/Invoke smoke test — READ ONLY ──────────────────────────────────────────
 
     [Fact]
-    public void ReadLidCloseAction_SignatureIsSound_AndNeverWrites()
+    public void ReadActiveLidCloseAction_SignatureIsSound_AndNeverWrites()
     {
         // Same reasoning as the SetThreadExecutionState smoke test: a wrong P/Invoke signature here
         // fails SILENTLY (a non-zero return marshalled wrong, or a garbage index), and this feature
         // persists whatever it reads as the value it will later restore — so a bad read is how a
         // user's lid setting gets destroyed. Deliberately read-only: the test suite must never write
         // a power setting on the machine running it.
-        var before = NativeMethods.ReadLidCloseAction();
+        var before = NativeMethods.ReadActiveLidCloseAction();
 
         // Null is a legitimate answer (a machine with no lid setting in its scheme); a value must be
         // one of the four documented actions rather than uninitialised memory.
@@ -258,7 +263,8 @@ public class LidDelayPolicyTests
         {
             Assert.InRange(v.Ac, 0u, 3u);
             Assert.InRange(v.Dc, 0u, 3u);
-            Assert.Equal(before, NativeMethods.ReadLidCloseAction());   // stable, and nothing was written
+            Assert.NotEqual(Guid.Empty, v.Scheme);   // the indices are meaningless without their scheme
+            Assert.Equal(before, NativeMethods.ReadActiveLidCloseAction());   // stable, nothing written
         }
     }
 }

@@ -148,6 +148,14 @@ internal sealed class AppSettings
     public int? LidDelaySavedDcAction { get; set; }
 
     /// <summary>
+    /// WHICH power scheme the saved indices came from. Lid actions are per-scheme, so the values are
+    /// meaningless without it: restoring them into whatever plan is active later would overwrite that
+    /// plan's setting and leave the captured one still parked on "do nothing". Null on a settings file
+    /// written before this was tracked — the restore then falls back to the active scheme.
+    /// </summary>
+    public string? LidDelaySavedScheme { get; set; }
+
+    /// <summary>
     /// Whether the lid-close action was overridden and the user's own value is still owed back. True
     /// if EITHER side is stored: a half-written pair still means the power scheme was touched, so it
     /// must drive a restore rather than being read as clean.
