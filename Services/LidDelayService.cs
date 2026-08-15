@@ -193,13 +193,16 @@ internal static class LidDelayService
 
     private static void Subscribe()
     {
+        IntPtr registration;
         lock (_sync)
         {
             if (_lidRegistration != IntPtr.Zero) return;
-            _lidSeeded       = false;   // the next callback is the registration replay
-            _lidRegistration = NativeMethods.RegisterLidNotification(OnLidState);
+            _lidSeeded = false;   // the next callback is the registration replay
+            // Registering under the lock on purpose: Windows fires the seeding callback immediately,
+            // and OnLidState must not observe _lidSeeded before it has been reset.
+            registration = _lidRegistration = NativeMethods.RegisterLidNotification(OnLidState);
         }
-        if (_lidRegistration == IntPtr.Zero)
+        if (registration == IntPtr.Zero)
             AppLog.Error("LidDelayService.Subscribe: could not subscribe to the lid switch", null);
     }
 
