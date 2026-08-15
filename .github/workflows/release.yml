@@ -98,6 +98,36 @@ jobs:
       # same way. No -r: a command-line RID is global and would override the empty
       # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj; the app project supplies
       # its own win-<arch> RID, so the runtime pack is still restored.
+      # Same fix, and the same pin, as ci.yml — see the long comment there for the mechanism
+      # (#91). Kept here because this job runs the identical gate: without the runtime the
+      # tagged release, the one path that publishes to users, hangs exactly like CI did.
+      #
+      # This is also WHY the fix is a runner install rather than
+      # -p:WindowsAppSdkBootstrapInitialize=false: a build property would rewrite
+      # bin\...\ChargeKeeper.dll without the bootstrap initializer, and the installer publish
+      # further down this job could then ship an exe that cannot start on a machine lacking the
+      # Windows App Runtime. Installing the runtime changes no build input at all.
+      - name: Install Windows App Runtime 2.2.0 (x64)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $url    = 'https://aka.ms/windowsappsdk/2.2/2.2.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = 'E14ABFEEDD61CCF1E1B9618A9D4E8E5CAD6B6A0BECBACF159A50718D047EB927'
+          $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
+
+          Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToUpper()
+          if ($actual -ne $sha256) {
+            throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
+          }
+
+          & $exe --quiet
+          if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
+
+          $pkg = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2'
+          if (-not $pkg) { throw 'Microsoft.WindowsAppRuntime.2 is not registered after install.' }
+          $pkg | ForEach-Object { Write-Host "Installed $($_.Name) $($_.Version) ($($_.Architecture))" }
+
       - name: Restore tests
         shell: pwsh
         timeout-minutes: 10
@@ -108,9 +138,10 @@ jobs:
         timeout-minutes: 10
         run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
 
-      # Kept byte-for-byte in step with ci.yml's Test step: this is the known-hanging
-      # command (CI runs 31604846111, 31613727149, 31681038697, 31681726552 all went
-      # silent here), and the release path must not diverge from the path we diagnose on.
+      # Kept byte-for-byte in step with ci.yml's Test step: this was the hanging command (CI
+      # runs 31604846111, 31613727149, 31681038697, 31681726552 all went silent here), and the
+      # release path must not diverge from the path we diagnose on. The --blame flags stay
+      # after the fix — they are the bound, not the diagnosis.
       - name: Test
         shell: pwsh
         timeout-minutes: 10

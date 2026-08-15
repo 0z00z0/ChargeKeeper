@@ -84,6 +84,55 @@ jobs:
       # empty <RuntimeIdentifier> that ChargeKeeper.Tests.csproj pins on purpose. The app
       # project defaults its own RID (win-<arch>) when none is passed, so the win-x64
       # runtime pack is still restored here and Release/ReadyToRun keeps its pack (NETSDK1112).
+      # THE FIX for the six-hour hang (#91). The test host loads ChargeKeeper.dll, and that
+      # assembly's <Module>..cctor P/Invokes MddBootstrapInitialize2 to locate a Windows App
+      # Runtime. A GitHub runner has none, and the bootstrapper's default is
+      # InitializeOptions.OnNoMatch_ShowUI — so it raises a modal "install it" prompt on a
+      # session with no interactive desktop and NEVER RETURNS, while holding the module
+      # type-init lock every other test thread queues behind. Give the runner the runtime and
+      # the call returns immediately (789 ms on a dev machine, which is why it never
+      # reproduced locally).
+      #
+      # Chosen over -p:WindowsAppSdkBootstrapInitialize=false because it introduces NO build
+      # divergence: the assembly the gate tests stays byte-identical to the one release.yml
+      # signs and ships. Suppressing the initializer would rewrite bin\ ChargeKeeper.dll
+      # without it, and in release.yml risk shipping an exe that cannot start.
+      #
+      # PINNED to 2.2.0 to match <PackageReference Include="Microsoft.WindowsAppSDK"
+      # Version="2.2.0" /> in ChargeKeeper.csproj — the runtime the bootstrapper asks for
+      # (Microsoft.WindowsAppSDK.Runtime 2.2.0's WindowsAppSDK-VersionInfo.cs: framework
+      # package family Microsoft.WindowsAppRuntime.2, version 2.2.0.0). Not `latest`: that
+      # aka.ms link already resolves to a DIFFERENT, larger build, so `latest` would silently
+      # drift the runtime out of step with the SDK the app compiles against. Bump both
+      # together.
+      #
+      # The SHA256 is the measured hash of that pinned download. It makes a re-published
+      # binary at the same version fail here by name instead of changing the gate's
+      # environment silently; if it ever fires, re-verify the download and update the hash.
+      - name: Install Windows App Runtime 2.2.0 (x64)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $url    = 'https://aka.ms/windowsappsdk/2.2/2.2.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = 'E14ABFEEDD61CCF1E1B9618A9D4E8E5CAD6B6A0BECBACF159A50718D047EB927'
+          $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
+
+          Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToUpper()
+          if ($actual -ne $sha256) {
+            throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
+          }
+
+          & $exe --quiet
+          if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
+
+          # Verify rather than trust the exit code: the whole point is that the framework
+          # package is registered, so assert it directly. A silent no-op here would put the
+          # six-hour hang straight back.
+          $pkg = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2'
+          if (-not $pkg) { throw 'Microsoft.WindowsAppRuntime.2 is not registered after install.' }
+          $pkg | ForEach-Object { Write-Host "Installed $($_.Name) $($_.Version) ($($_.Architecture))" }
+
       - name: Restore tests
         timeout-minutes: 10
         run: dotnet restore Tests\ChargeKeeper.Tests.csproj
@@ -92,18 +141,21 @@ jobs:
         timeout-minutes: 10
         run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
 
-      # This is the step that hangs, and #91 carries the dump that says why: the Windows App
-      # SDK bootstrap auto-initializer runs in ChargeKeeper.Tests.dll's <Module>..cctor —
-      # injected by the WinUI targets through the ProjectReference to ChargeKeeper.csproj —
-      # P/Invokes MddBootstrapInitialize2 looking for a Windows App Runtime the runner does
-      # not have, and never returns, holding the module init lock every other test thread
-      # queues behind. A dev machine has that runtime installed, which is why it reproduces
-      # only on CI. In run 31613727149 that cost 5h57m38s of silence.
+      # This is the step that hung for 5h57m38s (run 31613727149); the runtime install above
+      # is what unblocks it. The auto-initializer lives in ChargeKeeper.dll, NOT in
+      # ChargeKeeper.Tests.dll — measured on the built assemblies: only ChargeKeeper.dll has a
+      # <Module>..cctor, and only it carries
+      # Microsoft.Windows.ApplicationModel.WindowsAppRuntime.Common.AutoInitialize
+      # .InitializeWindowsAppSDK marked [ModuleInitializer]. The WinUI targets inject it where
+      # WindowsPackageType == None and OutputType is Exe/WinExe, which is ChargeKeeper.csproj;
+      # the test project sets no WindowsPackageType, so it never gets one. Creating a test
+      # class touches a ChargeKeeper type, which runs the APP module's cctor. That is why no
+      # property inside ChargeKeeper.Tests.csproj could have fixed this.
       #
-      # Until it is fixed the gate is red, but bounded: --blame-hang gives up on the host
-      # after 3m (a plain step timeout could only say "cancelled") and writes the hang dump
-      # the diagnosis came from. --blame-crash is kept for the other shape of the same
-      # silence, a host that dies rather than stalls; its ABSENCE here was evidence too.
+      # --blame-hang stays: it is what ended the six hours and wrote the dump the diagnosis
+      # came from, and it is the only thing that bounds a host that stalls rather than dies (a
+      # plain step timeout could only say "cancelled"). --blame-crash covers the other shape of
+      # the same silence; its ABSENCE here was evidence too.
       - name: Test
         timeout-minutes: 10
         run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --no-build --nologo --blame-hang --blame-hang-timeout 3m --blame-crash
