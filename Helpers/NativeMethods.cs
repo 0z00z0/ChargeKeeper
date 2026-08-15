@@ -12,6 +12,16 @@ internal static class NativeMethods
     private const uint MONITOR_DEFAULTTONEAREST = 0x0002;
     private const int  MDT_EFFECTIVE_DPI        = 0;
 
+    // SetThreadExecutionState flags (issue #90). ES_CONTINUOUS makes the request STICK until it is
+    // cleared, rather than resetting one idle timer. The state is PER-THREAD, so both setting and
+    // clearing must happen on the same long-lived thread — see ChargeKeeper.Services.KeepAwakeService.
+    internal const uint ES_CONTINUOUS       = 0x80000000;
+    internal const uint ES_SYSTEM_REQUIRED  = 0x00000001;
+    internal const uint ES_DISPLAY_REQUIRED = 0x00000002;
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint SetThreadExecutionState(uint esFlags);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct RECT { public int Left, Top, Right, Bottom; }
 
