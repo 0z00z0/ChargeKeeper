@@ -56,11 +56,9 @@ internal sealed class KeepAwakeFeature : IToggleFeature
     public bool SetEnabled(bool enabled)
     {
         if (!enabled) { KeepAwakeService.Deactivate(); return true; }
-        // An empty preset list (a hand-edited settings.json) still has to do something sensible: hold
-        // until turned off, rather than silently refuse the toggle the user just flipped.
-        var preset = SettingsService.Current.KeepAwakePresets.FirstOrDefault()
-                     ?? new KeepAwakeRequest(KeepAwakeKind.Indefinite, null, null);
-        KeepAwakeService.Activate(preset);
+        // Shared with the dashboard badge's switch, so the two "on with no span picked" surfaces
+        // cannot pick different spans.
+        KeepAwakeService.Activate(KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
         return true;
     }
 }

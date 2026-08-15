@@ -70,6 +70,15 @@ internal static class KeepAwakePolicy
     public static bool ShouldExpire(DateTimeOffset now, DateTimeOffset? expiry) => expiry is { } e && now >= e;
 
     /// <summary>
+    /// What a bare "on" means when the user picked no span — the tray toggle and the dashboard's
+    /// switch. The FIRST preset in <see cref="AppSettings.KeepAwakePresets"/>, because that order is
+    /// the priority order; "until turned off" when the list is empty, so a hand-edited settings.json
+    /// still does something sensible rather than refusing the toggle that was just flipped.
+    /// </summary>
+    public static KeepAwakeRequest DefaultRequest(IEnumerable<KeepAwakeRequest> presets) =>
+        presets.FirstOrDefault() ?? new KeepAwakeRequest(KeepAwakeKind.Indefinite, null, null);
+
+    /// <summary>
     /// How a running session reads as one line — "2 h 12 m left", "until 17:00", "until network
     /// changes". ONE formatter so the dashboard, Settings and the tray tooltip cannot drift apart, the
     /// same reasoning as <see cref="ThresholdPreset.FormatLabel"/>.
@@ -96,6 +105,35 @@ internal static class KeepAwakePolicy
             < 60           => $"{total} m left",
             _ when total % 60 == 0 => $"{total / 60} h left",
             _              => $"{total / 60} h {total % 60} m left",
+        };
+    }
+
+    /// <summary>
+    /// A request as a chip-sized label — "30m", "1h", "1h30", "17:00", "Net". Separate from
+    /// <see cref="DescribeRemaining"/> because that describes a RUNNING session's remaining time,
+    /// while a chip names the span itself and has ~50 DIP to do it in; same ONE-formatter reasoning
+    /// though, so the dashboard chips and any Settings list of the same presets cannot drift.
+    /// </summary>
+    public static string ShortLabel(KeepAwakeRequest request)
+    {
+        switch (request.Kind)
+        {
+            case KeepAwakeKind.UntilNetworkChange:
+                return "Net";
+            case KeepAwakeKind.UntilTime when request.Until is { } t:
+                return t.ToString("HH\\:mm", CultureInfo.InvariantCulture);
+        }
+
+        // Indefinite — and any malformed request, which ExpiryFor also reads as "no expiry".
+        if (request.Kind != KeepAwakeKind.Duration || request.Duration is not { } d || d <= TimeSpan.Zero)
+            return "∞";
+
+        int total = (int)Math.Ceiling(d.TotalMinutes);
+        return total switch
+        {
+            < 60                   => $"{total}m",
+            _ when total % 60 == 0 => $"{total / 60}h",
+            _                      => $"{total / 60}h{total % 60}",
         };
     }
 }

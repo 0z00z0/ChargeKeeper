@@ -324,6 +324,65 @@
                                   Toggled="OnSmartStandbyToggled"/>
                 </Grid>
             </Border>
+
+            <!-- Keep Awake badge. Never collapsed, unlike the two above: this feature is
+                 vendor-independent (a SetThreadExecutionState hold, not a BIOS/EC write), so there
+                 is no "this hardware can't" case to hide it for. -->
+            <Border x:Name="KeepAwakeBadge"
+                    CornerRadius="6"
+                    Padding="10,8">
+                <StackPanel Spacing="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
+                                    Tapped="OnKeepAwakeLabelTapped">
+                            <TextBlock Text="Keep Awake"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280" Spacing="6">
+                                            <TextBlock Text="Stops your laptop going to sleep for a while — for a long download, a presentation, or a build."
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                                Pick how long from the row below: a fixed span, a time of day, or "Net" — stay awake until you move to a different network, which is handy for keeping a machine up only while you are at a particular desk. It always ends by itself, so there is no way to forget it on overnight. Turning it off, or moving to another network on a "Net" session, releases the hold immediately.
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
+                            <TextBlock x:Name="KeepAwakeDetailText"
+                                       Text="—"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="KeepAwakeToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Keep Awake"
+                                      Toggled="OnKeepAwakeToggled"/>
+                    </Grid>
+
+                    <!-- Preset chips. Built in code (BuildKeepAwakeChips) because the spans come
+                         from settings; their look is set inline there for the same reason the
+                         settings button above sets its own — TimeScaleButtonStyle lives in
+                         BatteryHistoryGraphControl's resources and is not in scope here. -->
+                    <StackPanel x:Name="KeepAwakePresetPanel"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
     </Grid>
