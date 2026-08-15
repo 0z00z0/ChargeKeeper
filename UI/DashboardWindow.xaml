@@ -172,8 +172,11 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <!-- Tapped: the label block is a second hit target for the switch, so a
-                             click anywhere on the badge text works (issue #86). -->
+                             click anywhere on the badge text works (issue #86). Background must be
+                             set for that — a panel with no brush at all is not hit-testable, which
+                             would leave only the text glyphs themselves clickable. -->
                         <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
                                     Tapped="OnSmartChargeLabelTapped">
                             <TextBlock Text="Smart Charge"
                                        FontSize="12"
@@ -286,6 +289,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Spacing="1"
+                                Background="Transparent"
                                 Tapped="OnSmartStandbyLabelTapped">
                         <TextBlock Text="Smart Standby"
                                    FontSize="12"
