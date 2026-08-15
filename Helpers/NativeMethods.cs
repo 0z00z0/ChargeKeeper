@@ -22,6 +22,194 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     internal static extern uint SetThreadExecutionState(uint esFlags);
 
+    // ── Lid-close action + lid switch (issue #90) ─────────────────────────────
+    // SetThreadExecutionState CANNOT hold off a lid-close sleep. Lid close is a power-policy ACTION,
+    // not an idle timeout, and the docs are explicit: the call "cannot be used to prevent the user
+    // from putting the computer to sleep". Delaying it therefore means overriding the user's own
+    // LIDACTION to "do nothing" while the feature runs and putting it back afterwards — see
+    // ChargeKeeper.Services.LidDelayService for the crash-safe save/restore around that.
+
+    private static readonly Guid GUID_SUB_BUTTONS = new("4f971e89-eebd-4455-a8de-9e59040e7347");
+    private static readonly Guid GUID_LIDACTION   = new("5ca83367-6e45-459f-a27b-476b1d01c936");
+    private static readonly Guid GUID_LIDSWITCH_STATE_CHANGE = new("ba3e0f4d-b817-4094-a2d1-d56379e6a0f3");
+
+    /// <summary>LIDACTION index for "do nothing" — what the delay feature parks the setting on.</summary>
+    internal const uint LIDACTION_DO_NOTHING = 0;
+
+    private const uint DEVICE_NOTIFY_CALLBACK  = 0x00000002;
+    private const uint PBT_POWERSETTINGCHANGE  = 0x8013;
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, IntPtr schemeGuid);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerReadACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid,
+        ref Guid subGroupGuid, ref Guid powerSettingGuid, out uint valueIndex);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerReadDCValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid,
+        ref Guid subGroupGuid, ref Guid powerSettingGuid, out uint valueIndex);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerWriteACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid,
+        ref Guid subGroupGuid, ref Guid powerSettingGuid, uint valueIndex);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerWriteDCValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid,
+        ref Guid subGroupGuid, ref Guid powerSettingGuid, uint valueIndex);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr mem);
+
+    // BOOLEAN is one byte, not the 4-byte BOOL the default marshaller would use.
+    [DllImport("powrprof.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool SetSuspendState(
+        [MarshalAs(UnmanagedType.U1)] bool hibernate,
+        [MarshalAs(UnmanagedType.U1)] bool forceCritical,
+        [MarshalAs(UnmanagedType.U1)] bool disableWakeEvent);
+
+    /// <summary>Callback shape for <c>PowerSettingRegisterNotification</c> under DEVICE_NOTIFY_CALLBACK.</summary>
+    private delegate uint DeviceNotifyCallback(IntPtr context, uint type, IntPtr setting);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS
+    {
+        public IntPtr Callback;
+        public IntPtr Context;
+    }
+
+    // POWERBROADCAST_SETTING's real tail is UCHAR Data[1]; the lid payload is a DWORD whose low byte
+    // carries the state, and every architecture Windows runs on is little-endian, so one byte is the
+    // whole answer.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POWERBROADCAST_SETTING
+    {
+        public Guid PowerSetting;
+        public uint DataLength;
+        public byte Data;
+    }
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerSettingRegisterNotification(ref Guid settingGuid, uint flags,
+        ref DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS recipient, out IntPtr registrationHandle);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerSettingUnregisterNotification(IntPtr registrationHandle);
+
+    // Rooted for the subscription's lifetime: the OS keeps a RAW function pointer to this delegate,
+    // which the GC cannot see. Letting it be collected turns the next lid event into a hard crash.
+    private static DeviceNotifyCallback? _lidCallback;
+
+    /// <summary>
+    /// Runs <paramref name="use"/> against the active power scheme's GUID, or returns
+    /// <paramref name="fallback"/> when the scheme cannot be resolved. The GUID comes back in memory
+    /// the caller must LocalFree, hence the wrapper rather than a bare call at each site.
+    /// </summary>
+    private static T WithActiveScheme<T>(Func<Guid, IntPtr, T> use, T fallback)
+    {
+        IntPtr scheme = IntPtr.Zero;
+        try
+        {
+            if (PowerGetActiveScheme(IntPtr.Zero, out scheme) != 0 || scheme == IntPtr.Zero) return fallback;
+            return use(Marshal.PtrToStructure<Guid>(scheme), scheme);
+        }
+        catch { return fallback; }
+        finally { if (scheme != IntPtr.Zero) LocalFree(scheme); }
+    }
+
+    /// <summary>
+    /// The active scheme's AC and DC lid-close action indices (0 do nothing, 1 sleep, 2 hibernate,
+    /// 3 shut down), or null when the query fails or the scheme carries no lid setting (a desktop).
+    /// <para>Null must NEVER be read as zero: the caller PERSISTS this as the value it will later
+    /// restore, so a bogus zero would put the user's laptop permanently on "do nothing".</para>
+    /// </summary>
+    internal static (uint Ac, uint Dc)? ReadLidCloseAction() =>
+        WithActiveScheme<(uint, uint)?>((scheme, _) =>
+        {
+            var s = scheme; var sub = GUID_SUB_BUTTONS; var setting = GUID_LIDACTION;
+            if (PowerReadACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, out uint ac) != 0) return null;
+            if (PowerReadDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, out uint dc) != 0) return null;
+            return (ac, dc);
+        }, null);
+
+    /// <summary>
+    /// Sets the active scheme's AC and DC lid-close action indices. Returns false if any step failed,
+    /// in which case the caller must assume the scheme is in an unknown state and re-read it.
+    /// <para>Writing the value is NOT enough — the docs require re-activating the scheme for a change
+    /// to reach the running system, which is why this ends in PowerSetActiveScheme.</para>
+    /// </summary>
+    internal static bool WriteLidCloseAction(uint ac, uint dc) =>
+        WithActiveScheme((scheme, raw) =>
+        {
+            var s = scheme; var sub = GUID_SUB_BUTTONS; var setting = GUID_LIDACTION;
+            if (PowerWriteACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, ac) != 0) return false;
+            if (PowerWriteDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, dc) != 0) return false;
+            return PowerSetActiveScheme(IntPtr.Zero, raw) == 0;
+        }, false);
+
+    /// <summary>
+    /// Subscribes to lid open/close, invoking <paramref name="onLidState"/> with true when the lid is
+    /// CLOSED. Returns a registration handle for <see cref="UnregisterLidNotification"/>, or
+    /// IntPtr.Zero if the subscription failed.
+    /// <para>Uses the CALLBACK form, which needs no HWND. The app owns no message-only window and no
+    /// WndProc, and this API (Windows 7+) avoids having to introduce the first one just to read a
+    /// lid switch.</para>
+    /// <para>Windows invokes the callback ONCE IMMEDIATELY with the current lid state, before any real
+    /// transition — the caller must treat that first reading as a seed, not as a lid close.</para>
+    /// </summary>
+    internal static IntPtr RegisterLidNotification(Action<bool> onLidState)
+    {
+        try
+        {
+            _lidCallback = (_, type, setting) =>
+            {
+                if (type == PBT_POWERSETTINGCHANGE && setting != IntPtr.Zero)
+                {
+                    var s = Marshal.PtrToStructure<POWERBROADCAST_SETTING>(setting);
+                    if (s.PowerSetting == GUID_LIDSWITCH_STATE_CHANGE && s.DataLength >= 1)
+                        onLidState(s.Data == 0);   // 0 = closed, 1 = open
+                }
+                return 0;   // ERROR_SUCCESS
+            };
+
+            var recipient = new DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS
+            {
+                Callback = Marshal.GetFunctionPointerForDelegate(_lidCallback),
+                Context  = IntPtr.Zero,
+            };
+            var guid = GUID_LIDSWITCH_STATE_CHANGE;
+            if (PowerSettingRegisterNotification(ref guid, DEVICE_NOTIFY_CALLBACK, ref recipient, out var handle) == 0)
+                return handle;
+        }
+        catch { /* absent on older builds — the caller degrades to "no lid events" */ }
+
+        _lidCallback = null;
+        return IntPtr.Zero;
+    }
+
+    /// <summary>Ends a <see cref="RegisterLidNotification"/> subscription. Safe on IntPtr.Zero.</summary>
+    internal static void UnregisterLidNotification(IntPtr registration)
+    {
+        if (registration == IntPtr.Zero) return;
+        try { PowerSettingUnregisterNotification(registration); }
+        catch { /* nothing useful to do while tearing down */ }
+        _lidCallback = null;
+    }
+
+    /// <summary>
+    /// Puts the machine into standby. This is an EXPLICIT suspend request, not a policy action, so it
+    /// still works while the lid-close action is parked on "do nothing".
+    /// </summary>
+    internal static bool Suspend()
+    {
+        try { return SetSuspendState(hibernate: false, forceCritical: false, disableWakeEvent: false); }
+        catch { return false; }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct RECT { public int Left, Top, Right, Bottom; }
 

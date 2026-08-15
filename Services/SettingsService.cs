@@ -125,6 +125,36 @@ internal sealed class AppSettings
     /// </summary>
     public bool KeepAwakeDisplayOn { get; set; } = false;
 
+    // ── Lid-close delay (issue #90) ─────────────────────────────────────────────
+    /// <summary>
+    /// Wait <see cref="LidDelayMinutes"/> after the lid closes before sleeping. OFF by default and
+    /// never defaulted on: turning it on changes a Windows power setting OUTSIDE the app (the
+    /// lid-close action, parked on "do nothing" for as long as it runs), which is only ever the
+    /// user's call to make. See <see cref="LidDelayService"/> for why nothing lighter works.
+    /// </summary>
+    public bool LidDelayEnabled { get; set; } = false;
+
+    /// <summary>How long to hold the machine awake after the lid closes, in minutes.</summary>
+    public int LidDelayMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// The user's OWN lid-close action indices, saved before the feature overrode them, so they can be
+    /// put back — including after a crash, which is the failure mode this pair exists for.
+    /// <para>NULLABLE on purpose: "do nothing" is index 0 and is a value the user may legitimately have
+    /// set themselves, so a plain int could not tell that apart from "nothing was ever saved" and the
+    /// restore would skip them. Null means the power scheme is untouched.</para>
+    /// </summary>
+    public int? LidDelaySavedAcAction { get; set; }
+    public int? LidDelaySavedDcAction { get; set; }
+
+    /// <summary>
+    /// Whether the lid-close action was overridden and the user's own value is still owed back. True
+    /// if EITHER side is stored: a half-written pair still means the power scheme was touched, so it
+    /// must drive a restore rather than being read as clean.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasSavedLidAction => LidDelaySavedAcAction is not null || LidDelaySavedDcAction is not null;
+
     // ── Network / dock-based profiles (TODO #31) ────────────────────────────────
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
