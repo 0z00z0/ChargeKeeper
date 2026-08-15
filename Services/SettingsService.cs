@@ -162,6 +162,20 @@ internal sealed class AppSettings
     /// </summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
 
+    /// <summary>
+    /// Friendly name of the device Home Assistant creates (issue #87). Empty = "ChargeKeeper
+    /// (&lt;machine name&gt;)", so an existing install is byte-identical after upgrading.
+    /// </summary>
+    public string MqttDeviceName { get; set; } = "";
+
+    /// <summary>
+    /// Node id override (issue #87) — this is the MQTT client id, the <c>unique_id</c>/<c>object_id</c>
+    /// stem, the device identifier AND every topic segment. Empty = derived from the machine name
+    /// (<see cref="HaDiscovery.NodeId"/>). Changing it actively evicts the old id's retained topics so
+    /// HA deletes the previous device instead of leaving a ghost beside the new one.
+    /// </summary>
+    public string MqttNodeId { get; set; } = "";
+
     // ── Settings window (TODO #19) ──────────────────────────────────────────────
     /// <summary>
     /// Last on-screen position/size of the Settings window, in physical pixels — restored on next
@@ -307,6 +321,15 @@ internal static class SettingsService
     {
         if (ReadFile(_path) is not { } loaded) return false;
         lock (_lock) { _current = loaded; }
+        Reloaded?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT reconnect)
         return true;
     }
+
+    /// <summary>
+    /// Raised after <see cref="Reload"/> successfully swaps <see cref="Current"/>. Services that hold
+    /// their own copy of a setting must reconcile here: the Settings window's reload only refreshes
+    /// what it DISPLAYS, so without this an out-of-band edit to (say) the MQTT node id sat in
+    /// <see cref="Current"/> while the live client kept publishing under the previous one.
+    /// </summary>
+    public static event Action? Reloaded;
 }

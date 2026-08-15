@@ -57,6 +57,26 @@ internal static class HaDiscovery
 {
     private const string BasePrefix = "chargekeeper";
 
+    /// <summary>Longest node id accepted from the user — keeps the id readable inside a topic path.</summary>
+    public const int MaxNodeIdLength = 48;
+
+    /// <summary>
+    /// Lower-cases and reduces to [a-z0-9_] (HA object-id/topic-safe), reporting whether anything
+    /// alphanumeric survived. One sanitation rule, shared by the machine-name default and the
+    /// user-typed override so the two can't drift.
+    /// </summary>
+    private static (string Text, bool HasAlnum) Sanitize(string raw)
+    {
+        var sb = new StringBuilder(raw.Length);
+        bool hasAlnum = false;
+        foreach (char c in raw.ToLowerInvariant())
+        {
+            if (char.IsAsciiLetterOrDigit(c)) { sb.Append(c); hasAlnum = true; }
+            else sb.Append('_');
+        }
+        return (sb.ToString(), hasAlnum);
+    }
+
     /// <summary>
     /// Stable per-machine node id, e.g. "chargekeeper_espen_x1". Lower-cased and reduced to
     /// [a-z0-9_] (HA object-id/topic-safe); a machine name of only punctuation falls back to
@@ -64,15 +84,46 @@ internal static class HaDiscovery
     /// </summary>
     public static string NodeId(string machineName)
     {
-        var sb = new StringBuilder(machineName.Length);
-        bool hasAlnum = false;
-        foreach (char c in machineName.ToLowerInvariant())
-        {
-            if (char.IsAsciiLetterOrDigit(c)) { sb.Append(c); hasAlnum = true; }
-            else sb.Append('_');
-        }
+        var (text, hasAlnum) = Sanitize(machineName);
         // A name with no usable alphanumerics would be all underscores — use a readable fallback.
-        return $"{BasePrefix}_{(hasAlnum ? sb.ToString() : "device")}";
+        return $"{BasePrefix}_{(hasAlnum ? text : "device")}";
+    }
+
+    /// <summary>
+    /// A user-typed node id reduced to the same alphabet <see cref="NodeId"/> produces, capped at
+    /// <see cref="MaxNodeIdLength"/>. The <c>chargekeeper_</c> prefix is deliberately NOT forced — only
+    /// the machine-name default carries it; a user who types "office_thinkpad" gets exactly that.
+    /// </summary>
+    public static string NormalizeNodeId(string raw)
+    {
+        var (text, _) = Sanitize(raw.Trim());
+        return text.Length <= MaxNodeIdLength ? text : text[..MaxNodeIdLength];
+    }
+
+    /// <summary>
+    /// Why a user-typed node id is unusable, or null when it is fine. Blank is NOT an error: an empty
+    /// setting means "use the machine-name default", so the same validator serves the settings field.
+    /// </summary>
+    public static string? ValidateNodeId(string raw)
+    {
+        string trimmed = raw.Trim();
+        if (trimmed.Length == 0) return null;
+        if (trimmed.Length > MaxNodeIdLength) return $"An id can be at most {MaxNodeIdLength} characters.";
+        if (!Sanitize(trimmed).HasAlnum) return "An id must contain at least one letter or digit.";
+        return null;
+    }
+
+    /// <summary>
+    /// The node id actually published under: the sanitised <paramref name="custom"/> when the user set
+    /// one, otherwise <see cref="NodeId"/> for <paramref name="machineName"/>. A custom value that
+    /// sanitises to nothing usable (all punctuation — reachable by hand-editing settings.json past the
+    /// validator) also falls back, so we can never publish under an all-underscore topic segment.
+    /// </summary>
+    public static string EffectiveNodeId(string? custom, string machineName)
+    {
+        if (string.IsNullOrWhiteSpace(custom)) return NodeId(machineName);
+        string id = NormalizeNodeId(custom);
+        return id.Any(char.IsAsciiLetterOrDigit) ? id : NodeId(machineName);
     }
 
     public static string StateTopic(string nodeId)        => $"{BasePrefix}/{nodeId}/state";
@@ -239,6 +290,26 @@ internal static class HaDiscovery
         ("sensor",        "charge_start"), // → number/charge_start
         ("sensor",        "charge_stop"),  // → number/charge_stop
     ];
+
+    /// <summary>
+    /// EVERY retained topic a node id owns: the discovery config of each current AND
+    /// <see cref="LegacyEntities"/> entity, the availability topic, and the STATE topic. Publishing an
+    /// empty retained payload to each evicts the device and its entities from Home Assistant — what a
+    /// node-id change must do to the OLD id (issue #87).
+    /// <para>
+    /// State is in the list because it is published retained too and no other clear path covers it:
+    /// without it, changing the id strands a retained state payload under the old id on the broker
+    /// forever. (HA's recorder keeps the old entity ids' history until its own purge window expires —
+    /// inherent to HA, not something this end can evict.)
+    /// </para>
+    /// </summary>
+    public static IEnumerable<string> TopicsToClear(string nodeId, string discoveryPrefix)
+    {
+        foreach (var (component, objectId) in Entities.Concat(LegacyEntities))
+            yield return ConfigTopic(discoveryPrefix, component, nodeId, objectId);
+        yield return AvailabilityTopic(nodeId);
+        yield return StateTopic(nodeId);
+    }
 
     private static Dictionary<string, object> Device(string nodeId, string deviceName, string swVersion) => new()
     {

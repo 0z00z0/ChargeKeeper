@@ -22,6 +22,93 @@ public class HaDiscoveryTests
         Assert.Equal(expected, HaDiscovery.NodeId(machine));
     }
 
+    // ── Configurable node id (issue #87) ─────────────────────────────────────────
+
+    [Theory]
+    [InlineData("Office ThinkPad", "office_thinkpad")]
+    [InlineData("  Padded  ", "padded")]                 // trimmed, so the padding isn't baked in
+    [InlineData("Böx.2", "b_x_2")]                       // same alphabet NodeId reduces to
+    [InlineData("ALREADY_ok_9", "already_ok_9")]
+    public void NormalizeNodeId_MirrorsNodeIdSanitation_WithoutForcingThePrefix(string raw, string expected)
+    {
+        // The chargekeeper_ prefix belongs to the DEFAULT only — a typed id is stored as typed.
+        Assert.Equal(expected, HaDiscovery.NormalizeNodeId(raw));
+    }
+
+    [Fact]
+    public void NormalizeNodeId_TruncatesToTheMaximum()
+    {
+        string id = HaDiscovery.NormalizeNodeId(new string('a', HaDiscovery.MaxNodeIdLength + 10));
+        Assert.Equal(HaDiscovery.MaxNodeIdLength, id.Length);
+    }
+
+    [Theory]
+    [InlineData("")]                     // blank = "use the machine-name default", not an error
+    [InlineData("   ")]
+    [InlineData("office_thinkpad")]
+    [InlineData("Office ThinkPad")]      // sanitised on the way in, so it's accepted as typed
+    public void ValidateNodeId_AcceptsBlankAndAnythingWithAnAlphanumeric(string raw)
+    {
+        Assert.Null(HaDiscovery.ValidateNodeId(raw));
+    }
+
+    [Theory]
+    [InlineData("!!!")]                  // sanitises to all underscores — no usable id
+    [InlineData("---")]
+    public void ValidateNodeId_NoAlphanumeric_ReturnsError(string raw)
+    {
+        Assert.NotNull(HaDiscovery.ValidateNodeId(raw));
+    }
+
+    [Fact]
+    public void ValidateNodeId_LongerThanTheMaximum_ReturnsError()
+    {
+        Assert.Null(HaDiscovery.ValidateNodeId(new string('a', HaDiscovery.MaxNodeIdLength)));
+        Assert.NotNull(HaDiscovery.ValidateNodeId(new string('a', HaDiscovery.MaxNodeIdLength + 1)));
+    }
+
+    [Theory]
+    [InlineData("", "ESPEN-X1", "chargekeeper_espen_x1")]      // unset → machine-name default
+    [InlineData("   ", "ESPEN-X1", "chargekeeper_espen_x1")]
+    [InlineData("!!!", "ESPEN-X1", "chargekeeper_espen_x1")]   // unusable custom → default, never "___"
+    [InlineData("Office ThinkPad", "ESPEN-X1", "office_thinkpad")]
+    [InlineData("kitchen_pc", "ESPEN-X1", "kitchen_pc")]
+    public void EffectiveNodeId_PrefersACustomId_AndFallsBackToTheMachineName(
+        string custom, string machine, string expected)
+    {
+        Assert.Equal(expected, HaDiscovery.EffectiveNodeId(custom, machine));
+    }
+
+    [Fact]
+    public void TopicsToClear_CoversEveryRetainedTopicTheOldIdOwns()
+    {
+        var topics = HaDiscovery.TopicsToClear("old_id", "homeassistant").ToList();
+
+        // Every CURRENT entity's discovery config…
+        foreach (var (component, objectId) in HaDiscovery.Entities)
+            Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
+        // …every LEGACY one (an id change must not leave the pre-#29 ghosts behind either)…
+        foreach (var (component, objectId) in HaDiscovery.LegacyEntities)
+            Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
+        // …availability, and STATE — state is published retained but no other clear path covers it,
+        // so without it an id change strands a retained payload under the old id forever.
+        Assert.Contains(HaDiscovery.AvailabilityTopic("old_id"), topics);
+        Assert.Contains(HaDiscovery.StateTopic("old_id"), topics);
+
+        Assert.Equal(HaDiscovery.Entities.Count() + HaDiscovery.LegacyEntities.Length + 2, topics.Count);
+        Assert.Equal(topics.Count, topics.Distinct().Count());   // nothing cleared twice
+    }
+
+    [Fact]
+    public void TopicsToClear_UsesTheGivenDiscoveryPrefix()
+    {
+        // The old id's configs live under the prefix they were PUBLISHED with, which may itself have
+        // changed in the same settings apply.
+        var topics = HaDiscovery.TopicsToClear("old_id", "ha").ToList();
+        Assert.Contains("ha/sensor/old_id/battery_level/config", topics);
+        Assert.DoesNotContain(topics, t => t.StartsWith("homeassistant/"));
+    }
+
     [Fact]
     public void Topics_UseTheNodeIdAndPrefix()
     {

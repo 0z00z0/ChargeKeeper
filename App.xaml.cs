@@ -368,6 +368,10 @@ public partial class App : Application
             }
         };
         _ha.ApplySettings(SettingsService.Current);
+        // "Reload settings from disk" must reach the live MQTT client too (issue #87): the Settings
+        // window's reload only refreshes what it displays, so a hand-edited broker/node id otherwise
+        // sat in Current while the client kept publishing under the old identity.
+        SettingsService.Reloaded += () => _ha?.ApplySettings(SettingsService.Current);
     }
 
     private HomeAssistantService? _ha;
