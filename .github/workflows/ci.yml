@@ -1,12 +1,24 @@
 name: CI
 
-# Build on every push and PR to main. Keeps the release path (release.yml) lean —
-# this catches build regressions continuously, not only at release time.
+# Build on every push to main and on EVERY pull request, whatever its base. Keeps
+# the release path (release.yml) lean — this catches build regressions
+# continuously, not only at release time.
+#
+# `pull_request` deliberately carries NO `branches:` filter. Stacked PRs are the
+# working pattern here — a PR based on a feature or integration branch, not main —
+# and `branches: [main]` gave those runs NO checks at all (measured: `gh pr checks
+# 95` reported none), silently dropping the gate from exactly the code that is
+# still moving. Any explicit list would have to be extended for every new base
+# branch, and a base someone forgets fails OPEN — no CI, no failure, no signal.
+# Omitting the filter cannot silently omit anything. A full run is ~3 minutes and
+# the concurrency group below cancels superseded runs.
+#
+# `push` stays pinned to main on purpose: a feature branch's commits are already
+# covered by its PR, so widening it would run everything twice.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
