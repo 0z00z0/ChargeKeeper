@@ -391,8 +391,9 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Shows either the preset/network-profile machinery or a plain explanation, depending on
-    /// whether the active vendor takes arbitrary percentages.
+    /// Shows the preset/network-profile machinery, the vendor's fixed modes, or a plain
+    /// explanation — whichever <see cref="ThresholdCapabilityPolicy.Classify"/> says this
+    /// hardware warrants.
     ///
     /// Presets and network profiles are both expressed ONLY as start/stop percentages. On HP
     /// there is no numeric threshold at all — every preset snaps to the same on/off — so leaving
@@ -401,18 +402,24 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     private void ApplyThresholdCapabilityToSmartChargePage()
     {
-        bool numeric = ChargeThresholdService.SupportsNumericThresholds;
+        // Read the state once: it decides the surface AND supplies the cap figure below.
+        var state   = ChargeThresholdService.Read();
+        var surface = ThresholdCapabilityPolicy.Classify(state, ChargeThresholdService.SupportsNumericThresholds);
 
-        NumericThresholdSettings.Visibility = numeric ? Visibility.Visible : Visibility.Collapsed;
-        FixedModeSettings.Visibility        = numeric ? Visibility.Collapsed : Visibility.Visible;
+        NumericThresholdSettings.Visibility = surface == SmartChargeSurface.Numeric    ? Visibility.Visible : Visibility.Collapsed;
+        FixedModeSettings.Visibility        = surface == SmartChargeSurface.FixedModes ? Visibility.Visible : Visibility.Collapsed;
+        NoThresholdInterfaceText.Visibility = surface == SmartChargeSurface.Hidden     ? Visibility.Visible : Visibility.Collapsed;
 
-        if (numeric) return;
+        if (surface != SmartChargeSurface.FixedModes) return;
 
         BuildChargeModeRadios();
 
+        // A read-only BIOS setting is readable but refuses writes, so the radios would fail
+        // silently on click.
+        ChargeModeRadios.IsEnabled = state!.Capable;
+
         // Read the cap back from the device rather than hardcoding it, so the figure shown here
         // always matches what the dashboard and the hardware report.
-        var state = ChargeThresholdService.Read();
         string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
 
         FixedModeText.Text =
@@ -420,7 +427,11 @@ internal sealed partial class SettingsWindow : Window
             + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
             + "Windows will still report 100 % while a limit is active — this hardware lowers the "
             + "battery's reported full-charge capacity instead of stopping the charge early. "
-            + "Changes take effect after a restart.";
+            + "Changes take effect after a restart."
+            + (state.Capable
+                ? string.Empty
+                : "\n\nThis setting is locked by the BIOS on this machine, so ChargeKeeper can show "
+                  + "the current mode but not change it.");
     }
 
     /// <summary>
