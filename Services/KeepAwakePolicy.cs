@@ -22,8 +22,11 @@ internal enum KeepAwakeKind
 /// One keep-awake request (issue #90). Also the persisted shape of a
 /// <see cref="AppSettings.KeepAwakePresets"/> entry — the unused field is null for every kind except
 /// its own.
+/// <para><see cref="Name"/> is an optional label for a SAVED preset ("End of day"): a span already
+/// describes itself, so it defaults to null and every ad-hoc request leaves it unset. Last and
+/// defaulted so an older settings.json — and every existing positional construction — is unchanged.</para>
 /// </summary>
-internal sealed record KeepAwakeRequest(KeepAwakeKind Kind, TimeSpan? Duration, TimeOnly? Until);
+internal sealed record KeepAwakeRequest(KeepAwakeKind Kind, TimeSpan? Duration, TimeOnly? Until, string? Name = null);
 
 /// <summary>
 /// A running keep-awake session: what was asked for, when it started, and the instant it ends

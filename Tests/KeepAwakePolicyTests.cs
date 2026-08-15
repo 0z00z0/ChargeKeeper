@@ -207,6 +207,37 @@ public class KeepAwakePolicyTests
         Assert.Contains("\"UntilTime\"", json);   // the kind stays human-readable in the file
     }
 
+    [Fact]
+    public void KeepAwakePreset_Name_IsOptional_SoAnOlderSettingsFileStillLoads()
+    {
+        // Name was added last and defaulted (the Settings page lets a preset be labelled) — a file
+        // written before it existed carries no such property, and must deserialise unchanged rather
+        // than fail on the positional record's missing constructor argument.
+        const string legacy = """
+            {"KeepAwakePresets":[{"Kind":"Duration","Duration":"01:30:00","Until":null}]}
+            """;
+        var loaded = JsonSerializer.Deserialize<AppSettings>(legacy);
+
+        Assert.NotNull(loaded);
+        var preset = Assert.Single(loaded!.KeepAwakePresets);
+        Assert.Equal(TimeSpan.FromMinutes(90), preset.Duration);
+        Assert.Null(preset.Name);
+    }
+
+    [Fact]
+    public void KeepAwakePreset_Name_RoundTripsWhenSet()
+    {
+        var settings = new AppSettings
+        {
+            KeepAwakePresets = [new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0), "End of day")],
+        };
+        var loaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
+
+        Assert.NotNull(loaded);
+        Assert.Equal(settings.KeepAwakePresets, loaded!.KeepAwakePresets);   // records compare by value
+        Assert.Equal("End of day", Assert.Single(loaded.KeepAwakePresets).Name);
+    }
+
     // ── OS hold ──────────────────────────────────────────────────────────────────
 
     [Fact]
