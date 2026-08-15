@@ -60,7 +60,24 @@ jobs:
 
       # Restore/Build above are scoped to ChargeKeeper.csproj, so the test project
       # is not built by them and needs its own restore (--no-restore here fails with
-      # NETSDK1004, no assets file). No -r: ChargeKeeper.Tests.csproj pins
-      # RuntimeIdentifier empty on purpose, so a RID would fight that.
+      # NETSDK1004, no assets file). Split into three timed steps so a stall names
+      # its phase instead of burning the job's 6-hour cap anonymously (run 31613727149,
+      # 6h0m9s in a step the local machine runs in ~1 s).
+      #
+      # No -r on these: a command-line RID is a GLOBAL property and would override the
+      # empty <RuntimeIdentifier> that ChargeKeeper.Tests.csproj pins on purpose. The app
+      # project defaults its own RID (win-<arch>) when none is passed, so the win-x64
+      # runtime pack is still restored here and Release/ReadyToRun keeps its pack (NETSDK1112).
+      - name: Restore tests
+        timeout-minutes: 10
+        run: dotnet restore Tests\ChargeKeeper.Tests.csproj
+
+      - name: Build tests (Release)
+        timeout-minutes: 10
+        run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
+
+      # --blame-hang so a stalled RUN dumps and names the offending test; the step timeout
+      # alone would only say "cancelled".
       - name: Test
-        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo
+        timeout-minutes: 10
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --no-build --nologo --blame-hang --blame-hang-timeout 3m

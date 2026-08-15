@@ -85,9 +85,26 @@ jobs:
       # users, so red tests must stop the release. Placed before the installer is
       # built or signed — nothing downstream can then ship on a failed suite.
       # Restores on its own; no other step in this job restores the test project.
+      # Split into three timed steps for the same reason as ci.yml: an unbounded test
+      # step ran 6h0m9s there (run 31613727149), and a tagged release must not hang the
+      # same way. No -r: a command-line RID is global and would override the empty
+      # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj; the app project supplies
+      # its own win-<arch> RID, so the runtime pack is still restored.
+      - name: Restore tests
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet restore Tests\ChargeKeeper.Tests.csproj
+
+      - name: Build tests (Release)
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
+
+      # --blame-hang names the offending test if the run itself stalls.
       - name: Test
         shell: pwsh
-        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo
+        timeout-minutes: 10
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --no-build --nologo --blame-hang --blame-hang-timeout 3m
 
       # ── 4. Install Inno Setup 6 via Chocolatey ───────────────────────────────
       - name: Install Inno Setup 6
