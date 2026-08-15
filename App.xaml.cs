@@ -344,6 +344,7 @@ public partial class App : Application
         StartHistorySampling();
         ScheduleUpdateCheck();
         NetworkLocationService.Start();   // TODO #31 — TrayMenu subscribes to LocationChanged for the auto-apply reaction
+        KeepAwakeService.Start();         // issue #90 — subscribes to the same LocationChanged for its own two rules
 
         // TODO #28 — Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled AND a broker
         // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
@@ -518,6 +519,10 @@ public partial class App : Application
         // Last-Will flipped every sensor to "unavailable"). Kick an immediate reconnect + republish
         // "online" so HA doesn't wait out the keep-alive/backoff before the sensors return (#41).
         _ha?.OnPowerResume();
+
+        // A keep-awake session whose expiry elapsed while the machine was suspended must end on wake:
+        // the timer's due time passes in suspended wall-clock time and never fires (issue #90).
+        KeepAwakeService.OnPowerResume();
 
         // On resume the shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated,
         // so H.NotifyIcon's built-in recovery never fires. A plain ForceCreate() can't help here:

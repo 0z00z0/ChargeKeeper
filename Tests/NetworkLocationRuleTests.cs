@@ -68,4 +68,58 @@ public class NetworkLocationRuleTests
         Assert.False(new NetworkLocation("AA:BB:CC:DD:EE:FF", null, true, null).IsEmpty);
         Assert.False(new NetworkLocation(null, "10.0.1.0/24", true, null).IsEmpty);
     }
+
+    // ── Keep awake here (issue #90) ──────────────────────────────────────────────
+
+    [Fact]
+    public void KeepAwakeHere_DefaultsToFalse_SoOldRulesAreUnaffected()
+    {
+        Assert.False(new NetworkLocationRule { AdapterMac = "AA:BB:CC:DD:EE:FF" }.KeepAwakeHere);
+    }
+
+    [Fact]
+    public void KeepAwakeHere_ComesFromTheFirstMatchingRule_NotAnyMatchingRule()
+    {
+        // The keep-awake reaction reads FindNetworkRule — the same first-match-wins lookup the preset
+        // auto-apply uses — so a LATER rule that also matches must not turn keep-awake on.
+        var settings = new AppSettings
+        {
+            NetworkLocationRules =
+            [
+                new() { Name = "Office dock", AdapterMac = "AA:BB:CC:DD:EE:FF", KeepAwakeHere = false },
+                new() { Name = "Office LAN",  IpCidr     = "10.0.1.0/24",       KeepAwakeHere = true  },
+            ],
+        };
+
+        var rule = settings.FindNetworkRule(OfficeDock);
+        Assert.Equal("Office dock", rule?.Name);
+        Assert.False(rule?.KeepAwakeHere);
+    }
+
+    [Fact]
+    public void KeepAwakeHere_FirstMatchWins_EvenWhenAnEarlierRuleDoesNotMatch()
+    {
+        var settings = new AppSettings
+        {
+            NetworkLocationRules =
+            [
+                new() { Name = "Home",  IpCidr = "192.168.1.0/24", KeepAwakeHere = false },
+                new() { Name = "Cabin", IpCidr = "10.0.1.0/24",    KeepAwakeHere = true  },
+            ],
+        };
+
+        var rule = settings.FindNetworkRule(OfficeDock);
+        Assert.Equal("Cabin", rule?.Name);
+        Assert.True(rule?.KeepAwakeHere);
+    }
+
+    [Fact]
+    public void KeepAwakeHere_NoMatchingRule_LeavesNothingToActOn()
+    {
+        var settings = new AppSettings
+        {
+            NetworkLocationRules = [new() { Name = "Home", IpCidr = "192.168.1.0/24", KeepAwakeHere = true }],
+        };
+        Assert.Null(settings.FindNetworkRule(OfficeDock));
+    }
 }

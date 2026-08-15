@@ -17,6 +17,13 @@ internal sealed class NetworkLocationRule
     public string? IpCidr     { get; set; }
     public string  PresetName { get; set; } = "";
 
+    /// <summary>
+    /// Hold the machine awake while this location is the current one (issue #90) — leaving is then the
+    /// natural off switch, the same way the preset follows the network. Default false, so old
+    /// settings.json files deserialise unchanged.
+    /// </summary>
+    public bool KeepAwakeHere { get; set; }
+
     public bool Matches(NetworkLocation location) =>
         (AdapterMac is not null || IpCidr is not null) &&
         (AdapterMac is null || AdapterMac == location.AdapterMac) &&

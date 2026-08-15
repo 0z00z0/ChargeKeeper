@@ -106,6 +106,25 @@ internal sealed class AppSettings
     /// </summary>
     public int DowntimeGapMinutes { get; set; } = 1;
 
+    // ── Keep awake (issue #90) ──────────────────────────────────────────────────
+    /// <summary>
+    /// The one-click keep-awake spans. The ACTIVE SESSION is never persisted — only these presets and
+    /// <see cref="KeepAwakeDisplayOn"/> — because keep-awake surviving a reboot would be a surprise.
+    /// </summary>
+    public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
+    [
+        new(KeepAwakeKind.Duration,  TimeSpan.FromMinutes(30), null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(1),    null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(3),    null),
+        new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)),
+    ];
+
+    /// <summary>
+    /// Also keep the DISPLAY on while a keep-awake session runs. Off by default: the common case is a
+    /// long build or download finishing, where the screen may sleep as usual.
+    /// </summary>
+    public bool KeepAwakeDisplayOn { get; set; } = false;
+
     // ── Network / dock-based profiles (TODO #31) ────────────────────────────────
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
