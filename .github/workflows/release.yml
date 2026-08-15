@@ -21,6 +21,14 @@ jobs:
   release:
     runs-on: windows-latest
 
+    # Same hard cap as ci.yml's build job, sized for this job's longer work: healthy
+    # releases ran 4m13s-6m18s (v1.6.3 through v1.8.0) and the test gate below adds
+    # ~2 min on top, so 30 minutes is ~4x headroom. Without it a tagged release
+    # inherits GitHub's 6-hour default — and the gate it now runs is the very step
+    # that hung for six hours four times in CI, so the one path that publishes to
+    # users is exposed to the same defect.
+    timeout-minutes: 30
+
     # Secrets surfaced as job-level env so step `if:` conditions can test them
     # (a step's own `env:` block is NOT visible to that step's `if:`).
     env:
@@ -85,9 +93,84 @@ jobs:
       # users, so red tests must stop the release. Placed before the installer is
       # built or signed — nothing downstream can then ship on a failed suite.
       # Restores on its own; no other step in this job restores the test project.
+      # Split into three timed steps for the same reason as ci.yml: an unbounded test
+      # step ran 5h57m38s there (run 31613727149), and a tagged release must not hang the
+      # same way. No -r: a command-line RID is global and would override the empty
+      # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj; the app project supplies
+      # its own win-<arch> RID, so the runtime pack is still restored.
+      # Same fix, and the same pin, as ci.yml — see the long comment there for the mechanism
+      # (#91). Kept here because this job runs the identical gate: without the runtime the
+      # tagged release, the one path that publishes to users, hangs exactly like CI did.
+      #
+      # This is also WHY the fix is a runner install rather than
+      # -p:WindowsAppSdkBootstrapInitialize=false: a build property would rewrite
+      # bin\...\ChargeKeeper.dll without the bootstrap initializer, and the installer publish
+      # further down this job could then ship an exe that cannot start on a machine lacking the
+      # Windows App Runtime. Installing the runtime changes no build input at all.
+      - name: Install Windows App Runtime 2.2.0 (x64)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $url    = 'https://aka.ms/windowsappsdk/2.2/2.2.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = 'E14ABFEEDD61CCF1E1B9618A9D4E8E5CAD6B6A0BECBACF159A50718D047EB927'
+          $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
+
+          Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToUpper()
+          if ($actual -ne $sha256) {
+            throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
+          }
+
+          function Show-Runtime([string]$when) {
+            Write-Host "Windows App Runtime packages $when :"
+            $all = Get-AppxPackage | Where-Object { $_.Name -like '*WindowsAppRuntime*' -or $_.Name -like '*WinAppRuntime*' }
+            if (-not $all) { Write-Host '  (none)' }
+            else { $all | Sort-Object Name, Architecture | ForEach-Object { Write-Host "  $($_.Name) $($_.Version) $($_.Architecture)" } }
+          }
+          Show-Runtime 'BEFORE'
+
+          & $exe --quiet
+          if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
+
+          Show-Runtime 'AFTER'
+
+          # Asserts the bootstrapper's own requirement (framework family
+          # Microsoft.WindowsAppRuntime.2, >= 2.2.0.0, x64) rather than mere presence — the
+          # runner image already carries a framework package, so presence proves nothing.
+          $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.2.0.0' }
+          if (-not $fw) {
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
+          }
+          Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
+
+      - name: Restore tests
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet restore Tests\ChargeKeeper.Tests.csproj
+
+      - name: Build tests (Release)
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
+
+      # Kept byte-for-byte in step with ci.yml's Test step: this was the hanging command (CI
+      # runs 31604846111, 31613727149, 31681038697, 31681726552 all went silent here), and the
+      # release path must not diverge from the path we diagnose on. The --blame flags stay
+      # after the fix — they are the bound, not the diagnosis.
       - name: Test
         shell: pwsh
-        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo
+        timeout-minutes: 10
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --no-build --nologo --blame-hang --blame-hang-timeout 3m --blame-crash
+
+      - name: Upload blame dumps
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-blame-dumps
+          path: Tests/TestResults/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       # ── 4. Install Inno Setup 6 via Chocolatey ───────────────────────────────
       - name: Install Inno Setup 6
@@ -409,6 +492,10 @@ jobs:
   validate-manifests:
     runs-on: windows-latest
     needs: release
+    # Downloads three small YAML files and an installer, so 15 minutes is ample. Capped
+    # for the same reason as the release job: no job in this repo should be able to
+    # reach GitHub's 6-hour default.
+    timeout-minutes: 15
     # Only runs for real (tag) releases — a dispatch dry-run publishes no assets.
     if: ${{ github.ref_type == 'tag' }}
 
