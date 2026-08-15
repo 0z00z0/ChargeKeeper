@@ -166,6 +166,16 @@
                 <StackPanel x:Name="SmartChargePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Smart Charge" Style="{StaticResource SectionHeaderStyle}"/>
 
+                    <!-- Shown alone when no vendor answered at all (no supported charge-limit
+                         interface). Neither surface below applies: there is nothing to set and
+                         nothing to read back. -->
+                    <TextBlock x:Name="NoThresholdInterfaceText"
+                               Text="This computer has no charge-limit interface ChargeKeeper supports, so there is nothing to configure here."
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="Collapsed"
+                               Margin="0,0,0,12"/>
+
                     <!-- Shown INSTEAD of everything below on hardware with no numeric charge
                          threshold (HP: three coarse BIOS modes and no percentage). Presets and
                          network profiles are both expressed purely as start/stop percentages, so
