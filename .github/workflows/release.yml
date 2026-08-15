@@ -94,7 +94,7 @@ jobs:
       # built or signed — nothing downstream can then ship on a failed suite.
       # Restores on its own; no other step in this job restores the test project.
       # Split into three timed steps for the same reason as ci.yml: an unbounded test
-      # step ran 6h0m9s there (run 31613727149), and a tagged release must not hang the
+      # step ran 5h57m38s there (run 31613727149), and a tagged release must not hang the
       # same way. No -r: a command-line RID is global and would override the empty
       # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj; the app project supplies
       # its own win-<arch> RID, so the runtime pack is still restored.
