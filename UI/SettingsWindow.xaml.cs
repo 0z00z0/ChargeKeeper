@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
 using Windows.System;
+using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 
@@ -24,10 +25,11 @@ namespace ChargeKeeper.UI;
 /// own <c>Value</c> updates from raw typing until then — see <see cref="OnStartupDelayChanged"/>
 /// and friends; only a spin-button click or a Home-Assistant broker field needs anything hand-
 /// wired).</item>
-/// <item>The Home Assistant/MQTT broker fields (host/port/user/pass/TLS/prefix) are the ONE
-/// exception: they stage locally and commit as a batch behind the explicit "Apply" button (see
-/// <see cref="OnHaApplyClicked"/>), so <c>HomeAssistantService</c> reconnects at most once per
-/// edit session, never per keystroke.</item>
+/// <item>The Home Assistant/MQTT broker fields (host/port/user/pass/TLS/prefix, plus the #87 device
+/// name — it forces the same reconnect/republish) are the ONE exception: they stage locally and
+/// commit as a batch behind the explicit "Apply" button (see <see cref="OnHaApplyClicked"/>), so
+/// <c>HomeAssistantService</c> reconnects at most once per edit session, never per keystroke. The
+/// device ID is deliberately NOT in that batch — see <see cref="OnChangeNodeIdClicked"/>.</item>
 /// </list>
 /// </para>
 ///
@@ -107,6 +109,7 @@ internal sealed partial class SettingsWindow : Window
         // network-profile sections are hidden on fixed-mode hardware. Applying it only on tab
         // switch would size the window for sections that never appear.
         SafeInit(nameof(ApplyThresholdCapabilityToSmartChargePage), ApplyThresholdCapabilityToSmartChargePage);
+        SafeInit(nameof(WireKeepAwakeHandlers), WireKeepAwakeHandlers);
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -174,6 +177,7 @@ internal sealed partial class SettingsWindow : Window
         LoadSmartCharge();
         LoadNotifications();
         LoadNetwork();
+        LoadKeepAwake();
         LoadHomeAssistant();
     }
 
@@ -245,7 +249,7 @@ internal sealed partial class SettingsWindow : Window
     /// Height (DIPs) the scrollable content would take on its LONGEST page — currently Smart Charge,
     /// which absorbed the network profiles.
     ///
-    /// <para>All five panels are siblings in one Grid cell and every inactive one is Collapsed, so
+    /// <para>All six panels are siblings in one Grid cell and every inactive one is Collapsed, so
     /// measuring as-is only ever sizes the page that happens to be open. Making them all visible
     /// makes the Grid report the tallest of them (they overlap, so it is a max, not a sum), which is
     /// the number the window must fit. Visibility is restored before returning, so nothing the user
@@ -254,7 +258,7 @@ internal sealed partial class SettingsWindow : Window
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, SmartChargePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+            [GeneralPanel, SmartChargePanel, KeepAwakePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -323,6 +327,11 @@ internal sealed partial class SettingsWindow : Window
         });
 
         StopAllPresetDebounceTimers();
+
+        // Static event, instance handler: without this the closed window stays reachable from
+        // KeepAwakeService for the process's life and keeps touching a torn-down UI tree.
+        KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
+        _keepAwakeTicker.Stop();
     }
 
     /// <summary>
@@ -376,6 +385,7 @@ internal sealed partial class SettingsWindow : Window
     {
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
+        KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
@@ -388,6 +398,15 @@ internal sealed partial class SettingsWindow : Window
             ApplyThresholdCapabilityToSmartChargePage();
             RefreshCurrentNetworkText();
         }
+
+        // The remaining-time line counts down, so it needs a tick — but only while it is on screen.
+        if (tag == "KeepAwake")
+        {
+            RefreshKeepAwakeState();
+            RefreshKeepAwakeCurrentNetworkText();
+            _keepAwakeTicker.Start();
+        }
+        else _keepAwakeTicker.Stop();
     }
 
     /// <summary>
@@ -1003,8 +1022,15 @@ internal sealed partial class SettingsWindow : Window
     private void RefreshCurrentNetworkText() =>
         CurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
 
+    /// <summary>
+    /// Rebuilds the Smart Charge page's rule rows AND the Keep Awake page's — two renderings of the
+    /// one <see cref="AppSettings.NetworkLocationRules"/> list, so they are always rebuilt together
+    /// rather than leaving one page showing a rule the other has just deleted or renamed.
+    /// </summary>
     private void RebuildNetworkRuleRows()
     {
+        RebuildKeepAwakeNetworkRows();
+
         NetworkRulesListPanel.Children.Clear();
         var rules = SettingsService.Current.NetworkLocationRules;
 
@@ -1089,6 +1115,7 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].Name = newName;
         });
         expander.Header = newName;
+        RebuildKeepAwakeNetworkRows();   // that page shows the rule NAME as its card header
     }
 
     private void CommitNetworkRulePreset(int index, string presetName, SettingsExpander expander)
@@ -1201,6 +1228,451 @@ internal sealed partial class SettingsWindow : Window
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddNetworkRule", ex); }
     }
 
+    // ── Keep Awake (issue #90) ────────────────────────────────────────────────────
+    // Every span on this page is TYPED and read by KeepAwakeInputParser — no TimePicker, no
+    // NumberBox spinner. That fast entry is the feature; the Windows Settings pickers were
+    // rejected as too heavy for "keep this awake till five".
+
+    // Ticks the remaining-time line while the page is on screen. 30 s rather than 1 min: the line
+    // is minute-resolution, so a minute-length tick can show a value a whole minute stale.
+    private readonly DispatcherTimer _keepAwakeTicker =
+        new() { Interval = TimeSpan.FromSeconds(30) };
+
+    /// <summary>
+    /// Subscribes the page to the things that change keep-awake behind its back — an expiry, the
+    /// tray toggle, a network arrival — and starts the countdown ticker's wiring. Unsubscribed in
+    /// <see cref="OnClosed"/>.
+    /// </summary>
+    private void WireKeepAwakeHandlers()
+    {
+        KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+        _keepAwakeTicker.Tick += (_, _) => RefreshKeepAwakeState();
+
+        // Echo the parser's reading as the user types, so "1h30" is confirmed as 1 h 30 m BEFORE
+        // Start is pressed rather than after the session is already running.
+        KeepAwakeCustomBox.TextChanged += (_, _) => RefreshKeepAwakeCustomEcho();
+        KeepAwakeCustomBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Enter) StartKeepAwakeFromCustomBox();
+        };
+    }
+
+    // Raised off the UI thread by KeepAwakeService — marshal before touching anything.
+    private void OnKeepAwakeStateChanged() => RunOnUi(RefreshKeepAwakeState);
+
+    private void LoadKeepAwake()
+    {
+        WithUpdatingSuppressed(() => KeepAwakeDisplayToggle.IsOn = SettingsService.Current.KeepAwakeDisplayOn);
+        RefreshKeepAwakeState();
+        RefreshKeepAwakeCustomEcho();
+        RebuildKeepAwakeChips();
+        RebuildKeepAwakePresetRows();
+        RefreshKeepAwakeCurrentNetworkText();
+        // The rule rows themselves come from LoadNetwork() → RebuildNetworkRuleRows(), which
+        // rebuilds both pages' renderings of the shared list.
+    }
+
+    private void RefreshKeepAwakeState()
+    {
+        var session = KeepAwakeService.Current;
+        WithUpdatingSuppressed(() => KeepAwakeToggle.IsOn = session is not null);
+        KeepAwakeRemainingText.Text = session is null
+            ? "Not holding this computer awake."
+            : KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session);
+    }
+
+    private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        // Through KeepAwakeFeature, the same entry point the tray toggle uses, so "on with no span
+        // picked" cannot come to mean two different things on the two surfaces.
+        new KeepAwakeFeature().SetEnabled(KeepAwakeToggle.IsOn);
+        RefreshKeepAwakeState();
+    }
+
+    private void OnKeepAwakeDisplayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = KeepAwakeDisplayToggle.IsOn;
+        // Takes effect on the next Activate (KeepAwakeService re-applies the OS flags every time),
+        // which is why the card says so rather than silently doing nothing to a running session.
+        SettingsService.Update(s => s.KeepAwakeDisplayOn = on);
+    }
+
+    // ── Keep Awake: span wording ─────────────────────────────────────────────────
+    // Three renderings of the same span, deliberately distinct: DISPLAY (full words, this page has
+    // the room the dashboard chips do not), the PARSER ECHO (confirms how the typed text was read),
+    // and the EDITABLE form (must round-trip back through KeepAwakeInputParser). A running
+    // session's remaining time is not one of these — that is KeepAwakePolicy.DescribeRemaining,
+    // the single formatter every surface shares.
+
+    /// <summary>A saved preset as it reads on this page — its name when it has one, else its span.</summary>
+    private static string DescribePreset(KeepAwakeRequest r) =>
+        string.IsNullOrWhiteSpace(r.Name) ? DescribeSpan(r) : r.Name!;
+
+    /// <summary>The row's subtitle: the span, but only when the header isn't already showing it.</summary>
+    private static string DescribePresetSubtitle(KeepAwakeRequest r) =>
+        string.IsNullOrWhiteSpace(r.Name) ? "" : DescribeSpan(r);
+
+    /// <summary>The span in full words — "30 minutes", "3 hours", "1 h 30 m", "Until 17:00".</summary>
+    private static string DescribeSpan(KeepAwakeRequest r)
+    {
+        switch (r.Kind)
+        {
+            case KeepAwakeKind.UntilNetworkChange: return "Until the network changes";
+            case KeepAwakeKind.UntilTime when r.Until is { } t:
+                return $"Until {t.ToString("HH\\:mm", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+
+        // Indefinite — and any malformed request, which ExpiryFor also reads as "no expiry".
+        if (r.Kind != KeepAwakeKind.Duration || r.Duration is not { } d || d <= TimeSpan.Zero)
+            return "Until turned off";
+
+        int total = (int)Math.Ceiling(d.TotalMinutes);
+        return total switch
+        {
+            < 60                   => $"{total} minutes",
+            _ when total % 60 == 0 => total == 60 ? "1 hour" : $"{total / 60} hours",
+            _                      => $"{total / 60} h {total % 60} m",
+        };
+    }
+
+    /// <summary>How the parser read what was typed, echoed under the box.</summary>
+    private static string DescribeParsed(KeepAwakeRequest r) => r switch
+    {
+        { Kind: KeepAwakeKind.UntilTime, Until: { } t } =>
+            $"Clock time: {t.ToString("HH\\:mm", System.Globalization.CultureInfo.InvariantCulture)}",
+        { Kind: KeepAwakeKind.Duration, Duration: { } d } =>
+            $"Duration: {(int)d.TotalHours} h {d.Minutes} m",
+        _ => "",
+    };
+
+    /// <summary>
+    /// The span as text KeepAwakeInputParser can read back — what an editable "Expires" box is
+    /// seeded with. Empty for the two kinds the parser cannot produce, so the box invites a value
+    /// instead of showing an uneditable one.
+    /// </summary>
+    private static string ToEditableSpan(KeepAwakeRequest r)
+    {
+        if (r.Kind == KeepAwakeKind.UntilTime && r.Until is { } t)
+            return t.ToString("HH\\:mm", System.Globalization.CultureInfo.InvariantCulture);
+        if (r.Kind != KeepAwakeKind.Duration || r.Duration is not { } d || d <= TimeSpan.Zero) return "";
+
+        int total = (int)Math.Ceiling(d.TotalMinutes);
+        return total switch
+        {
+            < 60                   => $"{total}m",
+            _ when total % 60 == 0 => $"{total / 60}h",
+            _                      => $"{total / 60}h{total % 60}",
+        };
+    }
+
+    // ── Keep Awake: quick card ───────────────────────────────────────────────────
+
+    private void RebuildKeepAwakeChips()
+    {
+        KeepAwakeChipsPanel.Children.Clear();
+        foreach (var preset in SettingsService.Current.KeepAwakePresets)
+        {
+            var captured = preset;
+            var chip = new Button { Content = DescribePreset(captured) };
+            chip.Click += (_, _) =>
+            {
+                KeepAwakeService.Activate(captured);
+                RefreshKeepAwakeState();
+            };
+            KeepAwakeChipsPanel.Children.Add(chip);
+        }
+    }
+
+    private void RefreshKeepAwakeCustomEcho()
+    {
+        // Typing is not an error — a half-typed "1h3" must not flash red. The inline error is
+        // raised only by Start/Enter, which is the point the input has to be usable.
+        KeepAwakeCustomErrorText.Visibility = Visibility.Collapsed;
+        KeepAwakeCustomEchoText.Text =
+            KeepAwakeInputParser.TryParse(KeepAwakeCustomBox.Text, out var request) ? DescribeParsed(request) : "";
+    }
+
+    private void OnKeepAwakeCustomStart(object sender, RoutedEventArgs e) => StartKeepAwakeFromCustomBox();
+
+    private void StartKeepAwakeFromCustomBox()
+    {
+        if (!KeepAwakeInputParser.TryParse(KeepAwakeCustomBox.Text, out var request))
+        {
+            ShowInlineError(KeepAwakeCustomErrorText,
+                "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+            return;
+        }
+
+        KeepAwakeCustomErrorText.Visibility = Visibility.Collapsed;
+        KeepAwakeService.Activate(request);
+        RefreshKeepAwakeState();
+    }
+
+    /// <summary>The inline-validation half of the preset-row pattern, shared by the rows that only
+    /// need the error line (no expander header to re-label).</summary>
+    private static void ShowInlineError(TextBlock target, string message)
+    {
+        target.Text       = message;
+        target.Foreground = CriticalBrush();
+        target.Visibility = Visibility.Visible;
+    }
+
+    // ── Keep Awake: presets ──────────────────────────────────────────────────────
+    // Keyed by LIST INDEX, same reasoning as the network rule rows: a KeepAwakeRequest is a value
+    // with no identity of its own and two presets may legitimately be identical, so index is the
+    // only unambiguous key — valid as long as every mutation rebuilds the whole list, which every
+    // path below does.
+
+    private void RebuildKeepAwakePresetRows()
+    {
+        KeepAwakePresetsListPanel.Children.Clear();
+        var presets = SettingsService.Current.KeepAwakePresets;
+
+        if (presets.Count == 0)
+        {
+            KeepAwakePresetsListPanel.Children.Add(new TextBlock
+            {
+                Text    = "No presets yet. Add one below.",
+                Opacity = 0.7,
+                Margin  = new Thickness(0, 4, 0, 4),
+            });
+            return;
+        }
+
+        for (int i = 0; i < presets.Count; i++)
+            KeepAwakePresetsListPanel.Children.Add(BuildKeepAwakePresetRow(i, presets[i]));
+    }
+
+    /// <summary>
+    /// One keep-awake preset's editor row — a name and ONE "Expires" box, because typing <c>3h</c>
+    /// or <c>17:00</c> defines the kind and the value together and a separate kind picker would only
+    /// let the two disagree. Same shape as <see cref="BuildPresetRow"/>: inline error, Delete in the
+    /// footer, commit on focus-loss or Enter.
+    /// </summary>
+    private SettingsExpander BuildKeepAwakePresetRow(int index, KeepAwakeRequest preset)
+    {
+        var nameBox    = new TextBox { Text = preset.Name ?? "", MinWidth = 220, PlaceholderText = DescribeSpan(preset) };
+        var expiresBox = new TextBox { Text = ToEditableSpan(preset), MinWidth = 220, PlaceholderText = "3h, 90m or 17:00" };
+
+        var errorText = new TextBlock
+        {
+            FontSize     = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility   = Visibility.Collapsed,
+            Foreground   = CriticalBrush(),
+        };
+        var deleteBtn = new Button { Content = "Delete preset" };
+        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
+        footer.Children.Add(errorText);
+        footer.Children.Add(deleteBtn);
+
+        var expander = new SettingsExpander
+        {
+            Header      = DescribePreset(preset),
+            Description = DescribePresetSubtitle(preset),
+            ItemsSource = new List<SettingsCard>
+            {
+                new SettingsCard { Header = "Name",    Description = "Optional — the span is shown when this is blank.", Content = nameBox },
+                new SettingsCard { Header = "Expires", Description = "A duration (3h, 90m, 1h30) or a clock time (17:00).", Content = expiresBox },
+            },
+            ItemsFooter = footer,
+        };
+
+        void Commit() => CommitKeepAwakePresetRow(index, nameBox, expiresBox, errorText, expander);
+        nameBox.LostFocus    += (_, _) => Commit();
+        nameBox.KeyDown      += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+        expiresBox.LostFocus += (_, _) => Commit();
+        expiresBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+
+        deleteBtn.Click += (_, _) => DeleteKeepAwakePreset(index);
+
+        return expander;
+    }
+
+    /// <summary>
+    /// Validates and, if valid, saves one preset row — the same reject-on-save contract the
+    /// threshold presets use: an unreadable "Expires" shows an inline error and writes NOTHING,
+    /// leaving the row exactly as the user left it. A BLANK box keeps the stored span rather than
+    /// erroring, so clearing the field can't destroy a preset by accident.
+    /// </summary>
+    private void CommitKeepAwakePresetRow(int index, TextBox nameBox, TextBox expiresBox,
+        TextBlock errorText, SettingsExpander expander)
+    {
+        var presets = SettingsService.Current.KeepAwakePresets;
+        if (index < 0 || index >= presets.Count) return;
+
+        string expires = expiresBox.Text?.Trim() ?? "";
+        KeepAwakeRequest span = presets[index];
+        if (expires.Length > 0)
+        {
+            if (!KeepAwakeInputParser.TryParse(expires, out var parsed))
+            {
+                ShowInlineError(errorText, "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+                return;
+            }
+            span = parsed;
+        }
+        errorText.Visibility = Visibility.Collapsed;
+
+        string? name = nameBox.Text?.Trim() is { Length: > 0 } n ? n : null;
+        var updated = span with { Name = name };
+
+        SettingsService.Update(s =>
+        {
+            if (index < s.KeepAwakePresets.Count) s.KeepAwakePresets[index] = updated;
+        });
+
+        expander.Header      = DescribePreset(updated);
+        expander.Description = DescribePresetSubtitle(updated);
+        expiresBox.Text      = ToEditableSpan(updated);   // normalises "1h30m" to "1h30"
+        nameBox.PlaceholderText = DescribeSpan(updated);
+        RebuildKeepAwakeChips();   // the chip row shows these same presets
+    }
+
+    private void DeleteKeepAwakePreset(int index)
+    {
+        SettingsService.Update(s =>
+        {
+            if (index < s.KeepAwakePresets.Count) s.KeepAwakePresets.RemoveAt(index);
+        });
+        RebuildKeepAwakePresetRows();
+        RebuildKeepAwakeChips();
+    }
+
+    private void OnAddKeepAwakePreset(object sender, RoutedEventArgs e)
+    {
+        // An hour is the least surprising thing to hand someone a row for; the point is that the row
+        // exists and is editable, not the figure.
+        SettingsService.Update(s => s.KeepAwakePresets.Add(
+            new KeepAwakeRequest(KeepAwakeKind.Duration, TimeSpan.FromHours(1), null)));
+        RebuildKeepAwakePresetRows();
+        RebuildKeepAwakeChips();
+    }
+
+    // ── Keep Awake: networks ─────────────────────────────────────────────────────
+    // The keep-awake FACET of the shared NetworkLocationRules list. The Smart Charge page edits the
+    // preset facet of the same rules; neither page owns the list.
+
+    private void RefreshKeepAwakeCurrentNetworkText() =>
+        KeepAwakeCurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
+
+    private void RebuildKeepAwakeNetworkRows()
+    {
+        KeepAwakeNetworkRulesListPanel.Children.Clear();
+        var rules = SettingsService.Current.NetworkLocationRules;
+
+        if (rules.Count == 0)
+        {
+            KeepAwakeNetworkRulesListPanel.Children.Add(new TextBlock
+            {
+                Text = "No network rules yet. Use “Add rule for this network…” below while connected to the network you want to configure.",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity      = 0.7,
+                Margin       = new Thickness(0, 4, 0, 4),
+            });
+            return;
+        }
+
+        for (int i = 0; i < rules.Count; i++)
+        {
+            int index = i;
+            var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rules[i].KeepAwakeHere };
+            toggle.Toggled += (_, _) => CommitKeepAwakeHere(index, toggle.IsOn);
+
+            // A plain card, not an expander: there is exactly one field per rule on this page.
+            KeepAwakeNetworkRulesListPanel.Children.Add(new SettingsCard
+            {
+                Header      = rules[i].Name,
+                Description = DescribeMatchKey(rules[i]),
+                Content     = toggle,
+            });
+        }
+    }
+
+    private void CommitKeepAwakeHere(int index, bool on)
+    {
+        if (_updating) return;
+        SettingsService.Update(s =>
+        {
+            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].KeepAwakeHere = on;
+        });
+        ReconcileKeepAwakeForCurrentNetwork();
+    }
+
+    /// <summary>
+    /// Applies the keep-awake facet of the rule that wins for the network we are on RIGHT NOW,
+    /// mirroring <c>KeepAwakeService.OnLocationChanged</c>'s two rules. Without it, ticking "keep
+    /// awake here" for the current network does nothing until you leave and come back — the
+    /// service only ever reacts to a location CHANGE. Never overrides a session the user started by
+    /// hand: it only starts when nothing is running, and only stops the network-kind session.
+    /// </summary>
+    private static void ReconcileKeepAwakeForCurrentNetwork()
+    {
+        var s = SettingsService.Current;
+        bool wantsHold = s.NetworkProfilesEnabled &&
+                         s.FindNetworkRule(CurrentLocation()) is { KeepAwakeHere: true };
+
+        var current = KeepAwakeService.Current;
+        if (wantsHold && current is null)
+            KeepAwakeService.Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null));
+        else if (!wantsHold && current?.Request.Kind == KeepAwakeKind.UntilNetworkChange)
+            KeepAwakeService.Deactivate();
+    }
+
+    /// <summary>
+    /// "Add rule for this network…" — the same fingerprint-then-name flow (and the same reused
+    /// <see cref="NameLocationWindow"/>) as the Smart Charge page's version, differing only in which
+    /// facet it fills in: <see cref="NetworkLocationRule.KeepAwakeHere"/> on, and no immediate
+    /// threshold write. It deliberately does NOT call <c>ApplyWinningProfile</c>: the charge preset
+    /// is the other page's facet, and on fixed-mode hardware there may be no presets to apply at all.
+    /// </summary>
+    private async void OnAddKeepAwakeNetworkRule(object sender, RoutedEventArgs e)
+    {
+        // async void — guarded whole, see OnAddNetworkRule.
+        try
+        {
+            var location = NetworkLocationService.DetectCurrent();
+            if (location.IsEmpty)
+            {
+                NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
+                return;
+            }
+
+            string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
+            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            if (name is null) return;   // cancelled
+
+            var s0 = SettingsService.Current;
+            string defaultPreset = s0.ActivePreset ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+
+            SettingsService.Update(s =>
+            {
+                s.NetworkLocationRules.Add(new NetworkLocationRule
+                {
+                    Name          = name,
+                    AdapterMac    = location.AdapterMac,
+                    IpCidr        = location.IpCidr,
+                    PresetName    = defaultPreset,
+                    KeepAwakeHere = true,
+                });
+                // The rules are inert with profiles off — KeepAwakeService gates its auto-activate on
+                // this flag — so configuring a location implies wanting the feature on, same as the
+                // Smart Charge page's add flow.
+                s.NetworkProfilesEnabled = true;
+            });
+
+            WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
+
+            RebuildNetworkRuleRows();          // rebuilds BOTH pages' renderings of the rule list
+            RefreshKeepAwakeCurrentNetworkText();
+            RefreshCurrentNetworkText();
+            ReconcileKeepAwakeForCurrentNetwork();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddKeepAwakeNetworkRule", ex); }
+    }
+
     // ── Home Assistant ────────────────────────────────────────────────────────────
 
     private void LoadHomeAssistant()
@@ -1215,7 +1687,13 @@ internal sealed partial class SettingsWindow : Window
             HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
             HaTlsToggle.IsOn       = s.MqttUseTls;
             HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
+            // Blank means "use the machine-derived default" — show that default as the placeholder
+            // rather than pre-filling it, so an untouched field keeps meaning "default", not a
+            // literal copy of today's machine name.
+            HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
+            HaDeviceNameBox.Text            = s.MqttDeviceName;
         });
+        RefreshHaNodeIdText();
         // A re-sync (reopen / tray Reload) discards any un-applied broker edit, so a leftover
         // "Applied." from a previous session must not linger asserting stale values are live.
         HaAppliedText.Visibility = Visibility.Collapsed;
@@ -1226,11 +1704,12 @@ internal sealed partial class SettingsWindow : Window
     /// Hides the "Applied." confirmation the moment any broker field is edited — under the batch
     /// save model those edits are NOT live until the next Apply click, so the label would
     /// otherwise keep (falsely) asserting the shown values are the ones in effect. Wired once from
-    /// the constructor; the six broker controls have no other change handlers by design.
+    /// the constructor; the seven batched controls have no other change handlers by design.
     /// </summary>
     private void WireHaBrokerFieldEditHandlers()
     {
         void Hide() => HaAppliedText.Visibility = Visibility.Collapsed;
+        HaDeviceNameBox.TextChanged   += (_, _) => Hide();
         HaHostBox.TextChanged         += (_, _) => Hide();
         HaUsernameBox.TextChanged     += (_, _) => Hide();
         HaPrefixBox.TextChanged       += (_, _) => Hide();
@@ -1250,14 +1729,19 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Commits all six broker fields as a single batch — the ONE exception to "commit on change"
+    /// Commits all seven batched fields as one batch — the ONE exception to "commit on change"
     /// in this window's save model, so <c>HomeAssistantService</c> reconnects at most once per
     /// Apply click rather than per keystroke. <see cref="AppSettings.MqttPassword"/> is read here
     /// (not on every keystroke) and is never logged or shown in any toast — see
     /// <c>HomeAssistantService.Sanitize</c>.
+    /// <para><see cref="AppSettings.MqttDeviceName"/> (#87) belongs here: it is cosmetic in Home
+    /// Assistant but reaches it through the same republish every broker field triggers. The device
+    /// ID does NOT — it must be impossible to rename every entity as a side effect of applying a
+    /// host edit, so it has its own dialog (<see cref="OnChangeNodeIdClicked"/>).</para>
     /// </summary>
     private void OnHaApplyClicked(object sender, RoutedEventArgs e)
     {
+        string device = HaDeviceNameBox.Text?.Trim() ?? "";
         string host   = HaHostBox.Text?.Trim() ?? "";
         int    port   = double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
         string user   = HaUsernameBox.Text?.Trim() ?? "";
@@ -1273,6 +1757,7 @@ internal sealed partial class SettingsWindow : Window
             s.MqttPassword         = pass;
             s.MqttUseTls           = tls;
             s.MqttDiscoveryPrefix  = prefix;
+            s.MqttDeviceName       = device;
         });
 
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
@@ -1287,6 +1772,135 @@ internal sealed partial class SettingsWindow : Window
         HaBrokerStatusText.Text = string.IsNullOrWhiteSpace(s.MqttBrokerHost)
             ? "Broker: not set"
             : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
+    }
+
+    // ── Device identity (#87) ────────────────────────────────────────────────────
+
+    /// <summary>The device name used when <see cref="AppSettings.MqttDeviceName"/> is blank — the
+    /// same expression <c>HomeAssistantService.ApplyAsync</c> falls back to, so the placeholder
+    /// cannot promise a name the publisher wouldn't use.</summary>
+    private static string DefaultDeviceName() => $"ChargeKeeper ({Environment.MachineName})";
+
+    /// <summary>The id actually published under, override or machine-derived default.</summary>
+    private static string EffectiveNodeId() =>
+        HaDiscovery.EffectiveNodeId(SettingsService.Current.MqttNodeId, Environment.MachineName);
+
+    private void RefreshHaNodeIdText() => HaNodeIdText.Text = EffectiveNodeId();
+
+    /// <summary>
+    /// The device ID's own confirmation dialog (#87). Deliberately outside the Apply batch: the id is
+    /// the <c>unique_id</c>/<c>object_id</c> stem, the device identifier AND every topic segment, so
+    /// changing it renames every entity in Home Assistant — that must never happen as a side effect
+    /// of clicking Apply after editing a broker host.
+    ///
+    /// <para>Friction is two deliberate interactions (a valid, different id AND the acknowledgement
+    /// tick) and no more: type-the-old-id ceremony buys nothing here, because the change is
+    /// recoverable by typing the old id back — what is not recoverable is the HA-side history, and no
+    /// amount of typing changes that.</para>
+    ///
+    /// <para>async void with the whole body guarded: an exception escaping an async void handler
+    /// tears the process down rather than surfacing — same reasoning as
+    /// <see cref="OnAddNetworkRule"/>.</para>
+    /// </summary>
+    private async void OnChangeNodeIdClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string current = EffectiveNodeId();
+
+            var idBox = new TextBox
+            {
+                Text            = SettingsService.Current.MqttNodeId,
+                PlaceholderText = HaDiscovery.NodeId(Environment.MachineName),
+            };
+            var errorText = new TextBlock
+            {
+                FontSize     = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility   = Visibility.Collapsed,
+                Foreground   = CriticalBrush(),
+            };
+            // The id is sanitised to [a-z0-9_] before it reaches a topic, so echo what will actually
+            // be published — otherwise "Office ThinkPad" silently becomes something else.
+            var previewText = new TextBlock
+            {
+                FontSize     = 11,
+                Opacity      = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            var ack = new CheckBox { Content = "I understand my automations will break" };
+
+            var body = new StackPanel { Spacing = 8, Width = 420 };
+            body.Children.Add(new TextBlock
+            {
+                Text         = $"Current ID: {current}",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            body.Children.Add(new TextBlock { Text = "New ID", Opacity = 0.7, FontSize = 12 });
+            body.Children.Add(idBox);
+            body.Children.Add(previewText);
+            body.Children.Add(errorText);
+            body.Children.Add(new TextBlock
+            {
+                Text = "Changing the ID renames every ChargeKeeper entity in Home Assistant. "
+                     + "Automations, dashboards and history that point at the old entities will stop "
+                     + "working — they will not report an error, the entities simply will not be there "
+                     + "any more.\n\n"
+                     + "ChargeKeeper removes the old entities from Home Assistant when you confirm. "
+                     + "Their recorded history is not carried over to the new ones.\n\n"
+                     + "Leave the box empty to go back to the name derived from this machine.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 4, 0, 0),
+            });
+            body.Children.Add(ack);
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot          = Content.XamlRoot,
+                Title             = "Change device ID",
+                Content           = body,
+                PrimaryButtonText = "Change ID",
+                CloseButtonText   = "Cancel",
+                DefaultButton     = ContentDialogButton.Close,
+                IsPrimaryButtonEnabled = false,
+            };
+
+            // Live validation: the primary button is the only gate, so re-derive it from scratch on
+            // every edit rather than tracking a "was valid" flag that can go stale.
+            void Revalidate()
+            {
+                string raw      = idBox.Text ?? "";
+                string? error   = HaDiscovery.ValidateNodeId(raw);
+                string candidate = HaDiscovery.EffectiveNodeId(raw, Environment.MachineName);
+
+                errorText.Text       = error ?? "";
+                errorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+                previewText.Text     = error is null ? $"Publishes as: {candidate}" : "";
+
+                dialog.IsPrimaryButtonEnabled = error is null && candidate != current && ack.IsChecked == true;
+            }
+
+            idBox.TextChanged += (_, _) => Revalidate();
+            ack.Checked       += (_, _) => Revalidate();
+            ack.Unchecked     += (_, _) => Revalidate();
+            Revalidate();
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            // Store the sanitised form, not the raw text: the read-only card above shows the
+            // effective id, and storing the raw string would leave the two disagreeing. Blank stays
+            // blank — that is the "use the machine default" sentinel, not an id.
+            string entered = (idBox.Text ?? "").Trim();
+            string newId   = entered.Length == 0 ? "" : HaDiscovery.NormalizeNodeId(entered);
+
+            SettingsService.Update(s => s.MqttNodeId = newId);
+            // Same callback the broker Apply uses — HomeAssistantService compares the new effective id
+            // against the one it last published under and evicts the old id's retained topics
+            // (HaDiscovery.TopicsToClear) before republishing discovery under the new one.
+            _onHomeAssistantChanged();
+            RefreshHaNodeIdText();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnChangeNodeIdClicked", ex); }
     }
 
     // ── Appearance ──────────────────────────────────────────────────────────────
