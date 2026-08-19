@@ -552,6 +552,10 @@ internal sealed partial class SettingsWindow : Window
         [("5 %", 5), ("10 %", 10), ("15 %", 15), ("20 %", 20), ("25 %", 25), ("30 %", 30), ("40 %", 40), ("50 %", 50)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
+    // No "None": a zero lid delay would sleep the machine instantly through a feature whose whole
+    // purpose is to delay that (LidDelayPolicy clamps the same way for a hand-edited file).
+    private static readonly (string Label, int Value)[] LidDelayPresets =
+        [("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60), ("120 min", 120)];
 
     /// <summary>
     /// Populates a preset-picker <see cref="ComboBox"/> with its (label, value) items (each item's
@@ -1281,7 +1285,13 @@ internal sealed partial class SettingsWindow : Window
 
     private void LoadKeepAwake()
     {
-        WithUpdatingSuppressed(() => KeepAwakeDisplayToggle.IsOn = SettingsService.Current.KeepAwakeDisplayOn);
+        var s = SettingsService.Current;
+        WithUpdatingSuppressed(() =>
+        {
+            KeepAwakeDisplayToggle.IsOn = s.KeepAwakeDisplayOn;
+            LidDelayToggle.IsOn         = s.LidDelayEnabled;
+            LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
+        });
         RefreshKeepAwakeState();
         RefreshKeepAwakeCustomEcho();
         RebuildKeepAwakeChips();
@@ -1317,6 +1327,24 @@ internal sealed partial class SettingsWindow : Window
         // which is why the card says so rather than silently doing nothing to a running session.
         SettingsService.Update(s => s.KeepAwakeDisplayOn = on);
     }
+
+    // ── Keep Awake: lid-close delay (issue #90) ──────────────────────────────────
+
+    private void OnLidDelayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        // LidDelayService owns the setting as well as the power-scheme write, because the two must
+        // not drift: a stored "on" with the Windows lid action never overridden is a feature that
+        // silently does nothing. Only ENABLING can fail in a way the user must see — the toggle then
+        // goes back rather than showing an on state the machine will not honour. Turning it off always
+        // takes; a restore that failed stays owed to the next start and is not the toggle's business.
+        bool wanted = LidDelayToggle.IsOn;
+        if (!LidDelayService.SetEnabled(wanted) && wanted)
+            WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
+    }
+
+    private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(LidDelayMinutesCombo, (s, v) => s.LidDelayMinutes = v);
 
     // ── Keep Awake: span wording ─────────────────────────────────────────────────
     // Three renderings of the same span, deliberately distinct: DISPLAY (full words, this page has

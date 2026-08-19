@@ -345,6 +345,9 @@ public partial class App : Application
         ScheduleUpdateCheck();
         NetworkLocationService.Start();   // TODO #31 — TrayMenu subscribes to LocationChanged for the auto-apply reaction
         KeepAwakeService.Start();         // issue #90 — subscribes to the same LocationChanged for its own two rules
+        // issue #90 — also the crash-recovery point: if a previous run died with the Windows lid-close
+        // action still overridden, this is what puts the user's own value back.
+        LidDelayService.Start();
 
         // TODO #28 — Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled AND a broker
         // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
@@ -500,6 +503,10 @@ public partial class App : Application
     {
         _sessionEnding = true;
         AppLog.Info($"SessionEnding: {e.Reason}.");
+        // issue #90 — a restart or sign-out does not go through Shutdown(), so without this the
+        // Windows lid-close action would stay overridden for the whole time the app is not running,
+        // and permanently if the user then disables autostart or uninstalls.
+        LidDelayService.Stop();
     }
 
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
@@ -1059,6 +1066,7 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
+        LidDelayService.Stop();   // issue #90 — hands the Windows lid-close action back before we go
         _ha?.Dispose();   // goes offline in HA but keeps the retained discovery (device persists)
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
