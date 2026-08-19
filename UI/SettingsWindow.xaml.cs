@@ -332,6 +332,10 @@ internal sealed partial class SettingsWindow : Window
         // KeepAwakeService for the process's life and keeps touching a torn-down UI tree.
         KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
         _keepAwakeTicker.Stop();
+
+        // An in-flight connection test outlives the window by up to its 10 s budget; cancelling makes
+        // its continuation bail before it touches a torn-down control.
+        _haProbeCts?.Cancel();
     }
 
     /// <summary>
@@ -398,6 +402,11 @@ internal sealed partial class SettingsWindow : Window
             ApplyThresholdCapabilityToSmartChargePage();
             RefreshCurrentNetworkText();
         }
+
+        // Same reasoning as the network line above: refresh the two status lines on every open rather
+        // than run a clock, so a publish or command that landed while the window sat on another tab
+        // shows up.
+        if (tag == "HomeAssistant") RefreshHaActivityTexts();
 
         // The remaining-time line counts down, so it needs a tick — but only while it is on screen.
         if (tag == "KeepAwake")
@@ -695,6 +704,16 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     private static Microsoft.UI.Xaml.Media.Brush? CriticalBrush() =>
         Application.Current.Resources.TryGetValue("SystemFillColorCriticalBrush", out var brush)
+            ? brush as Microsoft.UI.Xaml.Media.Brush
+            : null;
+
+    /// <summary>
+    /// The ordinary secondary-text brush — needed only to put a TextBlock BACK after
+    /// <see cref="CriticalBrush"/> has been assigned to it (an inline result line that alternates
+    /// between error and plain status). Same defensive lookup as above.
+    /// </summary>
+    private static Microsoft.UI.Xaml.Media.Brush? SecondaryBrush() =>
+        Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var brush)
             ? brush as Microsoft.UI.Xaml.Media.Brush
             : null;
 
@@ -1697,7 +1716,9 @@ internal sealed partial class SettingsWindow : Window
         // A re-sync (reopen / tray Reload) discards any un-applied broker edit, so a leftover
         // "Applied." from a previous session must not linger asserting stale values are live.
         HaAppliedText.Visibility = Visibility.Collapsed;
+        HaTestResultText.Visibility = Visibility.Collapsed;   // the tested values are gone with it
         RefreshHaBrokerStatusText();
+        RefreshHaActivityTexts();
     }
 
     /// <summary>
@@ -1708,7 +1729,14 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     private void WireHaBrokerFieldEditHandlers()
     {
-        void Hide() => HaAppliedText.Visibility = Visibility.Collapsed;
+        // The test result names a verdict about one exact set of values, so an edit invalidates it
+        // for the same reason it invalidates "Applied." — leaving it up would let a stale "Connected."
+        // vouch for a host the user has since retyped.
+        void Hide()
+        {
+            HaAppliedText.Visibility    = Visibility.Collapsed;
+            HaTestResultText.Visibility = Visibility.Collapsed;
+        }
         HaDeviceNameBox.TextChanged   += (_, _) => Hide();
         HaHostBox.TextChanged         += (_, _) => Hide();
         HaUsernameBox.TextChanged     += (_, _) => Hide();
@@ -1743,7 +1771,7 @@ internal sealed partial class SettingsWindow : Window
     {
         string device = HaDeviceNameBox.Text?.Trim() ?? "";
         string host   = HaHostBox.Text?.Trim() ?? "";
-        int    port   = double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
+        int    port   = StagedPort();
         string user   = HaUsernameBox.Text?.Trim() ?? "";
         string pass   = HaPasswordBox.Password ?? "";
         bool   tls    = HaTlsToggle.IsOn;
@@ -1762,9 +1790,14 @@ internal sealed partial class SettingsWindow : Window
 
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
         RefreshHaBrokerStatusText();
+        RefreshHaActivityTexts();
 
         HaAppliedText.Visibility = Visibility.Visible;
     }
+
+    /// <summary>The staged port, defaulted and clamped — read identically by Apply and by the test.</summary>
+    private int StagedPort() =>
+        double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
 
     private void RefreshHaBrokerStatusText()
     {
@@ -1772,6 +1805,84 @@ internal sealed partial class SettingsWindow : Window
         HaBrokerStatusText.Text = string.IsNullOrWhiteSpace(s.MqttBrokerHost)
             ? "Broker: not set"
             : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
+    }
+
+    // ── Connection check + live status ───────────────────────────────────────────
+
+    /// <summary>
+    /// The in-flight connection test, or null when none is running — the re-entrancy guard AND the
+    /// handle <see cref="OnClosed"/> uses to cancel a probe that would otherwise resume against a
+    /// torn-down window.
+    /// </summary>
+    private CancellationTokenSource? _haProbeCts;
+
+    /// <summary>
+    /// Tests the STAGED broker values — what is in the boxes right now, applied or not. That is the
+    /// point of the button: check before committing. On an untouched form the boxes hold the saved
+    /// configuration anyway, so the honest description ("the values in the boxes") is also the
+    /// complete one, and it is spelled out on the page rather than left to be inferred.
+    ///
+    /// <para>async void with the whole body guarded — see <see cref="OnChangeNodeIdClicked"/>. The
+    /// probe is awaited directly rather than pushed to <c>Task.Run</c>: it is I/O all the way down, so
+    /// the UI thread is released at the first await and the continuation comes back on it naturally.</para>
+    /// </summary>
+    private async void OnHaTestConnectionClicked(object sender, RoutedEventArgs e)
+    {
+        if (_haProbeCts is not null) return;   // a second click while one runs is dropped, not queued
+
+        var cts = new CancellationTokenSource();
+        _haProbeCts = cts;
+        try
+        {
+            var target = new MqttProbeTarget(
+                Host:     HaHostBox.Text?.Trim() ?? "",
+                Port:     StagedPort(),
+                Username: HaUsernameBox.Text?.Trim() ?? "",
+                Password: HaPasswordBox.Password ?? "",
+                UseTls:   HaTlsToggle.IsOn,
+                ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()));
+
+            SetHaTestRunning(true);
+            var result = await MqttConnectionProbe.RunAsync(target, cts.Token);
+
+            if (cts.IsCancellationRequested) return;   // window closed mid-probe — touch nothing
+            HaTestResultText.Text       = MqttConnectionProbe.Describe(result);
+            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(result) ? CriticalBrush() : SecondaryBrush();
+            HaTestResultText.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaTestConnectionClicked", ex); }
+        finally
+        {
+            bool cancelled = cts.IsCancellationRequested;   // read BEFORE disposing the source
+            _haProbeCts = null;
+            cts.Dispose();
+            if (!cancelled) SetHaTestRunning(false);
+        }
+    }
+
+    private void SetHaTestRunning(bool running)
+    {
+        HaTestBtn.IsEnabled          = !running;
+        HaTestProgress.IsActive      = running;
+        HaTestProgress.Visibility    = running ? Visibility.Visible : Visibility.Collapsed;
+        if (!running) return;
+
+        HaTestResultText.Text       = "Testing…";
+        HaTestResultText.Foreground = SecondaryBrush();
+        HaTestResultText.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Re-reads the two live-connection facts. Called when the page is shown and after an Apply, not
+    /// on a timer: the only clock in this window is the Keep Awake page's countdown ticker, which is
+    /// stopped whenever this page is on screen, and a relative age going a few minutes stale while the
+    /// user sits on the page is not worth waking the machine for.
+    /// </summary>
+    private void RefreshHaActivityTexts()
+    {
+        var now = DateTime.UtcNow;
+        HaLastPublishText.Text = MqttStatusFormatter.DescribeLastPublish(MqttActivity.LastPublishUtc, now);
+        HaLastCommandText.Text = MqttStatusFormatter.DescribeLastCommand(MqttActivity.LastCommand, now);
     }
 
     // ── Device identity (#87) ────────────────────────────────────────────────────

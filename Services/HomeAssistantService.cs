@@ -436,6 +436,10 @@ internal sealed class HomeAssistantService : IDisposable
             }
 
             AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}; queued.");
+            // Recorded on ACCEPTANCE, not on dispatch: the status line answers "is the broker reaching
+            // us", which a queued command already proves — and a dispatch that later fails on the
+            // vendor RPC doesn't unmake the fact that the command arrived.
+            MqttActivity.RecordCommand(cmd.Kind);
             _commands.Writer.TryWrite(cmd);   // unbounded + non-blocking; the worker drains it in order
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
@@ -593,6 +597,9 @@ internal sealed class HomeAssistantService : IDisposable
                 .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
             await _client.PublishAsync(msg, ct).ConfigureAwait(false);
+            // The one choke point every outbound message passes through, so recording here is the
+            // whole "when did anything last reach the broker" fact the settings page reports.
+            MqttActivity.RecordPublish();
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitize(ex)); }
     }
