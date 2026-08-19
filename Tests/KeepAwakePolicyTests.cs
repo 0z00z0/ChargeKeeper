@@ -187,6 +187,55 @@ public class KeepAwakePolicyTests
         Assert.Equal("until turned off", KeepAwakePolicy.DescribeRemaining(At(9, 0), session));
     }
 
+    // ── ShortLabel (dashboard preset chips) ──────────────────────────────────────
+
+    [Theory]
+    [InlineData(30, "30m")]
+    [InlineData(59, "59m")]
+    [InlineData(60, "1h")]
+    [InlineData(180, "3h")]
+    [InlineData(90, "1h30")]
+    [InlineData(125, "2h5")]
+    public void ShortLabel_Duration_IsTheCompactSpan(int minutes, string expected) =>
+        Assert.Equal(expected, KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Duration, TimeSpan.FromMinutes(minutes), null)));
+
+    [Fact]
+    public void ShortLabel_UntilTime_IsTheClockTime() =>
+        Assert.Equal("17:00", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0))));
+
+    [Fact]
+    public void ShortLabel_UntilNetworkChange_IsTheFixedNetChip() =>
+        Assert.Equal("Net", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.UntilNetworkChange, null, null)));
+
+    [Fact]
+    public void ShortLabel_Indefinite_AndMalformedRequests_ReadAsNoExpiry()
+    {
+        // Same reading ExpiryFor gives them: a kind whose own field is unset has no clock expiry, so
+        // labelling it with a span would promise an end that never comes.
+        Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Indefinite, null, null)));
+        Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Duration, null, null)));
+        Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Duration, TimeSpan.Zero, null)));
+        Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.UntilTime, null, null)));
+    }
+
+    // ── DefaultRequest (bare "on", no span picked) ───────────────────────────────
+
+    [Fact]
+    public void DefaultRequest_TakesTheFirstPreset_BecauseSettingsOrderIsPriorityOrder()
+    {
+        var presets = new List<KeepAwakeRequest>
+        {
+            new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)),
+            new(KeepAwakeKind.Duration, TimeSpan.FromMinutes(30), null),
+        };
+        Assert.Equal(presets[0], KeepAwakePolicy.DefaultRequest(presets));
+    }
+
+    [Fact]
+    public void DefaultRequest_WithNoPresets_HoldsUntilTurnedOff() =>
+        Assert.Equal(new KeepAwakeRequest(KeepAwakeKind.Indefinite, null, null),
+                     KeepAwakePolicy.DefaultRequest([]));
+
     // ── Persisted preset shape ───────────────────────────────────────────────────
 
     [Fact]
