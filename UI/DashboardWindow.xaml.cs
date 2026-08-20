@@ -1,6 +1,8 @@
 using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Power;
 using Windows.Foundation;
@@ -46,6 +48,22 @@ public sealed partial class DashboardWindow : Window
     // periodic device-value sync (ApplyStatusBadges) and the handler's own min-gap enforcement
     // set RangeStart/RangeEnd, which would otherwise re-enter the handler and queue a bogus apply.
     private bool _updatingSliders = false;
+
+    // Same idea for the badge switches: ApplyStatusBadges writes IsOn from the 5-second device
+    // read, and ToggleSwitch raises Toggled on a programmatic write exactly as it does on a click —
+    // without this guard every sync would write the value straight back and bounce the device.
+    // Shared with ApplyKeepAwakeBadge (chip IsChecked raises Checked the same way); the two never
+    // nest, both run on the UI thread and neither calls the other.
+    private bool _updatingBadges = false;
+
+    // The last span the user actually ran, so flipping the switch back on resumes THAT rather than
+    // always the first preset. The service deliberately keeps no history — a finished session is
+    // gone — so the window remembers it for as long as it lives.
+    private KeepAwakeRequest? _lastKeepAwake;
+
+    // What KeepAwakePresetPanel is currently built from. Rebuilding only on a real change keeps the
+    // 5-second reconcile from churning five controls (and their templates) every tick.
+    private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
 
     // True from the first user slider move until the debounced apply completes. While set, the
     // periodic Refresh must NOT overwrite the slider values with the device's current thresholds
@@ -116,6 +134,11 @@ public sealed partial class DashboardWindow : Window
         ChargeControlService.StateChanged  += OnExternalStateChanged;
         TravelOverrideService.StateChanged += OnExternalStateChanged;
 
+        // Keep Awake has its own event and its own (RPC-free) reconcile — a session can start or end
+        // from the tray toggle, a network rule, or its own expiry timer, none of which the two events
+        // above cover. Raised off the UI thread, so the handler marshals.
+        KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+
         Activated += OnActivated;
         Closed    += (_, _) =>
         {
@@ -131,6 +154,7 @@ public sealed partial class DashboardWindow : Window
             // and make the reclaim pointless.
             ChargeControlService.StateChanged  -= OnExternalStateChanged;
             TravelOverrideService.StateChanged -= OnExternalStateChanged;
+            KeepAwakeService.StateChanged      -= OnKeepAwakeStateChanged;
         };
     }
 
@@ -147,6 +171,13 @@ public sealed partial class DashboardWindow : Window
     {
         if (AppWindow.IsVisible && !_thresholdEditPending) Refresh();
     });
+
+    /// <summary>
+    /// A keep-awake session started, ended or expired. Unlike <see cref="OnExternalStateChanged"/>
+    /// this reconciles unconditionally: it costs an in-memory read and a handful of property writes,
+    /// no vendor RPC, so there is nothing to save by skipping it while hidden.
+    /// </summary>
+    private void OnKeepAwakeStateChanged() => RunOnUi(ApplyKeepAwakeBadge);
 
     /// <summary>
     /// Destroys the window after a long idle spell rather than holding its XAML tree, graph control
@@ -330,15 +361,20 @@ public sealed partial class DashboardWindow : Window
         // Battery info uses WinRT APIs that must stay on the UI thread.
         RefreshBatteryInfo();
 
+        // Keep Awake reads in-process state only, so it reconciles here rather than riding the
+        // vendor round-trip below — and the remaining-time line needs this 5-second tick to count down.
+        ApplyKeepAwakeBadge();
+
         // Badge updates read from RPC/service — do that work off-thread so a slow Lenovo
         // Power Manager response doesn't freeze the window, then marshal back to apply.
         Task.Run(() =>
         {
-            var chargeState = ChargeThresholdService.Read();
-            bool standbyOn  = StandbyService.IsRunning();
+            var chargeState      = ChargeThresholdService.Read();
+            bool standbySupported = StandbyService.IsSupported;
+            bool standbyOn        = StandbyService.IsRunning();
             // RunOnUi guards the window-may-have-closed-in-the-meantime race: an unhandled throw
             // in a raw dispatcher callback crashes the whole process (stowed exception).
-            RunOnUi(() => ApplyStatusBadges(chargeState, standbyOn));
+            RunOnUi(() => ApplyStatusBadges(chargeState, standbySupported, standbyOn));
         });
     }
 
@@ -406,27 +442,45 @@ public sealed partial class DashboardWindow : Window
         ToolTipService.SetToolTip(StatusGlyph, tip);
     }
 
-    // Called on the UI thread after the background read completes.
-    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbyOn)
+    /// <summary>
+    /// Called on the UI thread after the background read completes. Raises
+    /// <see cref="_updatingBadges"/> for the whole apply, because every switch write inside raises
+    /// <c>Toggled</c> just like a user click would. try/finally, not a bare raise/lower pair: a
+    /// throw part-way through would latch the guard and leave both switches dead for the window's
+    /// life.
+    /// </summary>
+    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
+    {
+        _updatingBadges = true;
+        try { WriteStatusBadges(chargeState, standbySupported, standbyOn); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
     {
         // ── Smart Charge ──────────────────────────────────────────────────────
-        if (chargeState is { Capable: true })
+        // The SAME classifier the Settings page uses, so the two surfaces cannot drift: no vendor
+        // answered (Hidden) means there is nothing to show or configure, and a permanently
+        // "Unavailable" badge is dead UI. Capable:false with a readable state is NOT hidden — the
+        // hardware has the feature, we just cannot drive it, so the badge stays and the switch is
+        // disabled instead.
+        var surface = ThresholdCapabilityPolicy.Classify(chargeState, ChargeThresholdService.SupportsNumericThresholds);
+        bool chargeVisible = surface != SmartChargeSurface.Hidden;
+        SmartChargeBadge.Visibility = chargeVisible ? Visibility.Visible : Visibility.Collapsed;
+
+        if (chargeVisible)
         {
-            SetFeatureBadge(SmartChargeBadge, SmartChargeIndicator, chargeState.Enabled);
-            SmartChargeDetailText.Text = chargeState.Enabled switch
+            SetFeatureBadge(SmartChargeBadge, SmartChargeToggle, chargeState!.Enabled);
+            SmartChargeToggle.IsEnabled = chargeState.Capable;
+            SmartChargeDetailText.Text = (chargeState.Capable, chargeState.Enabled) switch
             {
-                true when chargeState.Start > 0 && chargeState.Stop > 0
+                // Read-only BIOS setting: readable, but every write is refused.
+                (false, _) => "Not supported",
+                (true, true) when chargeState.Start > 0 && chargeState.Stop > 0
                     => $"{PresetLabel(chargeState)} · {chargeState.Start}% → {chargeState.Stop}%",
-                true  => "On — reading thresholds…",
-                false => "Off — charges to 100%"
+                (true, true)  => "On — reading thresholds…",
+                (true, false) => "Off — charges to 100%"
             };
-        }
-        else
-        {
-            // Read failed (driver/DLL missing or RPC error) or firmware reports not capable.
-            SmartChargeBadge.Background     = AppColors.BadgeInactiveBrush;
-            SmartChargeIndicator.Background = AppColors.IndicatorOrangeBrush;
-            SmartChargeDetailText.Text      = chargeState is null ? "Unavailable" : "Not supported";
         }
 
         // ── Gauge threshold tick markers ──────────────────────────────────────
@@ -507,15 +561,24 @@ public sealed partial class DashboardWindow : Window
             TravelOverrideButton.Visibility = Visibility.Collapsed;
         }
 
-        // Resize the window to fit whatever is now visible.
+        // ── Smart Standby ─────────────────────────────────────────────────────
+        // IStandbyProvider.IsSupported exists precisely so a vendor with no standby scheduling
+        // hides the control (the tray menu already does) — a switch that renders and silently does
+        // nothing is worse than one that isn't offered.
+        SmartStandbyBadge.Visibility = standbySupported ? Visibility.Visible : Visibility.Collapsed;
+        if (standbySupported)
+        {
+            SetFeatureBadge(SmartStandbyBadge, SmartStandbyToggle, standbyOn);
+            SmartStandbyDetailText.Text = standbyOn
+                ? "Active — scheduling idle sleep"
+                : "Off — always Modern Standby";
+        }
+
+        // Resize the window to fit whatever is now visible. Last, not before the standby block as
+        // it used to be: that badge can now collapse too, so measuring earlier would size the
+        // window to a row that is about to disappear.
         if (AppWindow.IsVisible)
             PlaceWindow();
-
-        // ── Smart Standby ─────────────────────────────────────────────────────
-        SetFeatureBadge(SmartStandbyBadge, SmartStandbyIndicator, standbyOn);
-        SmartStandbyDetailText.Text = standbyOn
-            ? "Active — scheduling idle sleep"
-            : "Off — always Modern Standby";
     }
 
     /// <summary>
@@ -544,12 +607,226 @@ public sealed partial class DashboardWindow : Window
             : "Custom";
     }
 
-    /// <summary>Applies active/inactive colours to a feature badge + indicator pair.</summary>
-    private static void SetFeatureBadge(Border badge, Border indicator, bool on)
+    /// <summary>
+    /// Applies the active/inactive badge colour and syncs its switch. The switch replaced the old
+    /// indicator dot, so it carries the on/off state the dot's accent/grey brushes used to; the
+    /// badge background keeps the same semantics it always had. Caller holds
+    /// <see cref="_updatingBadges"/> — the IsOn write below raises Toggled.
+    /// </summary>
+    private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on)
     {
-        badge.Background     = on ? AppColors.BadgeActiveBrush     : AppColors.BadgeInactiveBrush;
-        indicator.Background = on ? AppColors.IndicatorAccentBrush : AppColors.IndicatorGreyBrush;
+        badge.Background = on ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
+        toggle.IsOn      = on;
     }
+
+    // ── Badge toggles ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Smart Charge on/off from the dashboard. Routes through the shared
+    /// <see cref="ChargeControlService"/> — the SAME composition the tray menu uses — so the
+    /// "re-enabling mid-override cancels the override" rule stays in one place. That service fires
+    /// <see cref="ChargeControlService.StateChanged"/>, which refreshes this window via
+    /// <see cref="OnExternalStateChanged"/>, so only the throw path needs its own reconcile.
+    /// </summary>
+    private void OnSmartChargeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own device sync, not a user action
+
+        bool on = SmartChargeToggle.IsOn;
+        Task.Run(() =>
+        {
+            try { ChargeControlService.SetSmartChargeEnabled(on); }
+            catch (Exception ex)
+            {
+                AppLog.Error("DashboardWindow.OnSmartChargeToggled", ex);
+                RunOnUi(Refresh);   // StateChanged never fired — put the switch back where the device is
+            }
+        });
+    }
+
+    /// <summary>
+    /// Smart Standby on/off. There is no StateChanged for standby, so this mirrors
+    /// <c>TrayMenu.Toggle</c>'s finally-refresh: the trailing <see cref="Refresh"/> is what puts the
+    /// switch back if the service control refused.
+    /// </summary>
+    private void OnSmartStandbyToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        bool on = SmartStandbyToggle.IsOn;
+        Task.Run(() =>
+        {
+            try
+            {
+                // The write's bool is the only signal a service-control failure gives — dropping it
+                // would make a refused toggle look identical to one that took.
+                if (!StandbyService.SetEnabled(on))
+                    AppLog.Info($"Smart Standby → {on} was not applied — the vendor write returned false.");
+            }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.OnSmartStandbyToggled", ex); }
+            finally { RunOnUi(Refresh); }
+        });
+    }
+
+    // Label taps are a second hit target for the switch beside them; the switch stays the visible
+    // affordance. Disabled means the vendor refuses writes, so the tap must be inert too.
+    private void OnSmartChargeLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartChargeToggle.IsEnabled) SmartChargeToggle.IsOn = !SmartChargeToggle.IsOn;
+    }
+
+    private void OnSmartStandbyLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartStandbyToggle.IsEnabled) SmartStandbyToggle.IsOn = !SmartStandbyToggle.IsOn;
+    }
+
+    private void OnKeepAwakeLabelTapped(object sender, TappedRoutedEventArgs e) =>
+        KeepAwakeToggle.IsOn = !KeepAwakeToggle.IsOn;   // never disabled: no vendor to refuse it
+
+    // ── Keep Awake badge ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reconciles the whole Keep Awake badge from <see cref="KeepAwakeService"/>. try/finally around
+    /// <see cref="_updatingBadges"/> for the same reason <see cref="ApplyStatusBadges"/> has it:
+    /// every write below (switch <c>IsOn</c>, chip <c>IsChecked</c>) raises the same event a click
+    /// does, and a throw part-way through would latch the guard and leave the badge dead for the
+    /// window's life.
+    /// </summary>
+    private void ApplyKeepAwakeBadge()
+    {
+        _updatingBadges = true;
+        try { WriteKeepAwakeBadge(); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteKeepAwakeBadge()
+    {
+        var session = KeepAwakeService.Current;
+        // Remember whatever is running, wherever it was started (tray toggle, network rule, a chip),
+        // so the switch can resume it after an off.
+        if (session is not null) _lastKeepAwake = session.Request;
+
+        SetFeatureBadge(KeepAwakeBadge, KeepAwakeToggle, session is not null);
+        KeepAwakeDetailText.Text = session is null
+            ? "Off — normal sleep settings"
+            : $"On — {KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session)}";
+
+        BuildKeepAwakeChips();
+
+        // KeepAwakeRequest is a record, so this compares the span itself — a chip matches the running
+        // session whether the session was started from that chip, the tray, or a network rule.
+        foreach (var chip in KeepAwakePresetPanel.Children.OfType<ToggleButton>())
+            chip.IsChecked = session is not null && Equals(chip.Tag, session.Request);
+    }
+
+    /// <summary>
+    /// (Re)builds the chip row: the first FOUR presets in Settings order — that order is the priority
+    /// order — plus a fixed "Net" (until the network location changes). Four is a width limit, not a
+    /// policy one: ~300 DIP of usable row has to hold five chips, and anything beyond them stays a
+    /// Settings-only span. Returns untouched when the set hasn't changed, so the 5-second reconcile
+    /// isn't rebuilding five templated controls a tick.
+    /// </summary>
+    private void BuildKeepAwakeChips()
+    {
+        List<KeepAwakeRequest> wanted =
+        [
+            .. SettingsService.Current.KeepAwakePresets.Take(4),
+            new(KeepAwakeKind.UntilNetworkChange, null, null),
+        ];
+        if (wanted.SequenceEqual(_keepAwakeChips)) return;
+
+        _keepAwakeChips = wanted;
+        KeepAwakePresetPanel.Children.Clear();
+
+        // Lightweight styling, set before the chips are parented so their templates resolve it: a
+        // checked chip must read like the history graph's selected time-scale button, not the
+        // platform's solid accent fill. Sourced from AppColors rather than XAML hex literals so the
+        // "selected" colour cannot drift from the graph's.
+        foreach (string state in new[] { "", "PointerOver", "Pressed" })
+        {
+            KeepAwakePresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            KeepAwakePresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+        }
+
+        foreach (var request in wanted)
+        {
+            var chip = new ToggleButton
+            {
+                Content         = KeepAwakePolicy.ShortLabel(request),
+                Tag             = request,
+                FontSize        = 11,
+                Padding         = new Thickness(8, 3, 8, 3),
+                MinWidth        = 0,   // the default would spend width this row hasn't got
+                CornerRadius    = new CornerRadius(4),
+                BorderThickness = new Thickness(0),
+            };
+            chip.Checked   += OnKeepAwakePresetChecked;
+            chip.Unchecked += OnKeepAwakePresetUnchecked;
+            KeepAwakePresetPanel.Children.Add(chip);
+        }
+    }
+
+    /// <summary>
+    /// Keep Awake on/off. Off→on resumes the last span that ran, falling back to
+    /// <see cref="KeepAwakePolicy.DefaultRequest"/> — the same ladder the tray toggle
+    /// (<see cref="Features.KeepAwakeFeature"/>) uses, so the two surfaces can't pick different spans.
+    /// </summary>
+    private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own sync, not a user action
+
+        if (KeepAwakeToggle.IsOn)
+            ActivateKeepAwake(_lastKeepAwake ?? KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+        else
+            KeepAwakeService.Deactivate();
+    }
+
+    /// <summary>
+    /// A chip was clicked while inactive. <see cref="KeepAwakeService.Activate"/> is start-OR-replace,
+    /// so switching spans mid-session needs no cancel first; the reconcile that follows unchecks
+    /// whichever chip was active before.
+    /// </summary>
+    private void OnKeepAwakePresetChecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        if (sender is ToggleButton { Tag: KeepAwakeRequest request }) ActivateKeepAwake(request);
+    }
+
+    /// <summary>Clicking the ACTIVE chip cancels — a ToggleButton unchecking itself IS that click.</summary>
+    private void OnKeepAwakePresetUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        KeepAwakeService.Deactivate();
+    }
+
+    /// <summary>
+    /// Runs on the UI thread rather than through a Task.Run like the two badges above: the service
+    /// only queues a flag to its own holder thread and arms a timer — there is no blocking vendor RPC
+    /// here to get off the dispatcher.
+    /// </summary>
+    private void ActivateKeepAwake(KeepAwakeRequest request)
+    {
+        _lastKeepAwake = request;
+        try
+        {
+            // Raises StateChanged, whose handler reconciles the switch, the detail line and the chips.
+            KeepAwakeService.Activate(request);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("DashboardWindow.ActivateKeepAwake", ex);
+            ApplyKeepAwakeBadge();   // StateChanged never fired — put the switch and chips back
+        }
+    }
+
+    // ── Settings shortcut ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the Settings window. The popup auto-dismisses as soon as Settings takes focus (see
+    /// <see cref="OnActivated"/>) — deliberate: this is a widget handing off to a real window, not
+    /// a modeless panel meant to stay behind it.
+    /// </summary>
+    private void OnSettingsButton(object sender, RoutedEventArgs e) => _app.ShowSettingsWindow();
 
     // ── Threshold range handler ───────────────────────────────────────────────
 

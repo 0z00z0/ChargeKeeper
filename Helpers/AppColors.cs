@@ -46,10 +46,8 @@ internal static class AppColors
     internal static readonly SolidColorBrush TimeScaleSelectedBrush =
         new(Color.FromArgb(60, SteelBlue.R, SteelBlue.G, SteelBlue.B));
 
-    // ── Indicator dots ─────────────────────────────────────────────────────────
-    internal static readonly SolidColorBrush IndicatorAccentBrush = new(SteelBlue);
-    internal static readonly SolidColorBrush IndicatorOrangeBrush = new(Orange);
-    internal static readonly SolidColorBrush IndicatorGreyBrush   = new(Grey);
+    // The indicator-dot brushes that lived here are gone with the dots themselves: both dashboard
+    // badges now carry a ToggleSwitch, which states on/off in its own theme colours (issue #86).
 
     // ── Arc gauge fills (by battery level) ─────────────────────────────────────
     // TODO #34: colour-code charge state — green > 75 %, yellow 26-75 %, orange ≤ 25 %, and a

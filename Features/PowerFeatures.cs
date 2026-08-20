@@ -41,3 +41,24 @@ internal sealed class AutoStartFeature : IToggleFeature
     public bool   IsEnabled   => TaskSchedulerHelper.IsAutoStartEnabled();
     public bool   SetEnabled(bool enabled) { TaskSchedulerHelper.SetAutoStart(enabled); return true; }
 }
+
+/// <summary>
+/// Keep the machine awake (issue #90). On applies the FIRST configured preset — the whole point of a
+/// tray toggle is one click, and picking a different span is a Settings/dashboard job — so the call
+/// site stays a single <see cref="IToggleFeature"/> like every other toggle.
+/// </summary>
+internal sealed class KeepAwakeFeature : IToggleFeature
+{
+    public string Name        => "Keep awake";
+    public bool   IsAvailable => true;
+    public bool   IsEnabled   => KeepAwakeService.Current is not null;
+
+    public bool SetEnabled(bool enabled)
+    {
+        if (!enabled) { KeepAwakeService.Deactivate(); return true; }
+        // Shared with the dashboard badge's switch, so the two "on with no span picked" surfaces
+        // cannot pick different spans.
+        KeepAwakeService.Activate(KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+        return true;
+    }
+}

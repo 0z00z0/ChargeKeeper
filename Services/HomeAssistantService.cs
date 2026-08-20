@@ -42,6 +42,14 @@ internal sealed class HomeAssistantService : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
+    // A superseded node id + the discovery prefix its retained topics were published under (issue #87).
+    // Set on every id change; cleared once the eviction actually runs. Held rather than evicted inline
+    // because the change can land while DISCONNECTED, and removing retained junk from the broker is the
+    // whole point — so: best-effort now, guaranteed on the next successful connect. Written under _gate,
+    // taken with Interlocked.Exchange (the maintain-loop thread reads it in OnConnectedAsync).
+    private sealed record StaleIdentity(string NodeId, string DiscoveryPrefix);
+    private StaleIdentity? _staleIdentity;
+
     // Set by OnPowerResume; honoured on the maintain-loop thread so the resume-forced socket drop +
     // reconnect happens THERE, never racing the loop's own ConnectAsync/OnConnectedAsync (a separate
     // fire-and-forget DisconnectAsync used to race it). Volatile: cross-thread flag.
@@ -135,12 +143,25 @@ internal sealed class HomeAssistantService : IDisposable
                 return;
             }
 
-            string machine  = Environment.MachineName;
-            _nodeId          = HaDiscovery.NodeId(machine);
+            string machine        = Environment.MachineName;
+            string previousId     = _nodeId;
+            string previousPrefix = _discoveryPrefix;
+            _nodeId          = HaDiscovery.EffectiveNodeId(s.MqttNodeId, machine);
             _stateTopic      = HaDiscovery.StateTopic(_nodeId);
             _availTopic      = HaDiscovery.AvailabilityTopic(_nodeId);
             _discoveryPrefix = string.IsNullOrWhiteSpace(s.MqttDiscoveryPrefix) ? "homeassistant" : s.MqttDiscoveryPrefix.Trim();
-            _deviceName      = $"ChargeKeeper ({machine})";
+            _deviceName      = string.IsNullOrWhiteSpace(s.MqttDeviceName) ? $"ChargeKeeper ({machine})" : s.MqttDeviceName.Trim();
+
+            // The id is the device identity end to end, so a change orphans every retained topic the
+            // old id owned. Record it under the prefix it was PUBLISHED with (the prefix may have
+            // changed in this same call) and evict now if we're connected — the new client id below
+            // then bounces the socket, and OnConnectedAsync republishes discovery under the new id.
+            if (previousId.Length > 0 && previousId != _nodeId)
+            {
+                AppLog.Info($"HomeAssistant: node id '{previousId}' → '{_nodeId}'; evicting the old device.");
+                _staleIdentity = new(previousId, previousPrefix);
+            }
+            await ClearStaleIdentityAsync(CancellationToken.None).ConfigureAwait(false);
 
             var ob = new MqttClientOptionsBuilder()
                 .WithTcpServer(s.MqttBrokerHost.Trim(), s.MqttBrokerPort)
@@ -320,6 +341,9 @@ internal sealed class HomeAssistantService : IDisposable
     private async Task OnConnectedAsync(CancellationToken ct)
     {
         AppLog.Info($"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
+        // A node-id change that landed while offline (issue #87) — evict the old id BEFORE publishing
+        // the new one, so HA never sees both devices at once.
+        await ClearStaleIdentityAsync(ct).ConfigureAwait(false);
         // Preset names populate the "Charge preset" select's options (issue #30). Read fresh on each
         // connect so a reconnect picks up any preset edits made while offline.
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
@@ -412,6 +436,10 @@ internal sealed class HomeAssistantService : IDisposable
             }
 
             AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}; queued.");
+            // Recorded on ACCEPTANCE, not on dispatch: the status line answers "is the broker reaching
+            // us", which a queued command already proves — and a dispatch that later fails on the
+            // vendor RPC doesn't unmake the fact that the command arrived.
+            MqttActivity.RecordCommand(cmd.Kind);
             _commands.Writer.TryWrite(cmd);   // unbounded + non-blocking; the worker drains it in order
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
@@ -535,6 +563,21 @@ internal sealed class HomeAssistantService : IDisposable
         catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitize(ex)); }
     }
 
+    /// <summary>
+    /// Publishes an empty retained payload to every topic a superseded node id owned (issue #87), so
+    /// Home Assistant deletes the old device and its entities rather than leaving a ghost beside the
+    /// new one. No-op while disconnected — the stash is left in place and the next
+    /// <see cref="OnConnectedAsync"/> runs it. Same publish primitive as
+    /// <see cref="ClearLegacyDiscoveryAsync"/>.
+    /// </summary>
+    private async Task ClearStaleIdentityAsync(CancellationToken ct)
+    {
+        if (!_client.IsConnected) return;
+        if (Interlocked.Exchange(ref _staleIdentity, null) is not { } stale) return;
+        foreach (string topic in HaDiscovery.TopicsToClear(stale.NodeId, stale.DiscoveryPrefix))
+            await PublishAsync(topic, "", retain: true, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>
     private async Task ClearLegacyDiscoveryAsync(CancellationToken ct)
     {
@@ -554,6 +597,9 @@ internal sealed class HomeAssistantService : IDisposable
                 .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
             await _client.PublishAsync(msg, ct).ConfigureAwait(false);
+            // The one choke point every outbound message passes through, so recording here is the
+            // whole "when did anything last reach the broker" fact the settings page reports.
+            MqttActivity.RecordPublish();
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitize(ex)); }
     }

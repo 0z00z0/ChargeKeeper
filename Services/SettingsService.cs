@@ -106,6 +106,63 @@ internal sealed class AppSettings
     /// </summary>
     public int DowntimeGapMinutes { get; set; } = 1;
 
+    // ── Keep awake (issue #90) ──────────────────────────────────────────────────
+    /// <summary>
+    /// The one-click keep-awake spans. The ACTIVE SESSION is never persisted — only these presets and
+    /// <see cref="KeepAwakeDisplayOn"/> — because keep-awake surviving a reboot would be a surprise.
+    /// </summary>
+    public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
+    [
+        new(KeepAwakeKind.Duration,  TimeSpan.FromMinutes(30), null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(1),    null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(3),    null),
+        new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)),
+    ];
+
+    /// <summary>
+    /// Also keep the DISPLAY on while a keep-awake session runs. Off by default: the common case is a
+    /// long build or download finishing, where the screen may sleep as usual.
+    /// </summary>
+    public bool KeepAwakeDisplayOn { get; set; } = false;
+
+    // ── Lid-close delay (issue #90) ─────────────────────────────────────────────
+    /// <summary>
+    /// Wait <see cref="LidDelayMinutes"/> after the lid closes before sleeping. OFF by default and
+    /// never defaulted on: turning it on changes a Windows power setting OUTSIDE the app (the
+    /// lid-close action, parked on "do nothing" for as long as it runs), which is only ever the
+    /// user's call to make. See <see cref="LidDelayService"/> for why nothing lighter works.
+    /// </summary>
+    public bool LidDelayEnabled { get; set; } = false;
+
+    /// <summary>How long to hold the machine awake after the lid closes, in minutes.</summary>
+    public int LidDelayMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// The user's OWN lid-close action indices, saved before the feature overrode them, so they can be
+    /// put back — including after a crash, which is the failure mode this pair exists for.
+    /// <para>NULLABLE on purpose: "do nothing" is index 0 and is a value the user may legitimately have
+    /// set themselves, so a plain int could not tell that apart from "nothing was ever saved" and the
+    /// restore would skip them. Null means the power scheme is untouched.</para>
+    /// </summary>
+    public int? LidDelaySavedAcAction { get; set; }
+    public int? LidDelaySavedDcAction { get; set; }
+
+    /// <summary>
+    /// WHICH power scheme the saved indices came from. Lid actions are per-scheme, so the values are
+    /// meaningless without it: restoring them into whatever plan is active later would overwrite that
+    /// plan's setting and leave the captured one still parked on "do nothing". Null on a settings file
+    /// written before this was tracked — the restore then falls back to the active scheme.
+    /// </summary>
+    public string? LidDelaySavedScheme { get; set; }
+
+    /// <summary>
+    /// Whether the lid-close action was overridden and the user's own value is still owed back. True
+    /// if EITHER side is stored: a half-written pair still means the power scheme was touched, so it
+    /// must drive a restore rather than being read as clean.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasSavedLidAction => LidDelaySavedAcAction is not null || LidDelaySavedDcAction is not null;
+
     // ── Network / dock-based profiles (TODO #31) ────────────────────────────────
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
@@ -161,6 +218,20 @@ internal sealed class AppSettings
     /// "chargekeeper/&lt;node&gt;/…".
     /// </summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
+
+    /// <summary>
+    /// Friendly name of the device Home Assistant creates (issue #87). Empty = "ChargeKeeper
+    /// (&lt;machine name&gt;)", so an existing install is byte-identical after upgrading.
+    /// </summary>
+    public string MqttDeviceName { get; set; } = "";
+
+    /// <summary>
+    /// Node id override (issue #87) — this is the MQTT client id, the <c>unique_id</c>/<c>object_id</c>
+    /// stem, the device identifier AND every topic segment. Empty = derived from the machine name
+    /// (<see cref="HaDiscovery.NodeId"/>). Changing it actively evicts the old id's retained topics so
+    /// HA deletes the previous device instead of leaving a ghost beside the new one.
+    /// </summary>
+    public string MqttNodeId { get; set; } = "";
 
     // ── Settings window (TODO #19) ──────────────────────────────────────────────
     /// <summary>
@@ -307,6 +378,15 @@ internal static class SettingsService
     {
         if (ReadFile(_path) is not { } loaded) return false;
         lock (_lock) { _current = loaded; }
+        Reloaded?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT reconnect)
         return true;
     }
+
+    /// <summary>
+    /// Raised after <see cref="Reload"/> successfully swaps <see cref="Current"/>. Services that hold
+    /// their own copy of a setting must reconcile here: the Settings window's reload only refreshes
+    /// what it DISPLAYS, so without this an out-of-band edit to (say) the MQTT node id sat in
+    /// <see cref="Current"/> while the live client kept publishing under the previous one.
+    /// </summary>
+    public static event Action? Reloaded;
 }

@@ -16,6 +16,7 @@
   <Project Path="Vendors/Abstractions/ChargeKeeper.Vendors.Abstractions.csproj" />
   <Project Path="Vendors/Lenovo/ChargeKeeper.Vendors.Lenovo.csproj" />
   <Project Path="Vendors/Hp/ChargeKeeper.Vendors.Hp.csproj" />
+  <Project Path="Vendors/Surface/ChargeKeeper.Vendors.Surface.csproj" />
   <Folder Name="/native/">
     <File Path="native/pwrmgr.idl" />
     <File Path="native/lenpower.c" />
