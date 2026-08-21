@@ -408,12 +408,12 @@ internal sealed class TrayMenu
         // (activated via the app manifest's SxS context), and thread-pool threads do not
         // inherit that context — the dialog shows nothing if called from a thread-pool thread.
         var hwnd    = NativeMethods.CaptureHwnd();
-        var outcome = await UpdateCheckService.CheckNowAsync();
+        var outcome = await UpdateCheckService.Shared.CheckNowAsync();
         var running = AppInfo.Version;
 
         switch (outcome.Status)
         {
-            case UpdateCheckService.UpdateStatus.Available:
+            case UpdateStatus.Available:
                 bool canDownload = outcome.InstallerUrl is not null;
                 var action = NativeMethods.ShowUpdateDialog(
                     outcome.LatestVersion!, running,
@@ -430,7 +430,7 @@ internal sealed class TrayMenu
                         {
                             try
                             {
-                                var path = await UpdateCheckService
+                                var path = await UpdateCheckService.Shared
                                     .DownloadInstallerAsync(outcome.InstallerUrl!)
                                     .ConfigureAwait(false);
                                 // Launch installer, then exit so no elevated process remains for
@@ -454,16 +454,15 @@ internal sealed class TrayMenu
                 }
                 break;
 
-            case UpdateCheckService.UpdateStatus.UpToDate:
-                NativeMethods.Info($"You're on the latest version (v{running}).", AppName);
-                break;
-
-            case UpdateCheckService.UpdateStatus.NoReleases:
-                NativeMethods.Info("No releases have been published yet.", AppName);
-                break;
-
+            // Every other status — up to date, no releases, throttled, an HTTP failure, a dead
+            // network, a timeout, an unreadable release — is worded by UpdateMessage, so what
+            // the user reads is decided in a pure helper the tests drive, not here.
             default:
-                NativeMethods.Warn("Could not check for updates.\nCheck your internet connection.", AppName);
+                if (UpdateMessage.For(outcome, running, DateTimeOffset.Now) is { } notice)
+                {
+                    if (notice.IsError) NativeMethods.Warn(notice.Text, AppName);
+                    else                NativeMethods.Info(notice.Text, AppName);
+                }
                 break;
         }
 
