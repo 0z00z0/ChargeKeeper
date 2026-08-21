@@ -61,7 +61,7 @@ internal sealed partial class AboutWindow : Window
         {
             // Width first, measure second: the content only reports the height it will really take
             // once it is laying out at the width it will really be shown at.
-            AppWindow.MoveAndResize(NativeMethods.CenterRectOnCursorMonitor(WidthDip, MinHeightDip));
+            AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, MinHeightDip));
             ContentScroller.UpdateLayout();
             FitWindowToContent();
         }
@@ -97,6 +97,6 @@ internal sealed partial class AboutWindow : Window
 
         // Re-centres and caps to the work area, so a payload taller than the screen scrolls rather
         // than hanging off the bottom.
-        AppWindow.MoveAndResize(NativeMethods.CenterRectOnCursorMonitor(WidthDip, heightDip));
+        AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, heightDip));
     }
 }

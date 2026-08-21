@@ -12,7 +12,7 @@ namespace ChargeKeeper.Tests;
 // side only and the build goes red, naming the row that drifted.
 public class AboutCreditsTests
 {
-    // | [Name](url) | Author | Purpose | License |
+    // | [Name](url) | Author | Purpose | Licence |
     // Name is a markdown link in the README (the project URL) but a bare string in AboutInfo, so the
     // link text is what's compared. Purpose/licence are compared verbatim — a reworded purpose on one
     // side only is exactly the drift that got through last time.

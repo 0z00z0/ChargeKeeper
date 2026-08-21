@@ -182,7 +182,7 @@ internal static class MqttConnectionProbe
     private static string Reason(MqttClientConnectResultCode code, string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? code.ToString() : $"{code}: {reason.Trim()}";
 
-    // Type + message only, mirroring HomeAssistantService.Sanitize: both are broker/OS-generated, so
+    // Type + message only, mirroring HomeAssistantService.Sanitise: both are broker/OS-generated, so
     // no staged credential can ride out of here into the UI.
     private static string Describe(Exception ex) => $"{ex.GetType().Name}: {ex.Message}";
 

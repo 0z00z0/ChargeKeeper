@@ -344,19 +344,19 @@ internal static class NativeMethods
     /// <c>DisplayArea.FindAll</c>, which faulted on a multi-monitor setup and — because the throw
     /// happened in a window constructor — left the window never shown at all.</para>
     /// </summary>
-    internal static RectInt32 CenterRectOnCursorMonitor(int dipWidth, int dipHeight)
+    internal static RectInt32 CentreRectOnCursorMonitor(int dipWidth, int dipHeight)
     {
         var (work, scale) = GetCursorMonitorMetrics();
         int workW = work.Right  - work.Left;
         int workH = work.Bottom - work.Top;
-        return CenterInWorkArea(work,
+        return CentreInWorkArea(work,
                                 Math.Min((int)Math.Round(dipWidth  * scale), workW),
                                 Math.Min((int)Math.Round(dipHeight * scale), workH));
     }
 
     /// <summary>
     /// Centres an already-sized <paramref name="w"/> × <paramref name="h"/> rect (physical px) inside
-    /// <paramref name="work"/>. Split out from <see cref="CenterRectOnCursorMonitor"/> because the
+    /// <paramref name="work"/>. Split out from <see cref="CentreRectOnCursorMonitor"/> because the
     /// callers that centre on the cursor's monitor do NOT agree on how the size is derived — a fixed
     /// DIP size capped to the work area (About/Settings), a percentage of the work area with a DIP
     /// floor (BatteryHistoryWindow), or an outer size the window manager reports only after a
@@ -366,7 +366,7 @@ internal static class NativeMethods
     /// deliberately centre with symmetric overhang rather than being pinned to the top-left corner,
     /// which is what callers that intentionally oversize (a DIP floor on a small screen) want.</para>
     /// </summary>
-    internal static RectInt32 CenterInWorkArea(RECT work, int w, int h)
+    internal static RectInt32 CentreInWorkArea(RECT work, int w, int h)
         => new(work.Left + (work.Right  - work.Left - w) / 2,
                work.Top  + (work.Bottom - work.Top  - h) / 2,
                w, h);
@@ -406,8 +406,8 @@ internal static class NativeMethods
     /// </summary>
     internal static (int X, int Y, int W, int H)? WorkAreaForRect(int x, int y, int w, int h)
     {
-        var center  = new POINT { X = x + w / 2, Y = y + h / 2 };
-        var monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST);
+        var centre  = new POINT { X = x + w / 2, Y = y + h / 2 };
+        var monitor = MonitorFromPoint(centre, MONITOR_DEFAULTTONEAREST);
         var info    = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
         if (!GetMonitorInfo(monitor, ref info))
             return null;

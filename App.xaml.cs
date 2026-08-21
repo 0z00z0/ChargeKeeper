@@ -685,7 +685,7 @@ public partial class App : Application
                 }
 
                 // ── Charger-wattage cache invalidation ────────────────────────
-                // Unplugged: drop ChargerInfoService's memoized adapter wattage, so the next AC
+                // Unplugged: drop ChargerInfoService's memoised adapter wattage, so the next AC
                 // session re-reads whatever adapter is attached then — it may be a different charger.
                 if (_lastBatteryStatus != BatteryStatus.Discharging &&
                     report.Status      == BatteryStatus.Discharging)
@@ -862,7 +862,7 @@ public partial class App : Application
         string chargeIcon = _lastOnAC ? "⚡︎" : "🔋";   // ⚡ + U+FE0E = outline (text) presentation
         // Adapter wattage (TODO #41) rides along in the "AC" label itself — "AC (65W)" — rather
         // than as a separate line, since it's a property of the power SOURCE, not a new stat. Read
-        // ChargerInfoService's own memoized value (this label only shows on AC, where it's warmed).
+        // ChargerInfoService's own memoised value (this label only shows on AC, where it's warmed).
         string acLabel = ChargerInfoService.CachedWattage is { } watts ? $"AC ({watts}W)" : "AC";
         lines.Append(_lastOnAC
             ? $"\n{chargeIcon} {acLabel} · {pct}%"

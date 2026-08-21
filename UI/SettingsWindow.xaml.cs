@@ -300,7 +300,7 @@ internal sealed partial class SettingsWindow : Window
             return new RectInt32(cx, cy, cw, ch);
         }
 
-        return NativeMethods.CenterRectOnCursorMonitor(DefaultWidth, DefaultHeight);
+        return NativeMethods.CentreRectOnCursorMonitor(DefaultWidth, DefaultHeight);
     }
 
     /// <summary>
@@ -1801,7 +1801,7 @@ internal sealed partial class SettingsWindow : Window
     /// in this window's save model, so <c>HomeAssistantService</c> reconnects at most once per
     /// Apply click rather than per keystroke. <see cref="AppSettings.MqttPassword"/> is read here
     /// (not on every keystroke) and is never logged or shown in any toast — see
-    /// <c>HomeAssistantService.Sanitize</c>.
+    /// <c>HomeAssistantService.Sanitise</c>.
     /// <para><see cref="AppSettings.MqttDeviceName"/> (#87) belongs here: it is cosmetic in Home
     /// Assistant but reaches it through the same republish every broker field triggers. The device
     /// ID does NOT — it must be impossible to rename every entity as a side effect of applying a

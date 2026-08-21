@@ -226,7 +226,7 @@ cd installer
 The app targets the Microsoft stack (.NET, Windows App SDK / WinUI 3, `System.*` runtime
 packages). The only **non-Microsoft** dependencies are:
 
-| Library | Author | Purpose | License |
+| Library | Author | Purpose | Licence |
 |---------|--------|---------|---------|
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
@@ -297,18 +297,18 @@ one Lenovo Vantage uses.
 - **[LenPwrCtl](https://github.com/alandau/LenPwrCtl)** by **alandau** (MIT) — the Power Manager RPC
   interface in [`native/pwrmgr.idl`](native/pwrmgr.idl) (endpoint, context handles, and the
   `LpcGetChargeThreshold` / `LpcSetChargeThreshold` procedure layout) was **reverse-engineered by
-  this project** and is reused here under its MIT license. This app would not be possible without it.
+  this project** and is reused here under its MIT licence. This app would not be possible without it.
   Huge thanks. 🙏
 
 The `native/` bridge (`lenpower.c`) is a thin wrapper that exposes two flat exports over that
 interface for the managed app to P/Invoke; the interface definition itself is alandau's work.
 
 **Tooling:** the installer is built with **[Inno Setup](https://jrsoftware.org/isinfo.php)** by
-Jordan Russell & Martijn Laan (free, with attribution under its license), and distributed via
+Jordan Russell & Martijn Laan (free, with attribution under its licence), and distributed via
 **[winget](https://github.com/microsoft/winget-cli)** (Microsoft, MIT).
 
-## License
+## Licence
 
 [MIT](LICENSE) © ZeroZero Software ([0z0.xyz](https://0z0.xyz)) — you are free to use, modify,
-fork, and redistribute, including commercially, **provided you keep the copyright and license
+fork, and redistribute, including commercially, **provided you keep the copyright and licence
 notice**. See [LICENSE](LICENSE) for the full text.

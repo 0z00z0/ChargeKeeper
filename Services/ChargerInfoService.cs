@@ -8,7 +8,7 @@ internal static class ChargerInfoService
 {
     // The rated wattage can't change while the same adapter stays attached, but every provider read
     // is a full ncalrpc connect→call→disconnect (see native/lenpower.c) — and consumers poll it
-    // (tooltip on each battery report, the pop-out's 5s stats tick). Memoize the reading here so the
+    // (tooltip on each battery report, the pop-out's 5s stats tick). Memoise the reading here so the
     // caching policy lives in the facade instead of each caller keeping a private copy. Tri-state:
     //   > 0  cached wattage
     //   = 0  uncached — query on next read
@@ -38,7 +38,7 @@ internal static class ChargerInfoService
     }
 
     /// <summary>
-    /// The memoized reading only — never triggers an RPC, so it's safe on the UI thread. Null when
+    /// The memoised reading only — never triggers an RPC, so it's safe on the UI thread. Null when
     /// cold OR known-unavailable; callers that need a real read then call
     /// <see cref="GetRatedWattage"/> off-thread.
     /// </summary>

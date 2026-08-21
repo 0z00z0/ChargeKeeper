@@ -75,7 +75,7 @@ public class BatteryHistoryServiceTests : IDisposable
 
         Assert.Equal(sample.AtUtc, parsed.AtUtc);              // same instant, to the second
         Assert.Equal(DateTimeKind.Utc, parsed.AtUtc.Kind);    // stored representation stays UTC
-        // Serialized as ISO 8601 with a local offset, NOT a Unix-millis integer.
+        // Serialised as ISO 8601 with a local offset, NOT a Unix-millis integer.
         Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2},", line);
     }
 
