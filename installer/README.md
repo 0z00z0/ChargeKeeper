@@ -232,7 +232,7 @@ winget upgrade 0z00z0.ChargeKeeper      # update to a newer published version
 > This is the intended trade-off for keeping the app and installer simple.
 
 ### Manifests (`winget/`)
-Three files target `0z00z0.ChargeKeeper`: `*.installer.yaml`, `*.locale.en-US.yaml`, and the version
+Three files target `0z00z0.ChargeKeeper`: `*.installer.yaml`, `*.locale.en-GB.yaml`, and the version
 manifest. Validate / test locally before publishing:
 
 ```powershell

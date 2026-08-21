@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
 PackageIdentifier: 0z00z0.ChargeKeeper
 PackageVersion: 1.0.0
-DefaultLocale: en-US
+DefaultLocale: en-GB
 ManifestType: version
 ManifestVersion: 1.6.0
