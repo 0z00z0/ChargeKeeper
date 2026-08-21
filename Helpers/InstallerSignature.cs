@@ -7,67 +7,45 @@ namespace ChargeKeeper.Helpers;
 /// <summary>What was concluded about a downloaded installer's Authenticode signature.</summary>
 internal enum InstallerVerdict
 {
-    /// <summary>Signature intact and the signer is the expected publisher. The only value that may
-    /// be launched. Deliberately NOT the zero value — a default-constructed verdict must never read
-    /// as permission to run an executable.</summary>
+    /// <summary>Intact and signed by the expected publisher — the only value that may be launched.
+    /// Deliberately not zero, so a default-constructed verdict cannot read as permission to run.</summary>
     Accepted = 1,
 
-    /// <summary>The file carries no Authenticode signature at all.</summary>
+    /// <summary>No Authenticode signature at all.</summary>
     NotSigned,
 
-    /// <summary>A signature is present but does not match the file's contents: damaged in transit,
-    /// or altered after signing.</summary>
+    /// <summary>Signed, but the signature does not match the contents: damaged or altered.</summary>
     Tampered,
 
     /// <summary>Signed, intact, but by somebody else.</summary>
     WrongPublisher,
 
-    /// <summary>Signed by the expected publisher, but the certificate itself cannot be accepted —
-    /// expired, revoked, or explicitly distrusted.</summary>
+    /// <summary>Right publisher, but the certificate is expired, revoked or distrusted.</summary>
     UntrustedCertificate,
 
-    /// <summary>The signature could not be examined: the file is missing, unreadable, or the signer
-    /// certificate would not parse.</summary>
+    /// <summary>The signature could not be examined at all.</summary>
     Unreadable,
 }
 
 /// <summary>
 /// The launch/refuse decision for a downloaded installer, kept pure so it can be exercised without
-/// a signed fixture: it takes the two pieces of evidence — what WinVerifyTrust concluded, and who
-/// signed — and returns a verdict. <see cref="InstallerSignature"/> is the half that touches files.
+/// a signed fixture. <see cref="InstallerSignature"/> is the half that touches files.
 /// </summary>
 /// <remarks>
-/// <para>
-/// THE POLICY, and why it is not plain chain validation: the ChargeKeeper release certificate is
-/// SELF-SIGNED (subject == issuer). A full chain-trust check therefore fails on every machine that
-/// has not had that root installed — which is every user's machine — so requiring
-/// <c>S_OK</c> would block every legitimate update. Requiring nothing would verify nothing.
-/// </para>
-/// <para>
-/// So: the signature must be cryptographically INTACT (a bad digest is rejected outright, which is
-/// what catches a tampered or swapped file), and the signer subject must be exactly
-/// <see cref="ExpectedPublisher"/>. Beyond that, one and only one chain failure is tolerated —
-/// the untrusted/incomplete root that the self-signed certificate necessarily produces. An expired
-/// or revoked certificate is still refused.
-/// </para>
-/// <para>
-/// The residual gap, stated rather than papered over: because an untrusted root is tolerated,
-/// anyone can mint a self-signed certificate whose subject reads <c>CN=ZeroZero Software</c> and
-/// pass this check. What that buys an attacker is nothing over the wire — the download is HTTPS
-/// from GitHub — so the case that mattered was a file planted at a predictable local path, and
-/// that is closed by <see cref="InstallerSignature.NewDownloadPath"/> giving every run its own
-/// fresh directory instead. Pinning the certificate thumbprint would close the gap outright; it is
-/// not done here because a pinned thumbprint turns the next certificate rotation into a silent
-/// update outage for everyone still on the old build.
-/// </para>
+/// Not plain chain validation: the release certificate is self-signed, so a full chain-trust check
+/// fails on every machine that has not installed that root — every user's machine. Instead the
+/// signature must be cryptographically intact and the signer subject exactly
+/// <see cref="ExpectedPublisher"/>, and only the untrusted/incomplete root a self-signed certificate
+/// necessarily produces is tolerated; expired and revoked are still refused. The residual gap is
+/// that anyone can mint a self-signed certificate with the same subject. Thumbprint pinning would
+/// close it, at the cost of turning the next certificate rotation into a silent update outage.
 /// </remarks>
 internal static class InstallerSignaturePolicy
 {
     /// <summary>The subject the release certificate must carry, exactly as signtool writes it.</summary>
     internal const string ExpectedPublisher = "CN=ZeroZero Software";
 
-    // WinVerifyTrust result codes. Only the ones the policy distinguishes are named; anything else
-    // falls through to UntrustedCertificate, which refuses.
+    // WinVerifyTrust result codes. Anything not named here falls through to UntrustedCertificate.
     internal const uint S_OK                        = 0x00000000;
     internal const uint TRUST_E_NOSIGNATURE         = 0x800B0100;
     internal const uint TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0003;
@@ -77,15 +55,11 @@ internal static class InstallerSignaturePolicy
     internal const uint CERT_E_CHAINING             = 0x800B010A;
     internal const uint CERT_E_EXPIRED              = 0x800B0101;
 
-    /// <summary>
-    /// The verdict for one downloaded file.
-    /// </summary>
-    /// <param name="trustResult">What WinVerifyTrust returned for the file.</param>
-    /// <param name="signerSubject">The signer certificate's subject, or null when none could be read.</param>
+    /// <summary>The verdict for one downloaded file, from what WinVerifyTrust returned and the signer
+    /// certificate's subject (null when none could be read).</summary>
     internal static InstallerVerdict Decide(uint trustResult, string? signerSubject)
     {
-        // Ordered so the most specific and most useful thing to tell the user wins. "Not signed"
-        // and "tampered" come first because both are true regardless of who the certificate claims
+        // "Not signed" and "tampered" come first: both hold regardless of who the certificate claims
         // to be, and a tampered file still carries the real publisher's certificate.
         if (trustResult is TRUST_E_NOSIGNATURE or TRUST_E_SUBJECT_FORM_UNKNOWN or TRUST_E_PROVIDER_UNKNOWN)
             return InstallerVerdict.NotSigned;
@@ -101,25 +75,19 @@ internal static class InstallerSignaturePolicy
         if (!string.Equals(signerSubject.Trim(), ExpectedPublisher, StringComparison.OrdinalIgnoreCase))
             return InstallerVerdict.WrongPublisher;
 
-        // S_OK means the root IS installed on this machine (a developer box, typically).
-        // CERT_E_UNTRUSTEDROOT / CERT_E_CHAINING is the expected answer everywhere else, and is the
-        // only chain failure tolerated — see the remarks.
+        // S_OK means the root is installed here; untrusted-root/chaining is the expected answer
+        // everywhere else and the only chain failure tolerated — see the remarks.
         return trustResult is S_OK or CERT_E_UNTRUSTEDROOT or CERT_E_CHAINING
             ? InstallerVerdict.Accepted
             : InstallerVerdict.UntrustedCertificate;
     }
 
-    /// <summary>
-    /// Whether a verified download may be launched. One place, so the launch site cannot invent its
-    /// own reading of a verdict, and so "only Accepted runs" is assertable rather than resting on an
-    /// inequality buried in UI code.
-    /// </summary>
+    /// <summary>Whether a verified download may be launched. One place, so "only Accepted runs" is
+    /// assertable rather than resting on an inequality buried in UI code.</summary>
     internal static bool MayLaunch(InstallerVerdict verdict) => verdict == InstallerVerdict.Accepted;
 
-    /// <summary>
-    /// What to tell the user when a download is refused. Never claims the file was deleted — that is
-    /// best-effort at the call site, and a report states only what was verified.
-    /// </summary>
+    /// <summary>What to tell the user when a download is refused. Never claims the file was deleted —
+    /// that is best-effort at the call site.</summary>
     internal static string MessageFor(InstallerVerdict verdict)
     {
         var reason = verdict switch
@@ -151,26 +119,46 @@ internal static class InstallerSignaturePolicy
 /// </summary>
 internal static class InstallerSignature
 {
+    /// <summary>Prefix of the per-run download directory under %TEMP%.</summary>
+    private const string DownloadDirPrefix = "ChargeKeeper-Update-";
+
     /// <summary>
-    /// A path for one download: a fresh directory per run, not the fixed
-    /// <c>%TEMP%\ChargeKeeper-Setup.exe</c> it replaces.
-    /// <para>
-    /// The old path was written and then executed, which is a plant/TOCTOU surface: anything able to
-    /// create that name first — a stale file from an earlier run, a second ChargeKeeper instance, a
-    /// junction — decides what gets launched with the user's consent. A random directory created
-    /// fresh means the name cannot be predicted or pre-occupied.
-    /// </para>
+    /// A path for one download: a fresh, unpredictable directory per run. A fixed path is a
+    /// plant/TOCTOU surface — anything able to create that name first decides what gets launched
+    /// with the user's consent.
     /// </summary>
     internal static string NewDownloadPath()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "ChargeKeeper-Update-" + Guid.NewGuid().ToString("N"));
+        var dir = Path.Combine(Path.GetTempPath(), DownloadDirPrefix + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "ChargeKeeper-Setup.exe");
     }
 
     /// <summary>
-    /// The verdict for the file at <paramref name="path"/>. Never throws.
+    /// Removes download directories left over from earlier update runs. An accepted update launches
+    /// the installer and exits on the next line, so <see cref="Discard"/> never runs and the ~56 MB
+    /// directory is orphaned. Best-effort per directory: one that is locked must not stop the rest,
+    /// and a failure here must never affect the update flow.
     /// </summary>
+    public static void SweepPreviousDownloads()
+    {
+        try
+        {
+            // GetDirectories, not EnumerateDirectories: deleting entries out of a live enumeration
+            // of the same parent can skip or throw.
+            foreach (var dir in Directory.GetDirectories(Path.GetTempPath(), DownloadDirPrefix + "*"))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch { /* still in use, or not ours to delete */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Update: could not sweep previous download directories.", ex);
+        }
+    }
+
+    /// <summary>The verdict for the file at <paramref name="path"/>. Never throws.</summary>
     internal static InstallerVerdict Verify(string path)
     {
         try
@@ -179,14 +167,12 @@ internal static class InstallerSignature
 
             var trustResult = Native.VerifyTrust(path);
 
-            // Read separately from WinVerifyTrust: the trust call reports WHETHER the file verifies,
-            // never WHO signed it, and the publisher half of the policy needs the subject.
+            // Read separately: WinVerifyTrust reports whether the file verifies, never who signed it.
             string? subject = null;
             try
             {
-                // The DER blob comes from crypt32, not X509CertificateLoader.LoadCertificateFromFile:
-                // that loader reads a file that IS a certificate, and an Authenticode-signed PE is not
-                // one — it fails with CRYPT_E_NOT_FOUND on a real signed installer.
+                // Not X509CertificateLoader.LoadCertificateFromFile — that loader reads a file that
+                // IS a certificate, and fails with CRYPT_E_NOT_FOUND on a signed PE.
                 if (Native.ReadSignerCertificate(path) is { } der)
                 {
                     using var cert = X509CertificateLoader.LoadCertificate(der);
@@ -195,9 +181,8 @@ internal static class InstallerSignature
             }
             catch
             {
-                // No signer certificate to read. The trust result still decides between "not signed"
-                // and "unreadable"; leaving subject null is what makes an intact-but-opaque
-                // signature refuse rather than fall through.
+                // Leaving subject null is what makes an intact-but-opaque signature refuse rather
+                // than fall through.
             }
 
             return InstallerSignaturePolicy.Decide(trustResult, subject);
@@ -215,7 +200,7 @@ internal static class InstallerSignature
         try
         {
             var dir = Path.GetDirectoryName(path);
-            if (dir is not null && Path.GetFileName(dir).StartsWith("ChargeKeeper-Update-", StringComparison.Ordinal))
+            if (dir is not null && Path.GetFileName(dir).StartsWith(DownloadDirPrefix, StringComparison.Ordinal))
                 Directory.Delete(dir, recursive: true);
             else if (File.Exists(path))
                 File.Delete(path);
@@ -269,16 +254,14 @@ internal static class InstallerSignature
         private static extern uint WinVerifyTrust(nint hwnd, ref Guid pgActionID, nint pWVTData);
 
         /// <summary>
-        /// Runs the generic Authenticode verify over one file and returns the raw HRESULT, which is
-        /// the evidence <see cref="InstallerSignaturePolicy.Decide"/> reasons about. Revocation
-        /// checking is off: it is a network call on the launch path, and a self-signed certificate
-        /// has no CRL/OCSP endpoint for it to reach anyway.
+        /// Runs the generic Authenticode verify over one file and returns the raw HRESULT. Revocation
+        /// checking is off: it is a network call on the launch path, and a self-signed certificate has
+        /// no CRL/OCSP endpoint to reach anyway.
         /// <para>
-        /// dwProvFlags stays 0. Setting WTD_SAFER_FLAG (0x100) — which most sample code does — makes
-        /// WinVerifyTrust collapse every failure into TRUST_E_NOSIGNATURE, GetLastError included, so
-        /// a file altered after signing comes back indistinguishable from one that was never signed.
-        /// Measured against a real release installer with one byte flipped: 0x800B0100 with the flag,
-        /// 0x80096010 (TRUST_E_BAD_DIGEST) without it.
+        /// dwProvFlags must stay 0. WTD_SAFER_FLAG (0x100), which most sample code sets, makes
+        /// WinVerifyTrust collapse every failure into TRUST_E_NOSIGNATURE, so an altered file becomes
+        /// indistinguishable from an unsigned one. Measured on a release installer with one byte
+        /// flipped: 0x800B0100 with the flag, 0x80096010 (TRUST_E_BAD_DIGEST) without.
         /// </para>
         /// </summary>
         internal static uint VerifyTrust(string path)
@@ -313,8 +296,8 @@ internal static class InstallerSignature
 
                 var result = WinVerifyTrust(nint.Zero, ref action, dataPtr);
 
-                // WTD_STATEACTION_VERIFY allocates state inside WINTRUST_DATA; the CLOSE pass on the
-                // same buffer is what frees it. Skipping it leaks a handle per check.
+                // VERIFY allocates state inside WINTRUST_DATA; the CLOSE pass on the same buffer is
+                // what frees it. Skipping it leaks a handle per check.
                 var close = Marshal.PtrToStructure<WINTRUST_DATA>(dataPtr);
                 close.dwStateAction = WTD_STATEACTION_CLOSE;
                 Marshal.StructureToPtr(close, dataPtr, fDeleteOld: false);
@@ -378,15 +361,10 @@ internal static class InstallerSignature
 
         /// <summary>
         /// DER bytes of the certificate that signed <paramref name="path"/>, or null when the file
-        /// carries no readable embedded signature.
-        /// <para>
-        /// This is the path <c>X509Certificate.CreateFromSignedFile</c> took before it was obsoleted
-        /// (SYSLIB0057): CryptQueryObject opens the PE's embedded PKCS#7 through the OS subject
-        /// interface package, CMSG_SIGNER_CERT_INFO_PARAM names the signer among the certificates the
-        /// message carries, and the store lookup returns that one. Reading it here rather than
-        /// letting a managed loader parse the PE keeps the bytes identical to what Windows itself
-        /// treats as the signer — the pin compares a hash of exactly these bytes.
-        /// </para>
+        /// carries no readable embedded signature. Replaces the obsoleted (SYSLIB0057)
+        /// <c>X509Certificate.CreateFromSignedFile</c>: CryptQueryObject opens the PE's embedded
+        /// PKCS#7, CMSG_SIGNER_CERT_INFO_PARAM names the signer, and the store lookup returns it —
+        /// so the bytes are identical to what Windows itself treats as the signer.
         /// </summary>
         internal static byte[]? ReadSignerCertificate(string path)
         {

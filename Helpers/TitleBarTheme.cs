@@ -8,37 +8,27 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Paints a standard window title bar in the studio dark palette so it stops clashing with the
-/// dark Mica backdrop the windows use. Only touches the title-bar colours (never the presenter /
-/// border), so it is safe to call on any window; on a frameless popup it is simply a no-op that
-/// the guard below swallows. Caption-button backgrounds are painted the dark Bg (Mica does not
-/// fill the non-client caption area) so the whole title bar reads as one uniform dark surface.
+/// Paints a standard window title bar in the studio dark palette so it stops clashing with the dark
+/// Mica backdrop. Only touches title-bar colours, never the presenter or border, so it is safe to
+/// call on any window and a no-op on a frameless popup.
 /// </summary>
 internal static class TitleBarTheme
 {
-    // Studio dark palette (see 0z0-design). Kept local rather than reusing AppColors so this helper
-    // stays self-contained around Windows.UI.Color / AppWindowTitleBar with no WinUI-media coupling.
+    // Kept local rather than reusing AppColors, so this helper stays free of WinUI-media coupling.
     private static readonly Color Bg     = Color.FromArgb(0xFF, 0x0a, 0x0f, 0x17); // window/title background
     private static readonly Color Hover  = Color.FromArgb(0xFF, 0x1a, 0x28, 0x40); // caption-button hover
     private static readonly Color Text   = Color.FromArgb(0xFF, 0xdd, 0xe6, 0xf4); // title + glyph foreground
 
-    /// <summary>
-    /// Applies the studio-dark title-bar colours to <paramref name="appWindow"/>. Guarded and
-    /// gated behind <see cref="AppWindowTitleBar.IsCustomizationSupported"/> so it can never throw
-    /// out to the caller (a title-bar customisation failure must not stop a window from showing).
-    /// </summary>
+    /// <summary>Applies the studio-dark title-bar colours to <paramref name="appWindow"/>. Never
+    /// throws — a title-bar customisation failure must not stop a window from showing.</summary>
     internal static void ApplyDark(AppWindow? appWindow)
     {
         try
         {
             if (appWindow is null) return;
 
-            // Make the taskbar / Alt-Tab / title-bar icon the current steel battery rather than
-            // whatever the window inherited or cached. AppIcon.ico is the transparent
-            // product-palette glyph: its light SteelBlue/Sage tones read well against this dark
-            // title bar, and having no plate means nothing boxes the icon in. (SetupIcon.ico is
-            // the installer's dense variant for Inno's LIGHT chrome — deliberately not used here;
-            // its ink tones would disappear against #0a0f17.)
+            // AppIcon.ico, not the installer's SetupIcon.ico: the latter's ink tones are drawn for
+            // Inno's light chrome and would disappear against this background.
             try
             {
                 var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
@@ -55,10 +45,8 @@ internal static class TitleBarTheme
             tb.ForegroundColor         = Text;
             tb.InactiveForegroundColor = Text;
 
-            // Fill the caption-button strip with the dark Bg. Mica does NOT paint the non-client
-            // caption area, so leaving these Transparent rendered a light strip behind the
-            // min/max/close buttons that clashed with the dark title bar. Painting them Bg makes the
-            // whole title bar uniformly dark; the hover colour stays a lighter steel for feedback.
+            // Mica does not paint the non-client caption area, so leaving these Transparent renders
+            // a light strip behind the min/max/close buttons.
             tb.ButtonBackgroundColor         = Bg;
             tb.ButtonInactiveBackgroundColor = Bg;
             tb.ButtonForegroundColor         = Text;

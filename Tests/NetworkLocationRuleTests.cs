@@ -69,7 +69,7 @@ public class NetworkLocationRuleTests
         Assert.False(new NetworkLocation(null, "10.0.1.0/24", true, null).IsEmpty);
     }
 
-    // ── Keep awake here (issue #90) ──────────────────────────────────────────────
+    // Keep awake here
 
     [Fact]
     public void KeepAwakeHere_DefaultsToFalse_SoOldRulesAreUnaffected()
@@ -80,8 +80,8 @@ public class NetworkLocationRuleTests
     [Fact]
     public void KeepAwakeHere_ComesFromTheFirstMatchingRule_NotAnyMatchingRule()
     {
-        // The keep-awake reaction reads FindNetworkRule — the same first-match-wins lookup the preset
-        // auto-apply uses — so a LATER rule that also matches must not turn keep-awake on.
+        // The keep-awake reaction reads FindNetworkRule, the same first-match-wins lookup the preset
+        // auto-apply uses, so a later rule that also matches must not turn keep-awake on.
         var settings = new AppSettings
         {
             NetworkLocationRules =

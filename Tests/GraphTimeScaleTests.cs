@@ -5,10 +5,8 @@ namespace ChargeKeeper.Tests;
 
 public class GraphTimeScaleTests
 {
-    // GraphTimeScale is internal, and a public [Theory] method can't have an internal type
-    // directly in its parameter list (InternalsVisibleTo doesn't override that accessibility
-    // rule) — so InlineData passes the scale name and the enum is parsed inside the method body,
-    // where internal types are freely usable.
+    // GraphTimeScale is internal and a public [Theory] parameter cannot be, so InlineData passes the
+    // scale name and the enum is parsed inside the method body.
     [Theory]
     [InlineData("FifteenMinutes", 15)]
     [InlineData("OneHour",        60)]

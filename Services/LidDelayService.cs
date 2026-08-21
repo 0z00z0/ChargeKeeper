@@ -4,46 +4,27 @@ using ChargeKeeper.Helpers;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// Waits N minutes after the lid closes before letting the machine sleep (issue #90). The rules live
-/// in the pure <see cref="LidDelayPolicy"/>; this owns the power-scheme override, the lid
-/// subscription, the OS hold and the suspend.
-/// <para>
-/// WHY THIS TOUCHES A WINDOWS SETTING AT ALL: <c>SetThreadExecutionState</c> — the whole mechanism
-/// behind <see cref="KeepAwakeService"/> — cannot help here. Lid close is a power-policy ACTION, not
-/// an idle timeout, and the API is documented as unable to "prevent the user from putting the
-/// computer to sleep". The only way to delay it is to override the user's own lid-close action to
-/// "do nothing" for as long as the feature is on, hold the machine awake for the delay, and then
-/// suspend explicitly. Nothing lighter works.
-/// </para>
-/// <para>
-/// CRASH SAFETY IS THE POINT. An app that dies with the override in place leaves a laptop that
-/// silently stops sleeping on lid close — a battery-draining regression the user never asked for,
-/// and one they cannot even undo through Settings, because Windows HIDES the lid-close action on
-/// Modern Standby machines. So: the user's own values are persisted BEFORE anything is written, they
-/// are never re-captured while stored (that would save our own override as if it were theirs),
-/// <see cref="Start"/> puts them back whenever it finds them stored with the feature off, and a
-/// restore clears the record only once the write has actually succeeded.
-/// </para>
-/// <para>
-/// Lid actions are PER-SCHEME, so the scheme they were captured from is stored with them and every
-/// write targets it explicitly. Writing "whichever plan is active now" would, after a power-plan
-/// switch, clobber the second plan's setting while leaving the first parked on the override.
-/// </para>
-/// <para>
-/// The OS hold uses its own holder thread rather than <see cref="KeepAwakeService"/>: that service
-/// has a single current session, so borrowing it would silently cancel a keep-awake the user started
-/// by hand. The per-thread rule for <c>SetThreadExecutionState</c> is the same one documented there.
-/// </para>
+/// Waits N minutes after the lid closes before letting the machine sleep. The rules live in the pure
+/// <see cref="LidDelayPolicy"/>; this owns the power-scheme override, the lid subscription, the OS
+/// hold and the suspend.
 /// </summary>
+/// <remarks>
+/// Lid close is a power-policy action, not an idle timeout, so <c>SetThreadExecutionState</c> cannot
+/// delay it: the only mechanism is to park the user's own lid-close action on "do nothing" while the
+/// feature is on, hold the machine awake, then suspend explicitly. Those values must reach disk
+/// BEFORE the scheme is written and are never re-captured while stored, or a crash strands the laptop
+/// on "do nothing" — which Windows hides from Settings on Modern Standby machines. Lid actions are
+/// per-scheme, so the scheme is stored with them and every write targets it explicitly. The OS hold
+/// uses its own holder thread rather than <see cref="KeepAwakeService"/>'s single current session,
+/// which borrowing would cancel.
+/// </remarks>
 internal static class LidDelayService
 {
-    // Guards _delayPending + _timer + _lidSeeded + _generation. Nothing here raises events, so there
-    // is no "invoke outside the lock" dance to match KeepAwakeService's.
+    // Guards _delayPending + _timer + _lidSeeded + _generation + _started.
     private static readonly System.Threading.Lock _sync = new();
 
     // Separate from _sync because Subscribe holds it across RegisterLidNotification, during which
-    // Windows delivers the seeding callback — and that callback takes _sync. Splitting the two keeps
-    // the registering thread (often the UI thread) from holding a lock the callback needs.
+    // Windows delivers the seeding callback — and that callback takes _sync.
     private static readonly System.Threading.Lock _subscribeSync = new();
 
     private static System.Threading.Timer? _timer;
@@ -52,7 +33,7 @@ internal static class LidDelayService
     private static long   _generation;     // bumped by anything that invalidates a queued suspend
     private static IntPtr _lidRegistration = IntPtr.Zero;
 
-    // The override this process actually applied, and the values it displaced. AUTHORITATIVE over
+    // The override this process applied, and the values it displaced. Authoritative over
     // settings.json while it is set — see OnSettingsReloaded.
     private static (Guid Scheme, uint Ac, uint Dc)? _appliedOverride;
 
@@ -61,15 +42,10 @@ internal static class LidDelayService
 
     private static bool _started;
 
-    /// <summary>Whether a lid-close delay is currently counting down.</summary>
-    public static bool IsDelayPending { get { lock (_sync) return _delayPending; } }
-
     /// <summary>
-    /// Reconciles the power scheme with the stored settings and, when the feature is on, subscribes to
-    /// the lid switch. Called once at startup next to <see cref="KeepAwakeService.Start"/>.
-    /// <para>This is the crash-recovery entry point: it runs the <see cref="LidDelayPolicy.DecideStartup"/>
-    /// table BEFORE anything else, so a lid action left overridden by a dead process is put back on the
-    /// next launch even if the user never opens Settings again.</para>
+    /// Called once at startup, and also the crash-recovery entry point: it runs the
+    /// <see cref="LidDelayPolicy.DecideStartup"/> table first, so a lid action left overridden by a
+    /// dead process is put back even if the user never opens Settings again.
     /// </summary>
     public static void Start()
     {
@@ -89,22 +65,25 @@ internal static class LidDelayService
     }
 
     /// <summary>
-    /// Releases everything this service owns and puts the user's lid-close action back. Called from
-    /// the app's clean shutdown and from logoff/restart; a crash is covered by <see cref="Start"/>.
+    /// Releases everything this service owns and puts the user's lid-close action back — the exact
+    /// inverse of <see cref="Start"/>, so a later Start can re-arm it. Called from clean shutdown and
+    /// from logoff/restart; a crash is covered by <see cref="Start"/> instead.
     /// </summary>
     public static void Stop()
     {
+        // Dropped along with the rest: OnSettingsReloaded reconciles, and a reload reaching a stopped
+        // service would re-apply the override with no Stop left to undo it.
+        SettingsService.Reloaded -= OnSettingsReloaded;
         CancelDelay();
         Unsubscribe();
         if (SettingsService.Current.HasSavedLidAction) RestoreSavedAction();
+        lock (_sync) { _started = false; }
     }
 
     /// <summary>
-    /// Turns the feature on or off, overriding or restoring the Windows lid-close action to match.
-    /// <para>Returns false ONLY from the enable path, meaning the power scheme could not be written and
-    /// the setting was left off rather than claiming a delay the machine will not honour. The disable
-    /// path always returns true: the setting is off either way, and a failed restore stays owed to the
-    /// next <see cref="Start"/> rather than being the caller's problem.</para>
+    /// Returns false only from the enable path, meaning the power scheme could not be written and the
+    /// setting was left off rather than promising a delay the machine will not honour. Disabling
+    /// always returns true; a failed restore stays owed to the next <see cref="Start"/>.
     /// </summary>
     public static bool SetEnabled(bool enable)
     {
@@ -133,11 +112,8 @@ internal static class LidDelayService
         return true;
     }
 
-    /// <summary>
-    /// Brings the power scheme and the lid subscription in line with the stored settings. Shared by
-    /// <see cref="Start"/> and the settings-reload path so "what state should we be in" is decided in
-    /// exactly one place.
-    /// </summary>
+    /// <summary>Brings the power scheme and the lid subscription in line with the stored settings.
+    /// Shared by <see cref="Start"/> and the settings-reload path.</summary>
     private static void Reconcile()
     {
         switch (LidDelayPolicy.DecideStartup(SettingsService.Current.LidDelayEnabled,
@@ -153,12 +129,9 @@ internal static class LidDelayService
     }
 
     /// <summary>
-    /// Re-reconciles after "Reload settings from file" swaps <see cref="SettingsService.Current"/>.
-    /// <para>The in-memory record wins here. Reload replaces the whole settings object with whatever is
-    /// on disk, and settings.json roams (roaming AppData / OneDrive), so the file can legitimately
-    /// arrive from another machine carrying NO saved lid action while THIS machine's scheme is still
-    /// parked on "do nothing". Believing the file there would lose the user's original for good: the
-    /// next capture would read our own override and persist it as if it were theirs.</para>
+    /// The in-memory record wins over the reloaded file: settings.json roams, so it can arrive from
+    /// another machine with no saved lid action while this machine's scheme is still parked on "do
+    /// nothing", and believing it would lose the user's original for good.
     /// </summary>
     private static void OnSettingsReloaded()
     {
@@ -176,22 +149,16 @@ internal static class LidDelayService
         Reconcile();
     }
 
-    // ── Power-scheme override ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// The scheme the saved values belong to: the stored one, or the active one for a settings file
-    /// written before the scheme was tracked. Null when no scheme can be resolved at all.
-    /// </summary>
+    /// <summary>The stored scheme, or the active one for a settings file written before the scheme
+    /// was tracked. Null when none can be resolved at all.</summary>
     private static Guid? SchemeForSavedValues() =>
         Guid.TryParse(SettingsService.Current.LidDelaySavedScheme, out var stored)
             ? stored
             : NativeMethods.ReadActiveLidCloseAction()?.Scheme;
 
     /// <summary>
-    /// Reads the user's own lid-close actions, PERSISTS them with their scheme, and only then
-    /// overrides them. The order is the whole crash-safety story: the values reach disk before the
-    /// setting they describe is changed, so there is no window in which the override exists and the
-    /// original does not.
+    /// The order matters: the user's own values must reach disk before the setting they describe
+    /// changes, or a crash in between strands the machine on "do nothing".
     /// </summary>
     private static bool CaptureAndOverride()
     {
@@ -212,11 +179,8 @@ internal static class LidDelayService
     }
 
     /// <summary>
-    /// Parks both lid-close actions on "do nothing" WITHOUT touching the saved originals — the path
-    /// taken whenever values are already stored. Re-capturing there would persist this very override
-    /// as the user's own setting.
-    /// <para>Both AC and DC are set because Windows re-evaluates the policy for the current power
-    /// source: leaving DC alone would let the machine sleep on lid close the moment it is unplugged.</para>
+    /// Parks both lid-close actions on "do nothing" without touching the saved originals. Both AC and
+    /// DC are set because Windows re-evaluates the policy for the current power source.
     /// </summary>
     private static bool ApplyOverrideOnly()
     {
@@ -239,9 +203,8 @@ internal static class LidDelayService
     }
 
     /// <summary>
-    /// Writes the user's own lid-close actions back into the scheme they came from, and forgets them.
-    /// The saved values are cleared ONLY after a successful write — a failed restore must stay owed,
-    /// so the next <see cref="Start"/> tries again rather than losing the setting for good.
+    /// The saved values are cleared only after a successful write, so a failed restore stays owed to
+    /// the next <see cref="Start"/> rather than losing the setting for good.
     /// </summary>
     private static bool RestoreSavedAction()
     {
@@ -254,8 +217,8 @@ internal static class LidDelayService
             return false;
         }
 
-        // A half-written pair is still worth restoring: fall back to "sleep", the Windows default for
-        // a lid close, rather than leaving that side parked on our override.
+        // A half-written pair still beats leaving one side parked on the override: fall back to
+        // "sleep", the Windows default for a lid close.
         uint ac = (uint)(s.LidDelaySavedAcAction ?? 1);
         uint dc = (uint)(s.LidDelaySavedDcAction ?? 1);
 
@@ -275,8 +238,6 @@ internal static class LidDelayService
         return true;
     }
 
-    // ── Lid subscription ──────────────────────────────────────────────────────────
-
     private static void Subscribe()
     {
         lock (_subscribeSync)
@@ -284,9 +245,8 @@ internal static class LidDelayService
             if (_lidRegistration != IntPtr.Zero) return;
             lock (_sync) { _lidSeeded = false; }   // the next callback is the registration replay
 
-            // Registered WITHOUT _sync held: Windows delivers the seeding callback during this call,
-            // and that callback takes _sync. Resetting _lidSeeded above is all the ordering the seed
-            // actually needs.
+            // Registered without _sync held: Windows delivers the seeding callback during this call,
+            // and that callback takes _sync.
             var registration = NativeMethods.RegisterLidNotification(OnLidState);
             if (registration == IntPtr.Zero)
             {
@@ -305,7 +265,7 @@ internal static class LidDelayService
             registration     = _lidRegistration;
             _lidRegistration = IntPtr.Zero;
         }
-        // Outside the lock: this is the call that would genuinely deadlock against an in-flight callback.
+        // Outside the lock: this is the call that would deadlock against an in-flight callback.
         NativeMethods.UnregisterLidNotification(registration);
     }
 
@@ -318,15 +278,15 @@ internal static class LidDelayService
         {
             first = !_lidSeeded;
             _lidSeeded = true;
-            // Any lid OPEN invalidates a queued suspend, including one already decided on but not yet
-            // run — at which point _delayPending is false and the policy has nothing left to cancel.
+            // Any lid open invalidates a queued suspend, including one already decided on but not yet
+            // run — by then _delayPending is false and the policy has nothing left to cancel.
             if (!closed) _generation++;
             action = LidDelayPolicy.OnLidState(closed ? LidState.Closed : LidState.Opened,
                                                SettingsService.Current.LidDelayEnabled, _delayPending, first);
         }
 
-        // Logged whatever the policy decided, including the seeding replay: a lid event the feature
-        // ignored is exactly what someone asking "why didn't it sleep" needs to see.
+        // Logged whatever the policy decided, replay included: a lid event the feature ignored is
+        // what someone asking "why didn't it sleep" needs to see.
         PowerLog.Event($"Lid {(closed ? "closed" : "opened")}",
                        first ? "lid-switch registration replay (initial state, not a real transition)"
                              : "lid switch");
@@ -341,16 +301,14 @@ internal static class LidDelayService
         }
     }
 
-    // ── Delay window ──────────────────────────────────────────────────────────────
-
     private static void StartDelay()
     {
         var delay = LidDelayPolicy.DelayFor(SettingsService.Current.LidDelayMinutes);
         lock (_sync)
         {
             // Re-checked under the lock: OnLidState decided and then released it, so two concurrent
-            // close notifications can both have been told to start. Without this the second restarts
-            // the countdown — exactly what the policy's duplicate-close rule exists to prevent.
+            // close notifications can both have been told to start, and the second would restart
+            // the countdown.
             if (_delayPending) return;
             EnsureHolder();
             _delayPending = true;
@@ -383,7 +341,7 @@ internal static class LidDelayService
                 Task.Run(() =>
                 {
                     // The lid can be opened between the decision above and this running, by which
-                    // point _delayPending is already false and nothing else would stop the suspend.
+                    // point _delayPending is false and nothing else would stop the suspend.
                     lock (_sync)
                     {
                         if (_generation != gen)
@@ -426,8 +384,6 @@ internal static class LidDelayService
         if (_holder is not null) _holdRequests.Add(NativeMethods.ES_CONTINUOUS);
     }
 
-    // ── OS hold ───────────────────────────────────────────────────────────────────
-
     private static void EnsureHolder()
     {
         if (_holder is not null) return;
@@ -443,8 +399,7 @@ internal static class LidDelayService
             try
             {
                 NativeMethods.SetThreadExecutionState(flags);
-                // Logged HERE rather than at the request sites: this is the moment the OS actually
-                // learns about the hold, and ES_CONTINUOUS on its own is the release.
+                // Logged here, not at the request sites: this is when the OS learns about the hold.
                 PowerLog.Event(flags == NativeMethods.ES_CONTINUOUS
                                    ? "OS keep-awake hold released"
                                    : "OS keep-awake hold taken",

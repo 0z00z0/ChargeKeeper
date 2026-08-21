@@ -1,19 +1,11 @@
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// Static facade over the active vendor's <see cref="Vendors.IChargeThresholdProvider"/>
-/// (see <see cref="VendorCatalog"/>). Exists so the vendor split didn't ripple through every
-/// call site — the app's services/UI are static-call-based throughout, and the pre-split API
-/// (<c>ChargeThresholdService.Read()</c> etc.) is preserved verbatim. The actual Lenovo RPC
-/// implementation lives in the <c>ChargeKeeper.Vendors.Lenovo</c> project.
-/// </summary>
+/// <summary>Static facade over the active vendor's <see cref="Vendors.IChargeThresholdProvider"/>
+/// (see <see cref="VendorCatalog"/>), so services and UI never name a vendor.</summary>
 internal static class ChargeThresholdService
 {
-    /// <summary>
-    /// Whether the active vendor can honour arbitrary percentages. False on HP, which offers
-    /// only coarse modes — the UI hides the percentage picker rather than letting the user set
-    /// a value the hardware will not apply.
-    /// </summary>
+    /// <summary>False on HP, which offers only coarse modes, so the UI hides the percentage picker
+    /// instead of accepting an unappliable value.</summary>
     internal static bool SupportsNumericThresholds =>
         VendorCatalog.Active.ChargeThreshold.SupportsNumericThresholds;
 
@@ -26,10 +18,8 @@ internal static class ChargeThresholdService
     internal static bool SetThresholds(int start, int stop) =>
         VendorCatalog.Active.ChargeThreshold.SetThresholds(start, stop);
 
-    /// <summary>
-    /// Discrete modes the active vendor offers instead of percentages — empty on Lenovo, three
-    /// entries on HP. Mutually exclusive with <see cref="SupportsNumericThresholds"/>.
-    /// </summary>
+    /// <summary>Modes offered instead of percentages — empty on Lenovo, three on HP. Mutually
+    /// exclusive with <see cref="SupportsNumericThresholds"/>.</summary>
     internal static IReadOnlyList<ChargeMode> AvailableModes =>
         VendorCatalog.Active.ChargeThreshold.AvailableModes;
 

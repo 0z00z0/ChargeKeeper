@@ -1,16 +1,13 @@
 namespace ChargeKeeper.Helpers;
 
-/// <summary>
-/// Formats a battery charge/discharge rate the same way everywhere it is shown
-/// (dashboard power line + tray tooltip), so the sign glyph, rounding and unit never drift apart.
-/// </summary>
+/// <summary>Formats a battery charge/discharge rate, so the sign glyph, rounding and unit cannot
+/// drift between the dashboard power line and the tray tooltip.</summary>
 internal static class PowerFormat
 {
     /// <summary>
-    /// Renders a power rate (milliwatts; positive = charging in, negative = draining out) as a
-    /// signed string with a real minus sign (U+2212). Rates below 1 W are shown in mW so a small
-    /// but non-zero draw never collapses to "0 W" / "−0 W". Returns <c>null</c> for a zero rate
-    /// so the caller can omit the field entirely.
+    /// Renders a rate in milliwatts (positive = charging in) with a real minus sign (U+2212). Rates
+    /// below 1 W stay in mW, so a small but non-zero draw never collapses to "0 W". Returns null for
+    /// a zero rate, so the caller can omit the field entirely.
     /// </summary>
     public static string? SignedRate(int milliwatts)
     {

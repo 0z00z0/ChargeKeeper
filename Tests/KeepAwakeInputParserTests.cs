@@ -3,8 +3,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Fast-entry parsing for the keep-awake span (issue #90) — the whole entry story, so every accepted
-// form is pinned here alongside the garbage it must reject.
+// Fast-entry parsing for the keep-awake span: every accepted form, alongside the garbage it rejects.
 public class KeepAwakeInputParserTests
 {
     [Theory]
@@ -79,6 +78,21 @@ public class KeepAwakeInputParserTests
     [InlineData("1.5h")]             // decimals are not part of the fast-entry alphabet
     public void TryParse_Rejects(string? input)
     {
+        Assert.False(KeepAwakeInputParser.TryParse(input, out var request));
+        Assert.Null(request);
+    }
+
+    [Theory]
+    [InlineData("999999999h")]        // hours large enough to overflow TimeSpan.FromHours
+    [InlineData("2147483647h")]       // int.MaxValue hours
+    [InlineData("9999999999h")]       // past int.MaxValue, so the digits do not even parse
+    [InlineData("999999999m")]
+    [InlineData("999999999min")]
+    [InlineData("1h999999999")]       // the absurd value in the minutes tail
+    public void TryParse_OutOfRangeNumber_ReturnsFalseInsteadOfThrowing(string input)
+    {
+        // Settings parses the box on every keystroke, straight from a XAML event handler, so an
+        // out-of-range span has to come back as false rather than as an exception.
         Assert.False(KeepAwakeInputParser.TryParse(input, out var request));
         Assert.Null(request);
     }

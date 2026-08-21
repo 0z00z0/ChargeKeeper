@@ -10,20 +10,15 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Guards the SHIPPED nlog.config. Every assertion here exists because the failure it catches is
-/// SILENT: NLog ignores an unknown attribute, logs nothing at all when the config is missing, and
-/// reports a dropped write nowhere — so a broken logging config looks exactly like a quiet app.
-/// app.log is the app's only forensic trail, and #34 was a whole issue about it silently dropping
-/// lines, so "it built" is not evidence that it logs.
+/// Guards the shipped nlog.config. Every failure it catches is silent — NLog ignores an unknown
+/// attribute and logs nothing at all when the config is missing — so "it built" is not evidence
+/// that it logs.
 /// </summary>
 public class NLogConfigTests
 {
     private const long TenMegabytes = 10L * 1024 * 1024;
 
-    /// <summary>
-    /// Locates nlog.config the same way AboutCreditsTests locates the README: by probing upwards for
-    /// the repo marker rather than hard-coding the test output's depth.
-    /// </summary>
+    /// <summary>Probes upwards for the repo marker rather than hard-coding the test output's depth.</summary>
     private static string FindRepoFile(string name)
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
@@ -37,10 +32,9 @@ public class NLogConfigTests
     }
 
     /// <summary>
-    /// Loads the real nlog.config with <c>throwConfigExceptions</c> forced ON. This is the crux: with
-    /// NLog's default (off) a misspelled or stale-version attribute is SILENTLY IGNORED, leaving a
-    /// config that reads correctly and does nothing. Notably <c>concurrentWrites="true"</c> — NLog
-    /// 5's spelling of the concurrency fix — parses fine and is discarded by NLog 6.
+    /// Loads the real nlog.config with <c>throwConfigExceptions</c> forced on. Under NLog's default
+    /// a misspelled or stale-version attribute is silently ignored, leaving a config that reads
+    /// correctly and does nothing.
     /// </summary>
     private static LoggingConfiguration LoadShippedConfigStrictly()
     {
@@ -68,15 +62,14 @@ public class NLogConfigTests
 
     [Fact]
     public void ShippedConfig_ParsesWithNoUnknownOrMisspelledSettings() =>
-        // Fails loudly on any attribute this NLog version does not recognise, incl. one removed by a
-        // future major-version bump of the NLog PackageReference.
+        // Fails loudly on any attribute this NLog version does not recognise, including one removed
+        // by a future major-version bump of the NLog package.
         Assert.NotNull(FileTargetOf(LoadShippedConfigStrictly()));
 
     [Fact]
     public void ShippedConfig_RotatesAbove10MbAndKeeps2Days()
     {
-        // The user's explicit requirement, and the reason NLog was adopted at all: app.log grew
-        // unbounded. These numbers must live in the CONFIG, not in code — asserted against the file.
+        // The rotation policy has to live in the config file, not in code.
         var file = FileTargetOf(LoadShippedConfigStrictly());
 
         Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
@@ -95,17 +88,14 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_IsConcurrentWriterSafe()
     {
-        // The #34 fix, in its NLog spelling. keepFileOpen="false" (open-per-write, share-tolerant) is
-        // the successor to FileMode.Append + FileShare.ReadWrite; the RetryingWrapper is the successor
-        // to SafeFileAppend's bounded retry. Measured: NLog's keepFileOpen="true" DEFAULT loses ~70
-        // lines per 720 across 6 concurrent processes, silently. Neither setting is decoration.
+        // Open-per-write plus a bounded retry is what makes concurrent appends safe. Measured: NLog's
+        // keepFileOpen="true" default loses ~70 lines per 720 across 6 concurrent processes, silently.
         var config = LoadShippedConfigStrictly();
 
         var wrapper = Assert.IsType<RetryingTargetWrapper>(config.FindTargetByName("appfile"));
 
-        // Asserted as EXACT values, not merely "not zero": NLog's own defaults (3 x 100ms) are
-        // non-zero too, so a config that lost both attributes entirely would sail through a
-        // not-zero check while quietly retrying to a different policy than the fallback in code.
+        // Exact values, not merely "not zero": NLog's own defaults (3 x 100ms) are non-zero too, so a
+        // config that lost both attributes would sail through a not-zero check.
         Assert.Equal("5",  Rendered(wrapper.RetryCount));
         Assert.Equal("20", Rendered(wrapper.RetryDelayMilliseconds));
         Assert.False(FileTargetOf(config).KeepFileOpen,
@@ -116,13 +106,10 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_DoesNotUseNLog5sRemovedConcurrentWritesAttribute()
     {
-        // Deliberately asserted on the TEXT: NLog 6 removed FileTarget.concurrentWrites, so writing it
-        // here would parse (by default), do nothing, and reintroduce #34 while looking like the fix.
-        // The strict-parse test above would also catch it — this one names the specific trap so the
-        // failure message explains itself to whoever reaches for the NLog 5 docs.
+        // Asserted on the text: NLog 6 has no FileTarget.concurrentWrites, so writing it here would
+        // parse, do nothing, and still look like a concurrency setting.
         var xml = File.ReadAllText(FindRepoFile("nlog.config"));
-        // Comments are stripped first: they discuss concurrentWrites at length precisely to stop the
-        // next reader from adding it, and must not trip the test they exist to explain.
+        // The config's own comments discuss concurrentWrites to warn readers off it, so strip them.
         var settings = System.Text.RegularExpressions.Regex.Replace(
             xml, "<!--.*?-->", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
 
@@ -132,10 +119,8 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_TimestampStaysGregorianUnderAnyThreadCulture()
     {
-        // The #34-review lesson, made executable. The layout omits culture= because NLog's ${date}
-        // already defaults to InvariantCulture; adding an EMPTY culture= silently falls back to the
-        // thread culture and stamps a non-Gregorian year. Rendering under ar-SA (Umm al-Qura) is what
-        // tells the two apart — under en-GB both look identical, which is how it would sneak back in.
+        // ${date} defaults to InvariantCulture, but an empty culture= falls back to the thread culture
+        // and stamps a non-Gregorian year. ar-SA (Umm al-Qura) tells the two apart; en-GB does not.
         var layout = FileTargetOf(LoadShippedConfigStrictly()).Layout;
 
         var original = Thread.CurrentThread.CurrentCulture;
@@ -152,12 +137,8 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_IsCopiedNextToTheBuiltAssembly()
     {
-        // NLog discovers nlog.config BESIDE THE EXE. If the csproj ever loses the
-        // CopyToOutputDirectory metadata, the file stays in the repo, NLog finds no config and logs
-        // nothing — with no error. This repo has shipped exactly that bug twice (Assets\AppIcon.ico
-        // without CopyToOutputDirectory -> SetIcon silently no-op'd), so it gets a test rather than a
-        // comment. This assembly's output is fed by ChargeKeeper.csproj's Content item via the
-        // ProjectReference, so its presence here is evidence the item is doing its job.
+        // NLog discovers nlog.config beside the exe. Without the csproj's CopyToOutputDirectory the
+        // file stays in the repo, NLog finds no config, and logs nothing — with no error.
         Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "nlog.config")),
             $"nlog.config is missing from the build output ({AppContext.BaseDirectory}). Check the " +
             "Content item + CopyToOutputDirectory in ChargeKeeper.csproj — NLog would silently log nothing.");
@@ -167,8 +148,7 @@ public class NLogConfigTests
     public void CodeFallback_MatchesTheShippedConfig()
     {
         // AppLog.BuildFallbackConfiguration duplicates the shipped policy so a missing config degrades
-        // to an equivalent logger rather than silence. Duplication drifts unless pinned — so pin it,
-        // the same way AboutCreditsTests pins the README against the About box.
+        // to an equivalent logger rather than silence. Duplication drifts unless pinned.
         var shippedConfig  = LoadShippedConfigStrictly();
         var fallbackConfig = AppLog.BuildFallbackConfiguration();
         var shipped  = FileTargetOf(shippedConfig);
@@ -183,11 +163,8 @@ public class NLogConfigTests
         Assert.Equal(shipped.FileName.Render(LogEventInfo.CreateNullEvent()),
                      fallback.FileName.Render(LogEventInfo.CreateNullEvent()), ignoreCase: true);
 
-        // Every remaining setting BuildFallbackConfiguration bothers to state. Each was unpinned
-        // while the doc comment claimed this test kept the duplication honest, and each drifts
-        // silently: a fallback that wrote a BOM would splice a U+FEFF into the middle of an existing
-        // app.log, and the retry policy is the #34 fix itself — the one thing that must not differ
-        // between the two paths.
+        // The rest drifts silently: a fallback that wrote a BOM would splice a U+FEFF into the middle
+        // of an existing app.log, and the retry policy must not differ between the two paths.
         Assert.Equal(shipped.CreateDirs, fallback.CreateDirs);
         Assert.Equal(shipped.WriteBom, fallback.WriteBom);
         Assert.Equal(shipped.Encoding, fallback.Encoding);
@@ -197,13 +174,12 @@ public class NLogConfigTests
                      Rendered(WrapperOf(fallbackConfig).RetryDelayMilliseconds));
     }
 
-    // ── Power trail (power.log) ────────────────────────────────────────────────────
+    // Power trail (power.log)
 
     [Fact]
     public void ShippedConfig_RoutesPowerEventsToTheirOwnFile()
     {
-        // The point of the whole target: a "why did this machine sleep" question is answered from one
-        // file instead of by eye over app.log.
+        // The point of the target: "why did this machine sleep" is answered from one file.
         var config = LoadShippedConfigStrictly();
 
         Assert.Contains("powerfile", TargetsFor(config, PowerLog.LoggerName));
@@ -215,11 +191,9 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_PowerEventsAlsoReachAppLog()
     {
-        // The power rule is deliberately NOT final: the file is a FILTER over the trail, not a slice
-        // taken out of it, because a power event is read against the startup/teardown chatter around
-        // it. A stray final="true" would silently move these lines instead of copying them — and would
-        // ALSO strand every logger declared after the power rule, so it is asserted on the rule itself
-        // and not merely inferred from the target list.
+        // The power rule is deliberately not final: power.log is a filter over the trail, not a slice
+        // taken out of it. A final="true" would also strand every logger declared after it, so the
+        // rule itself is asserted rather than inferred from the target list.
         var config = LoadShippedConfigStrictly();
 
         var powerRule = Assert.Single(config.LoggingRules, r => r.LoggerNamePattern == PowerLog.LoggerName);
@@ -231,15 +205,14 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_OrdinaryLoggersDoNotReachThePowerFile()
     {
-        // The other half of "explicit routing": a line lands in power.log because the call site chose
-        // PowerLog, never because of the namespace it happens to sit in.
+        // A line lands in power.log because the call site chose PowerLog, never because of its namespace.
         Assert.DoesNotContain("powerfile", TargetsFor(LoadShippedConfigStrictly(), AppLog.LoggerName));
     }
 
     [Fact]
     public void ShippedConfig_PowerFileRotatesAndIsConcurrentWriterSafeLikeAppLog()
     {
-        // Same #34 story, same rotation policy — sibling ChargeKeeper processes append here too.
+        // Sibling ChargeKeeper processes append here too, so the same rotation and retry policy applies.
         var config = LoadShippedConfigStrictly();
         var file   = FileTargetOf(config, "powerfile");
 
@@ -253,9 +226,8 @@ public class NLogConfigTests
     [Fact]
     public void ShippedConfig_PowerTimestampsAreIsoWithMillisecondsUnderAnyThreadCulture()
     {
-        // Ordering inside one second is what this file is for, so the milliseconds are load-bearing,
-        // not decoration. Rendered under ar-SA for the same reason as app.log's layout: an empty
-        // culture= would stamp a non-Gregorian year and the two look identical under en-GB.
+        // Ordering inside one second is what this file is for, so the milliseconds are load-bearing.
+        // Rendered under ar-SA for the same reason as app.log's layout.
         var layout = FileTargetOf(LoadShippedConfigStrictly(), "powerfile").Layout;
 
         var original = Thread.CurrentThread.CurrentCulture;
@@ -273,8 +245,7 @@ public class NLogConfigTests
     public void CodeFallback_CarriesThePowerFileToo()
     {
         // A missing nlog.config is exactly when someone is troubleshooting sleep, so the degraded
-        // config keeps the split rather than collapsing everything back into app.log. Pinned against
-        // the shipped file for the same reason CodeFallback_MatchesTheShippedConfig is.
+        // config keeps the split rather than collapsing everything back into app.log.
         var shippedConfig  = LoadShippedConfigStrictly();
         var fallbackConfig = AppLog.BuildFallbackConfiguration();
         var shipped  = FileTargetOf(shippedConfig, "powerfile");
@@ -301,9 +272,8 @@ public class NLogConfigTests
     [Fact]
     public void PowerLog_LineNamesTheEventAndItsCause()
     {
-        // The file's whole contract: a line has to be readable on its own. "Suspending the machine"
-        // without "the lid-close delay elapsed" is a state, not an explanation — and an unexplained
-        // state sends you straight back to correlating against app.log, which is what this avoids.
+        // The file's contract: a line has to be readable on its own, so it names the event and its
+        // cause. An unexplained state sends the reader back to correlating against app.log.
         var config = AppLog.BuildFallbackConfiguration();
         var file   = FileTargetOf(config, "powerfile");
         var dir    = Path.Combine(Path.GetTempPath(), $"ck-powerlog-test-{Guid.NewGuid():N}");
@@ -331,7 +301,7 @@ public class NLogConfigTests
     [Fact]
     public void CodeFallback_ConstantsMatchTheShippedConfig()
     {
-        // Guards the constants AppLog exposes (and its doc comments quote) against the real file.
+        // Guards the constants AppLog exposes against the real file.
         var shipped = FileTargetOf(LoadShippedConfigStrictly());
 
         Assert.Equal(shipped.ArchiveAboveSize, AppLog.ArchiveAboveSizeBytes);

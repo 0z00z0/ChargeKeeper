@@ -56,9 +56,8 @@ public class MqttStatusFormatterTests
     }
 }
 
-// The connection check's decision layer. The socket work itself isn't unit-testable here; what is
-// testable — and what the feature exists for — is that "nothing answered", "answered and said no to
-// these credentials" and "connected" come out as three DIFFERENT things.
+// The connection check's decision layer. The socket work is not unit-testable here; what matters is
+// that "nothing answered", "these credentials were refused" and "connected" stay three verdicts.
 public class MqttConnectionProbeTests
 {
     [Fact]
@@ -92,8 +91,8 @@ public class MqttConnectionProbeTests
         Assert.Equal("NotAuthorized", without.Detail);
     }
 
-    // A typo'd host and a closed port are both "unreachable", but a broker that answers nothing at all
-    // is a timeout — the user's next move differs (fix the name vs check the machine is up).
+    // A typo'd host and a closed port are both unreachable, while a broker that answers nothing is a
+    // timeout: the user's next move differs.
     [Fact]
     public void SocketErrors_SeparateUnreachableFromNoAnswer()
     {
@@ -113,8 +112,8 @@ public class MqttConnectionProbeTests
             MqttConnectionProbe.ClassifyConnectException(wrapped, CancellationToken.None).Outcome);
     }
 
-    // The budget expiring is a timeout; the CALLER's token being cancelled (window closed) is not a
-    // verdict about the broker at all.
+    // The budget expiring is a timeout; the caller's token being cancelled is no verdict about the
+    // broker at all.
     [Fact]
     public void ConnectException_TellsATimeoutFromAUserCancellation()
     {

@@ -3,11 +3,9 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// IconGenerator.SlotSizeForDpi is the pure DPI→pixel-size mapping behind the LIVE tray icon
-// (issue #40 item 2): the icon must be rendered at the size the TASKBAR's monitor needs, not the
-// process's DPI context, or the shell rescales the single frame and the thin low-battery arc washes
-// out on a secondary-monitor mixed-DPI setup. These pin round(16 * dpi / 96), the 16..64 clamp, and
-// the 0/"unknown" fallback so the math stays correct without a live taskbar to observe.
+// The DPI-to-pixel-size mapping behind the live tray icon. The icon has to be rendered at the size
+// the taskbar's monitor needs rather than the process's DPI context, or the shell rescales the one
+// frame and the thin low-battery arc washes out on a mixed-DPI setup.
 public class IconSlotSizeTests
 {
     [Theory]
@@ -43,8 +41,7 @@ public class IconSlotSizeTests
     [Fact]
     public void Rounds_AwayFromMidpoint()
     {
-        // 110 DPI → 16 * 110 / 96 = 18.33 → 18; 116 DPI → 19.33 → 19; a midpoint 108 DPI →
-        // 18.0 exactly. Pick a true .5 case: 16 * 105 / 96 = 17.5 → 18 (away from zero).
+        // 105 DPI is a true .5 case: 16 * 105 / 96 = 17.5, which must round away from zero.
         Assert.Equal(18, IconGenerator.SlotSizeForDpi(105));
         Assert.Equal(18, IconGenerator.SlotSizeForDpi(110));
     }

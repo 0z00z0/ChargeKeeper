@@ -1,14 +1,9 @@
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// Static facade over the active vendor's <see cref="Vendors.IStandbyProvider"/>
-/// (see <see cref="VendorCatalog"/>). Preserves the pre-split static API so call sites didn't
-/// change; the actual <c>LenovoSmartStandby</c> service control lives in the
-/// <c>ChargeKeeper.Vendors.Lenovo</c> project.
-/// </summary>
+/// <summary>Static facade over the active vendor's <see cref="Vendors.IStandbyProvider"/>
+/// (see <see cref="VendorCatalog"/>), so services and UI never name a vendor.</summary>
 internal static class StandbyService
 {
-    /// <summary>Whether the active vendor implements standby scheduling at all.</summary>
     internal static bool IsSupported =>
         VendorCatalog.Active.Standby.IsSupported;
 

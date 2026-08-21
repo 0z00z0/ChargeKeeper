@@ -6,50 +6,30 @@ namespace ChargeKeeper.Services;
 internal readonly record struct BatterySample(DateTime AtUtc, int Soc, int? LimitPct, int PowerMw);
 
 /// <summary>
-/// Reported by <see cref="BatteryHistoryService.Record"/> when a sample lands after a gap large
-/// enough to plausibly be downtime (TODO #26). <see cref="SocDropPercent"/> can be negative (SoC
-/// rose across the gap, e.g. it kept charging while the app wasn't running) — the caller filters
-/// that out along with anything below its own anomaly-rate threshold before ever toasting.
+/// Reported when a sample lands after a gap large enough to plausibly be downtime.
+/// <see cref="SocDropPercent"/> can be negative when SoC rose across the gap; the caller filters that
+/// out along with anything below its own anomaly-rate threshold.
 /// </summary>
 internal readonly record struct DowntimeGapInfo(int SocDropPercent, TimeSpan GapDuration);
 
 /// <summary>
 /// File-backed battery history. Every sample (SoC %, Smart-Charge limit %, charge power mW) is
-/// appended to <c>%AppData%\ChargeKeeper\battery-level-history.csv</c> with an ISO-8601 timestamp
-/// (local UTC offset), so the graph survives restarts and downtime shows up as a gap in the
-/// timeline. Data is kept for 14 days.
-/// <para>
-/// Only the <em>currently-selected time window</em> is held in memory: <see cref="LoadWindow"/> reads
-/// that slice from the file, and <see cref="Record"/> keeps it trimmed as new samples arrive.
-/// </para>
+/// appended to <c>%AppData%\ChargeKeeper\battery-level-history.csv</c> with an ISO-8601 timestamp, so
+/// the graph survives restarts and downtime shows up as a gap. Rows are kept for 14 days, and only
+/// the currently-selected time window is held in memory.
 /// </summary>
 internal static class BatteryHistoryService
 {
     private const int RetentionDays = 14;
 
-    /// <summary>
-    /// Expected interval between samples (must match the period App's history-sampling timer
-    /// runs on). Shared so the dashboard's gap-detection threshold is derived from this single
-    /// constant instead of a second, independently-hardcoded number that could drift out of sync.
-    /// </summary>
+    /// <summary>Must match the period App's history-sampling timer runs on; the dashboard's
+    /// gap-detection threshold derives from it.</summary>
     public const int SampleIntervalSeconds = 20;
 
     /// <summary>
-    /// The GRAPH's "is this hole in the timeline downtime?" threshold — the user's graph-gap setting
-    /// (Settings → General → "Downtime gap threshold",
-    /// <see cref="SettingsService.AppSettings.DowntimeGapMinutes"/>). The graph visually collapses any
-    /// gap larger than this into a fixed-width break instead of a connecting line.
-    /// <para>
-    /// 0 ("None") → <see cref="TimeSpan.MaxValue"/>, so the graph draws NO breaks at all — NOT a
-    /// literal zero-minute threshold. Read fresh each access so a settings change takes effect without
-    /// a restart. The minimum positive setting (1 min) is three sample intervals, so a single late
-    /// sample (scheduler jitter) is never drawn as downtime.
-    /// </para>
-    /// <para>
-    /// This is a PRESENTATION knob only. The overnight-drain-anomaly gate does NOT read it directly —
-    /// see <see cref="AnomalyGapThreshold"/> for why "None" must silence the graph's breaks without
-    /// also disabling drain detection (issue #40).
-    /// </para>
+    /// The graph's downtime threshold, from Settings → General; larger gaps are drawn as a break. A
+    /// setting of 0 means "None" and maps to <see cref="TimeSpan.MaxValue"/>, drawing no breaks at
+    /// all — not a zero-minute threshold. Presentation only; see <see cref="AnomalyGapThreshold"/>.
     /// </summary>
     public static TimeSpan DowntimeThreshold
     {
@@ -63,47 +43,25 @@ internal static class BatteryHistoryService
     }
 
     /// <summary>
-    /// The gate <see cref="Record"/> uses to decide whether to REPORT a downtime gap to the
-    /// drain-anomaly path — deliberately DECOUPLED from the graph's <see cref="DowntimeThreshold"/> on
-    /// the "None" case (issue #40). Setting the graph gap to "None" means "stop drawing breaks", NOT
-    /// "stop watching for an overnight battery drain": the safety warning must keep detecting.
-    /// <para>
-    /// Effective gate = <c>max(anomaly floor, user threshold when positive)</c>, falling back to the
-    /// anomaly's own floor (<see cref="DrainAnomalyPolicy.MinGap"/>) when the user chose "None"
-    /// (<see cref="TimeSpan.MaxValue"/>). So:
-    /// <list type="bullet">
-    /// <item>a positive user threshold still governs both graph and anomaly in agreement (raising it to
-    /// 30 min stops a 6-min hole producing a toast, just as it stops the graph drawing it); but</item>
-    /// <item>"None" leaves the anomaly floor in force, so a genuine multi-hour overnight gap is still
-    /// reported even though the graph has stopped drawing breaks.</item>
-    /// </list>
-    /// The floor also means a sub-15-min hole is never handed to the anomaly path — it could never
-    /// clear <see cref="DrainAnomalyPolicy.ShouldWarn"/>'s own <see cref="DrainAnomalyPolicy.MinGap"/>
-    /// rate-trust check anyway, so gating here matches what the policy would accept. Drain detection
-    /// still has its own explicit user off-switch (<c>DrainAnomalyWarningEnabled</c>), which is the
-    /// intended way to silence it deliberately.
-    /// </para>
+    /// Decoupled from <see cref="DowntimeThreshold"/> on the "None" case: that means "stop drawing
+    /// breaks", not "stop watching for an overnight drain". A positive user threshold governs both;
+    /// "None" leaves <see cref="DrainAnomalyPolicy.MinGap"/> in force. Drain detection has its own
+    /// off-switch in <c>DrainAnomalyWarningEnabled</c>.
     /// </summary>
     public static TimeSpan AnomalyGapThreshold
     {
         get
         {
             var userGate = DowntimeThreshold;
-            // "None" (MaxValue) disables the GRAPH's breaks but must not disable drain detection:
-            // fall back to the anomaly floor. Otherwise honour the user's threshold, never below it.
             if (userGate == TimeSpan.MaxValue) return DrainAnomalyPolicy.MinGap;
             return userGate > DrainAnomalyPolicy.MinGap ? userGate : DrainAnomalyPolicy.MinGap;
         }
     }
 
-    // All raw file I/O (path build, dir-ensure-once, append, read-all, read-last) lives in the
-    // shared CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse, the
-    // windowing, pruning, and gap-detection state below). Every store call happens under _lock, the
-    // same lock that guards that in-memory state — see CsvSampleStore's remarks on why it holds no
-    // lock of its own.
-    // Descriptive header (a leading '#' comment describing the file + units, then the column-name
-    // row) written once when the store first creates the file, and re-emitted by PruneFile's rewrite.
-    // Both lines fail TryParse, so LoadWindow/PruneFile skip them for free.
+    // Raw file I/O lives in the shared CsvSampleStore; every call to it happens under _lock, the same
+    // lock that guards the in-memory state below. The header is written once when the store creates
+    // the file and re-emitted by PruneFile's rewrite; both its lines fail TryParse, so readers skip
+    // them for free.
     internal const string HeaderComment =
         "# ChargeKeeper battery-level history — one row per ~20 s sample. " +
         "timestamp = ISO 8601 with local UTC offset; soc_percent = state of charge; " +
@@ -119,29 +77,25 @@ internal static class BatteryHistoryService
     // The slice currently loaded for the dashboard, oldest → newest.
     private static readonly List<BatterySample> _window = [];
     private static TimeSpan _windowSpan = TimeSpan.FromHours(1);
-    private static bool _pruned;
 
-    // Last sample actually persisted to the file, tracked independently of the (span-limited)
-    // _window so downtime-gap detection (TODO #26) still works when the gap is LONGER than the
-    // loaded window — the overnight case, where LoadWindow(1h) leaves the pre-downtime sample
-    // outside _window entirely (so comparing against _window[^1] would see "no previous" and never
-    // report the gap). Seeded from the newest row in the file (by LoadWindow, or lazily on the first
-    // Record if LoadWindow never ran) so a just-restarted process compares this sample against the
-    // pre-downtime one.
+    // Local date the file was last pruned on, so a process running for weeks keeps pruning rather
+    // than holding every row it ever wrote.
+    private static DateTime? _prunedOnLocalDate;
+
+    // Last sample persisted to the file, tracked independently of the span-limited _window so gap
+    // detection still works when the gap is LONGER than the loaded window — the overnight case,
+    // where every row falls outside a 1 h window and comparing against _window[^1] would see no
+    // previous sample at all.
     private static BatterySample? _lastPersisted;
     private static bool _lastPersistedLoaded;
 
-    /// <summary>Path to the CSV history file — can be surfaced in the UI for backup/inspection.</summary>
     public static string FilePath => _store.FilePath;
 
-    /// <summary>The time span currently loaded into memory (set by the last <see cref="LoadWindow"/> call).</summary>
+    /// <summary>The span the last <see cref="LoadWindow"/> call loaded.</summary>
     public static TimeSpan CurrentSpan { get { lock (_lock) return _windowSpan; } }
 
-    /// <summary>
-    /// TEST-ONLY seam: points the service at an isolated file and resets all in-memory state.
-    /// Needed because every member here is static, so it otherwise persists for the whole
-    /// process — without this, one test's data would leak into the next.
-    /// </summary>
+    /// <summary>Test-only seam: an isolated file, and a reset of state that is otherwise static and
+    /// would leak from one test to the next.</summary>
     internal static void UseTestPath(string path)
     {
         lock (_lock)
@@ -149,19 +103,16 @@ internal static class BatteryHistoryService
             _store.UseTestPath(path);
             _window.Clear();
             _windowSpan = TimeSpan.FromHours(1);
-            _pruned = false;
+            _prunedOnLocalDate = null;
             _lastPersisted = null;
             _lastPersistedLoaded = false;
         }
     }
 
     /// <summary>
-    /// Appends a sample to the file and to the in-memory window. Thread-safe; never throws. Returns
-    /// gap info (TODO #26) when this sample landed more than <see cref="AnomalyGapThreshold"/> after
-    /// the previous one — the anomaly gate, which tracks the graph's threshold while it is positive but
-    /// keeps its own floor when the user picks "None" (issue #40). The caller (which owns the
-    /// anomaly-rate threshold and toast-firing decision; this service stays a persistence layer, not a
-    /// notification one) decides whether it was actually anomalous.
+    /// Thread-safe; never throws. Returns gap info when the sample landed more than
+    /// <see cref="AnomalyGapThreshold"/> after the previous one; the caller owns the anomaly-rate
+    /// threshold and the decision to warn.
     /// </summary>
     public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw)
     {
@@ -170,10 +121,8 @@ internal static class BatteryHistoryService
 
         lock (_lock)
         {
-            // Compare against the last PERSISTED sample, not _window[^1] (which is trimmed to the
-            // loaded span) — see the _lastPersisted field comment for why the windowed compare
-            // missed the overnight case. Lazy fallback seed for when Record runs before any
-            // LoadWindow (LoadWindow normally seeds it during its own single file read).
+            // Lazy seed for when Record runs before any LoadWindow; LoadWindow normally seeds this
+            // during its own single file read.
             if (!_lastPersistedLoaded)
             {
                 _lastPersisted = ReadLastSampleFromFile();
@@ -182,11 +131,7 @@ internal static class BatteryHistoryService
             if (_lastPersisted is { } previous)
             {
                 var gap = sample.AtUtc - previous.AtUtc;
-                // Gate on AnomalyGapThreshold, NOT the graph's DowntimeThreshold: the two agree while
-                // the user threshold is positive, but "None" only stops the GRAPH drawing breaks — the
-                // anomaly path falls back to its own floor so overnight-drain detection keeps running
-                // (issue #40; see AnomalyGapThreshold remarks). The caller then applies its own
-                // %/hour threshold before actually toasting.
+                // AnomalyGapThreshold, not the graph's DowntimeThreshold — see its remarks.
                 if (gap > AnomalyGapThreshold)
                     gapInfo = new DowntimeGapInfo(previous.Soc - sample.Soc, gap);
             }
@@ -197,8 +142,8 @@ internal static class BatteryHistoryService
             }
             catch (Exception ex)
             {
-                // History logging must never crash the app — but a write failure (e.g. disk full,
-                // file locked) silently means this sample is lost forever, so it's worth a log line.
+                // History logging must never crash the app, but a failed write loses this sample for
+                // good, so it is worth a log line.
                 AppLog.Error("BatteryHistoryService.Record", ex);
             }
 
@@ -211,16 +156,18 @@ internal static class BatteryHistoryService
     }
 
     /// <summary>
-    /// Loads the samples within <paramref name="window"/> (ending now) from the file into memory,
-    /// replacing whatever slice was loaded before, and returns a snapshot oldest → newest. Prunes
-    /// samples older than 14 days from the file on the first call.
+    /// Loads the samples within <paramref name="window"/> (ending now), replacing whatever slice was
+    /// loaded before, and returns a snapshot oldest → newest. Prunes once per local day.
     /// </summary>
     public static IReadOnlyList<BatterySample> LoadWindow(TimeSpan window)
     {
         lock (_lock)
         {
             _windowSpan = window;
-            if (!_pruned) { PruneFile(); _pruned = true; }
+            // Once per local day, not once per process: this app runs for weeks at a time, and every
+            // time-scale click re-reads the whole file.
+            var today = DateTime.Now.Date;
+            if (_prunedOnLocalDate != today) { PruneFile(); _prunedOnLocalDate = today; }
 
             _window.Clear();
             var cutoff = DateTime.UtcNow - window;
@@ -229,11 +176,8 @@ internal static class BatteryHistoryService
                 foreach (var line in _store.ReadAllLines())
                     if (TryParse(line, out var s))
                     {
-                        // Seed gap-detection's last-persisted sample from the newest row overall
-                        // (rows are appended in time order) — NOT just rows inside the window, or
-                        // an overnight gap (where every row is older than the cutoff) would leave
-                        // it unseeded. Piggybacks on this single file read instead of Record
-                        // re-reading the file itself.
+                        // Seeded from the newest row overall, not just rows inside the window: an
+                        // overnight gap puts every row before the cutoff.
                         _lastPersisted = s;
                         if (s.AtUtc >= cutoff) _window.Add(s);
                     }
@@ -265,17 +209,9 @@ internal static class BatteryHistoryService
     }
 
     /// <summary>
-    /// Reads the newest parseable sample from the file (rows are appended in time order, so it's the
-    /// last valid line), or null if the file is missing/empty/all-corrupt. Only used as the seed for
-    /// gap detection (<see cref="_lastPersisted"/>) when <see cref="Record"/> runs before any
-    /// <see cref="LoadWindow"/> — the normal startup path seeds it from LoadWindow's own file read.
-    /// <para>
-    /// Reads only the file's TAIL rather than parsing every row: a row is a few tens of bytes, so an
-    /// 8 KB window from the end holds hundreds of them, and this runs under the Record lock — an
-    /// up-to-60k-row full scan there would stall an incoming sample. The window widens and retries in
-    /// the pathological case where the tail is all blank/corrupt. Opens the file directly (as
-    /// <see cref="PruneFile"/> already does) since the append-only store offers no tail-seek.
-    /// </para>
+    /// The newest parseable sample, or null when the file is missing, empty or all corrupt. Reads the
+    /// tail rather than every row, widening the window on retry, because this runs under the
+    /// <see cref="Record"/> lock where a 60k-row scan would stall an incoming sample.
     /// </summary>
     private static BatterySample? ReadLastSampleFromFile()
     {
@@ -293,15 +229,13 @@ internal static class BatteryHistoryService
                 long start = Math.Max(0, length - window);
                 fs.Seek(start, SeekOrigin.Begin);
                 var buffer = new byte[length - start];
-                // ReadExactly loops until the buffer is full; a single Stream.Read may return fewer
-                // bytes than asked, and since we read FORWARD from `start` a short read would drop the
-                // file's TAIL — exactly the newest rows this method exists to find.
+                // ReadExactly, not Read: a short read here would drop the file's tail, which is
+                // exactly the newest rows this method exists to find.
                 fs.ReadExactly(buffer);
                 var text = System.Text.Encoding.UTF8.GetString(buffer);
 
-                // Unless we started at byte 0, the first line in the window is very likely truncated
-                // mid-row — skip it so only whole rows are parsed. Rows are ASCII, so a split across a
-                // multi-byte char could only land in that dropped first line anyway.
+                // Unless the window starts at byte 0 its first line is probably truncated mid-row, so
+                // skip it. Rows are ASCII, so a multi-byte split could only land there anyway.
                 var lines = text.Split('\n');
                 int firstComplete = start == 0 ? 0 : 1;
                 for (int i = lines.Length - 1; i >= firstComplete; i--)
@@ -333,10 +267,8 @@ internal static class BatteryHistoryService
             }
             if (droppedCount > 0)
             {
-                // Rewrite in place via a temp file + atomic move — a whole-file rewrite that stays a
-                // BatteryHistoryService concern (the append-only store offers no rewrite op). Re-emit
-                // the header block at the top: the kept rows are data-only (header lines fail TryParse,
-                // so they were never added to `kept`), and without this the prune would drop the header.
+                // Temp file plus atomic move. The header is re-emitted because header lines fail
+                // TryParse and so never reach `kept`.
                 var path = _store.FilePath;
                 var tmp = path + ".tmp";
                 var output = new List<string>();
@@ -353,11 +285,9 @@ internal static class BatteryHistoryService
         }
     }
 
-    // CSV row: timestamp,soc_percent,charge_limit_percent,power_mw where timestamp is ISO 8601 with
-    // the machine's local UTC offset (e.g. 2026-07-15T14:30:00+02:00) and the limit column is blank
-    // when Smart Charge is off. Internal (not private) so unit tests can verify the round-trip without
-    // touching any file. The stored AtUtc is always Kind=Utc; the local offset in the file is purely
-    // for human readability and round-trips the same instant.
+    // CSV row: timestamp,soc_percent,charge_limit_percent,power_mw. The timestamp is ISO 8601 with the
+    // machine's local UTC offset (AtUtc itself is always Kind=Utc; the offset is for readability and
+    // round-trips the same instant), and the limit column is blank when Smart Charge is off.
     internal static string Format(BatterySample s) => string.Create(CultureInfo.InvariantCulture,
         $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw}");
 

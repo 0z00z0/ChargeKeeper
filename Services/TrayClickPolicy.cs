@@ -14,32 +14,18 @@ internal enum TrayClickAction
 }
 
 /// <summary>
-/// PURE decision for a tray left-click — single click toggles the dashboard, a second click inside
-/// the system double-click window opens Settings instead. No clock, no window: the caller passes the
-/// timestamps, so the ordering rules are unit-testable without a tray icon or a real double-click.
-/// House style; see <see cref="ThresholdCapabilityPolicy"/>.
-/// <para>
-/// The double-click test comes FIRST, ahead of both the visible-toggle and the reopen-guard branches,
-/// and that ordering is the whole point. The dashboard is a topmost popup that auto-hides when it
-/// loses focus, so by the time the second click's command runs the window has usually hidden itself
-/// already — leaving the state "not visible, hidden a few ms ago", which is exactly what the reopen
-/// guard exists to swallow. Testing the click interval first means the guard can no longer eat a
-/// genuine double-click, while a slower second click still falls through to the unchanged toggle +
-/// guard behaviour.
-/// </para>
+/// Pure decision for a tray left-click: one click toggles the dashboard, a second inside the system
+/// double-click window opens Settings. The caller passes the timestamps, so this stays testable.
 /// </summary>
 internal static class TrayClickPolicy
 {
     /// <summary>
-    /// Decides what this click does.
-    /// <para><paramref name="doubleClickInterval"/> is the SYSTEM setting (<c>GetDoubleClickTime</c>),
-    /// which the user can change in the mouse control panel — never a hardcoded 500 ms.</para>
-    /// <para><paramref name="sinceHidden"/>/<paramref name="reopenGuard"/> are the existing guard: a
-    /// click that lands while the popup is open first deactivates it, and re-showing it from that same
-    /// click would make the dashboard flash rather than close.</para>
+    /// <paramref name="doubleClickInterval"/> is the system setting (<c>GetDoubleClickTime</c>);
+    /// <paramref name="sinceHidden"/>/<paramref name="reopenGuard"/> swallow the click that just
+    /// dismissed the popup by taking focus off it.
     /// </summary>
-    /// <param name="previousClickAt">When the previous left-click arrived, or null if there was none
-    /// (or the last one already resolved to a double-click, which ends the pair).</param>
+    /// <param name="previousClickAt">Null when there was none, or when the last one already resolved
+    /// to a double-click, which ends the pair.</param>
     public static TrayClickAction Decide(
         DateTimeOffset now,
         DateTimeOffset? previousClickAt,
@@ -48,6 +34,8 @@ internal static class TrayClickPolicy
         TimeSpan sinceHidden,
         TimeSpan reopenGuard)
     {
+        // Tested before the reopen guard: the popup auto-hides on losing focus, so by the time the
+        // second click runs the guard would otherwise swallow it as a reopen.
         if (previousClickAt is { } previous && now - previous <= doubleClickInterval)
             return TrayClickAction.OpenSettingsAndHideDashboard;
 

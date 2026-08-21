@@ -5,7 +5,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure clock/expiry rules behind keep-awake (issue #90) — no OS hold, no timer.
+// The pure clock and expiry rules behind keep-awake — no OS hold, no timer.
 public class KeepAwakePolicyTests
 {
     // A fixed offset everywhere so the assertions are the same on any machine's local time zone.
@@ -17,7 +17,7 @@ public class KeepAwakePolicyTests
     private static KeepAwakeSession Session(KeepAwakeRequest request, DateTimeOffset now) =>
         new(request, now, KeepAwakePolicy.ExpiryFor(request, now));
 
-    // ── ExpiryFor ────────────────────────────────────────────────────────────────
+    // ExpiryFor
 
     [Fact]
     public void ExpiryFor_Duration_IsNowPlusTheSpan()
@@ -37,8 +37,7 @@ public class KeepAwakePolicyTests
     [Fact]
     public void ExpiryFor_UntilTime_AlreadyPast_RollsOverToTomorrow()
     {
-        // "until 17:00" asked at 17:05 means the NEXT 17:00 — the only reading that isn't an
-        // immediate expiry.
+        // "until 17:00" asked at 17:05 means the next 17:00; any other reading expires immediately.
         var expiry = KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)), At(17, 5));
         Assert.Equal(At(17, 0, day: 16), expiry);
     }
@@ -63,8 +62,8 @@ public class KeepAwakePolicyTests
     [Fact]
     public void ExpiryFor_MissingOwnField_IsTreatedAsNoExpiry_NotAnInstantOne()
     {
-        // Reachable by hand-editing settings.json. "Never expires" is recoverable (toggle it off);
-        // "expires immediately" would make the feature look broken.
+        // Reachable by hand-editing settings.json. "Never expires" is recoverable by toggling it
+        // off; "expires immediately" would make the feature look broken.
         Assert.Null(KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.Duration, null, null), At(9, 0)));
         Assert.Null(KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.UntilTime, null, null), At(9, 0)));
     }
@@ -76,13 +75,13 @@ public class KeepAwakePolicyTests
         Assert.Null(KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.Duration, TimeSpan.FromMinutes(-5), null), At(9, 0)));
     }
 
-    // ── DST-adjacent instants ────────────────────────────────────────────────────
+    // DST-adjacent instants
 
     [Fact]
     public void ExpiryFor_Duration_AcrossTheDstBoundary_IsExactElapsedTime()
     {
-        // 2026-10-25 03:00 CEST is the European autumn switch. A DURATION is elapsed time, so three
-        // hours from 01:30 is three hours of real time regardless of what the wall clock does.
+        // The European autumn switch. A duration is elapsed time, so three hours is three hours of
+        // real time regardless of what the wall clock does.
         var now = new DateTimeOffset(2026, 10, 25, 1, 30, 0, TimeSpan.FromHours(2));
         var expiry = KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.Duration, TimeSpan.FromHours(3), null), now);
         Assert.Equal(now.AddHours(3), expiry);
@@ -92,15 +91,15 @@ public class KeepAwakePolicyTests
     [Fact]
     public void ExpiryFor_UntilTime_ResolvesInNowsOwnOffset_AcrossTheDstBoundary()
     {
-        // Documented trade-off: an until-time is resolved in NOW's UTC offset, so a rollover across a
-        // DST switch lands an hour off in wall-clock terms. That buys keeping this a pure function
-        // instead of a time-zone-rule lookup; the alternative is wrong once a year by an hour.
+        // Accepted trade-off: an until-time resolves in now's UTC offset, so a rollover across a DST
+        // switch lands an hour off in wall-clock terms. That keeps this a pure function rather than
+        // a time-zone-rule lookup.
         var now = new DateTimeOffset(2026, 10, 24, 23, 0, 0, TimeSpan.FromHours(2));   // still CEST
         var expiry = KeepAwakePolicy.ExpiryFor(new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)), now);
         Assert.Equal(new DateTimeOffset(2026, 10, 25, 17, 0, 0, TimeSpan.FromHours(2)), expiry);
     }
 
-    // ── ShouldExpire ─────────────────────────────────────────────────────────────
+    // ShouldExpire
 
     [Fact]
     public void ShouldExpire_OnlyAtOrAfterTheExpiryInstant()
@@ -125,7 +124,7 @@ public class KeepAwakePolicyTests
         Assert.True(KeepAwakePolicy.ShouldExpire(At(14, 0), session.ExpiresAt));
     }
 
-    // ── DescribeRemaining ────────────────────────────────────────────────────────
+    // DescribeRemaining
 
     [Fact]
     public void DescribeRemaining_Duration_ReadsAsHoursAndMinutesLeft()
@@ -187,7 +186,7 @@ public class KeepAwakePolicyTests
         Assert.Equal("until turned off", KeepAwakePolicy.DescribeRemaining(At(9, 0), session));
     }
 
-    // ── ShortLabel (dashboard preset chips) ──────────────────────────────────────
+    // ShortLabel (dashboard preset chips)
 
     [Theory]
     [InlineData(30, "30m")]
@@ -210,15 +209,15 @@ public class KeepAwakePolicyTests
     [Fact]
     public void ShortLabel_Indefinite_AndMalformedRequests_ReadAsNoExpiry()
     {
-        // Same reading ExpiryFor gives them: a kind whose own field is unset has no clock expiry, so
-        // labelling it with a span would promise an end that never comes.
+        // A kind whose own field is unset has no clock expiry, so labelling it with a span would
+        // promise an end that never comes.
         Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Indefinite, null, null)));
         Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Duration, null, null)));
         Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.Duration, TimeSpan.Zero, null)));
         Assert.Equal("∞", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.UntilTime, null, null)));
     }
 
-    // ── DefaultRequest (bare "on", no span picked) ───────────────────────────────
+    // DefaultRequest (bare "on", no span picked)
 
     [Fact]
     public void DefaultRequest_TakesTheFirstPreset_BecauseSettingsOrderIsPriorityOrder()
@@ -236,14 +235,13 @@ public class KeepAwakePolicyTests
         Assert.Equal(new KeepAwakeRequest(KeepAwakeKind.Indefinite, null, null),
                      KeepAwakePolicy.DefaultRequest([]));
 
-    // ── Persisted preset shape ───────────────────────────────────────────────────
+    // Persisted preset shape
 
     [Fact]
     public void KeepAwakePresets_RoundTripThroughJson()
     {
-        // KeepAwakeRequest is a positional record holding a TimeSpan? and a TimeOnly?, and it is what
-        // lands in settings.json — a shape that must survive System.Text.Json in both directions,
-        // because hand-editing that file is how the presets are configured.
+        // KeepAwakeRequest is a positional record that lands in settings.json, and hand-editing that
+        // file is how presets are configured, so it has to survive a round trip.
         var settings = new AppSettings();
         string json = JsonSerializer.Serialize(settings);
         var loaded = JsonSerializer.Deserialize<AppSettings>(json);
@@ -259,9 +257,8 @@ public class KeepAwakePolicyTests
     [Fact]
     public void KeepAwakePreset_Name_IsOptional_SoAnOlderSettingsFileStillLoads()
     {
-        // Name was added last and defaulted (the Settings page lets a preset be labelled) — a file
-        // written before it existed carries no such property, and must deserialise unchanged rather
-        // than fail on the positional record's missing constructor argument.
+        // A settings.json without the optional Name property must deserialise unchanged rather than
+        // fail on the positional record's missing constructor argument.
         const string legacy = """
             {"KeepAwakePresets":[{"Kind":"Duration","Duration":"01:30:00","Until":null}]}
             """;
@@ -287,14 +284,13 @@ public class KeepAwakePolicyTests
         Assert.Equal("End of day", Assert.Single(loaded.KeepAwakePresets).Name);
     }
 
-    // ── OS hold ──────────────────────────────────────────────────────────────────
+    // OS hold
 
     [Fact]
     public void SetThreadExecutionState_AcceptsTheHoldAndTheRelease()
     {
-        // Smoke-tests the P/Invoke signature itself — a wrong one fails silently at runtime (a 0
-        // return), which is exactly the failure mode a keep-awake feature cannot afford. Returns the
-        // PREVIOUS state, non-zero on success.
+        // A wrong P/Invoke signature fails silently at runtime with a 0 return, which is the one
+        // failure mode a keep-awake feature cannot afford. The call returns the previous state.
         uint held = NativeMethods.SetThreadExecutionState(
             NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
         uint released = NativeMethods.SetThreadExecutionState(NativeMethods.ES_CONTINUOUS);

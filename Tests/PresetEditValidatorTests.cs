@@ -3,7 +3,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure "reject-on-save" validation tests for the Settings window's preset editor (TODO #19).
+// Reject-on-save validation for the Settings window's preset editor.
 public class PresetEditValidatorTests
 {
     [Theory]
@@ -61,8 +61,8 @@ public class PresetEditValidatorTests
     [Fact]
     public void Validate_ZeroGap_ReturnsError()
     {
-        // RangeSelector itself prevents Start from passing Stop, but allows them to end up equal
-        // (see DashboardWindow's own comment on this) — the validator must still catch it.
+        // RangeSelector stops Start passing Stop but allows them to end up equal, so the validator
+        // has to catch it.
         var error = PresetEditValidator.Validate("Daily", 70, 70, existingNames: [], originalName: "Daily");
         Assert.NotNull(error);
     }
@@ -101,9 +101,8 @@ public class PresetEditValidatorTests
     [InlineData(4, 80)]
     public void Validate_StartBelowFloor_ReturnsError(int start, int stop)
     {
-        // MinThreshold mirrors DashboardWindow's live-slider floor of 5, not the vendor layer's
-        // bare minimum of 1 — a Start of 1-4 would pass LenovoChargeThreshold.SetThresholds but
-        // still be inconsistent with every other threshold control in this app.
+        // MinThreshold mirrors the dashboard slider's floor of 5, not the vendor layer's bare
+        // minimum of 1: a Start of 1-4 passes the vendor call but not the rest of the app.
         var error = PresetEditValidator.Validate("Daily", start, stop, existingNames: [], originalName: "Daily");
         Assert.NotNull(error);
     }

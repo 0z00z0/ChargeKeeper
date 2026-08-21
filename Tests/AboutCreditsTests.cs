@@ -4,18 +4,14 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// The studio rule is that every third-party library ships credited with its author and licence, and
-// the app states that credit in TWO places: the About box (AboutContent.Build().ExternalLibraries,
-// rendered by BrandAboutControl) and the README's "External libraries" table. AboutContent's doc
-// comment REQUIRES the two to stay in sync — but nothing enforced it, and they already drifted once
-// (MQTTnet's purpose string, fixed in e28186d). These tests make the comment enforceable: edit one
-// side only and the build goes red, naming the row that drifted.
+// Every third-party library ships credited with its author and licence, stated in two places: the
+// About box and the README's "External libraries" table. These tests make that requirement
+// enforceable — edit one side only and the build goes red, naming the row that drifted.
 public class AboutCreditsTests
 {
     // | [Name](url) | Author | Purpose | Licence |
-    // Name is a markdown link in the README (the project URL) but a bare string in AboutInfo, so the
-    // link text is what's compared. Purpose/licence are compared verbatim — a reworded purpose on one
-    // side only is exactly the drift that got through last time.
+    // Name is a markdown link in the README but a bare string in AboutInfo, so the link text is what
+    // is compared; purpose and licence are compared verbatim.
     private static readonly Regex RowPattern = new(
         @"^\|\s*\[(?<name>[^\]]+)\]\([^)]*\)\s*\|\s*(?<author>[^|]+?)\s*\|\s*(?<purpose>[^|]+?)\s*\|\s*(?<license>[^|]+?)\s*\|\s*$",
         RegexOptions.Compiled);
@@ -26,9 +22,8 @@ public class AboutCreditsTests
     }
 
     /// <summary>
-    /// Walks up from the test assembly to the repo root. The test binary lives under
-    /// Tests\bin\&lt;config&gt;\&lt;tfm&gt;\, and that depth is not worth hard-coding — probing for the
-    /// marker file survives any future change to the output layout.
+    /// Walks up from the test assembly to the repo root, probing for the marker file rather than
+    /// hard-coding the output depth.
     /// </summary>
     private static string FindReadme()
     {
@@ -44,9 +39,8 @@ public class AboutCreditsTests
     }
 
     /// <summary>
-    /// Parses the rows of the README's "External libraries" table — the block between that heading
-    /// and the next one. Scoped to that section rather than scanning every table in the file so an
-    /// unrelated table added later can't silently join the comparison set.
+    /// Parses the rows of the README's "External libraries" table. Scoped to that section rather
+    /// than every table in the file, so an unrelated table cannot join the comparison set.
     /// </summary>
     private static List<Credit> ReadReadmeCredits()
     {
@@ -81,8 +75,7 @@ public class AboutCreditsTests
         var about  = AboutCredits();
 
         // Compared as whole rows so a drifting purpose or licence is caught, not just a missing
-        // library. Reported per-side: which row the README claims that the About box does not, and
-        // vice versa — that names the exact drifting row instead of dumping two lists.
+        // library, and reported per side so the failure names the row rather than dumping two lists.
         var onlyInReadme = readme.Except(about).ToList();
         var onlyInAbout  = about.Except(readme).ToList();
 
@@ -96,8 +89,8 @@ public class AboutCreditsTests
 
     [Fact]
     public void EveryCreditedLibraryNamesAnAuthorAndLicence() =>
-        // The credit is the point of the list; a blank author or licence would satisfy the set-equality
-        // test above (both sides blank) while failing the rule it exists to enforce.
+        // A blank author or licence satisfies the set-equality test above, both sides being blank,
+        // while failing the rule that test exists to enforce.
         Assert.All(AboutContent.Build().ExternalLibraries, lib =>
         {
             Assert.False(string.IsNullOrWhiteSpace(lib.Author),  $"{lib.Name} is credited with no author.");

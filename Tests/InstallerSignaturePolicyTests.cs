@@ -61,7 +61,7 @@ public class InstallerSignaturePolicyTests
     [Fact]
     public void SignedBySomeoneElse_IsRefused_EvenWhenFullyTrusted()
     {
-        // A perfectly valid signature from a real CA is still not our release.
+        // A valid signature from a real CA is still not a ChargeKeeper release.
         Assert.Equal(InstallerVerdict.WrongPublisher,
                      InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Impostor));
     }
@@ -150,8 +150,8 @@ public class InstallerSignaturePolicyTests
     [Fact]
     public void EachDownloadPathIsFresh_AndUnderItsOwnDirectory()
     {
-        // The predictable %TEMP%\ChargeKeeper-Setup.exe this replaced was written and then executed,
-        // so whatever could occupy that name first decided what got launched.
+        // A predictable download path is written and then executed, so whatever can occupy that name
+        // first decides what gets launched.
         var first  = InstallerSignature.NewDownloadPath();
         var second = InstallerSignature.NewDownloadPath();
 

@@ -1,10 +1,8 @@
 namespace ChargeKeeper.Features;
 
 /// <summary>
-/// A user-toggleable on/off capability surfaced in the tray menu (e.g. Smart Charge,
-/// Smart Standby, auto-start).  Abstracting the three toggles behind one interface lets
-/// <see cref="ChargeKeeper.UI.TrayMenu"/> build and refresh them uniformly instead of
-/// duplicating read-state / flip / write logic per feature.
+/// A user-toggleable on/off capability surfaced in the tray menu. One interface so
+/// <see cref="ChargeKeeper.UI.TrayMenu"/> builds and refreshes every toggle the same way.
 /// </summary>
 internal interface IToggleFeature
 {
@@ -12,9 +10,8 @@ internal interface IToggleFeature
     string Name { get; }
 
     /// <summary>
-    /// Whether the feature is available on this system (driver present, service installed, etc.).
-    /// When false, <see cref="IsEnabled"/> and <see cref="SetEnabled"/> are meaningless — the
-    /// menu item should be greyed out rather than shown as an unchecked toggle.
+    /// Whether the feature is available on this system. When false the menu item is greyed out
+    /// rather than shown as an unchecked toggle.
     /// </summary>
     bool IsAvailable { get; }
 
@@ -22,16 +19,14 @@ internal interface IToggleFeature
     bool IsEnabled { get; }
 
     /// <summary>
-    /// Applies the requested state. May block (service/RPC calls) — call off the UI thread.
-    /// Returns <c>true</c> if the write succeeded, <c>false</c> on failure.
+    /// Applies the requested state, <c>false</c> on failure. May block on service or RPC calls,
+    /// so call it off the UI thread.
     /// </summary>
     bool SetEnabled(bool enabled);
 
     /// <summary>
-    /// One combined (available, enabled) snapshot. Defaults to the two independent property reads;
-    /// a feature backed by a single expensive probe (Smart Charge's Power-Manager RPC) overrides
-    /// this to answer both from ONE round-trip instead of calling <see cref="IsAvailable"/> and
-    /// <see cref="IsEnabled"/> back to back — halving the RPC cost of the menu's refresh snapshot.
+    /// One combined (available, enabled) snapshot. A feature backed by a single expensive probe
+    /// can override this to answer both from one round-trip.
     /// </summary>
     (bool Available, bool Enabled) ReadState() => (IsAvailable, IsEnabled);
 }

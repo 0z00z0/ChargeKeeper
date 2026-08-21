@@ -7,27 +7,18 @@ using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
-/// <summary>
-/// Battery health / degradation trend panel (TODO #24) — a separate section below the main history
-/// graph showing "capacity lost since new/tracking began" and a simple actual-plus-projected line
-/// of <c>FullChargeCapacity</c> over time. Deliberately much simpler than
-/// <see cref="BatteryHistoryGraphControl"/> (straight line segments, no smoothing, no interaction,
-/// no gap handling): this is a secondary, slow-timescale indicator, not a second full-featured
-/// graph, and capacity data is at most one point per day — there's nothing to smooth or downsample,
-/// and a missed day or two isn't "downtime" the way an hour without a SoC sample is.
-/// </summary>
+/// <summary>Battery health / degradation trend: capacity lost since new (or since tracking began)
+/// plus an actual-and-projected line of full-charge capacity. Deliberately simpler than the SoC
+/// graph — capacity data is at most one point per day, so there is nothing to smooth, downsample or
+/// gap-detect.</summary>
 public sealed partial class BatteryHealthPanel : UserControl
 {
-    // How far past the last real sample the projected trend line extends, as a fraction of the
-    // real data's own span (90 days of history projects 45 days further out), capped separately so
-    // a very long history doesn't project a wildly long, low-confidence line.
+    // Project half the real span forward, capped so a long history can't draw a low-confidence line.
     private const double ProjectionFraction = 0.5;
     private const int    MaxProjectionDays  = 180;
 
-    // Loaded once per panel lifetime (= one pop-out session). SizeChanged → Render fires on every
-    // layout pass — ~every 10ms for the host window's 340ms open/retract animations, plus every
-    // user resize — and nothing in the capacity file can change within a session (at most one row
-    // per day), so re-reading the CSV from disk on each of those passes was pure waste.
+    // Loaded once per panel lifetime: SizeChanged → Render fires on every layout pass, and nothing
+    // in the capacity file can change within a session.
     private IReadOnlyList<CapacitySample>? _samples;
 
     public BatteryHealthPanel()
@@ -35,16 +26,15 @@ public sealed partial class BatteryHealthPanel : UserControl
         InitializeComponent();
     }
 
-    // The canvas has zero size until the first real layout pass, so — same idiom as
-    // BatteryHistoryGraphControl's own OnCanvasSizeChanged — this is what actually triggers the
-    // first successful render; no separate Loaded handler needed.
-    private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e) => Render();
+    // The canvas has zero size until the first real layout pass, so this drives the first render.
+    private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        try { Render(); }
+        catch (Exception ex) { AppLog.Error("BatteryHealthPanel.Render", ex); }
+    }
 
-    /// <summary>
-    /// Redraws from the session-cached capacity history (read from disk once, on the first render —
-    /// see <see cref="_samples"/>). Unlike the main graph, this panel has no periodic refresh
-    /// timer, since nothing here can change within a single pop-out session.
-    /// </summary>
+    /// <summary>Redraws from the session-cached capacity history. There is no refresh timer, since
+    /// nothing here can change within a single pop-out session.</summary>
     public void Render()
     {
         var samples = _samples ??= BatteryCapacityHistoryService.LoadAll();
@@ -58,21 +48,21 @@ public sealed partial class BatteryHealthPanel : UserControl
             return;
         }
 
-        // "Since new" when the controller reports design capacity (closest to the TODO's literal
-        // "since install"); honestly falls back to "since tracking began" otherwise rather than
-        // implying a precision the data doesn't have.
-        double baselineMwh = samples[0].DesignMwh ?? samples[0].FullChargeMwh;
+        // "Since new" only when the controller reports a usable design capacity. A non-positive one
+        // is treated as absent — the persisted CSV round-trips a 0 back as 0, not null, and dividing
+        // by it would report a confident 0% loss and then plot NaN.
+        int?   design      = samples[0].DesignMwh is > 0 ? samples[0].DesignMwh : null;
+        double baselineMwh = design ?? samples[0].FullChargeMwh;
         double latestMwh   = samples[^1].FullChargeMwh;
         double lostPercent = Math.Max(0, (baselineMwh - latestMwh) / baselineMwh * 100);
-        string basis       = samples[0].DesignMwh is not null ? "since new" : "since tracking began";
+        string basis       = design is not null ? "since new" : "since tracking began";
         SummaryText.Text   = $"{lostPercent:0.#}% capacity lost {basis} ({samples.Count} days tracked)";
 
         double w = TrendCanvas.ActualWidth;
         double h = TrendCanvas.ActualHeight;
         if (w < 4 || h < 4) return;
 
-        // Plot capacity as a % of baseline so the Y-axis reads directly as "capacity remaining",
-        // matching the summary line above it.
+        // As a % of baseline, so the Y-axis reads directly as "capacity remaining".
         var points = new List<(double Days, double Pct)>(samples.Count);
         foreach (var s in samples)
             points.Add(((s.AtUtc - samples[0].AtUtc).TotalDays, s.FullChargeMwh / baselineMwh * 100));

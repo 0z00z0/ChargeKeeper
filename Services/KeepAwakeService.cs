@@ -4,31 +4,25 @@ using ChargeKeeper.Helpers;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// Holds the machine awake for a bounded session (issue #90). The clock rules live in the pure
+/// Holds the machine awake for a bounded session. The clock rules live in the pure
 /// <see cref="KeepAwakePolicy"/>; this owns the OS hold, the expiry timer and the network reactions.
-/// <para>
-/// <c>SetThreadExecutionState</c> is PER-THREAD: the request dies with the thread that made it, so a
-/// call from a thread-pool thread would be dropped the moment that thread is recycled. The hold
-/// therefore lives on one dedicated long-lived thread fed by a request queue, and clearing means
-/// posting <c>ES_CONTINUOUS</c> alone to that SAME thread. The thread is a background thread, so
-/// process exit releases the hold for free.
-/// </para>
-/// <para>
-/// The active session is deliberately NOT persisted: keep-awake surviving a reboot would be a
-/// surprise, and reconstructing expiry across a dead process buys nothing. Only the presets and the
-/// display-on preference are settings.
-/// </para>
 /// </summary>
+/// <remarks>
+/// <c>SetThreadExecutionState</c> is per-thread — the request dies with the thread that made it — so
+/// the hold lives on one dedicated background thread fed by a request queue, and releasing means
+/// posting <c>ES_CONTINUOUS</c> alone to that same thread. The active session is not persisted:
+/// keep-awake surviving a reboot would be a surprise, so only the presets and the display-on
+/// preference are settings.
+/// </remarks>
 internal static class KeepAwakeService
 {
-    // Guards _current + _expiryTimer + the holder-thread start. StateChanged is raised OUTSIDE the
+    // Guards _current + _expiryTimer + the holder-thread start. StateChanged is raised outside the
     // lock so a slow subscriber (a tray/tooltip rebuild) can't stall an expiry or a location change.
     private static readonly System.Threading.Lock _sync = new();
     private static KeepAwakeSession? _current;
     private static System.Threading.Timer? _expiryTimer;
 
-    // The dedicated holder thread and its request queue: each item is the exact esFlags value to
-    // apply. One thread for the app's lifetime — see the class note on the per-thread state.
+    // The holder thread and its request queue; each item is the esFlags value to apply.
     private static readonly BlockingCollection<uint> _holdRequests = new();
     private static Thread? _holder;
 
@@ -40,11 +34,8 @@ internal static class KeepAwakeService
     /// <summary>The running session, or null when nothing is holding the machine awake.</summary>
     public static KeepAwakeSession? Current { get { lock (_sync) return _current; } }
 
-    /// <summary>
-    /// Wires the network-location reactions. Called once at startup next to
-    /// <see cref="NetworkLocationService.Start"/>; never unsubscribed, same "lives for the whole
-    /// process" reasoning as TrayMenu's own subscription.
-    /// </summary>
+    /// <summary>Wires the network-location reactions. Called once at startup; never unsubscribed,
+    /// since the subscription lives for the whole process.</summary>
     public static void Start()
     {
         lock (_sync)
@@ -55,12 +46,10 @@ internal static class KeepAwakeService
         NetworkLocationService.LocationChanged += OnLocationChanged;
     }
 
-    /// <summary>
-    /// Starts (or replaces) the keep-awake session. Re-applies the OS hold on every call so a change
-    /// to <see cref="AppSettings.KeepAwakeDisplayOn"/> takes effect on the next activation.
-    /// </summary>
-    /// <param name="cause">Who asked, for the power trail. Defaults to the user because every other
-    /// entry point (tray toggle, dashboard, Settings) is one; the network reaction below says so.</param>
+    /// <summary>Starts or replaces the session, re-applying the OS hold so a change to
+    /// <see cref="AppSettings.KeepAwakeDisplayOn"/> takes effect on the next activation.</summary>
+    /// <param name="cause">Who asked, for the power trail. Defaults to the user because every entry
+    /// point but the network reaction below is one.</param>
     public static void Activate(KeepAwakeRequest request, string cause = "user request")
     {
         var now = DateTimeOffset.Now;
@@ -73,7 +62,7 @@ internal static class KeepAwakeService
             ArmExpiry(session, now);
         }
         PowerLog.Event($"Keep-awake on, {KeepAwakePolicy.DescribeRemaining(now, session)}", cause);
-        StateChanged?.Invoke();
+        RaiseStateChanged();
     }
 
     /// <summary>Ends the session and releases the OS hold. No-op when nothing is running.</summary>
@@ -86,13 +75,12 @@ internal static class KeepAwakeService
             ClearLocked();
         }
         PowerLog.Event("Keep-awake off", cause);
-        StateChanged?.Invoke();
+        RaiseStateChanged();
     }
 
     /// <summary>
-    /// Re-evaluates the session after a resume from standby. A machine that slept past its expiry must
-    /// end the session on wake — the timer's due time elapses in suspended wall-clock time and does not
-    /// fire — so expire when due and otherwise re-arm to what is genuinely left.
+    /// A timer's due time elapses in suspended wall-clock time without firing, so a machine that
+    /// slept past its expiry has to be expired on wake; anything left is re-armed.
     /// </summary>
     public static void OnPowerResume()
     {
@@ -107,17 +95,15 @@ internal static class KeepAwakeService
         if (expired)
         {
             PowerLog.Event("Keep-awake off", "the session expired while the machine was asleep");
-            StateChanged?.Invoke();
+            RaiseStateChanged();
         }
     }
 
     /// <summary>
-    /// Network-location reaction (issue #90). Two rules: leaving the network ends an
-    /// <see cref="KeepAwakeKind.UntilNetworkChange"/> session, and arriving somewhere whose first
-    /// matching rule sets <see cref="NetworkLocationRule.KeepAwakeHere"/> starts one — so leaving is
-    /// then the natural off switch, mirroring how charge presets follow the network. Auto-activate is
-    /// gated on <see cref="AppSettings.NetworkProfilesEnabled"/> (the rules are inert otherwise) and
-    /// never overrides a session the user started by hand.
+    /// Leaving the network ends an <see cref="KeepAwakeKind.UntilNetworkChange"/> session; arriving
+    /// somewhere whose first matching rule sets <see cref="NetworkLocationRule.KeepAwakeHere"/>
+    /// starts one. Gated on <see cref="AppSettings.NetworkProfilesEnabled"/>, and never overrides a
+    /// session the user started by hand.
     /// </summary>
     private static void OnLocationChanged(NetworkLocation location)
     {
@@ -129,8 +115,6 @@ internal static class KeepAwakeService
             Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null),
                      $"network rule for '{location.DisplayHint ?? location.IpCidr ?? "this network"}'");
     }
-
-    // ── OS hold ───────────────────────────────────────────────────────────────────
 
     private static uint HoldFlags() =>
         NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED |
@@ -151,9 +135,7 @@ internal static class KeepAwakeService
             try
             {
                 NativeMethods.SetThreadExecutionState(flags);
-                // Logged HERE rather than at the request sites: this is the moment the OS actually
-                // learns about the hold, and ES_CONTINUOUS on its own is the release. The display
-                // flag is named because "stayed awake but the screen slept" is its own bug report.
+                // Logged here, not at the request sites: this is when the OS learns about the hold.
                 PowerLog.Event(
                     flags == NativeMethods.ES_CONTINUOUS
                         ? "OS keep-awake hold released"
@@ -164,8 +146,6 @@ internal static class KeepAwakeService
         }
     }
 
-    // ── Expiry ────────────────────────────────────────────────────────────────────
-
     // Callers hold _sync.
     private static void ArmExpiry(KeepAwakeSession session, DateTimeOffset now)
     {
@@ -175,8 +155,8 @@ internal static class KeepAwakeService
 
         var due = expiry - now;
         if (due < TimeSpan.Zero) due = TimeSpan.Zero;
-        // One timer armed to the exact instant, not a poll — an until-time is at most 24 h out, well
-        // inside Timer's range, so no clamping is needed.
+        // One timer armed to the instant, not a poll — an until-time is at most 24 h out, well inside
+        // Timer's range.
         _expiryTimer = new System.Threading.Timer(_ => ExpireIfDue(), null, due, Timeout.InfiniteTimeSpan);
     }
 
@@ -191,7 +171,15 @@ internal static class KeepAwakeService
             ClearLocked();
         }
         PowerLog.Event("Keep-awake off", "the session reached its own expiry time");
-        StateChanged?.Invoke();
+        RaiseStateChanged();
+    }
+
+    // Never let a subscriber's failure escape: two of these raise sites are timer callbacks, where an
+    // escaped exception terminates the process, and the window subscribers touch the UI.
+    private static void RaiseStateChanged()
+    {
+        try { StateChanged?.Invoke(); }
+        catch (Exception ex) { AppLog.Error("KeepAwakeService.StateChanged", ex); }
     }
 
     // Callers hold _sync.

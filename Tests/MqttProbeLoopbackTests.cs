@@ -9,13 +9,11 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// End-to-end verdicts for the MQTT connection check, against loopback only — no external network,
-/// no real broker, nothing published. The pure classifiers are covered in
-/// <see cref="MqttConnectionProbeTests"/>; what these add is the one thing that cannot be asserted
-/// from a table: that <see cref="MqttConnectionProbe.RunAsync"/> actually REACHES each classifier.
-/// The CONNACK path in particular is not obvious — MQTTnet 5 returns a refused CONNACK as a result
-/// code rather than throwing, and if that ever flips the auth verdict would silently degrade into
-/// the generic failure this feature exists to replace.
+/// End-to-end verdicts for the MQTT connection check, against loopback only. The pure classifiers
+/// are covered in <see cref="MqttConnectionProbeTests"/>; what these add is that
+/// <see cref="MqttConnectionProbe.RunAsync"/> reaches each one. MQTTnet 5 returns a refused CONNACK
+/// as a result code rather than throwing, and if that flips, the auth verdict degrades silently
+/// into a generic failure.
 /// </summary>
 public class MqttProbeLoopbackTests
 {
@@ -64,12 +62,11 @@ public class MqttProbeLoopbackTests
     }
 
     /// <summary>
-    /// The smallest thing that can answer a CONNECT: accept, read the packet far enough to see which
-    /// protocol version the client spoke, reply with a matching CONNACK, then hold the socket open
-    /// long enough for the client to call the session live.
-    /// <para>It accepts in a LOOP and drops zero-byte connections on purpose — the probe's stage-1
-    /// reachability check opens and immediately closes a socket before any MQTT traffic, so the first
-    /// accept is always that one.</para>
+    /// The smallest thing that can answer a CONNECT: accept, read far enough to see the client's
+    /// protocol version, reply with a matching CONNACK, then hold the socket open long enough for
+    /// the client to call the session live.
+    /// <para>It accepts in a loop and drops zero-byte connections because the probe's stage-1
+    /// reachability check opens and closes a socket before any MQTT traffic.</para>
     /// </summary>
     private sealed class FakeBroker : IDisposable
     {

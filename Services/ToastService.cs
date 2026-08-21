@@ -23,8 +23,8 @@ internal static class ToastService
         }
     }
 
-    // The one shared show path: every notification is fire-and-forget and must never crash the
-    // app, so the build+show+swallow scaffold lives here once instead of being copied per toast.
+    // Every notification is fire-and-forget and must never crash the app, so the build+show+swallow
+    // scaffold lives here once.
     private static void TryShow(string title, string body)
     {
         try
@@ -52,13 +52,7 @@ internal static class ToastService
     public static void NotifyLowBattery(int pct) =>
         TryShow("Low battery", $"Battery at {pct}% — connect AC power");
 
-    /// <summary>
-    /// Overnight-drain anomaly (TODO #26): the battery lost more charge than expected across a
-    /// downtime gap. <paramref name="dropPercent"/> is always positive here (the caller filters out
-    /// a rise/flat reading before calling this) and <paramref name="duration"/> is the gap's real
-    /// elapsed span, formatted coarsely (hours, or minutes under an hour) since a precise duration
-    /// isn't the point of this toast — the drop and a nudge toward Modern Standby are.
-    /// </summary>
+    /// <summary><paramref name="dropPercent"/> is always positive — the caller filters rises and flats.</summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
     {
         string span = duration.TotalHours >= 1 ? $"{duration.TotalHours:0.#}h" : $"{duration.Minutes}m";

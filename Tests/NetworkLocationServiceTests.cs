@@ -59,14 +59,14 @@ public class NetworkLocationServiceTests
         Assert.False(a.SameLocationAs(b));
     }
 
-    // ── The first-evaluation seed rule ─────────────────────────────────────────────
+    // The first-evaluation seed rule
 
     [Fact]
     public void IsLocationChange_FirstEvaluation_SeedsWithoutBeingAChange()
     {
-        // Start() evaluates immediately; _last is still default there. Raising LocationChanged on that
-        // baseline re-applied a network profile on every app start, cancelling a persisted travel
-        // override. The first reading only seeds.
+        // Start() evaluates immediately, with _last still default. Raising LocationChanged on that
+        // baseline would re-apply a network profile on every app start and cancel a persisted travel
+        // override, so the first reading only seeds.
         var current = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.1.0/24", true, null);
         Assert.False(NetworkLocationService.IsLocationChange(seeded: false, current, default));
     }
@@ -88,16 +88,14 @@ public class NetworkLocationServiceTests
         Assert.False(NetworkLocationService.IsLocationChange(seeded: true, same, seed));
     }
 
-    // ── SelectPrimary: the primary-adapter heuristic (issue #21), exercised without live adapters ──
+    // SelectPrimary: the primary-adapter heuristic, exercised without live adapters
 
     [Fact]
     public void SelectPrimary_BridgedHyperV_RoutingTableWinsOverPhysicalVirtualBias()
     {
-        // Regression for #21: on a Hyper-V external switch the routable IP + default route live on a
-        // "vEthernet (…)" Hyper-V Virtual Ethernet Adapter (IsVirtual), while the bridged physical NIC
-        // keeps no usable IP. GetBestInterface points at the vEthernet's index, so it MUST be selected
-        // even though a physical, non-virtual Ethernet is also present and listed first (i.e. the
-        // routing table beats the "prefer physical / demote Virtual" bias).
+        // On a Hyper-V external switch the routable IP and default route live on the virtual
+        // "vEthernet (…)" adapter while the bridged physical NIC keeps no usable IP, so the routing
+        // table has to beat the "prefer physical, demote virtual" bias.
         var physical  = new AdapterCandidate(IPv4Index: 7,  IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
         var vEthernet = new AdapterCandidate(IPv4Index: 12, IsVirtual: true,  Type: NetworkInterfaceType.Ethernet);
 
@@ -150,11 +148,10 @@ public class NetworkLocationServiceTests
     }
 
 
-    // ── The Hyper-V bridge walk-back ─────────────────────────────────────
-    // Fixtures are the measured adapter set of the affected host: the physical "Ethernet" is Up with
-    // NO IPv4 (the external switch took it) and shares its MAC verbatim with "vEthernet (Bridged)",
-    // which holds the routable address and the default route; "vEthernet (Default Switch)" is an
-    // INTERNAL switch with a synthesised Microsoft-OUI address and no physical partner.
+    // The Hyper-V bridge walk-back. The fixtures are a measured adapter set: the physical "Ethernet"
+    // is Up with no IPv4 (the external switch took it) and shares its MAC verbatim with
+    // "vEthernet (Bridged)", which holds the routable address; "vEthernet (Default Switch)" is an
+    // internal switch with a synthesised Microsoft-OUI address and no physical partner.
 
     private const string PhysicalMac      = "48:65:EE:18:86:EF";
     private const string DefaultSwitchMac = "00:15:5D:EA:DC:CF";
@@ -197,7 +194,7 @@ public class NetworkLocationServiceTests
     [Fact]
     public void ResolveBridgedPeer_ExternalSwitch_PairsByMacToThePhysicalNic()
     {
-        // The external switch's vNIC inherits the bound NIC's hardware address verbatim (measured),
+        // Measured: the external switch's vNIC inherits the bound NIC's hardware address verbatim,
         // so the same MAC on a non-virtual adapter identifies the NIC driving the switch.
         var peer = NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers);
 
@@ -261,7 +258,7 @@ public class NetworkLocationServiceTests
         Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers));
     }
 
-    // ── What gets STORED: the physical NIC's MAC, the selected adapter's subnet ──────────
+    // What gets stored: the physical NIC's MAC, the selected adapter's subnet
 
     [Fact]
     public void Compose_BridgedPeer_StoresThePhysicalMacAndKeepsTheSelectedAdaptersSubnet()
@@ -313,9 +310,8 @@ public class NetworkLocationServiceTests
     [Fact]
     public void BridgedHost_MeasuredAdapters_StorePhysicalMacAndNameThePhysicalNic()
     {
-        // End to end over the pure parts, with the vNIC given a Microsoft-assigned address (a switch
-        // recreated with a dynamic MAC) so the two differ: the pairing still finds the physical NIC,
-        // and both the stored key and the suggested name follow it rather than the vNIC.
+        // The vNIC carries a Microsoft-assigned address (a switch recreated with a dynamic MAC) so
+        // the two differ, and both the stored key and the suggested name must follow the physical NIC.
         BridgePeer[] peers = [Physical(), new(BridgeAlias, "00:15:5D:01:02:03", IsVirtual: true, OperationalStatus.Up)];
         var bridged = NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers);
         var hint    = NetworkLocationService.SuggestDisplayHint(wired: true, BridgeAlias, bridged, ssid: null);
@@ -325,7 +321,7 @@ public class NetworkLocationServiceTests
         Assert.Equal("Ethernet", location.DisplayHint);
     }
 
-    // ── The suggested name ───────────────────────────────────────────────────
+    // The suggested name
 
     [Fact]
     public void SuggestDisplayHint_BridgedPeer_NamesThePhysicalNic()
@@ -355,13 +351,13 @@ public class NetworkLocationServiceTests
         Assert.Null(NetworkLocationService.SuggestDisplayHint(wired: false, "WiFi", bridged: null, ssid: null));
     }
 
-    // ── The stale-key hint on a saved rule ─────────────────────────────────
+    // The stale-key hint on a saved rule
 
     [Fact]
     public void IsStaleKey_SameSubnetDifferentMac_IsStale()
     {
-        // The user's own case: a profile saved on an older dock (3C:2C:30:CA:98:D7) while the adapter
-        // in use now reports 48:65:EE:18:86:EF on the same subnet. It can never match again.
+        // A profile saved on an older dock, while the adapter in use reports a different MAC on the
+        // same subnet: the rule can never match again.
         var rule    = new NetworkLocationRule { AdapterMac = "3C:2C:30:CA:98:D7", IpCidr = "10.0.0.0/23" };
         var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", IsWired: true, DisplayHint: "Ethernet");
 
@@ -406,7 +402,7 @@ public class NetworkLocationServiceTests
         Assert.False(NetworkLocationService.IsStaleKey(rule, default));
     }
 
-    // ── The match key shown in the naming dialog and the Settings rows ─────────────
+    // The match key shown in the naming dialog and the Settings rows
 
     [Fact]
     public void DescribeMatchKey_MacAndSubnet_JoinedWithTheHouseSeparator()

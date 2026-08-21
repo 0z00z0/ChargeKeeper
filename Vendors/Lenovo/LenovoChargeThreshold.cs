@@ -3,14 +3,10 @@ using System.Runtime.InteropServices;
 namespace ChargeKeeper.Vendors.Lenovo;
 
 /// <summary>
-/// Reads and writes the battery charge start/stop thresholds through the Lenovo Power
-/// Manager local-RPC interface, via the native <c>LenPower.dll</c> bridge (see
-/// <c>native/</c> at the repo root). This is the same interface Lenovo Vantage uses; on
-/// ThinkPad firmware the threshold is NOT exposed through <c>Lenovo_BiosSetting</c>, so WMI
-/// cannot reach it.
-///
-/// Requires administrator privileges and the "Lenovo Power and Battery"
-/// (<c>POWERMGR_COMPONENT</c>) system device to be present.
+/// Reads and writes the battery charge start/stop thresholds through the Lenovo Power Manager
+/// local-RPC interface, via the native <c>LenPower.dll</c> bridge. ThinkPad firmware does not
+/// expose the threshold through <c>Lenovo_BiosSetting</c>, so WMI cannot reach it. Requires
+/// elevation and the "Lenovo Power and Battery" (<c>POWERMGR_COMPONENT</c>) system device.
 /// </summary>
 internal sealed class LenovoChargeThreshold : IChargeThresholdProvider
 {

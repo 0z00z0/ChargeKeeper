@@ -3,11 +3,8 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure rename/delete cascade tests for threshold presets (TODO #19) — the highest-regression-risk
-// piece of the Settings window's preset editor per the issue's own review. Constructs a plain
-// AppSettings directly (no SettingsService file I/O involved) so these exercise exactly the
-// cross-reference bookkeeping (ActivePreset / NetworkLocationRule.PresetName /
-// UnknownNetworkPresetName) in isolation.
+// Rename and delete cascades for threshold presets, over a plain AppSettings rather than
+// SettingsService, so only the cross-reference bookkeeping is exercised.
 public class PresetCascadeTests
 {
     private static AppSettings MakeSettings() => new()
@@ -137,9 +134,8 @@ public class PresetCascadeTests
     [Fact]
     public void Delete_DuplicateName_RemovesOnlyOneInstance()
     {
-        // PresetEditValidator blocks creating a duplicate name going forward, but settings.json
-        // can still arrive with one (a hand edit, or a sync/merge conflict) — a single "Delete
-        // preset" click must not destroy both.
+        // PresetEditValidator blocks creating a duplicate name, but settings.json can still arrive
+        // with one from a hand edit or a sync conflict, and one Delete click must not destroy both.
         var s = MakeSettings();
         s.Presets.Add(new ThresholdPreset("Daily", 65, 85));
         Assert.Equal(3, s.Presets.Count);

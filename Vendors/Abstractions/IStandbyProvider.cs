@@ -2,19 +2,14 @@ namespace ChargeKeeper.Vendors;
 
 /// <summary>
 /// Controls the vendor's smart-standby scheduling (when Modern Standby / S0 Low Power Idle is
-/// allowed to engage). All methods are best-effort and must not throw — a missing driver or
-/// service simply reports not-running / failure, matching how the rest of the app degrades on
-/// non-supported hardware.
+/// allowed to engage). All methods are best-effort and must not throw: a missing driver or
+/// service reports not-supported / not-running / failure.
 /// </summary>
 public interface IStandbyProvider
 {
     /// <summary>
-    /// Whether this vendor implements standby scheduling at all.
-    ///
-    /// Distinct from <see cref="IsRunning"/>: "supported but currently off" is a togglable
-    /// state, whereas "not supported" means the feature should not be offered. Lenovo backs
-    /// this with the <c>LenovoSmartStandby</c> service; HP has no equivalent, so the toggle
-    /// must be hidden rather than shown enabled and doing nothing.
+    /// Whether standby scheduling exists on this machine. Distinct from <see cref="IsRunning"/>:
+    /// not-supported hides the toggle, whereas supported-but-off shows it unchecked.
     /// </summary>
     bool IsSupported { get; }
 
