@@ -1993,11 +1993,11 @@ internal sealed partial class SettingsWindow : Window
             body.Children.Add(errorText);
             body.Children.Add(new TextBlock
             {
-                Text = "Changing the ID renames every ChargeKeeper entity in Home Assistant. "
+                Text = "Changing the ID renames every ChargeKeeper entity on the broker. "
                      + "Automations, dashboards and history that point at the old entities will stop "
                      + "working — they will not report an error, the entities simply will not be there "
                      + "any more.\n\n"
-                     + "ChargeKeeper removes the old entities from Home Assistant when you confirm. "
+                     + "ChargeKeeper removes the old entities from the broker when you confirm. "
                      + "Their recorded history is not carried over to the new ones.\n\n"
                      + "Leave the box empty to go back to the name derived from this machine.",
                 TextWrapping = TextWrapping.Wrap,

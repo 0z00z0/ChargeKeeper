@@ -344,7 +344,7 @@
                     <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Publish to MQTT"
-                                            Description="Publishes battery/charge state to an MQTT broker using the standard MQTT auto-discovery convention. Applies immediately.">
+                                            Description="Publishes battery/charge state to an MQTT broker and announces the entities by auto-discovery. Applies immediately.">
                         <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                     </controls:SettingsCard>
 
@@ -355,13 +355,13 @@
                     <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
 
                     <controls:SettingsCard Header="Device name"
-                                            Description="The name Home Assistant shows for this machine. Cosmetic — it renames nothing else.">
+                                            Description="The display name published for this machine. Cosmetic — it renames nothing else.">
                         <!-- PlaceholderText is set in code-behind: it's the machine-derived default. -->
                         <TextBox x:Name="HaDeviceNameBox" MinWidth="220"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Device ID"
-                                            Description="Identifies this machine in every MQTT topic and in every Home Assistant entity id. Changing it renames all of them.">
+                                            Description="Identifies this machine in every MQTT topic and in every published entity id. Changing it renames all of them.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <TextBlock x:Name="HaNodeIdText" VerticalAlignment="Center"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -389,7 +389,11 @@
                     <controls:SettingsCard Header="Use TLS" Description="Broker port is usually 8883 when enabled.">
                         <ToggleSwitch x:Name="HaTlsToggle" OnContent="On" OffContent="Off"/>
                     </controls:SettingsCard>
-                    <controls:SettingsCard Header="Discovery prefix" Description="The MQTT auto-discovery prefix your broker/consumer expects (default: homeassistant).">
+                    <!-- The one place this page names Home Assistant: "Home Assistant MQTT Discovery" is the
+                         published name of the convention the entities are announced with, and it is what
+                         the default prefix value spells. Dropping it would leave that default
+                         unexplained and the sentence untrue. Everywhere else here says broker. -->
+                    <controls:SettingsCard Header="Discovery prefix" Description="Topic prefix the discovery messages are published under (default: homeassistant). Entities are announced using the Home Assistant MQTT Discovery convention — an openly published spec that some MQTT consumers follow and others ignore. Change this only if yours listens elsewhere.">
                         <TextBox x:Name="HaPrefixBox" MinWidth="220"/>
                     </controls:SettingsCard>
 
@@ -427,7 +431,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Last command received"
-                                            Description="The most recent command Home Assistant sent this machine.">
+                                            Description="The most recent command received from the broker.">
                         <TextBlock x:Name="HaLastCommandText" Text="—"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </controls:SettingsCard>
