@@ -20,18 +20,31 @@ internal sealed record SurfaceBatteryLimitSetting(bool Enabled, bool IsReadOnly)
 ///
 /// 1. The SurfaceUefiManager managed API (<c>SurfaceUefiManager.dll</c>, type
 ///    <c>Microsoft.Surface.FirmwareOption</c>), installed by SurfaceUEFIManagerSetup.msi as part
-///    of SEMM. It enumerates UEFI settings by name and can unlock them with the SEMM password.
-///    Caveat: documented as COMMERCIAL Surface only — Microsoft support states consumer SKUs can
-///    change Battery Limit from the UEFI screen alone.
+///    of SEMM. It enumerates UEFI settings by name — Battery Limit is setting 407, "Battery
+///    Profile" — and can unlock them with the SEMM password. Caveat: documented as COMMERCIAL
+///    ("Surface for Business") SKUs only.
 /// 2. A WMI or registry surface from the Surface Integration / Surface System Aggregator driver.
 ///    Enumerate <c>root\wmi</c> and the Surface service registry keys on-device; nothing is
 ///    documented, so this is a search, not a lookup.
 /// 3. Worst case the setting is firmware-menu-only from Windows and this module stays read-only,
 ///    or never becomes writable at all.
 ///
-/// The Linux kernel drives Battery Limit through the Surface Aggregator Module, so the embedded
-/// controller does accept a runtime command. Finding the WINDOWS path to that EC command is the
-/// open research item — the mechanism exists, the managed entry point is what is missing.
+/// ESTABLISHED, so do not re-derive it:
+/// <list type="bullet">
+/// <item>Battery Limit is a UEFI setting — on/off only, capping at a fixed 50 % — set from the
+///   firmware menu at boot or by a signed SEMM package on a commercial SKU. It is UEFI setting
+///   407, "Battery Profile".</item>
+/// <item>No documented Windows API, WMI class or registry value reaches it from user mode, on any
+///   generation. Microsoft's own Q&amp;A answer for consumer devices is the UEFI screen, full stop.</item>
+/// <item>It is NOT a DFCI setting, so there is no Intune route either.</item>
+/// <item>Linux is not a way in, despite the frequent claim that it is: the upstream SSAM drivers
+///   (<c>surface_battery</c>, <c>surface_charger</c>) expose battery/AC STATUS only, and
+///   linux-surface#1580, which asks for battery-limit control, is an open and unanswered feature
+///   request. There is no evidence the EC accepts a runtime cap command.</item>
+/// <item>The Surface app's Adaptive / 80 % / 100 % modes exist only on Pro 9+ and Laptop 5+ and
+///   have no documented API. The only prior art, <c>keyokku/SurfaceChargingTray</c>, drives that
+///   app's UI with UI Automation.</item>
+/// </list>
 /// </summary>
 internal interface ISurfaceBatteryLimitTransport
 {
