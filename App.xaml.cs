@@ -391,13 +391,11 @@ public partial class App : Application
         var iconPath = IconGenerator.GenerateAndSaveTrayIcon(exeDir);
         _trayIcon.Icon = new System.Drawing.Icon(iconPath);
 
-        // Left-click → dashboard. Right-click → native popup menu (refreshed first).
-        IToggleFeature[] features =
-        [
-            new SmartChargeFeature(),
-            new SmartStandbyFeature(),
-            new AutoStartFeature(),
-        ];
+        // Left-click → dashboard (a second click inside the double-click window → Settings).
+        // Right-click → native popup menu (refreshed first).
+        // Launch at startup is the only toggle the menu still carries: Smart Charge and Smart Standby
+        // are toggles on the dashboard, so the tray was duplicating them.
+        IToggleFeature[] features = [new AutoStartFeature()];
         _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
                              windowsReady: WindowsReady);
         _trayIcon.ContextFlyout     = _menu.Flyout;
@@ -924,6 +922,11 @@ public partial class App : Application
     // True while a tray click is parked on the settle gate. UI thread only, so no locking.
     private bool _clickParkedOnGate;
 
+    // When the previous tray left-click arrived, for TrayClickPolicy's double-click test. UI thread
+    // only (ICommand handlers), so no locking. Null once a pair has resolved to a double-click — a
+    // third rapid click starts a fresh pair rather than opening Settings again.
+    private DateTimeOffset? _lastTrayClickAt;
+
     // async void is deliberate (and safe): this is an ICommand handler, and the try/catch below spans
     // the await. The await is the settle gate — normally already complete, so it does not yield and
     // this runs exactly as the synchronous version did. Only on a watchdog/auto-relaunch start can a
@@ -931,6 +934,12 @@ public partial class App : Application
     // are allowed, so the user's click opens the dashboard a moment later instead of doing nothing.
     private async void ToggleDashboard()
     {
+        // Stamped BEFORE the settle gate below: a double-click is about how fast the USER clicked,
+        // and the gate can park a click for seconds on a watchdog/auto-relaunch start.
+        var now      = DateTimeOffset.Now;
+        var previous = _lastTrayClickAt;
+        _lastTrayClickAt = now;
+
         // Guard the whole open path: a failure building or showing the popup must not take
         // down the tray app. Log it and stay alive so the menu/icon keep working.
         try
@@ -962,11 +971,31 @@ public partial class App : Application
                 };
             }
 
-            if (_dashboard.AppWindow.IsVisible)
-                _dashboard.HideWindow();
-            else if (_dashboard.SinceHidden.TotalMilliseconds > ReopenGuardMs)
-                _dashboard.ShowNearTray();
-            // else: this click is the same gesture that just auto-hid the popup — leave it hidden.
+            switch (TrayClickPolicy.Decide(now, previous, NativeMethods.DoubleClickTime,
+                                           _dashboard.AppWindow.IsVisible, _dashboard.SinceHidden,
+                                           TimeSpan.FromMilliseconds(ReopenGuardMs)))
+            {
+                case TrayClickAction.HideDashboard:
+                    _dashboard.HideWindow();
+                    break;
+
+                case TrayClickAction.OpenDashboard:
+                    _dashboard.ShowNearTray();
+                    break;
+
+                case TrayClickAction.OpenSettingsAndHideDashboard:
+                    // Ends the pair, so a third rapid click is a fresh first click.
+                    _lastTrayClickAt = null;
+                    // Hidden BEFORE Settings is activated, for the same reason ShowHistoryWindow does
+                    // it: the dashboard is IsAlwaysOnTop and would otherwise fight the freshly
+                    // activated window for z-order at the same corner of the screen.
+                    if (_dashboard.AppWindow.IsVisible) _dashboard.HideWindow();
+                    ShowSettingsWindow();
+                    break;
+
+                // TrayClickAction.None: this click is the same gesture that just auto-hid the popup —
+                // leave it hidden.
+            }
         }
         catch (Exception ex)
         {
