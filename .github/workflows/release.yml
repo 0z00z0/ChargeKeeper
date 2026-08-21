@@ -466,6 +466,87 @@ jobs:
             Write-Host 'Manifests are valid.'
           }
 
+      # ── 11b. Release notes ───────────────────────────────────────────────────
+      # Built from the Conventional Commit subjects between the previous tag and this
+      # one, so the notes cannot drift from what actually shipped. The update dialog
+      # renders this body with markdown stripped: headings lose their marker and
+      # bullets survive, so the shape here is what a user sees.
+      - name: Build release notes
+        id: notes
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $sha256  = '${{ steps.sha256.outputs.sha256 }}'
+          $tag     = '${{ github.ref_type == ''tag'' && github.ref_name || ''HEAD'' }}'
+
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }
+          Write-Host "Collecting subjects over $range"
+
+          $subjects = @(git log --no-merges --pretty=format:%s $range | Where-Object { $_ })
+
+          # chore/style/test say nothing a user acts on, so they fold into Internal
+          # rather than getting their own heading. Nothing is dropped.
+          $headings = [ordered]@{
+            'feat'     = 'New'
+            'fix'      = 'Fixed'
+            'perf'     = 'Performance'
+            'revert'   = 'Reverted'
+            'refactor' = 'Internal'
+            'chore'    = 'Internal'
+            'style'    = 'Internal'
+            'test'     = 'Internal'
+            'ci'       = 'Build and CI'
+            'build'    = 'Build and CI'
+            'docs'     = 'Documentation'
+          }
+
+          $grouped = [ordered]@{}
+          foreach ($name in @('New','Fixed','Performance','Reverted','Build and CI','Documentation','Internal','Other')) {
+            $grouped[$name] = [System.Collections.Generic.List[string]]::new()
+          }
+
+          foreach ($subject in $subjects) {
+            $m = [regex]::Match($subject, '^(?<type>[a-z]+)(?:\((?<scope>[^)]*)\))?(?<breaking>!)?:\s*(?<text>.+)$')
+            if (-not $m.Success) { $grouped['Other'].Add($subject); continue }
+
+            $type = $m.Groups['type'].Value
+            $head = if ($headings.Contains($type)) { $headings[$type] } else { 'Other' }
+
+            $text = $m.Groups['text'].Value
+            if ($m.Groups['scope'].Success -and $m.Groups['scope'].Value) {
+              $text = "$($m.Groups['scope'].Value): $text"
+            }
+            if ($m.Groups['breaking'].Success) { $text = "BREAKING - $text" }
+            $grouped[$head].Add($text)
+          }
+
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("## ChargeKeeper v$version")
+          $lines.Add('')
+
+          $any = $false
+          foreach ($head in $grouped.Keys) {
+            if ($grouped[$head].Count -eq 0) { continue }
+            $any = $true
+            $lines.Add("### $head")
+            foreach ($entry in $grouped[$head]) { $lines.Add("- $entry") }
+            $lines.Add('')
+          }
+          if (-not $any) { $lines.Add('No recorded changes since the previous release.'); $lines.Add('') }
+
+          $lines.Add("Download ``ChargeKeeper-Setup-$version.exe`` below. Per-user installer, no administrator rights required.")
+          $lines.Add('')
+          $lines.Add("**SHA256 (installer):** ``$sha256``")
+
+          $path = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $lines -join "`n" | Set-Content -Path $path -Encoding utf8 -NoNewline
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          Write-Host '--- release notes ---'
+          Get-Content $path | Write-Host
+
       # ── 12. Create GitHub Release (tag pushes only) ──────────────────────────
       # A manual workflow_dispatch is a dry-run: it builds, signs, and validates
       # the manifests but does NOT publish a release.
@@ -482,18 +563,7 @@ jobs:
             installer/winget/0z00z0.ChargeKeeper.installer.yaml
             installer/winget/0z00z0.ChargeKeeper.yaml
             installer/winget/0z00z0.ChargeKeeper.locale.en-GB.yaml
-          body: |
-            ## ChargeKeeper v${{ steps.version.outputs.version }}
-
-            **Install / upgrade via winget:**
-            ```
-            winget install 0z00z0.ChargeKeeper
-            winget upgrade 0z00z0.ChargeKeeper
-            ```
-
-            Or download `ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe` below — per-user installer, no admin required.
-
-            **SHA256 (installer):** `${{ steps.sha256.outputs.sha256 }}`
+          body_path: ${{ steps.notes.outputs.path }}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Post-release: download the manifest assets from the release and re-validate
