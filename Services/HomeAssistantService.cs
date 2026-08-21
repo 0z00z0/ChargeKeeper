@@ -247,7 +247,7 @@ internal sealed class HomeAssistantService : IDisposable
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                AppLog.Error("HomeAssistantService.Connect", Sanitize(ex));   // message only, never creds
+                AppLog.Error("HomeAssistantService.Connect", Sanitise(ex));   // message only, never creds
                 backoff = NextBackoff(backoff);
                 connectedSince = null;
             }
@@ -382,7 +382,7 @@ internal sealed class HomeAssistantService : IDisposable
 
     /// <summary>
     /// Publishes an entity state snapshot (retained, so HA has a value immediately on restart).
-    /// No-op when the feature is disabled (fix: return BEFORE building/serializing the payload, so a
+    /// No-op when the feature is disabled (fix: return BEFORE building/serialising the payload, so a
     /// battery tick costs nothing while off). When enabled but the payload is unchanged from the last
     /// one, skips the network publish too — a stationary SoC shouldn't re-send a retained message
     /// every tick. Still caches while disconnected so the snapshot is re-sent on the next connect.
@@ -442,7 +442,7 @@ internal sealed class HomeAssistantService : IDisposable
             MqttActivity.RecordCommand(cmd.Kind);
             _commands.Writer.TryWrite(cmd);   // unbounded + non-blocking; the worker drains it in order
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitise(ex)); }
         return Task.CompletedTask;
     }
 
@@ -465,7 +465,7 @@ internal sealed class HomeAssistantService : IDisposable
                 // activate/revert timing too. No separate publish call is needed here.
                 HaCommandDispatcher.Dispatch(cmd, _actions);   // synchronous read-modify-write on this worker
             }
-            catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitize(ex)); }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitise(ex)); }
         }
     }
 
@@ -505,7 +505,7 @@ internal sealed class HomeAssistantService : IDisposable
                 if (_enabled)
                     PublishFreshStateAfterCommand();
             }
-            catch (Exception ex) { AppLog.Error("HomeAssistantService.Reflect", Sanitize(ex)); }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Reflect", Sanitise(ex)); }
         }
         while (_reflectGate.ShouldRepeat());
     }
@@ -560,7 +560,7 @@ internal sealed class HomeAssistantService : IDisposable
             foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
                 await PublishAsync(topic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitise(ex)); }
     }
 
     /// <summary>
@@ -601,7 +601,7 @@ internal sealed class HomeAssistantService : IDisposable
             // whole "when did anything last reach the broker" fact the settings page reports.
             MqttActivity.RecordPublish();
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); }
     }
 
     private async Task StopInternalAsync(bool clearDiscovery)
@@ -631,7 +631,7 @@ internal sealed class HomeAssistantService : IDisposable
 
     // Guarantees a thrown broker error can never carry the password into the log — we log only the
     // exception type + message, both broker-generated, and drop the stack/inner chain.
-    private static Exception Sanitize(Exception ex) => new($"{ex.GetType().Name}: {ex.Message}");
+    private static Exception Sanitise(Exception ex) => new($"{ex.GetType().Name}: {ex.Message}");
 
     public void Dispose()
     {

@@ -65,7 +65,7 @@ internal static class HaDiscovery
     /// alphanumeric survived. One sanitation rule, shared by the machine-name default and the
     /// user-typed override so the two can't drift.
     /// </summary>
-    private static (string Text, bool HasAlnum) Sanitize(string raw)
+    private static (string Text, bool HasAlnum) Sanitise(string raw)
     {
         var sb = new StringBuilder(raw.Length);
         bool hasAlnum = false;
@@ -84,7 +84,7 @@ internal static class HaDiscovery
     /// </summary>
     public static string NodeId(string machineName)
     {
-        var (text, hasAlnum) = Sanitize(machineName);
+        var (text, hasAlnum) = Sanitise(machineName);
         // A name with no usable alphanumerics would be all underscores — use a readable fallback.
         return $"{BasePrefix}_{(hasAlnum ? text : "device")}";
     }
@@ -96,7 +96,7 @@ internal static class HaDiscovery
     /// </summary>
     public static string NormalizeNodeId(string raw)
     {
-        var (text, _) = Sanitize(raw.Trim());
+        var (text, _) = Sanitise(raw.Trim());
         return text.Length <= MaxNodeIdLength ? text : text[..MaxNodeIdLength];
     }
 
@@ -109,7 +109,7 @@ internal static class HaDiscovery
         string trimmed = raw.Trim();
         if (trimmed.Length == 0) return null;
         if (trimmed.Length > MaxNodeIdLength) return $"An id can be at most {MaxNodeIdLength} characters.";
-        if (!Sanitize(trimmed).HasAlnum) return "An id must contain at least one letter or digit.";
+        if (!Sanitise(trimmed).HasAlnum) return "An id must contain at least one letter or digit.";
         return null;
     }
 
@@ -323,7 +323,7 @@ internal static class HaDiscovery
     /// <summary>
     /// The retained discovery configs to publish on connect: one (topic, json) per entity.
     /// <paramref name="presetNames"/> populates the preset <c>select</c>'s options (empty list → a
-    /// single <see cref="NoPresetOption"/> placeholder, since HA rejects an empty select). Serialized
+    /// single <see cref="NoPresetOption"/> placeholder, since HA rejects an empty select). Serialised
     /// with default options; value_templates contain
     /// literal <c>{{ }}</c> which are fine inside a JSON string.
     /// </summary>

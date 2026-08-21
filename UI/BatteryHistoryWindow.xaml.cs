@@ -43,7 +43,7 @@ public sealed partial class BatteryHistoryWindow : Window
 
     // Open-animation geometry, captured in the ctor and consumed once on the FIRST Activated event.
     // The animation clock must start when the window is actually on screen: starting it in the ctor
-    // (before Activate) ran the whole duration out during window realization, so the motion finished
+    // (before Activate) ran the whole duration out during window realisation, so the motion finished
     // before the first frame was ever composed and looked like an instant pop.
     // _originRect is null when the window was opened with no origin (dashboard already hidden) —
     // that's also the signal at close time that there's nothing to retract into.
@@ -174,7 +174,7 @@ public sealed partial class BatteryHistoryWindow : Window
     /// <summary>
     /// Refreshes the POWER/REMAINING stats from a fresh <see cref="BatteryReport"/>, same formatting
     /// as <see cref="DashboardWindow"/> via <see cref="BatteryStatsFormatter"/>. The adapter wattage
-    /// (TODO #41) is memoized in <see cref="ChargerInfoService"/>: the warm path is a plain cached
+    /// (TODO #41) is memoised in <see cref="ChargerInfoService"/>: the warm path is a plain cached
     /// read painted immediately; only a cold cache (first AC read of a session) does the RPC, off
     /// the UI thread, then repaints.
     /// </summary>
@@ -223,7 +223,7 @@ public sealed partial class BatteryHistoryWindow : Window
     /// interpolate towards with MoveAndResize, and on a frameless window the non-client area is
     /// only the thin resize border, so outer ≈ client for the 70%/65% target.
     /// <para/>
-    /// Deliberately NOT <see cref="NativeMethods.CenterRectOnCursorMonitor"/>: that sizes from a fixed
+    /// Deliberately NOT <see cref="NativeMethods.CentreRectOnCursorMonitor"/>: that sizes from a fixed
     /// DIP target capped to the work area, whereas this window wants a proportion of the work area
     /// with a DIP floor — the floor is allowed to WIN on a small screen (Max, not Min), keeping the
     /// axis-label columns readable even if that overhangs the work area. Only the shared centring
@@ -236,7 +236,7 @@ public sealed partial class BatteryHistoryWindow : Window
         int w = Math.Max((int)(MinWidth  * scale), (int)((work.Right  - work.Left) * 0.70));
         int h = Math.Max((int)(MinHeight * scale), (int)((work.Bottom - work.Top)  * 0.65));
 
-        return NativeMethods.CenterInWorkArea(work, w, h);
+        return NativeMethods.CentreInWorkArea(work, w, h);
     }
 
     /// <summary>
