@@ -77,6 +77,19 @@ internal static class AppLog
 
     private static readonly Logger _log = Initialise();
 
+    /// <summary>
+    /// A logger under a DIFFERENT name — currently only <see cref="PowerLog"/>. Routed here rather
+    /// than to <c>LogManager</c> directly because <see cref="Initialise"/> is what loads nlog.config
+    /// (or stands up the fallback when it is missing/broken), and reading <see cref="_log"/> is what
+    /// forces it to have run: a sibling logger resolved before that would get whatever NLog happened
+    /// to have at the time.
+    /// </summary>
+    internal static Logger NamedLogger(string name)
+    {
+        _ = _log.Name;
+        return LogManager.GetLogger(name);
+    }
+
     public static void Info(string message) => _log.Info(message);
 
     // The exception is folded into the message text rather than passed as NLog's exception argument
@@ -168,7 +181,34 @@ internal static class AppLog
             RetryDelayMilliseconds = 20,
         };
 
+        // Same policy, second file — see PowerLog. The degraded path keeps the split because the
+        // power trail is a troubleshooting tool, and a missing nlog.config is exactly when someone is
+        // troubleshooting.
+        var powerFile = new FileTarget("powerfile_file")
+        {
+            FileName            = AppPaths.DataFile(PowerLog.FileName),
+            Layout              = PowerLog.LineLayout,
+            LineEnding          = LineEndingMode.LF,
+            KeepFileOpen        = false,
+            CreateDirs          = true,
+            ArchiveAboveSize    = ArchiveAboveSizeBytes,
+            MaxArchiveDays      = MaxArchiveDays,
+            ArchiveSuffixFormat = "_{1:yyyy-MM-dd}_{0:00}",
+            WriteBom            = false,
+            Encoding            = System.Text.Encoding.UTF8,
+        };
+
+        var powerRetrying = new RetryingTargetWrapper
+        {
+            Name                   = "powerfile",
+            WrappedTarget          = powerFile,
+            RetryCount             = 5,
+            RetryDelayMilliseconds = 20,
+        };
+
         var config = new LoggingConfiguration();
+        // Power first, and NOT final — the line belongs in both files (see PowerLog's remarks).
+        config.AddRule(LogLevel.Info, LogLevel.Fatal, powerRetrying, PowerLog.LoggerName);
         config.AddRule(LogLevel.Info, LogLevel.Fatal, retrying, "*");
         return config;
     }

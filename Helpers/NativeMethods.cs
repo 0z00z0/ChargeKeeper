@@ -263,6 +263,16 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
 
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
+    /// <summary>
+    /// The system double-click interval. Read every time rather than cached: it is a user setting
+    /// (Mouse control panel / accessibility), it changes without notifying us, and a hardcoded 500 ms
+    /// would make the tray's second-click gesture unreachable for anyone who slowed it down.
+    /// </summary>
+    internal static TimeSpan DoubleClickTime => TimeSpan.FromMilliseconds(GetDoubleClickTime());
+
     /// <summary>
     /// DPI (dots-per-inch) of the monitor hosting the shell taskbar (the <c>Shell_TrayWnd</c>
     /// window). The tray icon lives on the taskbar, so the live icon must be rendered for THIS
