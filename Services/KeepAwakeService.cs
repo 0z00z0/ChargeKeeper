@@ -59,7 +59,9 @@ internal static class KeepAwakeService
     /// Starts (or replaces) the keep-awake session. Re-applies the OS hold on every call so a change
     /// to <see cref="AppSettings.KeepAwakeDisplayOn"/> takes effect on the next activation.
     /// </summary>
-    public static void Activate(KeepAwakeRequest request)
+    /// <param name="cause">Who asked, for the power trail. Defaults to the user because every other
+    /// entry point (tray toggle, dashboard, Settings) is one; the network reaction below says so.</param>
+    public static void Activate(KeepAwakeRequest request, string cause = "user request")
     {
         var now = DateTimeOffset.Now;
         var session = new KeepAwakeSession(request, now, KeepAwakePolicy.ExpiryFor(request, now));
@@ -70,19 +72,20 @@ internal static class KeepAwakeService
             _holdRequests.Add(HoldFlags());
             ArmExpiry(session, now);
         }
-        AppLog.Info($"KeepAwake: on, {KeepAwakePolicy.DescribeRemaining(now, session)}.");
+        PowerLog.Event($"Keep-awake on, {KeepAwakePolicy.DescribeRemaining(now, session)}", cause);
         StateChanged?.Invoke();
     }
 
     /// <summary>Ends the session and releases the OS hold. No-op when nothing is running.</summary>
-    public static void Deactivate()
+    /// <param name="cause">Who asked — see <see cref="Activate"/>.</param>
+    public static void Deactivate(string cause = "user request")
     {
         lock (_sync)
         {
             if (_current is null) return;
             ClearLocked();
         }
-        AppLog.Info("KeepAwake: off.");
+        PowerLog.Event("Keep-awake off", cause);
         StateChanged?.Invoke();
     }
 
@@ -103,7 +106,7 @@ internal static class KeepAwakeService
         }
         if (expired)
         {
-            AppLog.Info("KeepAwake: expired while the machine was asleep.");
+            PowerLog.Event("Keep-awake off", "the session expired while the machine was asleep");
             StateChanged?.Invoke();
         }
     }
@@ -118,11 +121,13 @@ internal static class KeepAwakeService
     /// </summary>
     private static void OnLocationChanged(NetworkLocation location)
     {
-        if (Current?.Request.Kind == KeepAwakeKind.UntilNetworkChange) Deactivate();
+        if (Current?.Request.Kind == KeepAwakeKind.UntilNetworkChange)
+            Deactivate("left the network the session was tied to");
 
         var s = SettingsService.Current;
         if (Current is null && s.NetworkProfilesEnabled && s.FindNetworkRule(location) is { KeepAwakeHere: true })
-            Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null));
+            Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null),
+                     $"network rule for '{location.DisplayHint ?? location.IpCidr ?? "this network"}'");
     }
 
     // ── OS hold ───────────────────────────────────────────────────────────────────
@@ -143,7 +148,18 @@ internal static class KeepAwakeService
     {
         foreach (uint flags in _holdRequests.GetConsumingEnumerable())
         {
-            try { NativeMethods.SetThreadExecutionState(flags); }
+            try
+            {
+                NativeMethods.SetThreadExecutionState(flags);
+                // Logged HERE rather than at the request sites: this is the moment the OS actually
+                // learns about the hold, and ES_CONTINUOUS on its own is the release. The display
+                // flag is named because "stayed awake but the screen slept" is its own bug report.
+                PowerLog.Event(
+                    flags == NativeMethods.ES_CONTINUOUS
+                        ? "OS keep-awake hold released"
+                        : $"OS keep-awake hold taken, display {((flags & NativeMethods.ES_DISPLAY_REQUIRED) != 0 ? "held on" : "free to sleep")}",
+                    "keep-awake session");
+            }
             catch (Exception ex) { AppLog.Error("KeepAwakeService.SetThreadExecutionState", ex); }
         }
     }
@@ -174,7 +190,7 @@ internal static class KeepAwakeService
                 return;
             ClearLocked();
         }
-        AppLog.Info("KeepAwake: expired.");
+        PowerLog.Event("Keep-awake off", "the session reached its own expiry time");
         StateChanged?.Invoke();
     }
 

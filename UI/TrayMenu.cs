@@ -21,17 +21,21 @@ namespace ChargeKeeper.UI;
 /// captures every input the menu reflects (the feature toggle states) into a single immutable
 /// <see cref="MenuState"/> snapshot; <see cref="ApplyState"/> derives EVERY item's
 /// IsChecked/IsEnabled from that snapshot. No command handler updates its own item — each
-/// mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>
-/// (directly, or via <see cref="TravelOverrideService.StateChanged"/>), so two items can never
-/// disagree about the current state.
+/// mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>, so two
+/// items can never disagree about the current state.
 /// </para>
 ///
 /// <para>
 /// Visual language: every STATEFUL item is a <see cref="ToggleMenuFlyoutItem"/> whose check
-/// mark reflects the snapshot (the three feature toggles — Smart Charge, Smart Standby, Launch
-/// at startup); every ACTION is a plain text item (Settings…, Check for updates, About…, Exit).
-/// No regular item carries an icon — the only emoji is the transient "⬆ Update available" alert
-/// badge.
+/// mark reflects the snapshot (now just Launch at startup); every ACTION is a plain text item
+/// (Settings…, Check for updates, About…, Exit). No regular item carries an icon — the only emoji
+/// is the transient "⬆ Update available" alert badge.
+/// </para>
+///
+/// <para>
+/// Smart Charge and Smart Standby used to head the menu. Both are toggles on the Dashboard now, so
+/// the tray only duplicated them — and duplicating a vendor RPC toggle is how the two surfaces come
+/// to disagree. They are gone; the toggle plumbing stays for Launch at startup.
 /// </para>
 ///
 /// <para>
@@ -74,9 +78,7 @@ internal sealed class TrayMenu
         _windowsReady      = windowsReady;
         Flyout = new MenuFlyout();
 
-        // Builds a toggle for one feature and registers it for the state refresh. The item is added
-        // to the flyout at the position its GROUP belongs (power toggles at the top, Launch at
-        // startup down in the updates group) rather than all in one top run.
+        // Builds a toggle for one feature and registers it for the state refresh.
         ToggleMenuFlyoutItem MakeToggle(IToggleFeature feature)
         {
             var item = new ToggleMenuFlyoutItem { Text = feature.Name };
@@ -87,33 +89,23 @@ internal sealed class TrayMenu
             return item;
         }
 
-        // ── Power toggles: Smart Charge + Smart Standby ─────────────────────────
-        // Launch-at-startup is a feature too, but it reads as an app-management action rather than a
-        // power control, so it lives in the updates group below (TODO #28) — built there, not here.
-        IToggleFeature? autoStart = null;
-        foreach (var feature in features)
-        {
-            if (feature is AutoStartFeature)
-            {
-                autoStart = feature;
-                continue;
-            }
-            Flyout.Items.Add(MakeToggle(feature));
-        }
-
         // ── Settings entry point (TODO #19) ─────────────────────────────────────
-        Flyout.Items.Add(new MenuFlyoutSeparator());
+        // First item, with no separator above it: the power toggles that used to sit here are gone,
+        // and a leading separator would read as a missing group.
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
 
-        // ── Updates + Launch at startup (TODO #28) ──────────────────────────────
+        // ── Updates + feature toggles (TODO #28) ────────────────────────────────
+        // Launch at startup reads as an app-management action rather than a power control, so it sits
+        // with the update check. It is the only feature the menu is given now, but the loop stays —
+        // adding another app-management toggle is still a one-line change at the call site.
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem
         {
             Text    = "Check for updates",
             Command = new RelayCommand(() => _ = CheckForUpdatesAsync()),
         });
-        if (autoStart is not null)
-            Flyout.Items.Add(MakeToggle(autoStart));
+        foreach (var feature in features)
+            Flyout.Items.Add(MakeToggle(feature));
 
         // ── About ───────────────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
@@ -123,24 +115,14 @@ internal sealed class TrayMenu
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(onExit) });
 
-        // Resync when the override auto-reverts (battery reached full) or is toggled from the
-        // dashboard — otherwise the menu wouldn't learn about it until the next right-click.
-        // Fires on a background thread; QueueRefresh marshals the apply back to the UI thread.
-        // Never unsubscribed: TrayMenu lives for the whole process.
-        TravelOverrideService.StateChanged += QueueRefresh;
+        // Deliberately NOT subscribed to TravelOverrideService/ChargeControlService.StateChanged: both
+        // only ever moved the Smart Charge check mark, and that item is gone. Either one would now
+        // cost a full ReadState per charge change to reapply a snapshot nothing on the menu reflects.
+        // The dashboard, tooltip and MQTT keep their own subscriptions.
 
-        // Resync after ANY shared charge-control change — including one driven by an inbound MQTT
-        // command (issue #40 item 4). Before this the MQTT path mutated Smart Charge / thresholds /
-        // preset without telling the tray, so the menu (and tooltip/dashboard) stayed stale until the
-        // next right-click/tick. ChargeControlService now funnels the tray AND MQTT paths, and fires
-        // StateChanged after each, so both reconcile identically. Same background-thread + never-
-        // unsubscribed reasoning as the TravelOverrideService subscription above.
-        ChargeControlService.StateChanged += QueueRefresh;
-
-        // Network-location auto-apply (TODO #31) — fires on a background thread (same as
-        // TravelOverrideService.StateChanged above); OnNetworkLocationChanged marshals via
-        // ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed, same
-        // "lives for the whole process" reasoning. Not a menu item (TODO #19 moved the Network
+        // Network-location auto-apply (TODO #31) — fires on a background thread; OnNetworkLocationChanged
+        // marshals via ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed,
+        // same "lives for the whole process" reasoning. Not a menu item (TODO #19 moved the Network
         // profiles submenu into SettingsWindow) — this is a background reaction that stays wired
         // here regardless of what the menu itself shows.
         NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
@@ -270,8 +252,8 @@ internal sealed class TrayMenu
         for (int i = 0; i < _toggles.Count; i++)
         {
             var feature = _toggles[i].Feature;
-            // One combined read (Smart Charge answers both flags from a single RPC — see
-            // SmartChargeFeature.ReadState); "enabled" is meaningful only when available.
+            // One combined read — a feature backed by a single probe answers both flags from one
+            // round-trip; "enabled" is meaningful only when available.
             var (available, enabled) = SafeCall(() => feature.ReadState(),
                                                 fallback: (Available: true, Enabled: false));
             features[i] = (available, available && enabled);
@@ -494,27 +476,10 @@ internal sealed class TrayMenu
     private void Toggle(IToggleFeature feature, bool enable)
         => Task.Run(() =>
         {
-            // Smart Charge funnels through the shared ChargeControlService — the SAME composition
-            // the MQTT smart_charge switch uses (issue #40 item 4), so the load-bearing
-            // "re-enable mid-override → cancel the override (restore saved thresholds + disarm
-            // the auto-revert), not a bare SetEnabled(true) that would apply firmware's 0/0
-            // defaults and leave the revert armed" rule lives in exactly one place. It fires
-            // StateChanged → QueueRefresh itself, so there is NO finally-refresh on this path (a
-            // shared one fired the full ReadState — Lenovo RPC + SCM + Task Scheduler COM — TWICE
-            // per toggle). Only a throw before StateChanged fired needs an explicit reconcile.
-            if (feature is SmartChargeFeature)
-            {
-                try { ChargeControlService.SetSmartChargeEnabled(enable); }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' failed: {ex.Message}");
-                    QueueRefresh();   // StateChanged did not fire on the throw — reconcile anyway
-                }
-                return;
-            }
-
-            // Other features (Smart Standby, Launch at startup) are a plain enable/disable with no
-            // StateChanged, so the finally IS the sole refresh here.
+            // A plain enable/disable with no StateChanged, so the finally IS the sole refresh here.
+            // NB if a charge-control toggle is ever put back on this menu: it must go through
+            // ChargeControlService, not feature.SetEnabled — that is where "re-enable mid-override
+            // cancels the override" lives, and it fires StateChanged itself.
             try
             {
                 bool ok = feature.SetEnabled(enable);

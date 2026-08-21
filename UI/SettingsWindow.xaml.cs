@@ -1070,16 +1070,24 @@ internal sealed partial class SettingsWindow : Window
         }
 
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        var current     = CurrentLocation();   // resolved ONCE per rebuild, not per row
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames));
+            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames, current));
     }
 
-    private static string DescribeMatchKey(NetworkLocationRule rule)
+    /// <summary>
+    /// The rule's match key, plus the stale-key hint when its subnet is the one we are on now but
+    /// its MAC is not — what a dock change, a replaced NIC or a recreated Hyper-V switch leaves
+    /// behind, after which the rule silently never applies. Stated, never acted on: nothing here
+    /// rewrites a stored key. The key formatter itself lives on NetworkLocationService, shared with
+    /// NameLocationWindow so the naming dialog shows the same string these rows do.
+    /// </summary>
+    private static string DescribeMatchKey(NetworkLocationRule rule, NetworkLocation current)
     {
-        var parts = new List<string>();
-        if (rule.AdapterMac is { } mac)  parts.Add($"MAC {mac}");
-        if (rule.IpCidr    is { } cidr) parts.Add($"Subnet {cidr}");
-        return parts.Count > 0 ? string.Join(" · ", parts) : "No match key — this profile will never apply.";
+        string key = NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
+        return NetworkLocationService.IsStaleKey(rule, current)
+            ? $"{key}\n{NetworkLocationService.StaleKeyHint}"
+            : key;
     }
 
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
@@ -1091,7 +1099,8 @@ internal sealed partial class SettingsWindow : Window
     /// rules could in principle share a name — index is unambiguous as long as every mutation
     /// rebuilds the whole list afterwards (which every commit path below does).
     /// </summary>
-    private SettingsExpander BuildNetworkRuleRow(int index, NetworkLocationRule rule, List<string> presetNames)
+    private SettingsExpander BuildNetworkRuleRow(
+        int index, NetworkLocationRule rule, List<string> presetNames, NetworkLocation current)
     {
         var expander = new SettingsExpander();
 
@@ -1110,7 +1119,7 @@ internal sealed partial class SettingsWindow : Window
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",    Content = nameBox },
-            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule) },
+            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current) },
             new SettingsCard { Header = "Preset",  Content = presetCombo },
         };
         expander.ItemsFooter = footer;
@@ -1218,7 +1227,8 @@ internal sealed partial class SettingsWindow : Window
             }
 
             string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            string? name = await new NameLocationWindow(
+                suggested, NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr)).ShowAsync();
             if (name is null) return;   // cancelled
 
             var s0 = SettingsService.Current;
@@ -1622,6 +1632,7 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
+        var current = CurrentLocation();   // resolved ONCE per rebuild, not per row
         for (int i = 0; i < rules.Count; i++)
         {
             int index = i;
@@ -1632,7 +1643,7 @@ internal sealed partial class SettingsWindow : Window
             KeepAwakeNetworkRulesListPanel.Children.Add(new SettingsCard
             {
                 Header      = rules[i].Name,
-                Description = DescribeMatchKey(rules[i]),
+                Description = DescribeMatchKey(rules[i], current),
                 Content     = toggle,
             });
         }
@@ -1688,7 +1699,8 @@ internal sealed partial class SettingsWindow : Window
             }
 
             string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            string? name = await new NameLocationWindow(
+                suggested, NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr)).ShowAsync();
             if (name is null) return;   // cancelled
 
             var s0 = SettingsService.Current;
@@ -1981,11 +1993,11 @@ internal sealed partial class SettingsWindow : Window
             body.Children.Add(errorText);
             body.Children.Add(new TextBlock
             {
-                Text = "Changing the ID renames every ChargeKeeper entity in Home Assistant. "
+                Text = "Changing the ID renames every ChargeKeeper entity on the broker. "
                      + "Automations, dashboards and history that point at the old entities will stop "
                      + "working — they will not report an error, the entities simply will not be there "
                      + "any more.\n\n"
-                     + "ChargeKeeper removes the old entities from Home Assistant when you confirm. "
+                     + "ChargeKeeper removes the old entities from the broker when you confirm. "
                      + "Their recorded history is not carried over to the new ones.\n\n"
                      + "Leave the box empty to go back to the name derived from this machine.",
                 TextWrapping = TextWrapping.Wrap,

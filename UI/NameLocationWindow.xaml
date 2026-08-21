@@ -23,7 +23,14 @@
                    FontSize="13" FontWeight="SemiBold"
                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
 
-        <TextBox x:Name="NameBox" Grid.Row="1" FontSize="13"/>
+        <StackPanel Grid.Row="1" Spacing="4">
+            <TextBox x:Name="NameBox" FontSize="13"/>
+            <!-- The MAC/subnet this profile is actually keyed on — secondary, muted, and only ever
+                 informational: the name above is a label, these are what the rule matches. -->
+            <TextBlock x:Name="MatchKeyText"
+                       FontSize="11" TextWrapping="Wrap"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
 
         <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
