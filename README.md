@@ -233,19 +233,23 @@ packages). The only **non-Microsoft** dependencies are:
 | [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
 | [CommunityToolkit.WinUI.Controls.SettingsControls](https://github.com/CommunityToolkit/Windows) | .NET Foundation | SettingsCard/SettingsExpander rows (Settings window) | MIT |
 | [WinUIEx](https://github.com/dotMorten/WinUIEx) | Morten Nielsen | WinUI 3 window helper extensions (Settings window placement) | MIT |
-| [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the Home Assistant integration | MIT |
+| [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the broker integration | MIT |
 | [NLog](https://github.com/NLog/NLog) | Jarek Kowalski, Kim Christensen, Julian Verdurmen | Event log with size/age-based rotation (app.log) | BSD-3-Clause |
 
-## Home Assistant (MQTT)
+## MQTT
 
-ChargeKeeper can publish to [Home Assistant](https://www.home-assistant.io/) over MQTT using HA's
-**auto-discovery** — no YAML on the HA side. When enabled it connects to your broker and creates a
-single **ChargeKeeper** device with entities for battery %, charge power (W), on-AC, the Smart Charge
-start/stop thresholds, and the adapter rating; an availability topic (with a Last-Will) marks it
-offline if the app stops.
+ChargeKeeper can publish battery and charge state to an MQTT broker. When enabled it connects to your
+broker and creates a single **ChargeKeeper** device with entities for battery %, charge power (W),
+on-AC, the Smart Charge start/stop thresholds, and the adapter rating; an availability topic (with a
+Last-Will) marks it offline if the app stops.
+
+The entities are announced with the **Home Assistant MQTT Discovery** convention — an openly
+published spec that some MQTT consumers follow and others ignore. [Home Assistant](https://www.home-assistant.io/)
+itself therefore picks the device up with no YAML, and so does any other consumer implementing the
+same convention; one that does not can still subscribe to the state topics directly.
 
 It is **off by default** and never touches the network until you both enable it and set a broker
-host. Configure it from the tray icon → **Settings…** → **Home Assistant** — the enabled toggle
+host. Configure it from the tray icon → **Settings…** → **MQTT** — the enabled toggle
 applies immediately, and the broker host/port/username/password/TLS/discovery-prefix fields commit
 as a batch behind an **Apply** button (so the MQTT connection reconnects once per Apply, not per
 keystroke). The password is never logged or shown in any toast.
@@ -261,7 +265,7 @@ settings folder**), then picked up without restarting via tray icon → **Reload
   "MqttUsername": "your-mqtt-user",
   "MqttPassword": "your-mqtt-password",       // stored locally, same as any MQTT client
   "MqttUseTls": false,
-  "MqttDiscoveryPrefix": "homeassistant"      // must match HA's MQTT discovery prefix
+  "MqttDiscoveryPrefix": "homeassistant"      // the prefix your consumer discovers on
 }
 ```
 
