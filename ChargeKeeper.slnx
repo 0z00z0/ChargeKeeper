@@ -28,7 +28,7 @@
     <File Path="installer/build-installer.ps1" />
     <File Path="installer/README.md" />
     <File Path="installer/winget/0z00z0.ChargeKeeper.installer.yaml" />
-    <File Path="installer/winget/0z00z0.ChargeKeeper.locale.en-US.yaml" />
+    <File Path="installer/winget/0z00z0.ChargeKeeper.locale.en-GB.yaml" />
     <File Path="installer/winget/0z00z0.ChargeKeeper.yaml" />
   </Folder>
   <Folder Name="/Solution Items/">
