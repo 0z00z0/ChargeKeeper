@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: 0z00z0.ChargeKeeper
 PackageVersion: 1.0.0
-PackageLocale: en-US
+PackageLocale: en-GB
 Publisher: ZeroZero Software
 PublisherUrl: https://0z0.xyz
 PublisherSupportUrl: https://github.com/0z00z0/ChargeKeeper/issues

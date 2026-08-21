@@ -288,7 +288,7 @@ jobs:
 
           $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
           $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
-          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-GB.yaml'
 
           # Helper: replace a YAML scalar in-place, preserving indentation.
           #
@@ -376,7 +376,7 @@ jobs:
 
           $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
           $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
-          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-GB.yaml'
 
           $errors = @()
 
@@ -472,7 +472,7 @@ jobs:
             installer/Output/ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe
             installer/winget/0z00z0.ChargeKeeper.installer.yaml
             installer/winget/0z00z0.ChargeKeeper.yaml
-            installer/winget/0z00z0.ChargeKeeper.locale.en-US.yaml
+            installer/winget/0z00z0.ChargeKeeper.locale.en-GB.yaml
           body: |
             ## ChargeKeeper v${{ steps.version.outputs.version }}
 
@@ -513,7 +513,7 @@ jobs:
           $assets = @(
             '0z00z0.ChargeKeeper.installer.yaml',
             '0z00z0.ChargeKeeper.yaml',
-            '0z00z0.ChargeKeeper.locale.en-US.yaml'
+            '0z00z0.ChargeKeeper.locale.en-GB.yaml'
           )
           foreach ($a in $assets) {
             gh release download $tag --repo ${{ github.repository }} --pattern $a --dir $outDir
