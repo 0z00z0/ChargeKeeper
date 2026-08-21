@@ -138,6 +138,15 @@ internal sealed class AppSettings
     public int LidDelayMinutes { get; set; } = 10;
 
     /// <summary>
+    /// Lock the workstation at lid close while <see cref="LidDelayEnabled"/> holds the machine awake.
+    /// <para>ON by default, unlike the feature itself. With the lid-close action parked on "do nothing"
+    /// the machine sits awake and UNLOCKED with the lid shut, so the delay removes the sign-in prompt a
+    /// lid close normally leads to. That is a protection the machine already had, and losing it must not
+    /// depend on the user noticing.</para>
+    /// </summary>
+    public bool LidDelayLockOnClose { get; set; } = true;
+
+    /// <summary>
     /// The user's OWN lid-close action indices, saved before the feature overrode them, so they can be
     /// put back — including after a crash, which is the failure mode this pair exists for.
     /// <para>NULLABLE on purpose: "do nothing" is index 0 and is a value the user may legitimately have

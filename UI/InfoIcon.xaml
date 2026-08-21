@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ChargeKeeper.UI.InfoIcon"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- The one info affordance for the whole app: a Segoe Fluent "Info" glyph that opens a Flyout,
+         never a ToolTip — a three-sentence explanation cannot live somewhere that closes as soon as
+         the pointer moves. A Button carries it because Button.Flyout opens on Space and Enter as
+         well as a click, so the keyboard path needs no code. Glyph size and the secondary-text
+         foreground match the header button in DashboardWindow.xaml. -->
+    <Button x:Name="Root"
+            Width="24" Height="24"
+            Padding="0"
+            CornerRadius="4"
+            BorderThickness="0"
+            Background="Transparent"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            VerticalAlignment="Center">
+        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" FontSize="14"/>
+        <Button.Flyout>
+            <Flyout>
+                <TextBlock x:Name="InfoText"
+                           TextWrapping="Wrap"
+                           MaxWidth="280"
+                           FontSize="12"/>
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</UserControl>

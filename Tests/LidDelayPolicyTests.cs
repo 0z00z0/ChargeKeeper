@@ -245,6 +245,66 @@ public class LidDelayPolicyTests
         Assert.True(new AppSettings { LidDelaySavedDcAction = 1 }.HasSavedLidAction);
     }
 
+    // ── ShouldLockOnLidClose ───────────────────────────────────────────
+    // Never calls LockWorkStation: the decision is pure, and a test that actually locked would lock
+    // the machine running the suite.
+
+    [Fact]
+    public void ShouldLockOnLidClose_FeatureAndSettingOn_Locks()
+    {
+        Assert.True(LidDelayPolicy.ShouldLockOnLidClose(enabled: true, lockOnClose: true, keepAwakeActive: false));
+    }
+
+    [Fact]
+    public void ShouldLockOnLidClose_SettingOff_DoesNotLock()
+    {
+        // The setting is the only opt-out. Reading it the wrong way round would lock a machine whose
+        // owner turned the lock off and leave the one who left it on unlocked.
+        Assert.False(LidDelayPolicy.ShouldLockOnLidClose(enabled: true, lockOnClose: false, keepAwakeActive: false));
+        Assert.False(LidDelayPolicy.ShouldLockOnLidClose(enabled: true, lockOnClose: false, keepAwakeActive: true));
+    }
+
+    [Fact]
+    public void ShouldLockOnLidClose_FeatureOff_DoesNotLock()
+    {
+        // With the feature off, Windows own lid action is back in place and locking is its business.
+        Assert.False(LidDelayPolicy.ShouldLockOnLidClose(enabled: false, lockOnClose: true, keepAwakeActive: false));
+    }
+
+    [Theory]
+    [InlineData(true,  true )]
+    [InlineData(true,  false)]
+    [InlineData(false, true )]
+    [InlineData(false, false)]
+    public void ShouldLockOnLidClose_IgnoresAKeepAwakeSession(bool enabled, bool lockOnClose)
+    {
+        // A keep-awake session vetoes the SLEEP, and the temptation is to let it veto the lock with it.
+        // That is the worst case of the lot: the machine then sits awake, unlocked and lid-shut for the
+        // whole session. The two decisions are independent, and this pins that down.
+        Assert.Equal(LidDelayPolicy.ShouldLockOnLidClose(enabled, lockOnClose, keepAwakeActive: false),
+                     LidDelayPolicy.ShouldLockOnLidClose(enabled, lockOnClose, keepAwakeActive: true));
+    }
+
+    [Fact]
+    public void ShouldLockOnLidClose_LocksDuringAKeepAwakeSession()
+    {
+        Assert.True(LidDelayPolicy.ShouldLockOnLidClose(enabled: true, lockOnClose: true, keepAwakeActive: true));
+    }
+
+    [Fact]
+    public void LockOnClose_DefaultsOn_IncludingForASettingsFileWrittenBeforeIt()
+    {
+        // Unlike the delay itself, the lock defaults ON: turning the delay on removes the sign-in
+        // prompt a lid close normally leads to, and an existing settings.json carries no opinion about
+        // a key that did not exist when it was written.
+        Assert.True(new AppSettings().LidDelayLockOnClose);
+
+        var loaded = JsonSerializer.Deserialize<AppSettings>("""{"LidDelayEnabled":true}""");
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.LidDelayLockOnClose);
+    }
+
     // ── P/Invoke smoke test — READ ONLY ──────────────────────────────────────────
 
     [Fact]

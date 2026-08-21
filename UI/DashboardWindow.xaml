@@ -298,12 +298,12 @@
                             <ToolTipService.ToolTip>
                                 <ToolTip>
                                     <StackPanel MaxWidth="280" Spacing="6">
-                                        <TextBlock Text="Puts your laptop into a deeper sleep after a while of inactivity, instead of the shallow sleep Windows uses by default."
+                                        <TextBlock Text="Puts the computer into a deeper sleep after a period of inactivity, instead of the shallow sleep Windows uses by default."
                                                    FontWeight="SemiBold"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"/>
                                         <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                            Windows' default "Modern Standby" keeps parts of your laptop lightly active even with the lid closed, so it can check for notifications and updates in the background — convenient, but it slowly drains the battery the whole time, even in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the laptop has been idle for a while, so it loses much less charge overnight or in a bag. It only changes what happens during idle standby — sleeping manually, like closing the lid for a quick break, is unaffected.
+                                            Windows' default "Modern Standby" keeps parts of the computer lightly active with the lid closed, so it can check for notifications and updates in the background. That drains the battery slowly the whole time, including in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the computer has been idle for a while, so it loses much less charge overnight. Only idle standby changes; a manual sleep is unaffected.
                                         </TextBlock>
                                     </StackPanel>
                                 </ToolTip>

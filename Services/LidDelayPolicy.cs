@@ -94,6 +94,16 @@ internal static class LidDelayPolicy
     }
 
     /// <summary>
+    /// Whether a lid close should lock the workstation.
+    /// <para><paramref name="keepAwakeActive"/> is taken and DELIBERATELY not consulted. A keep-awake
+    /// session vetoes the sleep (see <see cref="OnTimerFired"/>), and folding the lock into that veto
+    /// would leave the machine awake, unlocked and lid-shut for as long as the session runs — the longest
+    /// exposure of the lot. The lock belongs to the lid, the sleep belongs to the timer.</para>
+    /// </summary>
+    public static bool ShouldLockOnLidClose(bool enabled, bool lockOnClose, bool keepAwakeActive)
+        => enabled && lockOnClose;
+
+    /// <summary>
     /// What to do with the Windows lid-close action at startup, from the feature's on/off state and
     /// whether the user's own values are already stored.
     /// <para>The <see cref="LidActionOverride.ReapplyOverride"/> cell is the whole reason this is a
