@@ -922,7 +922,7 @@ public partial class App : Application
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            await UpdateCheckService.CheckAsync(version =>
+            await UpdateCheckService.Shared.CheckAsync(version =>
             {
                 _updateAvailableVersion = version;
                 // Refresh tooltip to include the update notice; refresh menu badge on UI thread.
