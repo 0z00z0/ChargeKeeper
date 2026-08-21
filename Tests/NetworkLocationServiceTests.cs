@@ -150,33 +150,36 @@ public class NetworkLocationServiceTests
     }
 
 
-    // ── Suggested NAME behind a Hyper-V external switch ──────────────────────────────
+    // ── The Hyper-V bridge walk-back ─────────────────────────────────────
     // Fixtures are the measured adapter set of the affected host: the physical "Ethernet" is Up with
     // NO IPv4 (the external switch took it) and shares its MAC verbatim with "vEthernet (Bridged)",
-    // which holds 10.0.1.117/23 and the default route; "vEthernet (Default Switch)" is an INTERNAL
-    // switch with a synthesised Microsoft-OUI address and no physical partner.
+    // which holds the routable address and the default route; "vEthernet (Default Switch)" is an
+    // INTERNAL switch with a synthesised Microsoft-OUI address and no physical partner.
 
-    private const string BridgedMac      = "48:65:EE:18:86:EF";
+    private const string PhysicalMac      = "48:65:EE:18:86:EF";
     private const string DefaultSwitchMac = "00:15:5D:EA:DC:CF";
+    private const string BridgeAlias      = "vEthernet (Bridged)";
+    private const string BridgeDesc       = "Hyper-V Virtual Ethernet Adapter #2";
 
-    private static BridgePeer Physical(string name = "Ethernet", string mac = BridgedMac,
+    private static BridgePeer Physical(string name = "Ethernet", string mac = PhysicalMac,
                                        OperationalStatus status = OperationalStatus.Up) =>
         new(name, mac, IsVirtual: false, status);
 
     private static readonly BridgePeer[] MeasuredPeers =
     [
         Physical(),                                                                       // Realtek USB GbE, no IPv4
-        new("vEthernet (Bridged)",        BridgedMac,          IsVirtual: true,  OperationalStatus.Up),
+        new(BridgeAlias,                  PhysicalMac,         IsVirtual: true,  OperationalStatus.Up),
         new("vEthernet (Default Switch)", DefaultSwitchMac,    IsVirtual: true,  OperationalStatus.Up),
         new("WiFi",                       "AA:BB:CC:11:22:33", IsVirtual: false, OperationalStatus.Down),
         new("Ethernet 2",                 "AA:BB:CC:44:55:66", IsVirtual: false, OperationalStatus.Down),
+        new("Local Area Connection* 1",   null,                IsVirtual: false, OperationalStatus.Down),   // WAN miniport, no MAC
     ];
 
     [Theory]
-    [InlineData("vEthernet (Bridged)",        "Hyper-V Virtual Ethernet Adapter #2")]
+    [InlineData(BridgeAlias,                  BridgeDesc)]
     [InlineData("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter")]
     [InlineData("Some Alias",                 "Hyper-V Virtual Ethernet Adapter")]   // description alone is enough
-    [InlineData("vEthernet (Bridged)",        "Renamed Adapter")]                    // alias alone is enough
+    [InlineData(BridgeAlias,                  "Renamed Adapter")]                    // alias alone is enough
     public void LooksLikeHyperVSwitchPort_RecognisesSwitchPorts(string name, string description)
     {
         Assert.True(NetworkLocationService.LooksLikeHyperVSwitchPort(name, description));
@@ -192,127 +195,215 @@ public class NetworkLocationServiceTests
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_ExternalSwitch_PairsByMacToThePhysicalNic()
+    public void ResolveBridgedPeer_ExternalSwitch_PairsByMacToThePhysicalNic()
     {
         // The external switch's vNIC inherits the bound NIC's hardware address verbatim (measured),
         // so the same MAC on a non-virtual adapter identifies the NIC driving the switch.
-        Assert.Equal("Ethernet", NetworkLocationService.ResolveBridgedAdapterName(BridgedMac, MeasuredPeers));
+        var peer = NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers);
+
+        Assert.NotNull(peer);
+        Assert.Equal("Ethernet", peer.Name);
+        Assert.Equal(PhysicalMac, peer.Mac);
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_InternalDefaultSwitch_ResolvesNothing()
+    public void ResolveBridgedPeer_InternalDefaultSwitch_ResolvesNothing()
     {
         // "vEthernet (Default Switch)" is internal: its Microsoft-OUI address belongs to no physical
-        // NIC, so there is nothing to pair with and the caller keeps the alias.
-        Assert.Null(NetworkLocationService.ResolveBridgedAdapterName(DefaultSwitchMac, MeasuredPeers));
+        // NIC, so there is nothing to pair with and the vNIC's own MAC is stored.
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(
+            "vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter", DefaultSwitchMac, MeasuredPeers));
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_NoMac_ResolvesNothing()
+    public void ResolveBridgedPeer_PlainPhysicalAdapter_IsNeverPaired()
     {
-        Assert.Null(NetworkLocationService.ResolveBridgedAdapterName(null, MeasuredPeers));
-        Assert.Null(NetworkLocationService.ResolveBridgedAdapterName("", MeasuredPeers));
+        // The gate, not the pairing: a non-switch-port adapter must not be re-keyed onto a same-MAC
+        // peer (its own WFP filter adapter would otherwise be a candidate).
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(
+            "Ethernet", "Realtek USB GbE Family Controller", PhysicalMac, MeasuredPeers));
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_OnlyVirtualAdaptersShareTheMac_ResolvesNothing()
+    public void ResolveBridgedPeer_NoMac_ResolvesNothing()
     {
-        // One vNIC must never name another — e.g. a second switch port stacked on the same address.
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, null, MeasuredPeers));
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, "", MeasuredPeers));
+    }
+
+    [Fact]
+    public void ResolveBridgedPeer_OnlyVirtualAdaptersShareTheMac_ResolvesNothing()
+    {
+        // One vNIC must never stand in for another — e.g. a second switch port on the same address.
         BridgePeer[] peers =
         [
-            new("vEthernet (Bridged)", BridgedMac, IsVirtual: true, OperationalStatus.Up),
-            new("vEthernet (Other)",   BridgedMac, IsVirtual: true, OperationalStatus.Up),
+            new(BridgeAlias,         PhysicalMac, IsVirtual: true, OperationalStatus.Up),
+            new("vEthernet (Other)", PhysicalMac, IsVirtual: true, OperationalStatus.Up),
         ];
-        Assert.Null(NetworkLocationService.ResolveBridgedAdapterName(BridgedMac, peers));
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers));
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_AbsentNamesake_LosesToThePresentAdapter()
+    public void ResolveBridgedPeer_AbsentNamesake_LosesToThePresentAdapter()
     {
         BridgePeer[] peers = [Physical("Ethernet 3", status: OperationalStatus.NotPresent), Physical()];
-        Assert.Equal("Ethernet", NetworkLocationService.ResolveBridgedAdapterName(BridgedMac, peers));
+
+        Assert.Equal("Ethernet",
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers)?.Name);
     }
 
     [Fact]
-    public void ResolveBridgedAdapterName_TwoPresentAdaptersShareTheMac_ResolvesNothing()
+    public void ResolveBridgedPeer_TwoPresentAdaptersShareTheMac_ResolvesNothing()
     {
-        // Genuinely ambiguous (teaming/filter oddity): a wrong name is worse than the raw alias.
+        // Genuinely ambiguous (teaming/filter oddity): a wrong key is worse than the vNIC's own.
         BridgePeer[] peers = [Physical("Ethernet"), Physical("Ethernet 4")];
-        Assert.Null(NetworkLocationService.ResolveBridgedAdapterName(BridgedMac, peers));
+
+        Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers));
+    }
+
+    // ── What gets STORED: the physical NIC's MAC, the selected adapter's subnet ──────────
+
+    [Fact]
+    public void Compose_BridgedPeer_StoresThePhysicalMacAndKeepsTheSelectedAdaptersSubnet()
+    {
+        // The selected adapter here is the vEthernet: it owns the IP (10.0.0.0/23) and the wired
+        // flag, but its MAC is only borrowed from the NIC behind the switch. The stable one is stored.
+        var location = NetworkLocationService.Compose(
+            selectedMac: "00:15:5D:EA:DC:CF", cidr: "10.0.0.0/23", wired: true,
+            bridged: Physical(), suggestedName: "Ethernet");
+
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("10.0.0.0/23", location.IpCidr);
+        Assert.True(location.IsWired);
+        Assert.Equal("Ethernet", location.DisplayHint);
     }
 
     [Fact]
-    public void SuggestDisplayHint_SwitchPortWithPhysicalPair_SuggestsThePhysicalNic()
+    public void Compose_NoBridgedPeer_StoresTheSelectedAdaptersOwnMac()
     {
-        var hint = NetworkLocationService.SuggestDisplayHint(
-            wired: true, alias: "vEthernet (Bridged)", description: "Hyper-V Virtual Ethernet Adapter #2",
-            mac: BridgedMac, peers: MeasuredPeers, ssid: null);
+        // Every fallback lands here: no Hyper-V, an internal switch, an ambiguous or failed pairing.
+        var location = NetworkLocationService.Compose(
+            selectedMac: DefaultSwitchMac, cidr: "172.20.0.0/16", wired: true,
+            bridged: null, suggestedName: "vEthernet (Default Switch)");
 
-        Assert.Equal("Ethernet", hint);
+        Assert.Equal(DefaultSwitchMac, location.AdapterMac);
+        Assert.Equal("172.20.0.0/16", location.IpCidr);
+        Assert.Equal("vEthernet (Default Switch)", location.DisplayHint);
     }
 
     [Fact]
-    public void SuggestDisplayHint_SwitchPortWithoutPhysicalPair_FallsBackToTheAlias()
+    public void Compose_TheSubnetAndWiredFlagNeverComeFromThePeer()
     {
-        var hint = NetworkLocationService.SuggestDisplayHint(
-            wired: true, alias: "vEthernet (Default Switch)", description: "Hyper-V Virtual Ethernet Adapter",
-            mac: DefaultSwitchMac, peers: MeasuredPeers, ssid: null);
+        // The contract that must not move: pairing may change the MAC and the name, nothing else.
+        var withPeer    = NetworkLocationService.Compose("00:15:5D:EA:DC:CF", "10.0.0.0/23", true, Physical(), "Ethernet");
+        var withoutPeer = NetworkLocationService.Compose("00:15:5D:EA:DC:CF", "10.0.0.0/23", true, null, BridgeAlias);
 
-        Assert.Equal("vEthernet (Default Switch)", hint);
+        Assert.Equal(withoutPeer.IpCidr,  withPeer.IpCidr);
+        Assert.Equal(withoutPeer.IsWired, withPeer.IsWired);
+        Assert.NotEqual(withoutPeer.AdapterMac, withPeer.AdapterMac);
     }
 
     [Fact]
-    public void SuggestDisplayHint_PlainPhysicalAdapter_IsUnaffected()
+    public void Compose_EmptyMac_BecomesNullSoTheKeyIsNeverAnEmptyString()
     {
-        // No pairing is attempted for a non-switch-port adapter, even with same-MAC peers present.
-        var hint = NetworkLocationService.SuggestDisplayHint(
-            wired: true, alias: "Ethernet", description: "Realtek USB GbE Family Controller",
-            mac: BridgedMac, peers: MeasuredPeers, ssid: null);
+        var location = NetworkLocationService.Compose("", "10.0.0.0/23", wired: true, bridged: null, "Ethernet");
+        Assert.Null(location.AdapterMac);
+    }
 
-        Assert.Equal("Ethernet", hint);
+    [Fact]
+    public void BridgedHost_MeasuredAdapters_StorePhysicalMacAndNameThePhysicalNic()
+    {
+        // End to end over the pure parts, with the vNIC given a Microsoft-assigned address (a switch
+        // recreated with a dynamic MAC) so the two differ: the pairing still finds the physical NIC,
+        // and both the stored key and the suggested name follow it rather than the vNIC.
+        BridgePeer[] peers = [Physical(), new(BridgeAlias, "00:15:5D:01:02:03", IsVirtual: true, OperationalStatus.Up)];
+        var bridged = NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers);
+        var hint    = NetworkLocationService.SuggestDisplayHint(wired: true, BridgeAlias, bridged, ssid: null);
+        var location = NetworkLocationService.Compose(PhysicalMac, "10.0.0.0/23", wired: true, bridged, hint);
+
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("Ethernet", location.DisplayHint);
+    }
+
+    // ── The suggested name ───────────────────────────────────────────────────
+
+    [Fact]
+    public void SuggestDisplayHint_BridgedPeer_NamesThePhysicalNic()
+    {
+        Assert.Equal("Ethernet",
+            NetworkLocationService.SuggestDisplayHint(wired: true, BridgeAlias, Physical(), ssid: null));
+    }
+
+    [Fact]
+    public void SuggestDisplayHint_NoBridgedPeer_KeepsTheAdaptersOwnAlias()
+    {
+        Assert.Equal(BridgeAlias,
+            NetworkLocationService.SuggestDisplayHint(wired: true, BridgeAlias, bridged: null, ssid: null));
     }
 
     [Fact]
     public void SuggestDisplayHint_Wireless_StillSuggestsTheSsid()
     {
-        var hint = NetworkLocationService.SuggestDisplayHint(
-            wired: false, alias: "WiFi", description: "Intel(R) Wi-Fi 6E AX211 160MHz",
-            mac: "AA:BB:CC:11:22:33", peers: MeasuredPeers, ssid: "HomeWiFi");
-
-        Assert.Equal("HomeWiFi", hint);
+        Assert.Equal("HomeWiFi",
+            NetworkLocationService.SuggestDisplayHint(wired: false, "WiFi", bridged: null, ssid: "HomeWiFi"));
     }
 
     [Fact]
     public void SuggestDisplayHint_WirelessWithoutSsid_StaysNull()
     {
         // TryGetWifiSsid is best-effort; a null hint makes the caller fall back to "Wireless network".
-        Assert.Null(NetworkLocationService.SuggestDisplayHint(
-            wired: false, alias: "WiFi", description: "Intel(R) Wi-Fi 6E AX211 160MHz",
-            mac: null, peers: [], ssid: null));
+        Assert.Null(NetworkLocationService.SuggestDisplayHint(wired: false, "WiFi", bridged: null, ssid: null));
     }
 
-    // ── The contract that must not move: the suggestion never touches the match key ──
+    // ── The stale-key hint on a saved rule ─────────────────────────────────
 
     [Fact]
-    public void Compose_BridgedSuggestion_KeepsTheSelectedAdaptersMatchKey()
+    public void IsStaleKey_SameSubnetDifferentMac_IsStale()
     {
-        // Same selected (vEthernet) adapter, composed with each of the two possible suggestions. The
-        // match key and IsWired are identical; ONLY the display hint differs.
-        var withAlias    = NetworkLocationService.Compose(BridgedMac, "10.0.0.0/23", wired: true, "vEthernet (Bridged)");
-        var withPhysical = NetworkLocationService.Compose(BridgedMac, "10.0.0.0/23", wired: true, "Ethernet");
+        // The user's own case: a profile saved on an older dock (3C:2C:30:CA:98:D7) while the adapter
+        // in use now reports 48:65:EE:18:86:EF on the same subnet. It can never match again.
+        var rule    = new NetworkLocationRule { AdapterMac = "3C:2C:30:CA:98:D7", IpCidr = "10.0.0.0/23" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", IsWired: true, DisplayHint: "Ethernet");
 
-        Assert.Equal(BridgedMac,    withPhysical.AdapterMac);
-        Assert.Equal("10.0.0.0/23", withPhysical.IpCidr);
-        Assert.True(withPhysical.IsWired);
-        Assert.True(withAlias.SameLocationAs(withPhysical));
-        Assert.Equal("Ethernet", withPhysical.DisplayHint);
+        Assert.True(NetworkLocationService.IsStaleKey(rule, current));
     }
 
     [Fact]
-    public void Compose_EmptyMac_BecomesNullSoTheKeyIsNeverAnEmptyString()
+    public void IsStaleKey_MatchingRule_IsNotStale()
     {
-        var location = NetworkLocationService.Compose("", "10.0.0.0/23", wired: true, "Ethernet");
-        Assert.Null(location.AdapterMac);
+        var rule    = new NetworkLocationRule { AdapterMac = PhysicalMac, IpCidr = "10.0.0.0/23" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", true, "Ethernet");
+
+        Assert.False(NetworkLocationService.IsStaleKey(rule, current));
+    }
+
+    [Fact]
+    public void IsStaleKey_DifferentSubnet_IsNotStale()
+    {
+        // A profile for another network is simply not this one — saying nothing is the whole point.
+        var rule    = new NetworkLocationRule { AdapterMac = "3C:2C:30:CA:98:D7", IpCidr = "192.168.1.0/24" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", true, "Ethernet");
+
+        Assert.False(NetworkLocationService.IsStaleKey(rule, current));
+    }
+
+    [Fact]
+    public void IsStaleKey_SubnetOnlyRule_IsNotStale()
+    {
+        // No MAC in the key means the subnet alone matches; there is nothing stale about it.
+        var rule    = new NetworkLocationRule { IpCidr = "10.0.0.0/23" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", true, "Ethernet");
+
+        Assert.False(NetworkLocationService.IsStaleKey(rule, current));
+    }
+
+    [Fact]
+    public void IsStaleKey_NoCurrentLocation_IsNotStale()
+    {
+        // Offline, or the first evaluation has not landed: nothing to compare against, so say nothing.
+        var rule = new NetworkLocationRule { AdapterMac = "3C:2C:30:CA:98:D7", IpCidr = "10.0.0.0/23" };
+
+        Assert.False(NetworkLocationService.IsStaleKey(rule, default));
     }
 
     // ── The match key shown in the naming dialog and the Settings rows ─────────────
@@ -320,14 +411,14 @@ public class NetworkLocationServiceTests
     [Fact]
     public void DescribeMatchKey_MacAndSubnet_JoinedWithTheHouseSeparator()
     {
-        Assert.Equal($"MAC {BridgedMac} · Subnet 10.0.0.0/23",
-            NetworkLocationService.DescribeMatchKey(BridgedMac, "10.0.0.0/23"));
+        Assert.Equal($"MAC {PhysicalMac} · Subnet 10.0.0.0/23",
+            NetworkLocationService.DescribeMatchKey(PhysicalMac, "10.0.0.0/23"));
     }
 
     [Fact]
     public void DescribeMatchKey_SingleFacet_ShowsOnlyThatFacet()
     {
-        Assert.Equal($"MAC {BridgedMac}",   NetworkLocationService.DescribeMatchKey(BridgedMac, null));
+        Assert.Equal($"MAC {PhysicalMac}",  NetworkLocationService.DescribeMatchKey(PhysicalMac, null));
         Assert.Equal("Subnet 10.0.0.0/23", NetworkLocationService.DescribeMatchKey(null, "10.0.0.0/23"));
     }
 

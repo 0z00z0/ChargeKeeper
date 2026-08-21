@@ -1070,14 +1070,25 @@ internal sealed partial class SettingsWindow : Window
         }
 
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        var current     = CurrentLocation();   // resolved ONCE per rebuild, not per row
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames));
+            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames, current));
     }
 
-    // The formatter itself lives on NetworkLocationService, shared with NameLocationWindow so the
-    // dialog shows the same key string these rows do.
-    private static string DescribeMatchKey(NetworkLocationRule rule) =>
-        NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
+    /// <summary>
+    /// The rule's match key, plus the stale-key hint when its subnet is the one we are on now but
+    /// its MAC is not — what a dock change, a replaced NIC or a recreated Hyper-V switch leaves
+    /// behind, after which the rule silently never applies. Stated, never acted on: nothing here
+    /// rewrites a stored key. The key formatter itself lives on NetworkLocationService, shared with
+    /// NameLocationWindow so the naming dialog shows the same string these rows do.
+    /// </summary>
+    private static string DescribeMatchKey(NetworkLocationRule rule, NetworkLocation current)
+    {
+        string key = NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
+        return NetworkLocationService.IsStaleKey(rule, current)
+            ? $"{key}\n{NetworkLocationService.StaleKeyHint}"
+            : key;
+    }
 
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
         string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
@@ -1088,7 +1099,8 @@ internal sealed partial class SettingsWindow : Window
     /// rules could in principle share a name — index is unambiguous as long as every mutation
     /// rebuilds the whole list afterwards (which every commit path below does).
     /// </summary>
-    private SettingsExpander BuildNetworkRuleRow(int index, NetworkLocationRule rule, List<string> presetNames)
+    private SettingsExpander BuildNetworkRuleRow(
+        int index, NetworkLocationRule rule, List<string> presetNames, NetworkLocation current)
     {
         var expander = new SettingsExpander();
 
@@ -1107,7 +1119,7 @@ internal sealed partial class SettingsWindow : Window
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",    Content = nameBox },
-            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule) },
+            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current) },
             new SettingsCard { Header = "Preset",  Content = presetCombo },
         };
         expander.ItemsFooter = footer;
@@ -1620,6 +1632,7 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
+        var current = CurrentLocation();   // resolved ONCE per rebuild, not per row
         for (int i = 0; i < rules.Count; i++)
         {
             int index = i;
@@ -1630,7 +1643,7 @@ internal sealed partial class SettingsWindow : Window
             KeepAwakeNetworkRulesListPanel.Children.Add(new SettingsCard
             {
                 Header      = rules[i].Name,
-                Description = DescribeMatchKey(rules[i]),
+                Description = DescribeMatchKey(rules[i], current),
                 Content     = toggle,
             });
         }
