@@ -84,4 +84,43 @@ public class WindowFitTests
         Assert.Equal(0, r.Y);
         Assert.True(r.X + r.W <= work.Item3 && r.Y + r.H <= work.Item4);
     }
+
+    // ── HeightForContent: the About window's measured sizing ──────────────────────
+
+    [Fact]
+    public void HeightForContent_ContentShorterThanViewport_ShrinksTheWindow()
+    {
+        // The About defect: 660 DIP of window around ~330 DIP of content, so the bottom half sat
+        // empty below the copyright line. Chrome here is 660 - 620 = 40.
+        Assert.Equal(370, WindowFit.HeightForContent(660, contentHeight: 330, viewportHeight: 620, minHeight: 320));
+    }
+
+    [Fact]
+    public void HeightForContent_ContentTallerThanViewport_GrowsTheWindow()
+    {
+        // Crediting another library must widen the window's height on its own, without the constant
+        // being re-tuned by hand.
+        Assert.Equal(500, WindowFit.HeightForContent(400, contentHeight: 460, viewportHeight: 360, minHeight: 320));
+    }
+
+    [Fact]
+    public void HeightForContent_ChromeIsCarriedByTheDifference_NotAddedUp()
+    {
+        // Content exactly filling the viewport must leave the window alone, whatever the chrome is —
+        // that is what makes measuring the difference safe when the title bar changes.
+        Assert.Equal(500, WindowFit.HeightForContent(500, contentHeight: 400, viewportHeight: 400, minHeight: 100));
+    }
+
+    [Fact]
+    public void HeightForContent_TinyPayload_StopsAtTheFloor_NotASliver()
+    {
+        Assert.Equal(320, WindowFit.HeightForContent(660, contentHeight: 20, viewportHeight: 620, minHeight: 320));
+    }
+
+    [Fact]
+    public void HeightForContent_FractionalDips_RoundUp_SoNothingIsClipped()
+    {
+        // DIPs are doubles and the window height is an int; rounding down would clip the last line.
+        Assert.Equal(371, WindowFit.HeightForContent(660, contentHeight: 330.2, viewportHeight: 620, minHeight: 320));
+    }
 }

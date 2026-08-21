@@ -451,8 +451,11 @@
 
                     <!-- No MaxWidth here: it is AboutContent.ContentWidthDip (the shared control's
                          layout measure, also AboutWindow's width) and is applied in code-behind so
-                         the two About surfaces cannot be widened apart. -->
-                    <Border x:Name="AboutCard" HorizontalAlignment="Center"
+                         the two About surfaces cannot be widened apart. Left, not Centre: with a
+                         MaxWidth narrower than the column, Centre (and Stretch) park the card in the
+                         middle of the ~840 DIP content column while its own "About" heading — and
+                         every other section on the page — starts at the left edge. -->
+                    <Border x:Name="AboutCard" HorizontalAlignment="Left"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"

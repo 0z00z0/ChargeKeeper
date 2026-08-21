@@ -17,7 +17,7 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <ScrollViewer Padding="24" VerticalScrollBarVisibility="Auto"
+    <ScrollViewer x:Name="ContentScroller" Padding="24" VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
         <brand:BrandAboutControl x:Name="About" MaxWidth="560" HorizontalAlignment="Center"/>
     </ScrollViewer>

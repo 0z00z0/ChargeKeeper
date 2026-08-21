@@ -46,4 +46,22 @@ internal static class WindowFit
                 Math.Clamp(desired.Y, workArea.Y, workArea.Y + workArea.H - h),
                 w, h);
     }
+
+    /// <summary>
+    /// The height a window must be for content of <paramref name="contentHeight"/> to show without
+    /// scrolling, given that it is <paramref name="currentHeight"/> tall and shows
+    /// <paramref name="viewportHeight"/> of that content today.
+    ///
+    /// <para>The over- or under-shoot carries the title bar and the scroller's padding with it, so
+    /// the chrome is never added up by hand and cannot drift when it changes. <see cref="Fit"/> uses
+    /// the same difference, but clamps it to growth only; this one must also SHRINK — a hard-coded
+    /// About height left the bottom of that window empty. <paramref name="minHeight"/> is the floor,
+    /// so a short payload cannot collapse the window to a sliver.</para>
+    ///
+    /// <para>Unit-agnostic: all four values must be in the same unit, DIPs or physical px. Mixing
+    /// them silently mis-sizes the window on any scaled display.</para>
+    /// </summary>
+    internal static int HeightForContent(double currentHeight, double contentHeight,
+                                         double viewportHeight, int minHeight)
+        => Math.Max(minHeight, (int)Math.Ceiling(currentHeight + contentHeight - viewportHeight));
 }
