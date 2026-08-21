@@ -276,10 +276,16 @@ internal static class InstallerSignature
             string? thumbprint = null;
             try
             {
-                using var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
-                subject = cert.Subject;
-                // NOT cert.Thumbprint, which is SHA-1. The pin is SHA-256.
-                thumbprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
+                // The DER blob comes from crypt32, not X509CertificateLoader.LoadCertificateFromFile:
+                // that loader reads a file that IS a certificate, and an Authenticode-signed PE is not
+                // one — it fails with CRYPT_E_NOT_FOUND on a real signed installer.
+                if (Native.ReadSignerCertificate(path) is { } der)
+                {
+                    using var cert = X509CertificateLoader.LoadCertificate(der);
+                    subject = cert.Subject;
+                    // NOT cert.Thumbprint, which is SHA-1. The pin is SHA-256.
+                    thumbprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
+                }
             }
             catch
             {
@@ -415,6 +421,109 @@ internal static class InstallerSignature
                 if (dataPtr     != nint.Zero) Marshal.FreeHGlobal(dataPtr);
                 if (fileInfoPtr != nint.Zero) Marshal.FreeHGlobal(fileInfoPtr);
                 Marshal.FreeHGlobal(filePath);
+            }
+        }
+
+        private const uint CERT_QUERY_OBJECT_FILE                    = 0x00000001;
+        private const uint CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED = 1 << 10;
+        private const uint CERT_QUERY_FORMAT_FLAG_BINARY             = 1 << 1;
+        private const uint CMSG_SIGNER_CERT_INFO_PARAM               = 7;
+        private const uint X509_ASN_ENCODING                         = 0x00000001;
+        private const uint PKCS_7_ASN_ENCODING                       = 0x00010000;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CERT_CONTEXT
+        {
+            public uint dwCertEncodingType;
+            public nint pbCertEncoded;
+            public uint cbCertEncoded;
+            public nint pCertInfo;
+            public nint hCertStore;
+        }
+
+        [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CryptQueryObject(
+            uint dwObjectType, [MarshalAs(UnmanagedType.LPWStr)] string pvObject,
+            uint dwExpectedContentTypeFlags, uint dwExpectedFormatTypeFlags, uint dwFlags,
+            out uint pdwMsgAndCertEncodingType, out uint pdwContentType, out uint pdwFormatType,
+            out nint phCertStore, out nint phMsg, out nint ppvContext);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CryptMsgGetParam(
+            nint hCryptMsg, uint dwParamType, uint dwIndex, nint pvData, ref uint pcbData);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        private static extern nint CertGetSubjectCertificateFromStore(
+            nint hCertStore, uint dwCertEncodingType, nint pCertInfo);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CertFreeCertificateContext(nint pCertContext);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CertCloseStore(nint hCertStore, uint dwFlags);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CryptMsgClose(nint hCryptMsg);
+
+        /// <summary>
+        /// DER bytes of the certificate that signed <paramref name="path"/>, or null when the file
+        /// carries no readable embedded signature.
+        /// <para>
+        /// This is the path <c>X509Certificate.CreateFromSignedFile</c> took before it was obsoleted
+        /// (SYSLIB0057): CryptQueryObject opens the PE's embedded PKCS#7 through the OS subject
+        /// interface package, CMSG_SIGNER_CERT_INFO_PARAM names the signer among the certificates the
+        /// message carries, and the store lookup returns that one. Reading it here rather than
+        /// letting a managed loader parse the PE keeps the bytes identical to what Windows itself
+        /// treats as the signer — the pin compares a hash of exactly these bytes.
+        /// </para>
+        /// </summary>
+        internal static byte[]? ReadSignerCertificate(string path)
+        {
+            var hStore     = nint.Zero;
+            var hMsg       = nint.Zero;
+            var certInfo   = nint.Zero;
+            var pCertContext = nint.Zero;
+
+            try
+            {
+                if (!CryptQueryObject(CERT_QUERY_OBJECT_FILE, path,
+                                      CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+                                      CERT_QUERY_FORMAT_FLAG_BINARY, 0,
+                                      out _, out _, out _, out hStore, out hMsg, out _))
+                    return null;
+
+                uint size = 0;
+                if (!CryptMsgGetParam(hMsg, CMSG_SIGNER_CERT_INFO_PARAM, 0, nint.Zero, ref size) || size == 0)
+                    return null;
+
+                certInfo = Marshal.AllocHGlobal((int)size);
+                if (!CryptMsgGetParam(hMsg, CMSG_SIGNER_CERT_INFO_PARAM, 0, certInfo, ref size))
+                    return null;
+
+                pCertContext = CertGetSubjectCertificateFromStore(
+                    hStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, certInfo);
+                if (pCertContext == nint.Zero)
+                    return null;
+
+                var context = Marshal.PtrToStructure<CERT_CONTEXT>(pCertContext);
+                if (context.pbCertEncoded == nint.Zero || context.cbCertEncoded == 0)
+                    return null;
+
+                var der = new byte[context.cbCertEncoded];
+                Marshal.Copy(context.pbCertEncoded, der, 0, der.Length);
+                return der;
+            }
+            finally
+            {
+                if (pCertContext != nint.Zero) CertFreeCertificateContext(pCertContext);
+                if (certInfo     != nint.Zero) Marshal.FreeHGlobal(certInfo);
+                if (hMsg         != nint.Zero) CryptMsgClose(hMsg);
+                if (hStore       != nint.Zero) CertCloseStore(hStore, 0);
             }
         }
     }
