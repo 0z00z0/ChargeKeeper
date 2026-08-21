@@ -1074,13 +1074,10 @@ internal sealed partial class SettingsWindow : Window
             NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames));
     }
 
-    private static string DescribeMatchKey(NetworkLocationRule rule)
-    {
-        var parts = new List<string>();
-        if (rule.AdapterMac is { } mac)  parts.Add($"MAC {mac}");
-        if (rule.IpCidr    is { } cidr) parts.Add($"Subnet {cidr}");
-        return parts.Count > 0 ? string.Join(" · ", parts) : "No match key — this profile will never apply.";
-    }
+    // The formatter itself lives on NetworkLocationService, shared with NameLocationWindow so the
+    // dialog shows the same key string these rows do.
+    private static string DescribeMatchKey(NetworkLocationRule rule) =>
+        NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
 
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
         string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
@@ -1218,7 +1215,8 @@ internal sealed partial class SettingsWindow : Window
             }
 
             string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            string? name = await new NameLocationWindow(
+                suggested, NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr)).ShowAsync();
             if (name is null) return;   // cancelled
 
             var s0 = SettingsService.Current;
@@ -1688,7 +1686,8 @@ internal sealed partial class SettingsWindow : Window
             }
 
             string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-            string? name = await new NameLocationWindow(suggested).ShowAsync();
+            string? name = await new NameLocationWindow(
+                suggested, NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr)).ShowAsync();
             if (name is null) return;   // cancelled
 
             var s0 = SettingsService.Current;

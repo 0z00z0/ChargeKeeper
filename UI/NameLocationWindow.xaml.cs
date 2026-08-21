@@ -23,9 +23,20 @@ internal sealed partial class NameLocationWindow : Window
     /// the detected location's WiFi SSID or adapter name (see <c>NetworkLocationService.DisplayHint</c>),
     /// never left blank, so there's always something sensible to accept without typing.
     /// </param>
-    internal NameLocationWindow(string suggestedName)
+    /// <param name="matchKey">
+    /// The MAC/subnet the resulting profile will match on, already formatted by
+    /// <c>NetworkLocationService.DescribeMatchKey</c>. Shown muted under the box because the name is
+    /// a free-text label while these are the actual key — omitted (row hidden) when not supplied.
+    /// </param>
+    internal NameLocationWindow(string suggestedName, string? matchKey = null)
     {
         InitializeComponent();
+
+        MatchKeyText.Text = string.IsNullOrWhiteSpace(matchKey) ? "" : $"Matches on {matchKey}";
+        MatchKeyText.Visibility = MatchKeyText.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        // After the text is set: ConfigureChrome measures the content to size the window, so the
+        // match-key line must already be in (or out of) the layout by then.
         ConfigureChrome();
 
         NameBox.Text = suggestedName;

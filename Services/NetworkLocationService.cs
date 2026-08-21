@@ -34,8 +34,9 @@ internal sealed class NetworkLocationRule
 /// Fingerprint of the currently-connected primary network adapter (TODO #31). Equatable so
 /// <see cref="NetworkLocationService"/> can cheaply tell "did anything actually change" apart from
 /// "an event fired" — <see cref="NetworkChange"/> events fire far more often than the resolved
-/// location does. <see cref="DisplayHint"/> (WiFi SSID, or the adapter's own name when wired) is
-/// NEVER part of matching — only a friendlier suggested default when naming a new rule.
+/// location does. <see cref="DisplayHint"/> (WiFi SSID, or the wired adapter's own name — or, on a
+/// Hyper-V external switch, the physical NIC behind it) is NEVER part of matching — only a
+/// friendlier suggested default when naming a new rule.
 /// </summary>
 internal readonly record struct NetworkLocation(string? AdapterMac, string? IpCidr, bool IsWired, string? DisplayHint)
 {
@@ -69,6 +70,19 @@ internal sealed record AdapterCandidate(
     bool IsVirtual,
     NetworkInterfaceType Type,
     NetworkInterface? Adapter = null);
+
+/// <summary>
+/// The minimal projection of a live <see cref="NetworkInterface"/> that
+/// <see cref="NetworkLocationService.ResolveBridgedAdapterName"/> needs to walk back from a Hyper-V
+/// external-switch vNIC to the physical NIC that switch is bound to — the same pure-function split
+/// as <see cref="AdapterCandidate"/>, so the walk-back is unit-testable without a Hyper-V host.
+/// <see cref="Mac"/> is null when the adapter has no real 6-byte hardware address (tunnel/WAN
+/// miniport pseudo-adapters), which disqualifies it as the NIC behind a switch;
+/// <see cref="IsVirtual"/> uses the same "Virtual" description marker as
+/// <see cref="AdapterCandidate.IsVirtual"/>, and <see cref="Status"/> breaks a tie towards the
+/// adapter that is actually present.
+/// </summary>
+internal sealed record BridgePeer(string Name, string? Mac, bool IsVirtual, OperationalStatus Status);
 
 /// <summary>
 /// Detects the current network location (TODO #31) via the OS's own routing table — the same
@@ -224,6 +238,20 @@ internal static class NetworkLocationService
     }
 
     /// <summary>
+    /// Renders the MATCH KEY — the MAC and subnet a profile is actually keyed on (see
+    /// <see cref="NetworkLocationRule.Matches"/>) — as "MAC … · Subnet …". One formatter for both
+    /// places it is shown: the Settings page's per-rule "Matches" line, and the naming dialog, where
+    /// it makes clear the profile follows these and not the name being typed into the box.
+    /// </summary>
+    internal static string DescribeMatchKey(string? adapterMac, string? ipCidr)
+    {
+        var parts = new List<string>();
+        if (adapterMac is { } mac)  parts.Add($"MAC {mac}");
+        if (ipCidr     is { } cidr) parts.Add($"Subnet {cidr}");
+        return parts.Count > 0 ? string.Join(" · ", parts) : "No match key — this profile will never apply.";
+    }
+
+    /// <summary>
     /// Reads the current location synchronously. Used both by the change-detection path above and
     /// directly by the tray's "Add configuration for this network" command, which needs an
     /// up-to-the-moment reading rather than whatever the last debounced event happened to capture.
@@ -245,8 +273,7 @@ internal static class NetworkLocationService
             var ipv4   = props.UnicastAddresses.FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
             string? cidr = ipv4 is not null ? CalculateCidr(ipv4.Address, ipv4.IPv4Mask) : null;
             bool wired   = primary.NetworkInterfaceType != NetworkInterfaceType.Wireless80211;
-            string? hint = wired ? primary.Name : TryGetWifiSsid();
-            return new(mac.Length > 0 ? mac : null, cidr, wired, hint);
+            return Compose(mac, cidr, wired, ResolveDisplayHint(primary, wired, mac));
         }
         catch
         {
@@ -307,6 +334,125 @@ internal static class NetworkLocationService
             ?? candidates.FirstOrDefault(c => !c.IsVirtual && c.Type == NetworkInterfaceType.Wireless80211)
             ?? candidates.FirstOrDefault(c => c.Type == NetworkInterfaceType.Ethernet)
             ?? candidates[0];
+    }
+
+    // ── Suggested NAME only (issue #21 follow-up) ─────────────────────────────────
+    // Everything below feeds NetworkLocation.DisplayHint and NOTHING else: AdapterMac, IpCidr and
+    // IsWired keep coming from the SELECTED adapter (the vEthernet, per SelectPrimary above), and
+    // NetworkLocationRule.Matches never sees a name. A wrong answer here costs a less helpful
+    // default in the naming dialog; it can never mismatch or break a stored profile.
+
+    /// <summary>
+    /// Composes the location record from the SELECTED adapter's own fields plus a suggested name.
+    /// Pure, and deliberately the only place the two meet: the match key (<paramref name="mac"/>,
+    /// <paramref name="cidr"/>) and <paramref name="wired"/> come from the selected adapter and
+    /// nothing else, so the name suggestion demonstrably cannot move it (unit-tested).
+    /// </summary>
+    internal static NetworkLocation Compose(string mac, string? cidr, bool wired, string? suggestedName) =>
+        new(mac.Length > 0 ? mac : null, cidr, wired, suggestedName);
+
+    /// <summary>
+    /// Whether an adapter is a Hyper-V virtual switch port — the "vEthernet (…)" adapter that holds
+    /// the routable IP while the physical NIC bound to the switch keeps none (issue #21). Recognised
+    /// by the two strings Windows fixes for these: the description "Hyper-V Virtual Ethernet
+    /// Adapter" (the marker HyperVManagerTray keys on too) and the "vEthernet (&lt;switch&gt;)"
+    /// connection alias. Used only to decide whether the extra pairing lookup below is worth doing,
+    /// so a machine without Hyper-V pays two string comparisons and no second enumeration.
+    /// </summary>
+    internal static bool LooksLikeHyperVSwitchPort(string? name, string? description) =>
+        description?.StartsWith("Hyper-V Virtual Ethernet", StringComparison.OrdinalIgnoreCase) == true ||
+        name?.StartsWith("vEthernet (", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// Pure walk-back from a Hyper-V external switch's vNIC to the physical NIC the switch is bound
+    /// to, so the naming dialog suggests "Ethernet" rather than "vEthernet (Bridged)". Pairing is by
+    /// MAC: an EXTERNAL switch's host vNIC inherits the bound NIC's hardware address verbatim
+    /// (measured — vEthernet (Bridged) and Ethernet both report 48:65:EE:18:86:EF on the affected
+    /// host), which needs no WMI, no Hyper-V module and no elevation.
+    /// <para>
+    /// Returns null — caller keeps today's alias — whenever the pairing is not unambiguous: an
+    /// INTERNAL switch such as "vEthernet (Default Switch)" carries a synthesised Microsoft-OUI
+    /// address no physical NIC shares, and two same-MAC non-virtual adapters (a teaming/filter
+    /// oddity) leave nothing to prefer once presence has been weighed. Virtual adapters are excluded
+    /// as partners so one vNIC never names another.
+    /// </para>
+    /// </summary>
+    internal static string? ResolveBridgedAdapterName(string? switchPortMac, IReadOnlyList<BridgePeer> peers)
+    {
+        if (switchPortMac is not { Length: > 0 }) return null;
+
+        var paired = peers.Where(p => p.Mac == switchPortMac && !p.IsVirtual).ToList();
+        if (paired.Count <= 1) return paired.FirstOrDefault()?.Name;
+
+        // Prefer the partner that is actually present over a disabled/absent namesake; still tied
+        // means we cannot tell which NIC drives this switch, and a wrong name is worse than the alias.
+        var present = paired.Where(p => p.Status == OperationalStatus.Up).ToList();
+        return present.Count == 1 ? present[0].Name : null;
+    }
+
+    /// <summary>
+    /// Pure name-suggestion rule behind <see cref="NetworkLocation.DisplayHint"/>: the SSID on
+    /// Wi-Fi, otherwise the wired adapter's own alias — except when that adapter is a Hyper-V switch
+    /// port, where the physical NIC behind the switch is named instead, falling back to the alias
+    /// when the pairing resolves nothing.
+    /// </summary>
+    internal static string? SuggestDisplayHint(
+        bool wired, string alias, string? description, string? mac,
+        IReadOnlyList<BridgePeer> peers, string? ssid)
+    {
+        if (!wired) return ssid;
+        if (!LooksLikeHyperVSwitchPort(alias, description)) return alias;
+        return ResolveBridgedAdapterName(mac, peers) ?? alias;
+    }
+
+    // Live-adapter side of SuggestDisplayHint, mirroring the FindPrimaryAdapter/SelectPrimary split:
+    // this one only queries the OS, the decision above is pure. It must never throw — DetectCurrent's
+    // own catch would turn a naming hiccup into "No network detected" — and it must not slow the
+    // common case, hence the gate: the peer enumeration happens ONLY for a vEthernet adapter.
+    private static string? ResolveDisplayHint(NetworkInterface primary, bool wired, string mac)
+    {
+        try
+        {
+            string? ssid = wired ? null : TryGetWifiSsid();
+            IReadOnlyList<BridgePeer> peers = wired && LooksLikeHyperVSwitchPort(primary.Name, primary.Description)
+                ? EnumerateBridgePeers()
+                : [];
+            return SuggestDisplayHint(wired, primary.Name, primary.Description, mac.Length > 0 ? mac : null, peers, ssid);
+        }
+        catch
+        {
+            // Hyper-V absent, an adapter vanishing mid-enumeration, a property read denied — the name
+            // is cosmetic, so degrade to exactly what this returned before the pairing existed.
+            return wired ? primary.Name : null;
+        }
+    }
+
+    // A SEPARATE enumeration from FindPrimaryAdapter's: the physical NIC behind an external switch is
+    // Up with no IPv4 at all (the switch took it), so it is deliberately not a selection candidate —
+    // loosening that filter would put an IP-less NIC back in front of SelectPrimary and re-open #21.
+    // Not filtered on OperationalStatus either: a disabled same-MAC namesake must be VISIBLE to
+    // ResolveBridgedAdapterName so it can be ranked below the present one rather than silently win.
+    private static List<BridgePeer> EnumerateBridgePeers() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
+            .Select(n => new BridgePeer(
+                n.Name,
+                MacOrNull(n),
+                n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase),
+                n.OperationalStatus))
+            .ToList();
+
+    // The adapter's MAC in the stored format, or null when it has no real 6-byte hardware address —
+    // WAN miniports and other pseudo-adapters report an empty one, and treating those as equal would
+    // pair a switch port with a non-NIC.
+    private static string? MacOrNull(NetworkInterface n)
+    {
+        try
+        {
+            var address = n.GetPhysicalAddress();
+            return address.GetAddressBytes().Length == 6 ? NormalizeMac(address.ToString()) : null;
+        }
+        catch { return null; }
     }
 
     // True when the adapter owns an IPv4 unicast address usable as a real connection — excludes
