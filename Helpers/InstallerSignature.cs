@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using ChargeKeeper.Services;
 
 namespace ChargeKeeper.Helpers;
@@ -29,11 +31,18 @@ internal enum InstallerVerdict
     /// <summary>The signature could not be examined: the file is missing, unreadable, or the signer
     /// certificate would not parse.</summary>
     Unreadable,
+
+    /// <summary>Signed, intact, and the subject reads as the expected publisher, but the certificate
+    /// is not one this build pins. Either an impersonation — a subject is trivially forged on a
+    /// self-signed certificate, a thumbprint is not — or a certificate rotation this build predates.
+    /// Distinct from <see cref="WrongPublisher"/> so the two are separable in a log: a foreign
+    /// publisher is somebody else's file, an unpinned certificate is a claim to be ours.</summary>
+    UnpinnedCertificate,
 }
 
 /// <summary>
 /// The launch/refuse decision for a downloaded installer, kept pure so it can be exercised without
-/// a signed fixture: it takes the two pieces of evidence — what WinVerifyTrust concluded, and who
+/// a signed fixture: it takes the evidence — what WinVerifyTrust concluded, and which certificate
 /// signed — and returns a verdict. <see cref="InstallerSignature"/> is the half that touches files.
 /// </summary>
 /// <remarks>
@@ -45,26 +54,55 @@ internal enum InstallerVerdict
 /// </para>
 /// <para>
 /// So: the signature must be cryptographically INTACT (a bad digest is rejected outright, which is
-/// what catches a tampered or swapped file), and the signer subject must be exactly
-/// <see cref="ExpectedPublisher"/>. Beyond that, one and only one chain failure is tolerated —
-/// the untrusted/incomplete root that the self-signed certificate necessarily produces. An expired
-/// or revoked certificate is still refused.
+/// what catches a tampered or swapped file), the signer subject must be exactly
+/// <see cref="ExpectedPublisher"/>, and the signer's SHA-256 thumbprint must be one of
+/// <see cref="PinnedSigningThumbprints"/>. Beyond that, one and only one chain failure is
+/// tolerated — the untrusted/incomplete root that the self-signed certificate necessarily
+/// produces. An expired or revoked certificate is still refused.
 /// </para>
 /// <para>
-/// The residual gap, stated rather than papered over: because an untrusted root is tolerated,
-/// anyone can mint a self-signed certificate whose subject reads <c>CN=ZeroZero Software</c> and
-/// pass this check. What that buys an attacker is nothing over the wire — the download is HTTPS
-/// from GitHub — so the case that mattered was a file planted at a predictable local path, and
-/// that is closed by <see cref="InstallerSignature.NewDownloadPath"/> giving every run its own
-/// fresh directory instead. Pinning the certificate thumbprint would close the gap outright; it is
-/// not done here because a pinned thumbprint turns the next certificate rotation into a silent
-/// update outage for everyone still on the old build.
+/// The subject check alone left a gap, and the pin is what closes it: because an untrusted root is
+/// tolerated, anyone could mint a self-signed certificate whose subject reads
+/// <c>CN=ZeroZero Software</c> and satisfy a name comparison. A subject is a free-text field on a
+/// self-signed certificate; a SHA-256 thumbprint is the hash of the certificate itself. So the
+/// signer's thumbprint must also appear in <see cref="PinnedSigningThumbprints"/>, and it is that
+/// pin — not the name — that makes tolerating an untrusted root safe.
+/// </para>
+/// <para>
+/// The cost is that certificate rotation becomes a compatibility event rather than a build detail;
+/// <see cref="PinnedSigningThumbprints"/> states what rotating one requires.
 /// </para>
 /// </remarks>
 internal static class InstallerSignaturePolicy
 {
     /// <summary>The subject the release certificate must carry, exactly as signtool writes it.</summary>
     internal const string ExpectedPublisher = "CN=ZeroZero Software";
+
+    /// <summary>
+    /// SHA-256 thumbprints of every signing certificate this build accepts. A collection, not a
+    /// single value, because rotation requires two to be valid at once.
+    /// <para>
+    /// ROTATING THE SIGNING CERTIFICATE: a build only trusts the thumbprints listed here, so a
+    /// certificate that is not in a user's installed build cannot deliver the update that would add
+    /// it. The new thumbprint must therefore SHIP IN A RELEASED BUILD BEFORE ANYTHING IS SIGNED WITH
+    /// IT — add it here alongside the old one, release and let that release propagate, and only then
+    /// start signing with the new certificate. Both entries stay until the old build is out of use;
+    /// removing the outgoing thumbprint too early strands every machine still on it, silently, with
+    /// the update refused rather than any signal that a rotation happened.
+    /// </para>
+    /// <para>
+    /// SHA-256, not SHA-1: <c>X509Certificate2.Thumbprint</c> and the certificate dialog's
+    /// "Thumbprint" field are SHA-1, which is why the two are easy to confuse. The SHA-1 thumbprint
+    /// of the current certificate is <c>4909D644147756958E31783CF9D5926873522197</c>; it is recorded
+    /// here only so it is not mistaken for the pin. Entries below are 64 hex characters.
+    /// </para>
+    /// </summary>
+    internal static readonly IReadOnlyList<string> PinnedSigningThumbprints =
+    [
+        // ZeroZero Software, self-signed, serial 18B07761756164B3445E91436D4EA284,
+        // valid 2026-06-08 to 2031-06-08. Read from the signed ChargeKeeper-Setup-1.10.0.exe.
+        "486E2A37273DFE6584655C29B042E7F1A5468DA10E3BB3CC4B952E51570757F4",
+    ];
 
     // WinVerifyTrust result codes. Only the ones the policy distinguishes are named; anything else
     // falls through to UntrustedCertificate, which refuses.
@@ -78,11 +116,51 @@ internal static class InstallerSignaturePolicy
     internal const uint CERT_E_EXPIRED              = 0x800B0101;
 
     /// <summary>
+    /// Whether <paramref name="thumbprint"/> is one of <see cref="PinnedSigningThumbprints"/>.
+    /// Compared on hex digits alone, so a value carrying the colons or spaces that certificate tools
+    /// print, or written in either case, still matches. An empty or unreadable thumbprint is not a
+    /// match — the pin fails closed.
+    /// </summary>
+    internal static bool IsPinnedThumbprint(string? thumbprint)
+    {
+        var candidate = NormaliseThumbprint(thumbprint);
+        if (candidate.Length == 0) return false;
+
+        // The collection is walked rather than a single value compared, so adding a rollover
+        // certificate is one more entry in the list and nothing else.
+        foreach (var pinned in PinnedSigningThumbprints)
+        {
+            if (string.Equals(candidate, NormaliseThumbprint(pinned), StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Hex digits only, upper case. Anything else in the input is dropped.</summary>
+    private static string NormaliseThumbprint(string? thumbprint)
+    {
+        if (string.IsNullOrWhiteSpace(thumbprint)) return string.Empty;
+
+        var buffer = new StringBuilder(thumbprint.Length);
+        foreach (var c in thumbprint)
+        {
+            if (c is >= '0' and <= '9') buffer.Append(c);
+            else if (c is >= 'A' and <= 'F') buffer.Append(c);
+            else if (c is >= 'a' and <= 'f') buffer.Append(char.ToUpperInvariant(c));
+        }
+
+        return buffer.ToString();
+    }
+
+    /// <summary>
     /// The verdict for one downloaded file.
     /// </summary>
     /// <param name="trustResult">What WinVerifyTrust returned for the file.</param>
     /// <param name="signerSubject">The signer certificate's subject, or null when none could be read.</param>
-    internal static InstallerVerdict Decide(uint trustResult, string? signerSubject)
+    /// <param name="signerThumbprint">The signer certificate's SHA-256 thumbprint, or null when none
+    /// could be read. SHA-256 specifically — a SHA-1 value can never match a pin.</param>
+    internal static InstallerVerdict Decide(uint trustResult, string? signerSubject, string? signerThumbprint)
     {
         // Ordered so the most specific and most useful thing to tell the user wins. "Not signed"
         // and "tampered" come first because both are true regardless of who the certificate claims
@@ -96,10 +174,19 @@ internal static class InstallerSignaturePolicy
         if (string.IsNullOrWhiteSpace(signerSubject))
             return InstallerVerdict.Unreadable;
 
-        // Before the untrusted-root tolerance below, so a foreign self-signed certificate can never
-        // be waved through by it.
+        // Subject first, and only so the verdict is informative: a file signed by a real, unrelated
+        // publisher reads as WrongPublisher rather than as a failed pin. It decides nothing on its
+        // own — the thumbprint below is the check that has to hold.
         if (!string.Equals(signerSubject.Trim(), ExpectedPublisher, StringComparison.OrdinalIgnoreCase))
             return InstallerVerdict.WrongPublisher;
+
+        if (string.IsNullOrWhiteSpace(signerThumbprint))
+            return InstallerVerdict.Unreadable;
+
+        // The check that makes the untrusted-root tolerance below safe. Without it, minting a
+        // self-signed certificate named CN=ZeroZero Software would be enough to pass.
+        if (!IsPinnedThumbprint(signerThumbprint))
+            return InstallerVerdict.UnpinnedCertificate;
 
         // S_OK means the root IS installed on this machine (a developer box, typically).
         // CERT_E_UNTRUSTEDROOT / CERT_E_CHAINING is the expected answer everywhere else, and is the
@@ -131,6 +218,9 @@ internal static class InstallerSignaturePolicy
                 + "damaged or has been altered.",
             InstallerVerdict.WrongPublisher =>
                 $"The downloaded installer is signed by someone other than {ExpectedPublisher[3..]}.",
+            InstallerVerdict.UnpinnedCertificate =>
+                "The downloaded installer is signed with a certificate this version of ChargeKeeper "
+                + "does not recognise.",
             InstallerVerdict.UntrustedCertificate =>
                 "The downloaded installer's signing certificate could not be accepted — it may be "
                 + "expired or revoked.",
@@ -180,21 +270,25 @@ internal static class InstallerSignature
             var trustResult = Native.VerifyTrust(path);
 
             // Read separately from WinVerifyTrust: the trust call reports WHETHER the file verifies,
-            // never WHO signed it, and the publisher half of the policy needs the subject.
-            string? subject = null;
+            // never WHO signed it, and the identity half of the policy needs both the subject and
+            // the certificate's own SHA-256 hash.
+            string? subject    = null;
+            string? thumbprint = null;
             try
             {
                 using var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
                 subject = cert.Subject;
+                // NOT cert.Thumbprint, which is SHA-1. The pin is SHA-256.
+                thumbprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
             }
             catch
             {
                 // No signer certificate to read. The trust result still decides between "not signed"
-                // and "unreadable"; leaving subject null is what makes an intact-but-opaque
-                // signature refuse rather than fall through.
+                // and "unreadable"; leaving both null is what makes an intact-but-opaque signature
+                // refuse rather than fall through.
             }
 
-            return InstallerSignaturePolicy.Decide(trustResult, subject);
+            return InstallerSignaturePolicy.Decide(trustResult, subject, thumbprint);
         }
         catch (Exception ex)
         {

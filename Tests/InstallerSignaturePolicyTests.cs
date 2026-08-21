@@ -13,22 +13,35 @@ public class InstallerSignaturePolicyTests
     private const string Ours     = InstallerSignaturePolicy.ExpectedPublisher;
     private const string Impostor = "CN=Someone Else, O=Somewhere";
 
+    /// <summary>A pinned thumbprint, taken from the pin list rather than written out again, so a
+    /// rotation that changes the list does not need every test edited with it.</summary>
+    private static string OurThumbprint => InstallerSignaturePolicy.PinnedSigningThumbprints[0];
+
+    /// <summary>A syntactically valid SHA-256 thumbprint that is not pinned: what a forged
+    /// certificate carrying the right subject would present.</summary>
+    private const string ForgedThumbprint =
+        "0000000000000000000000000000000000000000000000000000000000000001";
+
     [Fact]
-    public void FullyTrustedAndOurs_IsAccepted()
+    public void FullyTrustedAndPinnedCertificate_IsAccepted()
     {
-        // A machine that does have the studio root installed — a developer box.
+        // A machine that does have the studio root installed — a developer box. "Ours" here means
+        // the pinned certificate, not merely a matching subject.
         Assert.Equal(InstallerVerdict.Accepted,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Ours));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Ours, OurThumbprint));
     }
 
     [Theory]
     [InlineData(InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT)]
     [InlineData(InstallerSignaturePolicy.CERT_E_CHAINING)]
-    public void UntrustedRootButOurs_IsAccepted(uint trustResult)
+    public void UntrustedRootWithThePinnedCertificate_IsAccepted(uint trustResult)
     {
         // The normal case on a user's machine: the release certificate is self-signed, so the chain
-        // never validates. Refusing this would block every legitimate update.
-        Assert.Equal(InstallerVerdict.Accepted, InstallerSignaturePolicy.Decide(trustResult, Ours));
+        // never validates. Refusing this would block every legitimate update. The tolerance applies
+        // to the pinned certificate only — see OurSubjectWithAForgedCertificate_IsRefused for the
+        // case it used to let through.
+        Assert.Equal(InstallerVerdict.Accepted,
+                     InstallerSignaturePolicy.Decide(trustResult, Ours, OurThumbprint));
     }
 
     [Theory]
@@ -37,7 +50,8 @@ public class InstallerSignaturePolicyTests
     [InlineData(InstallerSignaturePolicy.TRUST_E_PROVIDER_UNKNOWN)]
     public void Unsigned_IsRefused(uint trustResult)
     {
-        Assert.Equal(InstallerVerdict.NotSigned, InstallerSignaturePolicy.Decide(trustResult, null));
+        Assert.Equal(InstallerVerdict.NotSigned,
+                     InstallerSignaturePolicy.Decide(trustResult, null, null));
     }
 
     [Fact]
@@ -46,7 +60,7 @@ public class InstallerSignaturePolicyTests
         // The trust result decides "not signed" on its own; a subject read from somewhere must not
         // be able to talk the policy round.
         Assert.Equal(InstallerVerdict.NotSigned,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.TRUST_E_NOSIGNATURE, Ours));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.TRUST_E_NOSIGNATURE, Ours, OurThumbprint));
     }
 
     [Fact]
@@ -55,7 +69,7 @@ public class InstallerSignaturePolicyTests
         // A file altered after signing still carries the real publisher's certificate, so the digest
         // is the only thing that catches it — and it is checked before the publisher comparison.
         Assert.Equal(InstallerVerdict.Tampered,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.TRUST_E_BAD_DIGEST, Ours));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.TRUST_E_BAD_DIGEST, Ours, OurThumbprint));
     }
 
     [Fact]
@@ -63,7 +77,7 @@ public class InstallerSignaturePolicyTests
     {
         // A perfectly valid signature from a real CA is still not our release.
         Assert.Equal(InstallerVerdict.WrongPublisher,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Impostor));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Impostor, ForgedThumbprint));
     }
 
     [Fact]
@@ -71,14 +85,14 @@ public class InstallerSignaturePolicyTests
     {
         // The untrusted-root tolerance must not become a way in for any self-signed file.
         Assert.Equal(InstallerVerdict.WrongPublisher,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT, Impostor));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT, Impostor, ForgedThumbprint));
     }
 
     [Fact]
     public void ExpiredCertificate_IsRefused_EvenThoughItIsOurs()
     {
         Assert.Equal(InstallerVerdict.UntrustedCertificate,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_EXPIRED, Ours));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_EXPIRED, Ours, OurThumbprint));
     }
 
     [Fact]
@@ -86,7 +100,7 @@ public class InstallerSignaturePolicyTests
     {
         // Fail closed: a result code the policy has never seen must never read as permission.
         Assert.Equal(InstallerVerdict.UntrustedCertificate,
-                     InstallerSignaturePolicy.Decide(0x800B0111, Ours));
+                     InstallerSignaturePolicy.Decide(0x800B0111, Ours, OurThumbprint));
     }
 
     [Theory]
@@ -96,16 +110,18 @@ public class InstallerSignaturePolicyTests
     public void NoReadableSigner_IsRefused(string? subject)
     {
         Assert.Equal(InstallerVerdict.Unreadable,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, subject));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, subject, OurThumbprint));
     }
 
     [Fact]
     public void PublisherComparisonIgnoresCaseAndSurroundingSpace_ButNothingElse()
     {
         Assert.Equal(InstallerVerdict.Accepted,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, "  cn=zerozero software  "));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK,
+                                                     "  cn=zerozero software  ", OurThumbprint));
         Assert.Equal(InstallerVerdict.WrongPublisher,
-                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, "CN=ZeroZero Software Ltd"));
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK,
+                                                     "CN=ZeroZero Software Ltd", OurThumbprint));
     }
 
     [Fact]
@@ -145,6 +161,8 @@ public class InstallerSignaturePolicyTests
                         InstallerSignaturePolicy.MessageFor(InstallerVerdict.Tampered));
         Assert.Contains("signed by someone other than ZeroZero Software",
                         InstallerSignaturePolicy.MessageFor(InstallerVerdict.WrongPublisher));
+        Assert.Contains("does not recognise",
+                        InstallerSignaturePolicy.MessageFor(InstallerVerdict.UnpinnedCertificate));
     }
 
     [Fact]
@@ -224,4 +242,134 @@ public class InstallerSignaturePolicyTests
         Assert.False(InstallerSignaturePolicy.MayLaunch((InstallerVerdict)0));
         Assert.False(InstallerSignaturePolicy.MayLaunch((InstallerVerdict)99));
     }
+
+    // ---- The certificate pin ----------------------------------------------------------------
+    //
+    // A subject is free text on a self-signed certificate, so the name check alone accepted any
+    // self-signed file calling itself CN=ZeroZero Software. The signer's SHA-256 thumbprint has to
+    // be one of InstallerSignaturePolicy.PinnedSigningThumbprints as well.
+
+    [Fact]
+    public void OurSubjectWithAForgedCertificate_IsRefused()
+    {
+        // THE case the pin exists for, and the contract that changed: before the pin, a throwaway
+        // self-signed certificate whose subject read CN=ZeroZero Software was Accepted. Minting one
+        // costs nothing, so the subject alone was never evidence.
+        Assert.Equal(InstallerVerdict.UnpinnedCertificate,
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT,
+                                                     Ours, ForgedThumbprint));
+    }
+
+    [Fact]
+    public void OurSubjectWithAForgedCertificate_IsRefusedEvenWhenFullyTrusted()
+    {
+        // The refusal must not depend on the chain result: a machine that has some root installed
+        // must reach the same answer as one that has not.
+        Assert.Equal(InstallerVerdict.UnpinnedCertificate,
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Ours, ForgedThumbprint));
+    }
+
+    [Fact]
+    public void APinnedThumbprintIsRequired_NotMerelyPreferred()
+    {
+        // Every trust result the policy would otherwise accept still refuses without the pin.
+        foreach (var trustResult in new[] { InstallerSignaturePolicy.S_OK,
+                                            InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT,
+                                            InstallerSignaturePolicy.CERT_E_CHAINING })
+        {
+            Assert.Equal(InstallerVerdict.Accepted,
+                         InstallerSignaturePolicy.Decide(trustResult, Ours, OurThumbprint));
+            Assert.Equal(InstallerVerdict.UnpinnedCertificate,
+                         InstallerSignaturePolicy.Decide(trustResult, Ours, ForgedThumbprint));
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void NoReadableThumbprint_IsRefused(string? thumbprint)
+    {
+        // The certificate parsed far enough to yield a subject but not a hash: fail closed.
+        Assert.Equal(InstallerVerdict.Unreadable,
+                     InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.S_OK, Ours, thumbprint));
+    }
+
+    [Fact]
+    public void EveryPinnedThumbprintIsAccepted_SoTheListIsWhatIsConsulted()
+    {
+        // Walks the pin list rather than naming a literal: a rotation entry added to
+        // PinnedSigningThumbprints must be honoured by Decide without any other edit, which a single
+        // hard-coded comparison would not do.
+        Assert.NotEmpty(InstallerSignaturePolicy.PinnedSigningThumbprints);
+
+        foreach (var pinned in InstallerSignaturePolicy.PinnedSigningThumbprints)
+        {
+            Assert.True(InstallerSignaturePolicy.IsPinnedThumbprint(pinned));
+            Assert.Equal(InstallerVerdict.Accepted,
+                         InstallerSignaturePolicy.Decide(InstallerSignaturePolicy.CERT_E_UNTRUSTEDROOT,
+                                                         Ours, pinned));
+        }
+    }
+
+    [Fact]
+    public void EveryPinnedThumbprintIsASha256Value()
+    {
+        // 64 hex characters. A SHA-1 thumbprint is 40 and is what certificate dialogs and
+        // X509Certificate2.Thumbprint show, so pasting one in is the likely mistake; it would never
+        // match a signer hash and would silently refuse every update.
+        foreach (var pinned in InstallerSignaturePolicy.PinnedSigningThumbprints)
+        {
+            Assert.Equal(64, pinned.Length);
+            Assert.All(pinned, c => Assert.True(Uri.IsHexDigit(c), $"'{c}' is not a hex digit."));
+        }
+    }
+
+    [Fact]
+    public void PinnedThumbprintsAreDistinct()
+    {
+        Assert.Equal(InstallerSignaturePolicy.PinnedSigningThumbprints.Count,
+                     InstallerSignaturePolicy.PinnedSigningThumbprints
+                         .Select(t => t.ToUpperInvariant()).Distinct().Count());
+    }
+
+    [Fact]
+    public void ThumbprintComparisonIgnoresCaseAndSeparators_ButNotContent()
+    {
+        // certutil prints spaces, openssl prints colons, and either case turns up in practice.
+        var pinned = OurThumbprint;
+
+        Assert.True(InstallerSignaturePolicy.IsPinnedThumbprint(pinned.ToLowerInvariant()));
+        Assert.True(InstallerSignaturePolicy.IsPinnedThumbprint(string.Join(":", Chunk(pinned))));
+        Assert.True(InstallerSignaturePolicy.IsPinnedThumbprint(" " + string.Join(" ", Chunk(pinned)) + " "));
+
+        // One digit changed is a different certificate, separators or not.
+        var altered = pinned[..^1] + (pinned[^1] == 'A' ? 'B' : 'A');
+        Assert.False(InstallerSignaturePolicy.IsPinnedThumbprint(altered));
+        // A truncated value must not match by prefix.
+        Assert.False(InstallerSignaturePolicy.IsPinnedThumbprint(pinned[..40]));
+        Assert.False(InstallerSignaturePolicy.IsPinnedThumbprint(pinned + "00"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("::: :::")]
+    public void AnEmptyThumbprintIsNeverPinned(string? thumbprint)
+    {
+        // Normalising away separators must not turn "nothing" into a match.
+        Assert.False(InstallerSignaturePolicy.IsPinnedThumbprint(thumbprint));
+    }
+
+    [Fact]
+    public void TheSha1ThumbprintOfTheReleaseCertificateIsNotPinned()
+    {
+        // Measured from the signed ChargeKeeper-Setup-1.10.0.exe: SHA-1 4909D644..., SHA-256
+        // 486E2A37.... Pinning the SHA-1 value would be a plausible slip and must not verify.
+        Assert.False(InstallerSignaturePolicy.IsPinnedThumbprint("4909D644147756958E31783CF9D5926873522197"));
+    }
+
+    private static IEnumerable<string> Chunk(string value) =>
+        Enumerable.Range(0, value.Length / 2).Select(i => value.Substring(i * 2, 2));
 }
