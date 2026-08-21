@@ -96,8 +96,8 @@ jobs:
       # Split into three timed steps for the same reason as ci.yml: an unbounded test
       # step ran 5h57m38s there (run 31613727149), and a tagged release must not hang the
       # same way. No -r: a command-line RID is global and would override the empty
-      # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj; the app project supplies
-      # its own win-<arch> RID, so the runtime pack is still restored.
+      # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj. The runtime pack comes from
+      # the app restore below instead.
       # Same fix, and the same pin, as ci.yml — see the long comment there for the mechanism
       # (#91). Kept here because this job runs the identical gate: without the runtime the
       # tagged release, the one path that publishes to users, hangs exactly like CI did.
@@ -143,6 +143,15 @@ jobs:
             throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
           }
           Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
+
+      # Primes the win-x64 runtime pack in the NuGet cache. Restoring only the test
+      # project does not fetch it, even though the app project carries its own RID, and
+      # the Release build of the test project then fails with NETSDK1112. Mirrors ci.yml,
+      # whose app Restore/Build happen to prime the same cache before its test gate runs.
+      - name: Restore app (primes the win-x64 runtime pack)
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet restore ChargeKeeper.csproj -r win-x64
 
       - name: Restore tests
         shell: pwsh
