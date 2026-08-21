@@ -433,6 +433,21 @@ internal sealed class TrayMenu
                                 var path = await UpdateCheckService.Shared
                                     .DownloadInstallerAsync(outcome.InstallerUrl!)
                                     .ConfigureAwait(false);
+
+                                // Fail closed. CI signs the installer, so an unsigned, altered or
+                                // foreign-signed file at this point is not the release — and this
+                                // is the one moment the app hands an executable to the shell with
+                                // the user's consent behind it. Anything but Accepted is refused.
+                                var verdict = InstallerSignature.Verify(path);
+                                if (!InstallerSignaturePolicy.MayLaunch(verdict))
+                                {
+                                    AppLog.Info($"Update: refusing to launch {path} — {verdict}.");
+                                    InstallerSignature.Discard(path);
+                                    NativeMethods.Warn(InstallerSignaturePolicy.MessageFor(verdict), AppName);
+                                    Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
+                                    return;
+                                }
+
                                 // Launch installer, then exit so no elevated process remains for
                                 // the installer to kill (which would need its own UAC prompt).
                                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

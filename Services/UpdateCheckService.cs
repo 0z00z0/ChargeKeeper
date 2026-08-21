@@ -339,12 +339,13 @@ internal sealed class UpdateCheckService
         response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
 
     /// <summary>
-    /// Downloads the installer at <paramref name="url"/> to a temp file and returns its path.
-    /// Throws on failure. The caller is responsible for verifying, launching and cleaning up.
+    /// Downloads the installer at <paramref name="url"/> and returns its path. Throws on failure.
+    /// The caller MUST pass the result through <see cref="Helpers.InstallerSignature.Verify"/>
+    /// before launching it, and is responsible for cleaning up.
     /// </summary>
     internal async Task<string> DownloadInstallerAsync(string url)
     {
-        var path = Path.Combine(Path.GetTempPath(), "ChargeKeeper-Setup.exe");
+        var path = Helpers.InstallerSignature.NewDownloadPath();
         using var response = await _download
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead)
             .ConfigureAwait(false);
