@@ -81,7 +81,8 @@ internal static class LidDelayService
 
         var s = SettingsService.Current;
         if (!s.LidDelayEnabled && s.HasSavedLidAction)
-            AppLog.Info("LidDelay: the lid-close action was left overridden by a previous run — restoring it.");
+            PowerLog.Event("Lid-close action was left overridden by a previous run — restoring it",
+                           "crash recovery at startup");
 
         Reconcile();
         SettingsService.Reloaded += OnSettingsReloaded;
@@ -117,16 +118,18 @@ internal static class LidDelayService
             }
             SettingsService.Update(x => x.LidDelayEnabled = true);
             Subscribe();
-            AppLog.Info($"LidDelay: on, {SettingsService.Current.LidDelayMinutes} min after the lid closes.");
+            PowerLog.Event($"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min",
+                           "the setting was turned on");
             return true;
         }
 
         SettingsService.Update(x => x.LidDelayEnabled = false);
         CancelDelay();
         Unsubscribe();
-        AppLog.Info(RestoreSavedAction()
-            ? "LidDelay: off, the Windows lid-close action is back to its own value."
-            : "LidDelay: off, but the Windows lid-close action could not be restored — retrying at next start.");
+        PowerLog.Event(RestoreSavedAction()
+            ? "Lid-close delay off, the Windows lid-close action is back to its own value"
+            : "Lid-close delay off, but the Windows lid-close action could not be restored — retrying at next start",
+            "the setting was turned off");
         return true;
     }
 
@@ -310,9 +313,10 @@ internal static class LidDelayService
     private static void OnLidState(bool closed)
     {
         LidDelayAction action;
+        bool first;
         lock (_sync)
         {
-            bool first = !_lidSeeded;
+            first = !_lidSeeded;
             _lidSeeded = true;
             // Any lid OPEN invalidates a queued suspend, including one already decided on but not yet
             // run — at which point _delayPending is false and the policy has nothing left to cancel.
@@ -321,12 +325,18 @@ internal static class LidDelayService
                                                SettingsService.Current.LidDelayEnabled, _delayPending, first);
         }
 
+        // Logged whatever the policy decided, including the seeding replay: a lid event the feature
+        // ignored is exactly what someone asking "why didn't it sleep" needs to see.
+        PowerLog.Event($"Lid {(closed ? "closed" : "opened")}",
+                       first ? "lid-switch registration replay (initial state, not a real transition)"
+                             : "lid switch");
+
         switch (action)
         {
             case LidDelayAction.StartDelay: StartDelay(); break;
             case LidDelayAction.Cancel:
                 CancelDelay();
-                AppLog.Info("LidDelay: lid reopened — the machine stays awake.");
+                PowerLog.Event("Lid-close delay cancelled, the machine stays awake", "lid reopened");
                 break;
         }
     }
@@ -348,7 +358,8 @@ internal static class LidDelayService
             _timer?.Dispose();
             _timer = new System.Threading.Timer(_ => OnTimerFired(), null, delay, Timeout.InfiniteTimeSpan);
         }
-        AppLog.Info($"LidDelay: lid closed — sleeping in {delay.TotalMinutes:0} min unless it is reopened.");
+        PowerLog.Event($"Lid-close delay armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
+                       "lid closed with the lid-close delay on");
     }
 
     private static void OnTimerFired()
@@ -366,7 +377,8 @@ internal static class LidDelayService
         switch (action)
         {
             case LidDelayAction.Suspend:
-                AppLog.Info("LidDelay: delay elapsed with the lid still closed — suspending.");
+                PowerLog.Event("Suspending the machine",
+                               "the lid-close delay elapsed with the lid still closed");
                 // Off this timer thread: SetSuspendState does not return until the machine resumes.
                 Task.Run(() =>
                 {
@@ -376,15 +388,20 @@ internal static class LidDelayService
                     {
                         if (_generation != gen)
                         {
-                            AppLog.Info("LidDelay: lid opened before the suspend ran — not sleeping.");
+                            PowerLog.Event("Suspend abandoned", "the lid was opened before it ran");
                             return;
                         }
                     }
-                    if (!NativeMethods.Suspend()) AppLog.Error("LidDelayService.Suspend failed", null);
+                    if (!NativeMethods.Suspend())
+                    {
+                        PowerLog.Event("Suspend was refused by Windows", "SetSuspendState returned false");
+                        AppLog.Error("LidDelayService.Suspend failed", null);
+                    }
                 });
                 break;
             case LidDelayAction.Cancel:
-                AppLog.Info("LidDelay: delay elapsed but something else is holding the machine awake — not sleeping.");
+                PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
+                               "a keep-awake session is holding it awake");
                 break;
         }
     }
@@ -423,7 +440,16 @@ internal static class LidDelayService
     {
         foreach (uint flags in _holdRequests.GetConsumingEnumerable())
         {
-            try { NativeMethods.SetThreadExecutionState(flags); }
+            try
+            {
+                NativeMethods.SetThreadExecutionState(flags);
+                // Logged HERE rather than at the request sites: this is the moment the OS actually
+                // learns about the hold, and ES_CONTINUOUS on its own is the release.
+                PowerLog.Event(flags == NativeMethods.ES_CONTINUOUS
+                                   ? "OS keep-awake hold released"
+                                   : "OS keep-awake hold taken",
+                               "lid-close delay");
+            }
             catch (Exception ex) { AppLog.Error("LidDelayService.SetThreadExecutionState", ex); }
         }
     }

@@ -659,9 +659,14 @@ public sealed partial class DashboardWindow : Window
             try
             {
                 // The write's bool is the only signal a service-control failure gives — dropping it
-                // would make a refused toggle look identical to one that took.
-                if (!StandbyService.SetEnabled(on))
-                    AppLog.Info($"Smart Standby → {on} was not applied — the vendor write returned false.");
+                // would make a refused toggle look identical to one that took. Logged to the power
+                // trail either way: Smart Standby decides how deeply an idle machine sleeps, so a
+                // refused write is a direct answer to "why did it drain overnight".
+                if (StandbyService.SetEnabled(on))
+                    PowerLog.Event($"Smart Standby scheduling {(on ? "enabled" : "disabled")}", "dashboard toggle");
+                else
+                    PowerLog.Event($"Smart Standby scheduling was NOT {(on ? "enabled" : "disabled")} — the vendor write was refused",
+                                   "dashboard toggle");
             }
             catch (Exception ex) { AppLog.Error("DashboardWindow.OnSmartStandbyToggled", ex); }
             finally { RunOnUi(Refresh); }

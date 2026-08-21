@@ -308,8 +308,8 @@ public partial class App : Application
         // the same reset it was born from.
         if (watchdogStart || _startup.IsAutoRelaunch)
         {
-            if (!watchdogStart)
-                AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
+            PowerLog.Event("Display settle: holding window creation for 5 s",
+                           watchdogStart ? "watchdog relaunch" : "auto-relaunch after a display teardown");
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
         }
 
@@ -337,6 +337,7 @@ public partial class App : Application
         // is deliberate: a tray click that arrived while the icon was up but the display was still
         // settling parked on WindowsReady, and this is the point it may proceed.
         _windowsReady.TrySetResult();
+        PowerLog.Event("Display settle: complete, windows may be created", "startup gate opened");
 
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
@@ -500,7 +501,7 @@ public partial class App : Application
     private static void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
     {
         _sessionEnding = true;
-        AppLog.Info($"SessionEnding: {e.Reason}.");
+        PowerLog.Event($"Session ending: {e.Reason}", "Windows sign-out, restart or shutdown");
         // issue #90 — a restart or sign-out does not go through Shutdown(), so without this the
         // Windows lid-close action would stay overridden for the whole time the app is not running,
         // and permanently if the user then disables autostart or uninstalls.
@@ -510,8 +511,9 @@ public partial class App : Application
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         // Log every transition — the timeline around these lines is what lets a later silent
-        // teardown be correlated with a power event (see the self-heal notes at the top).
-        AppLog.Info($"PowerModeChanged: {e.Mode}.");
+        // teardown be correlated with a power event (see the self-heal notes at the top). PowerLog
+        // writes to app.log too, so that correlation survives the split into power.log.
+        PowerLog.Event($"Windows power mode: {e.Mode}", "system power notification");
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
 
         // A charger swap while asleep produces no AC→battery transition to invalidate on, so drop
@@ -596,6 +598,7 @@ public partial class App : Application
             bool fireLowBattery = false;
             bool fireChargingStarted = false;
             int? chargeCompleteStopPct = null;
+            bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
             using (_batteryReportLock.EnterScope())
             {
                 // ── Dynamic tray icon ─────────────────────────────────────────
@@ -690,8 +693,24 @@ public partial class App : Application
                     ChargerInfoService.Invalidate();
                 }
 
+                // ── Power-source edge for the power trail ─────────────────────
+                // AC↔battery is where most "why did it sleep" questions start. Only the EDGE, and
+                // only from a real previous reading — NotPresent is the pre-first-report seed, and
+                // calling that "charger disconnected" would put a fiction at the top of every log.
+                if (_lastBatteryStatus != BatteryStatus.NotPresent &&
+                    BatteryStatsFormatter.IsOnAC(_lastBatteryStatus) != charging)
+                {
+                    powerSourceEdge = charging;
+                }
+
                 _lastBatteryStatus = report.Status;
             }
+
+            // Outside the lock for the same reason the toasts below are: the log write is file I/O,
+            // and the critical section must not span it.
+            if (powerSourceEdge is { } onAc)
+                PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",
+                               onAc ? "charger connected" : "charger disconnected");
 
             // ── Toasts (outside the lock) ─────────────────────────────────────
             // ToastService.Notify* does a synchronous WinRT/COM Show; keeping it out of the critical
