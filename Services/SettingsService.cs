@@ -146,6 +146,24 @@ internal sealed class AppSettings
     /// so HA deletes the previous device instead of ghosting it.</summary>
     public string MqttNodeId { get; set; } = "";
 
+    /// <summary>Which groups of entities are announced. All on by default — the surface is the point
+    /// of the feature, and a group is switched off to reduce it, never to opt into it. Turning one off
+    /// removes its entities from the consumer rather than leaving them unavailable; see
+    /// <see cref="HaDiscovery.RemovalTopics"/>.</summary>
+    public bool MqttPublishBatteryStatus  { get; set; } = true;
+    public bool MqttPublishSmartCharge    { get; set; } = true;
+    public bool MqttPublishKeepAwake      { get; set; } = true;
+    public bool MqttPublishLidClose       { get; set; } = true;
+    public bool MqttPublishNotifications  { get; set; } = true;
+    public bool MqttPublishNetwork        { get; set; } = true;
+    public bool MqttPublishAppDiagnostics { get; set; } = true;
+
+    /// <summary>The group toggles as the publisher's pure input.</summary>
+    [JsonIgnore]
+    public HaCategorySet MqttCategories => new(
+        MqttPublishBatteryStatus, MqttPublishSmartCharge, MqttPublishKeepAwake,
+        MqttPublishLidClose, MqttPublishNotifications, MqttPublishNetwork, MqttPublishAppDiagnostics);
+
     /// <summary>Placement in physical pixels, null until the window has been closed once. Not WinUIEx's
     /// PersistenceId, which needs the ApplicationData this unpackaged app lacks.</summary>
     public int? SettingsWindowX      { get; set; }
@@ -218,7 +236,12 @@ internal static class SettingsService
             mutate(_current ??= ReadFile(_path) ?? new AppSettings());
             Save();   // re-entrant on the same Lock, so nesting does not deadlock
         }
+        Changed?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT publish)
     }
+
+    /// <summary>Raised after any committed change. Services that mirror a setting outwards subscribe
+    /// here rather than to each caller, so a new Settings control needs no new notification.</summary>
+    public static event Action? Changed;
 
     /// <summary>Deserialises settings JSON, or null when there is nothing usable. A present-but-unreadable
     /// file is copied aside first, or the next <see cref="Save"/> overwrites the user's presets, network

@@ -39,7 +39,9 @@ internal static class HaStateBuilder
             ChargeStart: start,
             ChargeStop: stop,
             AdapterWatts: watts,
-            ActivePreset: ActivePresetPolicy.Match(presets, threshold)?.Name);
+            ActivePreset: ActivePresetPolicy.Match(presets, threshold)?.Name,
+            FullMwh: fullMwh,
+            DesignMwh: designMwh);
     }
 
     /// <summary>The Smart Charge flag and the reflected Charge start/stop numbers. Not limiting → stop
