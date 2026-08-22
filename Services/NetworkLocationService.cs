@@ -183,15 +183,35 @@ internal static class NetworkLocationService
         }
     }
 
-    /// <summary>The "current network" status line: the matching rule's name, or a fallback. Prefers
-    /// <see cref="LastKnown"/>, reading live only when that is empty. Safe off the UI thread.</summary>
+    /// <summary>The "current network" status line. Prefers <see cref="LastKnown"/>, reading live only
+    /// when that is empty. Safe off the UI thread.</summary>
     public static string DescribeCurrentLocation()
     {
         var location = LastKnown;
         if (location.IsEmpty) location = DetectCurrent();
-        if (location.IsEmpty) return "No network detected";
-        var rule = SettingsService.Current.FindNetworkRule(location);
-        return rule is not null ? rule.Name : "Unrecognised network";
+        return DescribeCurrentNetwork(location, SettingsService.Current.FindNetworkRule(location));
+    }
+
+    /// <summary>Nothing resolved: the fail-closed reading, and a different thing from a network that
+    /// resolved but matches no profile.</summary>
+    internal const string NoNetworkDetected = "No network detected";
+
+    /// <summary>
+    /// The three-way "current network" line, pure so the choice is testable: the matching profile's
+    /// name; failing that, what was actually detected, since the adapter a new profile would be keyed
+    /// on has to be visible before anyone creates one; failing that, <see cref="NoNetworkDetected"/>.
+    /// </summary>
+    internal static string DescribeCurrentNetwork(NetworkLocation location, NetworkLocationRule? matched)
+    {
+        if (location.IsEmpty)    return NoNetworkDetected;
+        if (matched is not null) return matched.Name;
+
+        // DisplayHint is the adapter alias or SSID the detection already settled on; pairing it with
+        // the subnet is what tells two places on one adapter apart. With neither, only the match key
+        // is left, and DescribeMatchKey is already its formatter.
+        string? hint = location.DisplayHint is { Length: > 0 } h ? h : null;
+        if (hint is null) return location.IpCidr ?? DescribeMatchKey(location.AdapterMac, location.IpCidr);
+        return location.IpCidr is { } cidr ? $"{hint} · {cidr}" : hint;
     }
 
     /// <summary>The match key as "MAC … · Subnet …". One formatter for the Settings "Matches" line

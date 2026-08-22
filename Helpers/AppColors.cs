@@ -37,6 +37,14 @@ internal static class AppColors
     internal static readonly SolidColorBrush TimeScaleSelectedBrush =
         new(Color.FromArgb(60, SteelBlue.R, SteelBlue.G, SteelBlue.B));
 
+    // The "in use" preset marker, on both the Settings rows and the dashboard preset buttons. A tint
+    // will not do here: even at 24 % SteelBlue composites to a near-black grey against the studio
+    // surfaces, so the marker takes the accent solid. SteelBlue is a LIGHT accent (relative luminance
+    // 0.40), which makes black the legible label colour on it (~9:1) in either theme, where white
+    // would reach only 2.3:1.
+    internal static readonly SolidColorBrush AccentBrush   = new(SteelBlue);
+    internal static readonly SolidColorBrush OnAccentBrush = new(Microsoft.UI.Colors.Black);
+
     // Arc gauge fills by battery level. Muted tones rather than a vivid traffic light, and the
     // yellow/orange tiers reuse Amber and Terracotta rather than adding near-duplicates.
     internal static readonly Color SageGreen  = FromPacked(GaugePalette.SageGreen);   // dusty sage green

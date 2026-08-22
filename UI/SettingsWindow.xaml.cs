@@ -591,13 +591,14 @@ internal sealed partial class SettingsWindow : Window
         PresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.Presets;
 
-        // The row whose thresholds are in use disables its own button, so the disabled visual is
-        // that state here and has to carry the accent rather than the default grey. Set before the
-        // rows are parented, so their templates resolve it; activation buttons are the only ones in
-        // this panel that are ever disabled.
-        PresetsListPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.TimeScaleSelectedBrush;
-        PresetsListPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.TimeScaleSelectedBrush;
-        PresetsListPanel.Resources["ButtonForegroundDisabled"]  = AppColors.StatusChargingBrush;
+        // The row whose thresholds are in use disables its own button, so the DISABLED visual state
+        // is what paints the marker — it overrides any Background/Foreground set on the button
+        // itself, which is why the accent goes on these three template resources instead. Set before
+        // the rows are parented, so their templates resolve them; activation buttons are the only
+        // ones in this panel that are ever disabled.
+        PresetsListPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.AccentBrush;
+        PresetsListPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.AccentBrush;
+        PresetsListPanel.Resources["ButtonForegroundDisabled"]  = AppColors.OnAccentBrush;
 
         if (presets.Count == 0)
         {
@@ -629,9 +630,9 @@ internal sealed partial class SettingsWindow : Window
         string? activeName = SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
         var visibility     = state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed;
 
-        foreach (var button in PresetsListPanel.Children.OfType<SettingsExpander>()
-                                               .Select(row => row.Content).OfType<Button>())
+        foreach (var row in PresetsListPanel.Children.OfType<SettingsExpander>())
         {
+            if (row.Content is not Button button) continue;
             bool isActive     = activeName is not null && (string?)button.Tag == activeName;
             button.Content    = isActive ? "In use" : "Activate";
             button.IsEnabled  = !isActive;
@@ -639,6 +640,27 @@ internal sealed partial class SettingsWindow : Window
             ToolTipService.SetToolTip(button, isActive
                 ? "These thresholds are the ones in use."
                 : "Applies these thresholds now.");
+
+            // The name carries the accent too, so the row reads as active without hunting for the
+            // button. Suppressed where the marker itself is hidden, since colour alone would then be
+            // the only cue left.
+            if (row.Header is TextBlock header) StyleActiveName(header, isActive && visibility == Visibility.Visible);
+        }
+    }
+
+    /// <summary>Accent plus weight on the active preset's name; both cleared back to the row's
+    /// inherited values otherwise, so nothing has to remember what the default was.</summary>
+    private static void StyleActiveName(TextBlock header, bool active)
+    {
+        if (active)
+        {
+            header.Foreground = AppColors.AccentBrush;
+            header.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        }
+        else
+        {
+            header.ClearValue(TextBlock.ForegroundProperty);
+            header.ClearValue(TextBlock.FontWeightProperty);
         }
     }
 
@@ -666,7 +688,7 @@ internal sealed partial class SettingsWindow : Window
     private SettingsExpander BuildPresetRow(ThresholdPreset preset)
     {
         string presetName = preset.Name;
-        var expander = new SettingsExpander { Header = presetName };
+        var expander = new SettingsExpander();
 
         var nameBox = new TextBox { Text = preset.Name, MinWidth = 220 };
 
@@ -716,7 +738,9 @@ internal sealed partial class SettingsWindow : Window
         var activateBtn = new Button { Tag = presetName, MinWidth = 88 };
         activateBtn.Click += (_, _) => ActivatePreset(presetName);
 
-        expander.Header = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop);
+        // A TextBlock rather than the plain string, so RefreshPresetActivationStates has something
+        // whose Foreground and FontWeight it can set when this preset is the one in use.
+        expander.Header  = new TextBlock { Text = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop) };
         expander.Content = activateBtn;
         expander.ItemsSource = new List<SettingsCard>
         {
@@ -815,9 +839,9 @@ internal sealed partial class SettingsWindow : Window
             RebuildNetworkRuleRows();
             _onPresetsChanged();   // HA's preset select carries the old name until discovery is republished
         }
-        else
+        else if (expander.Header is TextBlock header)
         {
-            expander.Header = ThresholdPreset.FormatLabel(newName, start, stop);
+            header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
         }
 
         _menu.ReconcileFromExternalChange();
