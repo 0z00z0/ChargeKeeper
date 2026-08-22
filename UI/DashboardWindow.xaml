@@ -265,6 +265,17 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
+                    <!-- One button per preset. The count is user-controlled, so a wrapping panel
+                         rather than a row, which would clip. Fixed cells: a name too long for one
+                         is trimmed, with the full label on the tooltip. Built in code
+                         (BuildPresetButtons) because the presets come from settings. -->
+                    <VariableSizedWrapGrid x:Name="PresetButtonPanel"
+                                           Orientation="Horizontal"
+                                           ItemWidth="92"
+                                           ItemHeight="28"
+                                           Margin="0,8,0,0"
+                                           Visibility="Collapsed"/>
+
                     <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
                          Charge is capable so it can also be cancelled while active. -->
                     <Button x:Name="TravelOverrideButton"
