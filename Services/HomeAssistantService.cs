@@ -22,7 +22,29 @@ internal sealed class HomeAssistantService : IDisposable
     private readonly Task _commandWorker;
 
     private volatile bool _enabled;
-    private MqttClientOptions? _options;
+
+    /// <summary>One built options object per transport, plus the setting that decides the order they
+    /// are tried in. Both are built even when the setting names one, so a later Auto costs no rebuild.</summary>
+    private sealed record ConnectionOptions(
+        MqttClientOptions Tcp, MqttClientOptions WebSocket, MqttTransportSetting Setting)
+    {
+        public MqttClientOptions For(MqttTransport transport) =>
+            transport == MqttTransport.Tcp ? Tcp : WebSocket;
+    }
+
+    private ConnectionOptions? _options;
+
+    // What connected last time, so a machine that moves between the internal network and the way in
+    // from outside pays the full probe once per move rather than once per reconnect. Mirrored into
+    // settings so it survives a restart. Held as an int (-1 = nothing yet) because Apply and the
+    // maintain loop both touch it, and a nullable enum is two fields that cannot be read as one.
+    private int _lastGood = -1;
+
+    private MqttTransport? LastGoodTransport
+    {
+        get { int v = Volatile.Read(ref _lastGood); return v < 0 ? null : (MqttTransport)v; }
+        set => Volatile.Write(ref _lastGood, value is { } t ? (int)t : -1);
+    }
     private string _nodeId = "", _stateTopic = "", _statusTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
     private string? _lastStateJson;   // republished on (re)connect so a fresh HA restart gets current values
     private string? _lastSurfaceJson; // the settings payload's own dedupe, on its own topic
@@ -58,6 +80,9 @@ internal sealed class HomeAssistantService : IDisposable
     // and can be long — a battery device isn't woken every few seconds for nothing.
     private static readonly TimeSpan ConnectedPoll  = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(3);
+    // What one unreachable transport costs before the next is tried. Same budget the page's
+    // connection check gives each transport, so the two agree on how long "no answer" takes.
+    private static readonly TimeSpan ConnectTimeout = MqttConnectionProbe.Timeout;
     private const double MaxBackoffSeconds = 60;
     // A session shorter than this is a flap, so its backoff keeps escalating instead of resetting.
     private static readonly TimeSpan StableConnection = TimeSpan.FromSeconds(30);
@@ -141,24 +166,13 @@ internal sealed class HomeAssistantService : IDisposable
             }
             await ClearStaleIdentityAsync(CancellationToken.None).ConfigureAwait(false);
 
-            var ob = new MqttClientOptionsBuilder()
-                // Clamped here, not only in the settings UI: WithTcpServer throws on a port outside
-                // 0..65535, and a hand-edited settings.json reaches this unchecked.
-                .WithTcpServer(s.MqttBrokerHost.Trim(), Math.Clamp(s.MqttBrokerPort, 1, 65535))
-                .WithClientId(_nodeId)
-                .WithCleanSession()
-                // MQTTnet pings within this period on an idle link, so the broker won't drop a quiet
-                // connection and a silently-dead one surfaces rather than lingering "connected".
-                .WithKeepAlivePeriod(KeepAlive)
-                .WithWillTopic(_availTopic)
-                .WithWillPayload(HaDiscovery.Offline)
-                .WithWillRetain()
-                .WithWillQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce);
-            if (!string.IsNullOrEmpty(s.MqttUsername))
-                ob = ob.WithCredentials(s.MqttUsername, s.MqttPassword);
-            if (s.MqttUseTls)
-                ob = ob.WithTlsOptions(o => { });
-            _options = ob.Build();
+            // Both transports are built up front, on this thread, so the maintain loop never reads the
+            // topic and identity fields the next ApplySettings may already be rewriting.
+            _options = new ConnectionOptions(
+                BuildOptions(s, MqttTransport.Tcp),
+                BuildOptions(s, MqttTransport.WebSocket),
+                s.MqttTransportMode);
+            LastGoodTransport = s.MqttLastGoodTransport;
 
             bool wasRunning = _enabled;
             _enabled = true;
@@ -181,6 +195,77 @@ internal sealed class HomeAssistantService : IDisposable
         // ApplySettings discards this task, so an unhandled throw would silently disable the feature.
         catch (Exception ex) { AppLog.Error("HomeAssistantService.Apply", Sanitise(ex)); }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>The client options for one transport. The will/retain machinery and the identity are
+    /// the same either way; only how the broker is addressed differs.</summary>
+    private MqttClientOptions BuildOptions(AppSettings s, MqttTransport transport)
+    {
+        var ob = new MqttClientOptionsBuilder()
+            .WithTransport(transport, s.MqttBrokerHost, s.MqttBrokerPort, s.MqttUseTls)
+            .WithClientId(_nodeId)
+            .WithCleanSession()
+            // MQTTnet pings within this period on an idle link, so the broker won't drop a quiet
+            // connection and a silently-dead one surfaces rather than lingering "connected".
+            .WithKeepAlivePeriod(KeepAlive)
+            // Pinned rather than left to the library default: under Auto this is what a dead
+            // transport costs before the other one is tried, so it has to be a known number.
+            .WithTimeout(ConnectTimeout)
+            .WithWillTopic(_availTopic)
+            .WithWillPayload(HaDiscovery.Offline)
+            .WithWillRetain()
+            .WithWillQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce);
+        if (!string.IsNullOrEmpty(s.MqttUsername))
+            ob = ob.WithCredentials(s.MqttUsername, s.MqttPassword);
+        return ob.Build();
+    }
+
+    /// <summary>Connects over the first transport <see cref="MqttTransportPlan"/> offers that works.
+    /// False once the plan is spent, which is the caller's cue to back off.</summary>
+    private async Task<bool> ConnectUsingPlanAsync(ConnectionOptions options, CancellationToken ct)
+    {
+        var attempts = new List<MqttTransportAttempt>();
+        while (MqttTransportPlan.Next(options.Setting, LastGoodTransport, attempts) is { } transport)
+        {
+            MqttProbeResult result;
+            try
+            {
+                // MQTTnet 5 hands a refused CONNACK back as a result code rather than throwing, so
+                // the code has to be read — otherwise a rejection looks like a live connection until
+                // the first publish fails.
+                var connack = await _client.ConnectAsync(options.For(transport), ct).ConfigureAwait(false);
+                result = MqttConnectionProbe.ClassifyConnack(
+                    connack?.ResultCode ?? MqttClientConnectResultCode.UnspecifiedError, connack?.ReasonString);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { result = MqttConnectionProbe.ClassifyConnectException(ex, ct); }
+
+            if (result.Outcome == MqttProbeOutcome.Success)
+            {
+                RememberTransport(transport);
+                return true;
+            }
+
+            // A half-open session from a refused CONNACK would make the next attempt look connected.
+            try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
+            attempts.Add(new(transport, result));
+        }
+
+        // One line per failed round, naming every transport tried — the log's whole account of why
+        // nothing is publishing. The details are OS/broker text, never a staged credential.
+        AppLog.Error("HomeAssistantService.Connect: no transport connected — " +
+            string.Join("; ", attempts.Select(a => $"{MqttConnectionProbe.Name(a.Transport)}: {a.Result.Detail}")),
+            null);
+        return false;
+    }
+
+    /// <summary>Persists which transport worked. State, not a setting: the user's choice is left
+    /// exactly as they made it, and Auto is what reads this back.</summary>
+    private void RememberTransport(MqttTransport transport)
+    {
+        if (LastGoodTransport == transport) return;
+        LastGoodTransport = transport;
+        SettingsService.Update(s => s.MqttLastGoodTransport = transport);
     }
 
     private async Task MaintainConnectionAsync(CancellationToken ct)
@@ -214,9 +299,13 @@ internal sealed class HomeAssistantService : IDisposable
                     }
                     connectedSince = null;
 
-                    await _client.ConnectAsync(opt, ct).ConfigureAwait(false);
-                    await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
-                    connectedSince = DateTime.UtcNow;
+                    if (await ConnectUsingPlanAsync(opt, ct).ConfigureAwait(false))
+                    {
+                        await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
+                        connectedSince = DateTime.UtcNow;
+                    }
+                    else
+                        backoff = NextBackoff(backoff);   // every transport failed; wait longer before the next round
                 }
                 else if (_client.IsConnected && connectedSince is { } s && DateTime.UtcNow - s >= StableConnection)
                 {
@@ -300,7 +389,8 @@ internal sealed class HomeAssistantService : IDisposable
 
     private async Task OnConnectedAsync(CancellationToken ct)
     {
-        AppLog.Info($"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
+        AppLog.Info($"HomeAssistant: connected over {MqttConnectionProbe.Name(LastGoodTransport ?? MqttTransport.Tcp)}; " +
+                    $"publishing discovery for '{_nodeId}'.");
         // Evict a superseded node id first, so HA never sees both devices at once.
         await ClearStaleIdentityAsync(ct).ConfigureAwait(false);
         // Read under the settings lock: Presets is the live list, which the Settings window mutates in

@@ -17,8 +17,11 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class MqttProbeLoopbackTests
 {
+    // Pinned to TCP: these exercise the socket/CONNACK stages against a loopback listener, and Auto
+    // would follow every failure with a WebSocket attempt nothing here serves.
     private static MqttProbeTarget Target(int port) =>
-        new("127.0.0.1", port, "user", "secret", UseTls: false, ClientId: "chargekeeper_probe");
+        new("127.0.0.1", port, "user", "secret", UseTls: false, ClientId: "chargekeeper_probe",
+            Transport: MqttTransportSetting.Tcp);
 
     /// <summary>A port that was bound and released, so a connect to it is refused rather than hanging.</summary>
     private static int ClosedPort()
@@ -33,10 +36,10 @@ public class MqttProbeLoopbackTests
     [Fact]
     public async Task NothingListening_IsUnreachable_NotAnAuthFailure()
     {
-        var result = await MqttConnectionProbe.RunAsync(Target(ClosedPort()), CancellationToken.None);
+        var report = await MqttConnectionProbe.RunAsync(Target(ClosedPort()), CancellationToken.None);
 
-        Assert.Equal(MqttProbeOutcome.Unreachable, result.Outcome);
-        Assert.Contains("Could not reach the broker", MqttConnectionProbe.Describe(result));
+        Assert.Equal(MqttProbeOutcome.Unreachable, report.Outcome);
+        Assert.Contains("Could not reach the broker", MqttConnectionProbe.Describe(report));
     }
 
     [Fact]
@@ -44,10 +47,10 @@ public class MqttProbeLoopbackTests
     {
         using var broker = new FakeBroker(reject: true);
 
-        var result = await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None);
+        var report = await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None);
 
-        Assert.Equal(MqttProbeOutcome.AuthRejected, result.Outcome);
-        Assert.Contains("rejected these credentials", MqttConnectionProbe.Describe(result));
+        Assert.Equal(MqttProbeOutcome.AuthRejected, report.Outcome);
+        Assert.Contains("rejected these credentials", MqttConnectionProbe.Describe(report));
     }
 
     [Fact]
@@ -55,10 +58,32 @@ public class MqttProbeLoopbackTests
     {
         using var broker = new FakeBroker(reject: false);
 
-        var result = await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None);
+        var report = await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None);
 
-        Assert.Equal(MqttProbeOutcome.Success, result.Outcome);
-        Assert.Contains("Connected", MqttConnectionProbe.Describe(result));
+        Assert.Equal(MqttProbeOutcome.Success, report.Outcome);
+        Assert.Equal(MqttTransport.Tcp, report.Transport);
+        Assert.Contains("Connected", MqttConnectionProbe.Describe(report));
+    }
+
+    /// <summary>Auto must actually try the second transport, not report the first one's failure as
+    /// the whole answer. Nothing serves WebSocket on loopback either, so both attempts fail — what is
+    /// asserted is that both were made and both are named.</summary>
+    [Fact]
+    public async Task Auto_WhenTcpIsClosed_AlsoTriesWebSocket()
+    {
+        var target = new MqttProbeTarget("127.0.0.1", ClosedPort(), "user", "secret",
+            UseTls: false, ClientId: "chargekeeper_probe", Transport: MqttTransportSetting.Auto);
+
+        var report = await MqttConnectionProbe.RunAsync(target, CancellationToken.None);
+
+        Assert.Equal(2, report.Attempts.Count);
+        Assert.Equal(MqttTransport.Tcp,       report.Attempts[0].Transport);
+        Assert.Equal(MqttTransport.WebSocket, report.Attempts[1].Transport);
+
+        string sentence = MqttConnectionProbe.Describe(report);
+        Assert.Contains("Neither transport reached the broker", sentence);
+        Assert.Contains("TCP", sentence);
+        Assert.Contains("WebSocket", sentence);
     }
 
     /// <summary>

@@ -1568,6 +1568,7 @@ internal sealed partial class SettingsWindow : Window
             HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
             HaTlsToggle.IsOn       = s.MqttUseTls;
             HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
+            HaTransportCombo.SelectedIndex = (int)s.MqttTransportMode;
             // Blank means "use the machine-derived default", so show it as a placeholder rather
             // than pre-filling it — an untouched field must keep meaning "default".
             HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
@@ -1618,13 +1619,14 @@ internal sealed partial class SettingsWindow : Window
             HaAppliedText.Visibility    = Visibility.Collapsed;
             HaTestResultText.Visibility = Visibility.Collapsed;
         }
-        HaDeviceNameBox.TextChanged   += (_, _) => Hide();
-        HaHostBox.TextChanged         += (_, _) => Hide();
-        HaUsernameBox.TextChanged     += (_, _) => Hide();
-        HaPrefixBox.TextChanged       += (_, _) => Hide();
-        HaPortBox.ValueChanged        += (_, _) => Hide();
-        HaPasswordBox.PasswordChanged += (_, _) => Hide();
-        HaTlsToggle.Toggled           += (_, _) => Hide();
+        HaDeviceNameBox.TextChanged       += (_, _) => Hide();
+        HaHostBox.TextChanged             += (_, _) => Hide();
+        HaUsernameBox.TextChanged         += (_, _) => Hide();
+        HaPrefixBox.TextChanged           += (_, _) => Hide();
+        HaPortBox.ValueChanged            += (_, _) => Hide();
+        HaPasswordBox.PasswordChanged     += (_, _) => Hide();
+        HaTlsToggle.Toggled               += (_, _) => Hide();
+        HaTransportCombo.SelectionChanged += (_, _) => Hide();
     }
 
     // HomeAssistantEnabled is not one of the batched broker fields — it applies immediately, same
@@ -1649,6 +1651,7 @@ internal sealed partial class SettingsWindow : Window
         string user   = HaUsernameBox.Text?.Trim() ?? "";
         string pass   = HaPasswordBox.Password ?? "";
         bool   tls    = HaTlsToggle.IsOn;
+        var    trans  = StagedTransport();
         string prefix = string.IsNullOrWhiteSpace(HaPrefixBox.Text) ? "homeassistant" : HaPrefixBox.Text.Trim();
 
         SettingsService.Update(s =>
@@ -1658,6 +1661,7 @@ internal sealed partial class SettingsWindow : Window
             s.MqttUsername         = user;
             s.MqttPassword         = pass;
             s.MqttUseTls           = tls;
+            s.MqttTransportMode    = trans;
             s.MqttDiscoveryPrefix  = prefix;
             s.MqttDeviceName       = device;
         });
@@ -1672,6 +1676,11 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>The staged port, defaulted and clamped — read identically by Apply and by the test.</summary>
     private int StagedPort() =>
         double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
+
+    /// <summary>The staged transport choice — the combo's order is the enum's, so no lookup table.</summary>
+    private MqttTransportSetting StagedTransport() => HaTransportCombo.SelectedIndex < 0
+        ? MqttTransportSetting.Auto
+        : (MqttTransportSetting)HaTransportCombo.SelectedIndex;
 
     private void RefreshHaBrokerStatusText()
     {
@@ -1702,14 +1711,19 @@ internal sealed partial class SettingsWindow : Window
                 Username: HaUsernameBox.Text?.Trim() ?? "",
                 Password: HaPasswordBox.Password ?? "",
                 UseTls:   HaTlsToggle.IsOn,
-                ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()));
+                ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()),
+                // The remembered transport too, so the test walks the order the live connection
+                // would — under Auto the answer is which transport reached the broker, not just that
+                // one did.
+                Transport:      StagedTransport(),
+                LastSuccessful: SettingsService.Current.MqttLastGoodTransport);
 
             SetHaTestRunning(true);
-            var result = await MqttConnectionProbe.RunAsync(target, cts.Token);
+            var report = await MqttConnectionProbe.RunAsync(target, cts.Token);
 
             if (cts.IsCancellationRequested) return;   // window closed mid-probe — touch nothing
-            HaTestResultText.Text       = MqttConnectionProbe.Describe(result);
-            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(result) ? CriticalBrush() : SecondaryBrush();
+            HaTestResultText.Text       = MqttConnectionProbe.Describe(report);
+            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(report) ? CriticalBrush() : SecondaryBrush();
             HaTestResultText.Visibility = Visibility.Visible;
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaTestConnectionClicked", ex); }

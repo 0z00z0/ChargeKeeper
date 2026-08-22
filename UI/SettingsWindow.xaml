@@ -451,6 +451,18 @@
                     <controls:SettingsCard Header="Port">
                         <NumberBox x:Name="HaPortBox" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Hidden" MinWidth="120"/>
                     </controls:SettingsCard>
+                    <!-- Auto is first so it is the default selection, matching the setting. -->
+                    <controls:SettingsCard Header="Transport" Description="How the broker is reached.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="HaTransportCombo" MinWidth="160">
+                                <ComboBoxItem Content="Auto"/>
+                                <ComboBoxItem Content="TCP"/>
+                                <ComboBoxItem Content="WebSocket"/>
+                            </ComboBox>
+                            <local:InfoIcon Subject="the transport"
+                                            Info="Auto tries plain TCP first and falls back to WebSocket, then remembers whichever answered and starts there next time — the usual case for a machine that is on the internal network sometimes and outside it at others. TCP uses the host and port above. WebSocket uses wss://&lt;host&gt; on port 443 and ignores the port box, unless the host is written as a ws:// or wss:// address."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                     <controls:SettingsCard Header="Username" Description="Leave blank for an anonymous broker.">
                         <TextBox x:Name="HaUsernameBox" MinWidth="220"/>
                     </controls:SettingsCard>
@@ -471,18 +483,28 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
-                        <Button x:Name="HaApplyBtn" Content="Apply" Click="OnHaApplyClicked"/>
-                        <Button x:Name="HaTestBtn" Content="Test connection" Click="OnHaTestConnectionClicked"/>
-                        <ProgressRing x:Name="HaTestProgress" Width="16" Height="16"
-                                      IsActive="False" Visibility="Collapsed"
-                                      VerticalAlignment="Center"/>
-                        <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Visibility="Collapsed"/>
-                        <local:InfoIcon Subject="Test connection"
-                                        Info="Test connection tries the values in the boxes above, including ones not yet applied. It opens its own throwaway connection and never disturbs the running one."/>
-                    </StackPanel>
+                    <!-- Apply sits at the far right, where every card above puts its control, so the
+                         one button that commits the section lands on the page's action edge instead
+                         of hiding at the start of a row of secondary things. -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="HaTestBtn" Content="Test connection" Click="OnHaTestConnectionClicked"/>
+                            <ProgressRing x:Name="HaTestProgress" Width="16" Height="16"
+                                          IsActive="False" Visibility="Collapsed"
+                                          VerticalAlignment="Center"/>
+                            <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Visibility="Collapsed"/>
+                            <local:InfoIcon Subject="Test connection"
+                                            Info="Test connection tries the values in the boxes above, including ones not yet applied. It opens its own throwaway connection and never disturbs the running one."/>
+                        </StackPanel>
+                        <Button x:Name="HaApplyBtn" Grid.Column="1" Content="Apply"
+                                HorizontalAlignment="Right" Click="OnHaApplyClicked"/>
+                    </Grid>
 
                     <!-- Names which values were tested: under the batch save model the boxes and the
                          saved settings can disagree, and a green result must not be ambiguous. -->
