@@ -108,21 +108,38 @@
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             </Style>
 
-            <!-- Settings page title and the sub-section headers within it. The two levels are held
-                 apart on size and weight together, because one axis alone reads as a rendering
-                 accident rather than a hierarchy. -->
-            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <!-- One heading treatment for both surfaces: colour, weight and tracking are shared and
+                 only the size differs, so the dashboard popup and the Settings window carry the same
+                 hierarchy at their own scales. Each heading sits about 1.2x its surface's body size.
+
+                 Teal, not the steel accent: AppColors.AccentBrush marks the preset in force, and a
+                 heading in that colour would compete with the one thing on the page that means
+                 "running right now". Headings are chrome, so they take a chrome colour. -->
+            <StaticResource x:Key="SectionHeadingBrush" ResourceKey="BrandTealBrush"/>
+
+            <Style x:Key="HeadingBaseStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="CharacterSpacing" Value="40"/>
+                <Setter Property="Foreground" Value="{StaticResource SectionHeadingBrush}"/>
+            </Style>
+
+            <!-- The Settings page title, a level above a section heading and present on that surface
+                 only. Size and weight both step up, because one axis alone reads as a rendering
+                 accident rather than a hierarchy. -->
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
                 <Setter Property="FontSize" Value="19"/>
                 <Setter Property="FontWeight" Value="Bold"/>
                 <Setter Property="Margin" Value="0,0,0,12"/>
             </Style>
-            <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
-                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="CharacterSpacing" Value="80"/>
-                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+            <!-- Section headings: 15 over the 12.5 control-content size in Settings, 13 over the 11 px
+                 detail lines on the dashboard. -->
+            <Style x:Key="SubHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
+                <Setter Property="FontSize" Value="15"/>
+            </Style>
+            <Style x:Key="DashboardHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
+                <Setter Property="FontSize" Value="13"/>
             </Style>
 
             <!-- Marks where one sub-section ends and the next begins. The whole gap between groups
