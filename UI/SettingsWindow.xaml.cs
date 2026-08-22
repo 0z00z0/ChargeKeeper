@@ -907,15 +907,22 @@ internal sealed partial class SettingsWindow : Window
     /// showing a rule the other just deleted or renamed.</summary>
     private void RebuildNetworkRuleRows()
     {
+        RebuildSmartChargeNetworkRows();
         RebuildKeepAwakeNetworkRows();
+    }
 
+    /// <summary>One wording for both pages, so an empty list reads the same wherever it is met.</summary>
+    private const string NoNetworkRulesText =
+        "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected.";
+
+    private void RebuildSmartChargeNetworkRows()
+    {
         NetworkRulesListPanel.Children.Clear();
         var rules = SettingsService.Current.NetworkLocationRules;
 
         if (rules.Count == 0)
         {
-            NetworkRulesListPanel.Children.Add(EmptyListText(
-                "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected."));
+            NetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
             return;
         }
 
@@ -924,7 +931,23 @@ internal sealed partial class SettingsWindow : Window
         var current  = CurrentLocation();
         var adapters = NetworkLocationService.EnumerateAdapters();
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames, current, adapters));
+        {
+            int index = i;
+            var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
+            foreach (var n in presetNames) presetCombo.Items.Add(n);
+            presetCombo.SelectedItem = presetNames.Contains(rules[i].PresetName) ? rules[i].PresetName : null;
+
+            var expander = BuildNetworkRuleRow(
+                index, rules[i], current, adapters, DescribeRulePresetSummary(rules[i]),
+                new SettingsCard { Header = "Preset", Content = presetCombo },
+                RebuildKeepAwakeNetworkRows);
+
+            presetCombo.SelectionChanged += (_, _) =>
+            {
+                if (presetCombo.SelectedItem is string preset) CommitNetworkRulePreset(index, preset, expander);
+            };
+            NetworkRulesListPanel.Children.Add(expander);
+        }
     }
 
     /// <summary>The rule's match key, plus a hint when the key no longer fits: its MAC belongs to a
@@ -942,48 +965,51 @@ internal sealed partial class SettingsWindow : Window
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
         string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
 
-    /// <summary>Builds one network profile's editor row. Keyed by list index: a rule has no
-    /// identity of its own and two may share a name, which is unambiguous only because every commit
-    /// path below rebuilds the whole list.</summary>
-    private SettingsExpander BuildNetworkRuleRow(
-        int index, NetworkLocationRule rule, List<string> presetNames, NetworkLocation current,
-        IReadOnlyList<BridgePeer> adapters)
-    {
-        var expander = new SettingsExpander();
+    private static string DescribeRuleKeepAwakeSummary(bool keepAwakeHere) =>
+        keepAwakeHere ? "Keeps this computer awake" : "No keep-awake here";
 
+    /// <summary>Builds one network rule's editor row for either page: both carry the name, the match
+    /// key and Delete, and differ only in <paramref name="pageCard"/> and the summary line, so a rule
+    /// reads the same on both. Keyed by list index — a rule has no identity of its own and two may
+    /// share a name, which is unambiguous only because every commit path below rebuilds the lists.
+    /// </summary>
+    /// <param name="rebuildOtherPage">The other page's rebuild, run after a rename: both pages show
+    /// the rule's name, and the row being edited keeps its focus rather than being rebuilt under it.</param>
+    private SettingsExpander BuildNetworkRuleRow(
+        int index, NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters,
+        string summary, SettingsCard pageCard, Action rebuildOtherPage)
+    {
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
-        var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
-        foreach (var n in presetNames) presetCombo.Items.Add(n);
-        presetCombo.SelectedItem = presetNames.Contains(rule.PresetName) ? rule.PresetName : null;
-
+        // Deleting is offered on both pages because there is one rule, not one per page — its
+        // keep-awake side and its preset side go together.
         var deleteBtn = new Button { Content = "Delete profile" };
         var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
         footer.Children.Add(deleteBtn);
 
-        expander.Header      = rule.Name;
-        expander.Description = DescribeRulePresetSummary(rule);
-        expander.ItemsSource = new List<SettingsCard>
+        var expander = new SettingsExpander
         {
-            new SettingsCard { Header = "Name",    Content = nameBox },
-            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current, adapters) },
-            new SettingsCard { Header = "Preset",  Content = presetCombo },
+            Header      = rule.Name,
+            Description = summary,
+            ItemsSource = new List<SettingsCard>
+            {
+                new SettingsCard { Header = "Name",    Content = nameBox },
+                new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current, adapters) },
+                pageCard,
+            },
+            ItemsFooter = footer,
         };
-        expander.ItemsFooter = footer;
 
-        nameBox.LostFocus += (_, _) => CommitNetworkRuleName(index, nameBox.Text, expander);
-        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitNetworkRuleName(index, nameBox.Text, expander); };
-        presetCombo.SelectionChanged += (_, _) =>
-        {
-            if (presetCombo.SelectedItem is string preset)
-                CommitNetworkRulePreset(index, preset, expander);
-        };
-        deleteBtn.Click += (_, _) => DeleteNetworkRule(index);
+        void CommitName() => CommitNetworkRuleName(index, nameBox.Text, expander, rebuildOtherPage);
+        nameBox.LostFocus += (_, _) => CommitName();
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitName(); };
+        deleteBtn.Click   += (_, _) => DeleteNetworkRule(index);
 
         return expander;
     }
 
-    private void CommitNetworkRuleName(int index, string? newNameRaw, SettingsExpander expander)
+    private void CommitNetworkRuleName(int index, string? newNameRaw, SettingsExpander expander,
+        Action rebuildOtherPage)
     {
         var rules = SettingsService.Current.NetworkLocationRules;
         if (index < 0 || index >= rules.Count) return;
@@ -994,7 +1020,7 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].Name = newName;
         });
         expander.Header = newName;
-        RebuildKeepAwakeNetworkRows();   // that page shows the rule NAME as its card header
+        rebuildOtherPage();
     }
 
     private void CommitNetworkRulePreset(int index, string presetName, SettingsExpander expander)
@@ -1037,11 +1063,15 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules.RemoveAt(index);
         });
         RebuildNetworkRuleRows();
-        RefreshCurrentNetworkText();   // the deleted rule may have been the one naming this network
+        // Both pages name the current network from the rule that matches it.
+        RefreshCurrentNetworkText();
+        RefreshKeepAwakeCurrentNetworkText();
 
         // Deleting the winning rule hands the current network to a later (or no) rule — apply
-        // whatever wins now, so the device stops running the deleted rule's preset.
+        // whatever wins now, so the device stops running the deleted rule's preset and any hold the
+        // rule was keeping is released.
         ApplyWinningProfile(CurrentLocation());
+        ReconcileKeepAwakeForCurrentNetwork();
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
@@ -1455,8 +1485,7 @@ internal sealed partial class SettingsWindow : Window
 
         if (rules.Count == 0)
         {
-            KeepAwakeNetworkRulesListPanel.Children.Add(EmptyListText(
-                "No network rules yet. “Add rule for this network…” below adds one for the network currently connected."));
+            KeepAwakeNetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
             return;
         }
 
@@ -1467,15 +1496,20 @@ internal sealed partial class SettingsWindow : Window
         {
             int index = i;
             var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rules[i].KeepAwakeHere };
-            toggle.Toggled += (_, _) => CommitKeepAwakeHere(index, toggle.IsOn);
 
-            // A plain card, not an expander: there is exactly one field per rule on this page.
-            KeepAwakeNetworkRulesListPanel.Children.Add(new SettingsCard
+            var expander = BuildNetworkRuleRow(
+                index, rules[i], current, adapters, DescribeRuleKeepAwakeSummary(rules[i].KeepAwakeHere),
+                new SettingsCard { Header = "Keep awake here", Content = toggle },
+                RebuildSmartChargeNetworkRows);
+
+            // Attached after the initial IsOn, so seeding the switch cannot commit anything.
+            toggle.Toggled += (_, _) =>
             {
-                Header      = rules[i].Name,
-                Description = DescribeMatchKey(rules[i], current, adapters),
-                Content     = toggle,
-            });
+                if (_updating) return;
+                CommitKeepAwakeHere(index, toggle.IsOn);
+                expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
+            };
+            KeepAwakeNetworkRulesListPanel.Children.Add(expander);
         }
     }
 

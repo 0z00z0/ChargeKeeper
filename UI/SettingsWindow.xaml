@@ -283,7 +283,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Networks" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="keep-awake networks"
-                                        Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side. “Enable network profiles” must be on there for them to act."/>
+                                        Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side and that page sets the preset. “Enable network profiles” must be on there for them to act, and deleting a rule removes it from both pages."/>
                     </StackPanel>
 
                     <controls:SettingsCard Header="Current network">
@@ -296,7 +296,7 @@
                     </controls:SettingsCard>
 
                     <StackPanel x:Name="KeepAwakeNetworkRulesListPanel" Spacing="4"/>
-                    <Button x:Name="AddKeepAwakeNetworkRuleBtn" Content="Add rule for this network…"
+                    <Button x:Name="AddKeepAwakeNetworkRuleBtn" Content="Add profile for this network…"
                             Click="OnAddKeepAwakeNetworkRule" Margin="0,4,0,12"/>
                 </StackPanel>
                 <!-- The only setting in the app that changes a Windows setting outside it, so the
