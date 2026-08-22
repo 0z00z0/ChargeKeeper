@@ -50,6 +50,9 @@ public sealed partial class DashboardWindow : Window
     // What KeepAwakePresetPanel is built from; rebuilding only on a change keeps the reconcile cheap.
     private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
 
+    // Same for PresetButtonPanel: rebuilding on every 5 s tick would drop the button under the pointer.
+    private IReadOnlyList<string> _presetButtonLabels = [];
+
     // Set from the first slider move until the debounced apply lands; freezes Refresh's slider sync.
     private bool _thresholdEditPending = false;
 
@@ -420,6 +423,22 @@ public sealed partial class DashboardWindow : Window
             ThresholdFixedNote.Visibility = Visibility.Collapsed;
         }
 
+        // Presets are start/stop percentages, so they need the same numeric surface the Settings
+        // page gates on, and a vendor that refuses writes gets no activation button at all.
+        bool showPresets = surface == SmartChargeSurface.Numeric && chargeState is { Capable: true };
+        if (showPresets)
+        {
+            var presets = SettingsService.Current.Presets;
+            BuildPresetButtons(presets);
+
+            // Nothing is highlighted while the thresholds are no preset's — a travel override or
+            // Smart Charge off included.
+            string? activeName = ActivePresetPolicy.Match(presets, chargeState)?.Name;
+            foreach (var button in PresetButtonPanel.Children.OfType<Button>())
+                button.IsEnabled = (string?)button.Tag != activeName;
+        }
+        PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;
+
         // Shown whenever Smart Charge is capable, so it stays available to cancel while active.
         if (chargeState is { Capable: true })
         {
@@ -462,6 +481,65 @@ public sealed partial class DashboardWindow : Window
         return preset is not null && preset.Start == state.Start && preset.Stop == state.Stop
             ? active
             : "Custom";
+    }
+
+    /// <summary>(Re)builds the preset buttons. Returns untouched when the set hasn't changed, so the
+    /// 5 s reconcile only repaints the highlight.</summary>
+    private void BuildPresetButtons(IReadOnlyList<ThresholdPreset> presets)
+    {
+        var wanted = presets.Select(p => ThresholdPreset.FormatLabel(p.Name, p.Start, p.Stop)).ToList();
+        if (wanted.SequenceEqual(_presetButtonLabels)) return;
+
+        _presetButtonLabels = wanted;
+        PresetButtonPanel.Children.Clear();
+
+        // The button of the preset in use is disabled, so the disabled visual is that state here and
+        // has to carry the accent rather than the default grey. Set before the buttons are parented,
+        // so their templates resolve it.
+        PresetButtonPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.TimeScaleSelectedBrush;
+        PresetButtonPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.TimeScaleSelectedBrush;
+        PresetButtonPanel.Resources["ButtonForegroundDisabled"]  = AppColors.StatusChargingBrush;
+
+        foreach (var preset in presets)
+        {
+            var button = new Button
+            {
+                Tag                        = preset.Name,
+                FontSize                   = 11,
+                Padding                    = new Thickness(6, 2, 6, 2),
+                MinWidth                   = 0,   // the default would spend width this popup hasn't got
+                Margin                     = new Thickness(0, 0, 4, 4),
+                CornerRadius               = new CornerRadius(4),
+                BorderThickness            = new Thickness(0),
+                HorizontalAlignment        = HorizontalAlignment.Stretch,
+                VerticalAlignment          = VerticalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Content = new TextBlock { Text = preset.Name, TextTrimming = TextTrimming.CharacterEllipsis },
+            };
+            ToolTipService.SetToolTip(button, ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop));
+            button.Click += OnPresetButtonClick;
+            PresetButtonPanel.Children.Add(button);
+        }
+    }
+
+    /// <summary>Applies a preset through the shared composition the tray and MQTT paths use, so every
+    /// surface reflects it. Off the UI thread — the vendor write blocks.</summary>
+    private void OnPresetButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name }) return;
+
+        Task.Run(() =>
+        {
+            bool ok = false;
+            try { ok = ChargeControlService.ApplyPresetByName(name); }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.OnPresetButtonClick", ex); }
+
+            RunOnUi(() =>
+            {
+                if (!ok) SmartChargeDetailText.Text = "Error — check driver";
+                Refresh();
+            });
+        });
     }
 
     /// <summary>Applies the badge colour and syncs its switch; the caller must hold <see cref="_updatingBadges"/>.</summary>

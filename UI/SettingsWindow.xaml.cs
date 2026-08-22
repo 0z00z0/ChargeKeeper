@@ -326,6 +326,9 @@ internal sealed partial class SettingsWindow : Window
         FixedModeSettings.Visibility        = surface == SmartChargeSurface.FixedModes ? Visibility.Visible : Visibility.Collapsed;
         NoThresholdInterfaceText.Visibility = surface == SmartChargeSurface.Hidden     ? Visibility.Visible : Visibility.Collapsed;
 
+        // Reuses the read above rather than costing a second vendor RPC.
+        RefreshPresetActivationStates(state);
+
         if (surface != SmartChargeSurface.FixedModes) return;
 
         BuildChargeModeRadios();
@@ -588,6 +591,14 @@ internal sealed partial class SettingsWindow : Window
         PresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.Presets;
 
+        // The row whose thresholds are in use disables its own button, so the disabled visual is
+        // that state here and has to carry the accent rather than the default grey. Set before the
+        // rows are parented, so their templates resolve it; activation buttons are the only ones in
+        // this panel that are ever disabled.
+        PresetsListPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.TimeScaleSelectedBrush;
+        PresetsListPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.TimeScaleSelectedBrush;
+        PresetsListPanel.Resources["ButtonForegroundDisabled"]  = AppColors.StatusChargingBrush;
+
         if (presets.Count == 0)
         {
             PresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
@@ -598,8 +609,48 @@ internal sealed partial class SettingsWindow : Window
                 PresetsListPanel.Children.Add(BuildPresetRow(preset));
         }
 
+        RefreshPresetActivationStates(ChargeThresholdService.Read());
         RefreshUnknownPresetCombo();
     }
+
+    /// <summary>Marks the row whose thresholds the firmware is running and leaves the rest offering
+    /// activation. Hidden entirely where the vendor refuses threshold writes — an affordance that
+    /// cannot work is worse than none.</summary>
+    private void RefreshPresetActivationStates(ChargeThresholdState? state)
+    {
+        string? activeName = ActivePresetPolicy.Match(SettingsService.Current.Presets, state)?.Name;
+        var visibility     = state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed;
+
+        foreach (var button in PresetsListPanel.Children.OfType<SettingsExpander>()
+                                               .Select(row => row.Content).OfType<Button>())
+        {
+            bool isActive     = activeName is not null && (string?)button.Tag == activeName;
+            button.Content    = isActive ? "In use" : "Activate";
+            button.IsEnabled  = !isActive;
+            button.Visibility = visibility;
+            ToolTipService.SetToolTip(button, isActive
+                ? "These thresholds are the ones in use."
+                : "Applies these thresholds now.");
+        }
+    }
+
+    /// <summary>Applies a preset from its row, through the same composition every other trigger
+    /// uses. Runs off the UI thread — the vendor write blocks.</summary>
+    private void ActivatePreset(string name) => Task.Run(() =>
+    {
+        bool ok = false;
+        try { ok = ChargeControlService.ApplyPresetByName(name); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.ActivatePreset", ex); }
+
+        RunOnUi(() =>
+        {
+            if (!ok)
+                NativeMethods.Warn("The device didn't accept this preset's thresholds.", AppName);
+
+            RefreshPresetActivationStates(ChargeThresholdService.Read());
+            _menu.ReconcileFromExternalChange();
+        });
+    });
 
     /// <summary>Builds one preset's editor row. The commit closures key off the preset's name
     /// rather than the passed object, so a concurrent <see cref="SettingsService.Reload"/> cannot
@@ -652,7 +703,13 @@ internal sealed partial class SettingsWindow : Window
         footer.Children.Add(errorText);
         footer.Children.Add(deleteBtn);
 
+        // In the header row, so activation is one click from the list without opening the editor.
+        // Its label, enabled state and visibility are all set by RefreshPresetActivationStates.
+        var activateBtn = new Button { Tag = presetName, MinWidth = 88 };
+        activateBtn.Click += (_, _) => ActivatePreset(presetName);
+
         expander.Header = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop);
+        expander.Content = activateBtn;
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",                              Content = nameBox },
