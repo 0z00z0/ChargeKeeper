@@ -3,11 +3,9 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// CsvSampleStore is the low-level file plumbing shared by the two history services
-// (BatteryHistoryService, BatteryCapacityHistoryService). These tests exercise it directly against
-// isolated temp files (via UseTestPath), so they never touch a real %AppData%\ChargeKeeper CSV. The
-// store does no locking of its own — its owning service holds a lock around every call — so these
-// single-threaded tests match its real usage.
+// The low-level file plumbing shared by the two history services, exercised directly against
+// isolated temp files. The store does no locking of its own — its owning service holds a lock around
+// every call — so these single-threaded tests match its real usage.
 public class CsvSampleStoreTests : IDisposable
 {
     private readonly string _testFile =
@@ -44,8 +42,8 @@ public class CsvSampleStoreTests : IDisposable
     [Fact]
     public void AppendLine_CreatesTheContainingDirectoryOnFirstWrite()
     {
-        // Point at a file inside a not-yet-existing subdirectory to prove AppendLine ensures the dir
-        // (the dir-ensure-once behaviour both history services relied on) rather than throwing.
+        // A file inside a not-yet-existing subdirectory: AppendLine has to create the directory
+        // rather than throw.
         var nestedDir  = Path.Combine(Path.GetTempPath(), $"ck-csvstore-dir-{Guid.NewGuid():N}");
         var nestedFile = Path.Combine(nestedDir, "battery-level-history.csv");
         try
@@ -84,8 +82,8 @@ public class CsvSampleStoreTests : IDisposable
     [Fact]
     public void AppendLine_WithHeader_WritesHeaderBlockOnCreation_ThenNotAgain()
     {
-        // A header-configured store writes its '#' comment + column row exactly once, when it first
-        // CREATES the file, ahead of the first data row — and never again on later appends.
+        // A header-configured store writes its comment and column row once, when it creates the
+        // file, and never again on later appends.
         var headerFile = Path.Combine(Path.GetTempPath(), $"ck-csvstore-hdr-{Guid.NewGuid():N}.csv");
         var store = new CsvSampleStore("placeholder.csv", "# comment line\ncol_a,col_b");
         store.UseTestPath(headerFile);
@@ -121,8 +119,8 @@ public class CsvSampleStoreTests : IDisposable
         {
             _store.UseTestPath(otherFile);
 
-            // Now pointed at a brand-new file — the previous file's content must not be visible, and
-            // the dir-ensured flag must have reset so this file still gets written.
+            // Repointed at a new file: the previous content must not be visible, and the
+            // directory-ensured flag must reset so this file still gets written.
             Assert.Empty(_store.ReadAllLines());
             _store.AppendLine("in-second-file");
             Assert.Equal("in-second-file", Assert.Single(_store.ReadAllLines()));

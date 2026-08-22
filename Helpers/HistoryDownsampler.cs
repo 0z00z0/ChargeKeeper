@@ -4,28 +4,22 @@ namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Reduces a large, time-ordered <see cref="BatterySample"/> list to roughly a target point count
-/// before rendering, so a multi-day/week window (tens of thousands of raw samples) doesn't force
-/// full-resolution processing and element allocation on every periodic render tick. Pure logic,
-/// no WinUI dependency, so it's directly unit-testable.
+/// before rendering, so a multi-week window does not force full-resolution work on every render tick.
 /// </summary>
 internal static class HistoryDownsampler
 {
     /// <summary>
-    /// <paramref name="Samples"/> is the (possibly reduced) list to render. <paramref name="GapBeforeIndices"/>
-    /// holds the indices (into <see cref="Samples"/>) that are preceded by a REAL timeline gap in
-    /// the original, full-resolution data — the renderer must use this, not a fresh Δt check on
-    /// the reduced samples: two adjacent points that survived reduction can legitimately be far
-    /// apart in time purely because of the stride, which would otherwise look like a gap.
+    /// <paramref name="GapBeforeIndices"/> holds the indices into <paramref name="Samples"/> preceded
+    /// by a real timeline gap in the ORIGINAL data. The renderer must use this rather than a fresh Δt
+    /// check on the reduced samples, where the stride alone can put two surviving points far apart.
     /// </summary>
     public readonly record struct Result(IReadOnlyList<BatterySample> Samples, IReadOnlySet<int> GapBeforeIndices);
 
     /// <summary>
     /// Strides through <paramref name="samples"/> picking roughly <paramref name="maxPoints"/> of
-    /// them, while always preserving the first and last sample and BOTH endpoints of every real
-    /// timeline gap (a Δt beyond <paramref name="gapThreshold"/> in the ORIGINAL data) — so a
-    /// downtime marker or the overall time range can never be silently smoothed away by the
-    /// reduction. Gap detection always runs against the original full-resolution timestamps (see
-    /// <see cref="Result"/>), even when no reduction ends up being needed.
+    /// them, always preserving the first and last sample and both endpoints of every gap wider than
+    /// <paramref name="gapThreshold"/>, so a downtime marker or the overall range can never be
+    /// smoothed away. Gap detection always runs against the original timestamps.
     /// </summary>
     public static Result Reduce(IReadOnlyList<BatterySample> samples, int maxPoints, TimeSpan gapThreshold)
     {
@@ -57,8 +51,7 @@ internal static class HistoryDownsampler
             reduced.Add(samples[origIdx]);
         }
 
-        // Both endpoints of every true gap are always in mustKeep, so both are guaranteed present
-        // in indexMap — no gap can be lost in translation.
+        // Both endpoints of every gap are in mustKeep, so both are present in indexMap.
         var reducedGapIndices = new HashSet<int>();
         foreach (int origGapIdx in trueGapAfter)
             reducedGapIndices.Add(indexMap[origGapIdx]);

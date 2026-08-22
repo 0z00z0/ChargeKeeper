@@ -21,8 +21,8 @@ public class BatteryStatsFormatterTests
     [Fact]
     public void FormatPowerSource_OnAC_PositiveRate_AppendsRate()
     {
-        // Expected rate text derived from PowerFormat itself (not hand-typed) so this test doesn't
-        // depend on getting PowerFormat's real-minus-sign (U+2212) glyph exactly right by hand.
+        // The expected rate text comes from PowerFormat rather than being typed here, so the test
+        // does not depend on reproducing its real-minus-sign (U+2212) glyph by hand.
         var text = BatteryStatsFormatter.FormatPowerSource(onAC: true, chargeRateMw: 45000, adapterWattage: 65);
         Assert.Equal($"AC Power (65W charger)  ·  {PowerFormat.SignedRate(45000)}", text);
     }
@@ -61,7 +61,7 @@ public class BatteryStatsFormatterTests
     [Fact]
     public void FormatTimeRemaining_RateBelowNoiseFloor_ReturnsDash()
     {
-        // |rate| < 100 mW is treated as "not really charging/discharging" — same floor DashboardWindow used before extraction.
+        // |rate| < 100 mW counts as neither charging nor discharging.
         Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(50, 5000, 10000));
     }
 

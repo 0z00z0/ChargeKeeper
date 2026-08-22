@@ -2,12 +2,9 @@ using Microsoft.UI.Windowing;
 
 namespace ChargeKeeper.Helpers;
 
-/// <summary>
-/// Shared frameless-popup window chrome: no taskbar/Alt-Tab entry (these popups auto-dismiss on
-/// focus loss, so a switcher entry would be pointless), thin border, no title bar, no caption
-/// buttons. The three popup-style windows (dashboard, pop-out graph, name-location prompt) each
-/// carried a verbatim copy of this block, differing only in the two flags exposed here.
-/// </summary>
+/// <summary>Shared frameless-popup chrome: thin border, no title bar, no caption buttons, and no
+/// taskbar or Alt-Tab entry — these popups auto-dismiss on focus loss, so a switcher entry would be
+/// pointless.</summary>
 internal static class WindowChrome
 {
     internal static void ApplyPopup(Microsoft.UI.Xaml.Window window, bool resizable, bool alwaysOnTop)

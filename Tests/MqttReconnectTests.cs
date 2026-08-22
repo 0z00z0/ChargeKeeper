@@ -4,9 +4,8 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure reconnect-backoff step for the MQTT maintain loop (issue #41). The rest of the connection
-// robustness (keep-alive ping, wake-on-disconnect, resume reconnect) is I/O against a live broker
-// and isn't unit-tested here.
+// The pure reconnect-backoff step for the MQTT maintain loop. The rest of the connection robustness
+// is I/O against a live broker and is not covered here.
 public class MqttReconnectTests
 {
     [Fact]
@@ -23,10 +22,9 @@ public class MqttReconnectTests
         Assert.Equal(TimeSpan.FromSeconds(60), HomeAssistantService.NextBackoff(TimeSpan.FromSeconds(60)));
     }
 
-    // Wake-gating (review fix): a DisconnectedAsync must wake the maintain loop for an early reconnect
-    // ONLY when a genuinely-live connection dropped. MQTTnet also raises DisconnectedAsync with
-    // ClientWasConnected=false when ConnectAsync itself fails; waking on that short-circuits the
-    // exponential backoff into continuous reconnect hammering.
+    // A DisconnectedAsync may wake the maintain loop only when a live connection dropped. MQTTnet
+    // also raises it with ClientWasConnected=false when ConnectAsync itself fails, and waking on
+    // that turns the exponential backoff into continuous reconnect hammering.
     [Fact]
     public void ShouldWakeOnDisconnect_OnlyForALiveConnectionDrop()
     {
@@ -36,8 +34,8 @@ public class MqttReconnectTests
         Assert.False(HomeAssistantService.ShouldWakeOnDisconnect(enabled: false, clientWasConnected: false));
     }
 
-    // Flap guard (review fix): a session that lived past the stability threshold reconnects fast; one
-    // that dropped almost immediately is a flap and keeps escalating the backoff.
+    // Flap guard: a session that lived past the stability threshold reconnects fast, while one that
+    // dropped almost immediately keeps escalating the backoff.
     [Fact]
     public void IsStableConnection_DiscriminatesFlapFromGenuineSession()
     {
@@ -48,8 +46,8 @@ public class MqttReconnectTests
     }
 }
 
-// Coalescing gate (review fix): a burst of charge-control StateChanged signals must collapse into at
-// most one in-flight fresh vendor read plus one trailing read, instead of one read per signal.
+// A burst of charge-control StateChanged signals must collapse into at most one in-flight vendor
+// read plus one trailing read, rather than one read per signal.
 public class CoalescingGateTests
 {
     [Fact]

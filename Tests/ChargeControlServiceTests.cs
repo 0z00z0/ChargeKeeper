@@ -5,11 +5,9 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Composition tests for the shared ChargeControlService (issue #40 item 4) — the single place the
-// tray menu AND the MQTT command path funnel through. The static-service primitives are faked so the
-// branches (override-cancel vs SetEnabled; apply-preset found/not-found/failed) are exercised without
-// a live vendor RPC or settings file. Runs sequentially within the class (xUnit does not parallelise
-// tests in one class), and each test restores the global Primitives + StateChanged in a finally.
+// ChargeControlService is the single place the tray menu and the MQTT command path funnel through.
+// The static-service primitives are faked so every branch runs without a live vendor RPC or settings
+// file, and each test restores the global Primitives and StateChanged in a finally.
 public class ChargeControlServiceTests
 {
     private sealed class FakePrimitives : IChargeControlPrimitives
@@ -53,7 +51,7 @@ public class ChargeControlServiceTests
         }
     }
 
-    // ── Smart Charge enable/disable ────────────────────────────────────────────────
+    // Smart Charge enable/disable
 
     [Fact]
     public void SetSmartChargeEnabled_EnableWhileOverrideActive_WithSavedThresholds_CancelsOverride_NotSetEnabled()
@@ -106,7 +104,7 @@ public class ChargeControlServiceTests
         });
     }
 
-    // ── Explicit thresholds (MQTT number commands) ─────────────────────────────────
+    // Explicit thresholds (MQTT number commands)
 
     [Fact]
     public void SetExplicitThresholds_WritesThroughAndReturnsResult()
@@ -123,8 +121,8 @@ public class ChargeControlServiceTests
     [Fact]
     public void SetExplicitThresholds_WithoutClearFlag_LeavesActivePresetUntouched()
     {
-        // The Settings preset-edit / delete-fallback callers manage ActivePreset themselves — the
-        // write must NOT touch it (default clearActivePreset:false).
+        // The Settings preset-edit and delete-fallback callers manage ActivePreset themselves, so
+        // the write must leave it alone.
         WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
         {
             ChargeControlService.SetExplicitThresholds(55, 75);
@@ -165,10 +163,9 @@ public class ChargeControlServiceTests
     [Fact]
     public void MqttApplyThresholds_ClearsActivePreset_LikeTheDashboardSlider()
     {
-        // The HA charge_start/charge_stop numbers are the MQTT twin of the dashboard slider — the range
-        // becomes hand-picked, so the preset name must not survive it. It used to: the live actions
-        // took the clearActivePreset:false default, and the HA select, the tray check mark and the
-        // dashboard label all went on naming a preset the device had already moved off.
+        // The HA charge_start/charge_stop numbers are the MQTT twin of the dashboard slider: the
+        // range becomes hand-picked, so the preset name must not survive it, or the HA select, the
+        // tray check mark and the dashboard label all name a preset the device has moved off.
         WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
         {
             new ChargeControlActions().ApplyThresholds(45, 70);
@@ -179,7 +176,7 @@ public class ChargeControlServiceTests
         });
     }
 
-    // ── Apply preset ───────────────────────────────────────────────────────────────
+    // Apply preset
 
     [Fact]
     public void ApplyPresetByName_Known_WritesThresholds_ThenPersistsActivePreset()

@@ -5,9 +5,9 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Pins the sentence the user reads for each update-check outcome. The rule under test is that
-/// only <see cref="UpdateStatus.NetworkUnavailable"/> may mention the connection — the single
-/// message this replaced blamed the user's network for GitHub's own throttling.
+/// Pins the sentence the user reads for each update-check outcome. Only
+/// <see cref="UpdateStatus.NetworkUnavailable"/> may mention the connection, so GitHub's own
+/// throttling is never blamed on the user's network.
 /// </summary>
 public class UpdateMessageTests
 {

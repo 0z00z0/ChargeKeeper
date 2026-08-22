@@ -6,23 +6,18 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Tests for the Surface vendor module's decision logic.
-///
-/// Deliberately hardware-free, same split as <see cref="HpChargeThresholdTests"/>: these exercise
-/// the pure mapping helpers (<c>MapState</c>, <c>TryMapToLimiting</c>) rather than
-/// <c>Read</c>/<c>SetThresholds</c>. Today the write path cannot reach hardware anyway — the stub
-/// transport refuses everything — but the split must survive the transport becoming real, at
-/// which point calling it from a test would rewrite a UEFI setting.
+/// Surface vendor module decision logic, exercised through the pure mapping helpers rather than
+/// <c>Read</c>/<c>SetThresholds</c>. The split has to survive the stub transport becoming real, at
+/// which point calling the write path from a test would rewrite a UEFI setting.
 /// </summary>
 public class SurfaceChargeThresholdTests
 {
-    // The Battery Limit setting's two values, as the module spells them. Hardcoded rather than
-    // referenced from the implementation so a typo there fails a test instead of silently
-    // agreeing with itself.
+    // Hardcoded rather than read from the implementation, so a typo there fails a test instead of
+    // silently agreeing with itself.
     private const string Limit = "Enabled";
     private const string Full = "Disabled";
 
-    // ── MapState: Battery Limit state → vendor-neutral state ──────────────────
+    // MapState: Battery Limit state → vendor-neutral state
 
     [Fact]
     public void MapState_LimitOn_ReportsEnabledWithNominalCap()
@@ -45,18 +40,16 @@ public class SurfaceChargeThresholdTests
     [Fact]
     public void MapState_NominalCapIsFifty_NotEighty()
     {
-        // Guards the most likely wrong assumption about this module. Microsoft documents Battery
-        // Limit as a fixed 50 % cap; the ~80 % figure people associate with Surface is Smart
-        // Charging, a different feature. Reporting 80 here would show the user a cap the
-        // firmware never applies.
+        // Battery Limit is a firmware-fixed 50 % cap; the ~80 % figure associated with Surface is
+        // Smart Charging, a different feature.
         Assert.Equal(50, SurfaceChargeThreshold.MapState(true, isReadOnly: false).Stop);
     }
 
     [Fact]
     public void MapState_AlwaysReportsZeroStart()
     {
-        // Surface has no charge-START threshold. Start is 0 by definition, and the dashboard
-        // relies on that to suppress the start tick on the gauge.
+        // Surface has no charge-start threshold, and the dashboard relies on 0 to suppress the
+        // start tick on the gauge.
         Assert.Equal(0, SurfaceChargeThreshold.MapState(true, isReadOnly: false).Start);
         Assert.Equal(0, SurfaceChargeThreshold.MapState(false, isReadOnly: false).Start);
     }
@@ -64,8 +57,8 @@ public class SurfaceChargeThresholdTests
     [Fact]
     public void MapState_ReadOnlySetting_IsReachableButNotCapable()
     {
-        // The contract distinguishes "unavailable" (Read returns null) from "reachable but the
-        // firmware refuses writes" (non-null, Capable false). A SEMM-locked device is the latter.
+        // A SEMM-locked device is reachable but write-refused: non-null with Capable false, as
+        // opposed to "unavailable", which is a null Read.
         var state = SurfaceChargeThreshold.MapState(limitEnabled: true, isReadOnly: true);
 
         Assert.NotNull(state);
@@ -79,7 +72,7 @@ public class SurfaceChargeThresholdTests
         Assert.True(SurfaceChargeThreshold.MapState(true, isReadOnly: false).Capable);
     }
 
-    // ── TryMapToLimiting: numeric request → on/off ────────────────────────────
+    // TryMapToLimiting: numeric request → on/off
 
     [Theory]
     [InlineData(-1, 80)]    // negative start
@@ -88,8 +81,7 @@ public class SurfaceChargeThresholdTests
     [InlineData(90, 50)]    // inverted
     public void TryMapToLimiting_InvalidRange_Rejected(int start, int stop)
     {
-        // Rejection must happen BEFORE any firmware contact — that is the whole reason this is
-        // a separate pure function.
+        // Rejection has to happen before any firmware contact, which is why this is a pure function.
         Assert.False(SurfaceChargeThreshold.TryMapToLimiting(start, stop, out _));
     }
 
@@ -106,8 +98,8 @@ public class SurfaceChargeThresholdTests
     [InlineData(75, 94)]
     public void TryMapToLimiting_BelowNearFull_SnapsToLimiting(int start, int stop)
     {
-        // Note 80 snaps to a 50 % cap. Surface cannot express anything finer, which is exactly
-        // why SupportsNumericThresholds is false and callers must re-Read.
+        // 80 snaps to the 50 % cap: Surface cannot express anything finer, which is why
+        // SupportsNumericThresholds is false and callers must re-read.
         Assert.True(SurfaceChargeThreshold.TryMapToLimiting(start, stop, out bool limiting));
         Assert.True(limiting);
     }
@@ -122,13 +114,13 @@ public class SurfaceChargeThresholdTests
         Assert.False(limiting);
     }
 
-    // ── Module surface ────────────────────────────────────────────────────────
+    // Module surface
 
     [Fact]
     public void Module_DeclaresNoNumericThresholdSupport()
     {
-        // This flag is what hides the dashboard's percentage picker. Battery Limit is one on/off
-        // switch with a firmware-fixed cap; a slider here would do nothing.
+        // The flag hides the dashboard's percentage picker; a slider over one on/off switch would
+        // do nothing.
         Assert.False(new SurfacePowerModule().ChargeThreshold.SupportsNumericThresholds);
     }
 
@@ -141,8 +133,7 @@ public class SurfaceChargeThresholdTests
     [Fact]
     public void Module_DoesNotClaimStandbySupport()
     {
-        // Surface has no LenovoSmartStandby equivalent. Claiming support would render an enabled
-        // toggle that silently does nothing.
+        // Claiming support would render an enabled toggle that silently does nothing.
         var surface = new SurfacePowerModule();
 
         Assert.False(surface.Standby.IsSupported);
@@ -159,8 +150,8 @@ public class SurfaceChargeThresholdTests
     [Fact]
     public void Module_ProvidersAreNonNull()
     {
-        // VendorCatalog probes candidates inside a static initializer, so a null provider would
-        // surface as a TypeInitializationException at startup rather than a clean failure.
+        // VendorCatalog probes candidates inside a static initialiser, so a null provider kills
+        // startup with a TypeInitializationException instead of failing cleanly.
         var surface = new SurfacePowerModule();
 
         Assert.NotNull(surface.ChargeThreshold);
@@ -168,7 +159,7 @@ public class SurfaceChargeThresholdTests
         Assert.NotNull(surface.ChargerInfo);
     }
 
-    // ── Discrete charge modes ─────────────────────────────────────────────────
+    // Discrete charge modes
 
     [Fact]
     public void AvailableModes_ExposesBothStatesInOrder()
@@ -211,14 +202,13 @@ public class SurfaceChargeThresholdTests
         Assert.NotEmpty(surface.AvailableModes);
     }
 
-    // ── Inertness: the stub transport ─────────────────────────────────────────
+    // Inertness: the stub transport
 
     [Fact]
     public void StubTransport_ReadReturnsNull_SoTheCatalogSkipsThisModule()
     {
-        // The single assertion that makes shipping this module safe. Read() returning null is the
-        // contract's "unsupported hardware", so VendorCatalog moves past Surface on every machine
-        // until a real transport replaces the stub.
+        // A null Read is the contract's "unsupported hardware", so VendorCatalog moves past Surface
+        // on every machine until a real transport replaces the stub.
         Assert.Null(new SurfacePowerModule().ChargeThreshold.Read());
     }
 
@@ -233,16 +223,14 @@ public class SurfaceChargeThresholdTests
     [InlineData(false)]
     public void StubTransport_WritesFailWithoutThrowing(bool enable)
     {
-        // Inert means writes report failure rather than pretending to succeed — a true return
-        // would make the UI show a cap the hardware never applied.
+        // A true return would make the UI show a cap the hardware never applied.
         Assert.False(new SurfacePowerModule().ChargeThreshold.SetEnabled(enable));
     }
 
     [Fact]
     public void StubTransport_SetThresholdsFails_EvenForAValidRange()
     {
-        // The range is legal, so TryMapToLimiting passes and the failure comes from the transport
-        // rather than the guard. Proves inertness reaches the whole write path.
+        // The range is legal, so the failure comes from the transport rather than the guard.
         Assert.False(new SurfacePowerModule().ChargeThreshold.SetThresholds(0, 50));
     }
 
@@ -254,11 +242,9 @@ public class SurfaceChargeThresholdTests
 }
 
 /// <summary>
-/// Startup safety for <c>VendorCatalog</c>. Its probe loop runs inside a STATIC INITIALIZER, so
-/// an exception escaping it becomes a TypeInitializationException that kills app startup instead
-/// of degrading to "Unavailable".
-///
-/// These stand in for launching the tray app, which needs elevation.
+/// Startup safety for <c>VendorCatalog</c>. Its probe loop runs inside a static initialiser, so an
+/// escaping exception becomes a TypeInitializationException that kills app startup instead of
+/// degrading to "Unavailable".
 /// </summary>
 public class VendorCatalogSelectionTests
 {
@@ -294,8 +280,7 @@ public class VendorCatalogSelectionTests
     [Fact]
     public void SelectFrom_AllCandidatesUnavailable_FallsBackToTheFirst()
     {
-        // Nothing answers: the app must still run and report Unavailable, which means returning a
-        // module rather than null.
+        // Nothing answers, so the app must still get a module back rather than null.
         var first = new ThrowingModule();
 
         Assert.Same(first, VendorCatalog.SelectFrom([first, new SurfacePowerModule()]));
@@ -304,8 +289,7 @@ public class VendorCatalogSelectionTests
     [Fact]
     public void SelectFrom_StubSurface_IsNeverSelected()
     {
-        // Surface is registered last precisely because its stub probe cannot answer. Were it
-        // selectable today, it would displace a real vendor's Unavailable reporting.
+        // A selectable Surface would displace a real vendor's Unavailable reporting.
         var other = new ThrowingModule();
 
         Assert.IsNotType<SurfacePowerModule>(VendorCatalog.SelectFrom([other, new SurfacePowerModule()]));
@@ -314,8 +298,8 @@ public class VendorCatalogSelectionTests
     [Fact]
     public void Active_ResolvesWithoutThrowing()
     {
-        // Touching Active runs the REAL static initializer with the real candidate list, Surface
-        // included — the closest a unit test gets to app startup without elevation.
+        // Touching Active runs the real static initialiser against the real candidate list — the
+        // closest a unit test gets to app startup without elevation.
         Assert.NotNull(VendorCatalog.Active);
         Assert.False(string.IsNullOrWhiteSpace(VendorCatalog.Active.VendorName));
     }

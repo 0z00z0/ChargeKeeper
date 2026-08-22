@@ -7,16 +7,9 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// AppLog.Info/Error always target the single process-wide %AppData%\ChargeKeeper\app.log file (the
-// logger and its config are process-wide statics, not injectable), so these tests must NOT call them
-// — they would write to the real user's log. Instead they build the SAME configuration AppLog would
-// use (AppLog.BuildFallbackConfiguration, which NLogConfigTests separately pins to the shipped
-// nlog.config), redirect its file target to an isolated temp file, and drive a logger through it.
-//
-// That keeps the pre-NLog coverage meaningful: these are the #34 assertions (concurrent writers lose
-// no lines; the timestamp carries a truthful offset) re-aimed at the code that now does the writing.
-// Before NLog they exercised AppLog.WriteLine(path, level, message); NLog owns that seam now, so the
-// target's FileName is the injection point.
+// AppLog.Info/Error are process-wide statics writing to the real %AppData%\ChargeKeeper\app.log, so
+// they are never called here. These tests build the same configuration AppLog uses, redirect its
+// file target to an isolated temp file, and drive a logger through that.
 public class AppLogTests : IDisposable
 {
     private readonly string _dir =
@@ -36,8 +29,8 @@ public class AppLogTests : IDisposable
     }
 
     /// <summary>
-    /// A private LogFactory (not the global LogManager) writing AppLog's real configuration to an
-    /// isolated file — so tests can run in parallel and never touch %AppData%\ChargeKeeper\app.log.
+    /// A private LogFactory rather than the global LogManager, writing AppLog's real configuration
+    /// to an isolated file, so tests can run in parallel without touching the user's app.log.
     /// </summary>
     private LogFactory NewLogFactory(Action<FileTarget>? tweak = null)
     {
@@ -68,9 +61,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void Error_RendersTheExceptionAfterTheSourceOnFollowingLines()
     {
-        // AppLog.Error folds the exception into the message ("{source}\n{ex}") instead of handing NLog
-        // a typed Exception, so this guards that the layout still renders a stack trace at all — a
-        // ${message}-only layout would silently drop an exception passed the idiomatic NLog way.
+        // AppLog.Error folds the exception into the message rather than handing NLog a typed
+        // Exception, so a ${message}-only layout would silently drop an idiomatically passed one.
         var factory = NewLogFactory();
         Exception caught;
         try { throw new InvalidOperationException("boom"); }
@@ -87,10 +79,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void WriteLine_StampsATimestampWithATruthfulOffset_NotAMisleadingUtcZ()
     {
-        // Regression guard for the "DateTime.Now:u" bug: ":u" formats with a trailing literal "Z"
-        // even though DateTime.Now is LOCAL time, which lies about the offset. The layout stamps an
-        // explicit "zzz" offset instead, so the file should show a real "+hh:mm"/"-hh:mm" offset and
-        // never a bare trailing "Z".
+        // ":u" formats with a trailing literal "Z" even though DateTime.Now is local time, which
+        // lies about the offset. The layout stamps an explicit "zzz" offset instead.
         var factory = NewLogFactory();
         factory.GetLogger(AppLog.LoggerName).Info("timestamp check");
         factory.Flush();
@@ -110,10 +100,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void LineFormat_MatchesTheFormatWrittenBeforeNLog()
     {
-        // The existing %AppData%\ChargeKeeper\app.log must stay readable by eye (and by anything
-        // parsing it) across the swap: "[2026-07-16 22:54:09 +02:00] INFO message", LF-terminated,
-        // with a blank line between entries. CRLF here would be a silent format change — NLog's
-        // LineEnding default is CRLF, so this is a real mutation to guard.
+        // app.log stays readable by eye and by anything parsing it: LF-terminated, one blank line
+        // between entries. NLog's LineEnding default is CRLF, so the setting is load-bearing.
         var factory = NewLogFactory();
         var log = factory.GetLogger(AppLog.LoggerName);
         log.Info("first");
@@ -144,10 +132,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void ConcurrentWritersFromManyThreads_LoseNoLines()
     {
-        // The #34 scenario, in-process half. The old File.AppendAllText (default FileShare.Read,
-        // deny-write) threw on a collision and a bare catch{} silently dropped the line. NLog reports
-        // a dropped write NOWHERE — not even to its internal log — so a silent loss here would look
-        // exactly like success; hence an exact-count assert rather than a "most lines arrived" one.
+        // NLog reports a dropped write nowhere, not even to its internal log, so a silent loss would
+        // look exactly like success. Hence an exact count rather than "most lines arrived".
         const int threadCount = 8;
         const int linesPerThread = 25;
 
@@ -182,9 +168,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void ArchivesOnceTheFileGrowsPastTheConfiguredSize_AndKeepsTheOldContent()
     {
-        // Proves the whole point of adopting NLog: app.log no longer grows unbounded. Driven at a
-        // small size for test speed — NLogConfigTests separately asserts the SHIPPED threshold is
-        // 10 MB, so this covers the mechanism and that covers the number.
+        // Driven at a small size for speed: this covers the mechanism, while NLogConfigTests pins
+        // the shipped threshold.
         const int archiveAbove = 4 * 1024;
         var factory = NewLogFactory(f => f.ArchiveAboveSize = archiveAbove);
         var log = factory.GetLogger(AppLog.LoggerName);
@@ -207,8 +192,8 @@ public class AppLogTests : IDisposable
     [Fact]
     public void Logging_NeverThrows_EvenWhenTheTargetPathIsUnwritable()
     {
-        // The public contract is "logging must never throw" — call sites are ~73 fire-and-forget
-        // statements, several on startup/crash paths where a throw would take the app down.
+        // Logging must never throw: the call sites are fire-and-forget, several on startup and crash
+        // paths where a throw would take the app down.
         var factory = NewLogFactory(f =>
         {
             f.FileName = Path.Combine(_dir, "no-such-dir", "app.log");

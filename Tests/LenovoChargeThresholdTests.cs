@@ -1,14 +1,13 @@
 using ChargeKeeper.Vendors.Lenovo;
+using Microsoft.Win32;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Contract-shape tests for the Lenovo module.
-///
-/// Hardware-free by design: these assert only what the module *claims* about itself, never
-/// calling <c>Read</c>/<c>SetEnabled</c>/<c>SetThresholds</c>, which P/Invoke the native
-/// <c>LenPower.dll</c> bridge and would write to real firmware.
+/// Contract-shape tests for the Lenovo module: only what the module claims about itself, never
+/// <c>Read</c>/<c>SetEnabled</c>/<c>SetThresholds</c>, which P/Invoke the native
+/// <c>LenPower.dll</c> bridge and would write real firmware.
 /// </summary>
 public class LenovoChargeThresholdTests
 {
@@ -39,8 +38,8 @@ public class LenovoChargeThresholdTests
     [Fact]
     public void ModeApi_IsInertOnANumericVendor()
     {
-        // The mode calls exist because the interface requires them, but must do nothing here —
-        // and SetMode in particular must not reach the device.
+        // The mode calls exist because the interface requires them; SetMode in particular must not
+        // reach the device.
         var lenovo = new LenovoPowerModule().ChargeThreshold;
 
         Assert.Null(lenovo.ReadMode());
@@ -48,11 +47,14 @@ public class LenovoChargeThresholdTests
     }
 
     [Fact]
-    public void Module_ClaimsStandbySupport()
+    public void Module_ReportsStandbySupportOnlyWhenTheServiceIsInstalled()
     {
-        // Lenovo is the vendor that has LenovoSmartStandby; this is what keeps the Smart Standby
-        // toggle visible on ThinkPads now that availability is vendor-driven.
-        Assert.True(new LenovoPowerModule().Standby.IsSupported);
+        // VendorCatalog falls back to the Lenovo module when no vendor answers, so IsSupported runs
+        // on non-Lenovo hardware too and must follow the machine rather than return a constant.
+        using var key = Registry.LocalMachine.OpenSubKey(
+            @"SYSTEM\CurrentControlSet\Services\LenovoSmartStandby");
+
+        Assert.Equal(key is not null, new LenovoPowerModule().Standby.IsSupported);
     }
 
     [Fact]

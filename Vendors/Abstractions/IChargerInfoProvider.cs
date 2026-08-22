@@ -1,10 +1,8 @@
 namespace ChargeKeeper.Vendors;
 
 /// <summary>
-/// Reads static information about the currently attached AC adapter through a vendor-specific
-/// mechanism. <see cref="GetRatedWattage"/> returns <c>null</c> when unavailable (no adapter
-/// attached, unsupported hardware, driver missing, transport error) — same "null means
-/// unavailable" convention as <see cref="IChargeThresholdProvider.Read"/>.
+/// Reads static information about the attached AC adapter through a vendor-specific mechanism.
+/// <c>null</c> means unavailable, the same convention as the rest of this namespace.
 /// </summary>
 public interface IChargerInfoProvider
 {

@@ -3,24 +3,8 @@ using System.Text.Json;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// A single snapshot of the values ChargeKeeper publishes to Home Assistant (TODO #28/#29/#30).
-/// <para>
-/// The read-only battery sensors mirror the Home Assistant mobile-app convention (issue #29):
-/// <c>Soc</c> → sensor.battery_level, <c>BatteryState</c> → sensor.battery_state (Charging / Not
-/// Charging / Full) with a <c>LowPowerMode</c> attribute, <c>PowerMw</c> → sensor.battery_power,
-/// <c>IsCharging</c> → binary_sensor.is_charging, <c>Health</c> → sensor.battery_health, and
-/// <c>RemainingMinutes</c> → sensor.remaining_charge_time (omitted while discharging so its entity
-/// reads "unknown"). Battery temperature and cycle count are NOT published — Windows exposes no
-/// reliable per-battery source for either (see the issue #29 comment).
-/// </para>
-/// <para>
-/// The remaining fields drive the charge-control command entities (issue #30) and their reflected
-/// state: <c>SmartChargeEnabled</c> (switch), <c>ChargeStart</c>/<c>ChargeStop</c> (number),
-/// <c>ActivePreset</c> (select). <c>AdapterWatts</c> is null off AC / on hardware with no
-/// adapter-wattage reading, so its entity reads "unknown" rather than a fabricated 0.
-/// </para>
-/// </summary>
+/// <summary>A snapshot of the values published to Home Assistant. A nullable field is omitted from
+/// the payload when unknown, so its entity reads "unknown" rather than a fabricated value.</summary>
 internal readonly record struct HaState(
     int Soc,
     string BatteryState,
@@ -36,35 +20,22 @@ internal readonly record struct HaState(
     int? AdapterWatts,
     string? ActivePreset);
 
-/// <summary>
-/// PURE builder for the Home Assistant MQTT-discovery contract (TODO #28/#29/#30) — topic names,
-/// per-entity discovery config JSON, and the shared state payload. Kept free of any MQTT client so
-/// the protocol contract (the fiddly part, modelled on HA's own mobile-app entity set) is
-/// unit-testable without a live broker; <see cref="HomeAssistantService"/> owns the actual
-/// connection and just publishes what this produces and routes inbound commands (see
-/// <see cref="HaCommand"/>).
-/// <para>
-/// Layout: one retained discovery config per entity at
-/// <c>&lt;prefix&gt;/&lt;component&gt;/&lt;node&gt;/&lt;object&gt;/config</c>; all entities share one
-/// JSON state topic (<c>chargekeeper/&lt;node&gt;/state</c>) and pull their own field via a
-/// <c>value_template</c>; a single availability topic drives online/offline (the LWT publishes
-/// "offline"). Command entities (issue #30) additionally carry a <c>command_topic</c> under
-/// <c>chargekeeper/&lt;node&gt;/cmd/&lt;object&gt;</c>. All entities carry the same <c>device</c>
-/// block so HA groups them under one device.
-/// </para>
-/// </summary>
+/// <summary>Pure builder for the Home Assistant MQTT-discovery contract: topic names, per-entity
+/// discovery config JSON, and the shared state payload. No MQTT client, so it is testable without a
+/// broker; <see cref="HomeAssistantService"/> owns the connection.</summary>
 internal static class HaDiscovery
 {
+    // One retained discovery config per entity at <prefix>/<component>/<node>/<object>/config. All
+    // entities share one JSON state topic and pull their own field via a value_template; one
+    // availability topic drives online/offline; a shared device block groups them under one HA device.
+
     private const string BasePrefix = "chargekeeper";
 
     /// <summary>Longest node id accepted from the user — keeps the id readable inside a topic path.</summary>
     public const int MaxNodeIdLength = 48;
 
-    /// <summary>
-    /// Lower-cases and reduces to [a-z0-9_] (HA object-id/topic-safe), reporting whether anything
-    /// alphanumeric survived. One sanitation rule, shared by the machine-name default and the
-    /// user-typed override so the two can't drift.
-    /// </summary>
+    /// <summary>Lower-cases and reduces to [a-z0-9_] (HA object-id/topic-safe), reporting whether
+    /// anything alphanumeric survived.</summary>
     private static (string Text, bool HasAlnum) Sanitise(string raw)
     {
         var sb = new StringBuilder(raw.Length);
@@ -77,33 +48,25 @@ internal static class HaDiscovery
         return (sb.ToString(), hasAlnum);
     }
 
-    /// <summary>
-    /// Stable per-machine node id, e.g. "chargekeeper_espen_x1". Lower-cased and reduced to
-    /// [a-z0-9_] (HA object-id/topic-safe); a machine name of only punctuation falls back to
-    /// "device" so the id is never empty.
-    /// </summary>
+    /// <summary>Stable per-machine node id, e.g. "chargekeeper_espen_x1". A machine name of only
+    /// punctuation would sanitise to all underscores, so it falls back to "device".</summary>
     public static string NodeId(string machineName)
     {
         var (text, hasAlnum) = Sanitise(machineName);
-        // A name with no usable alphanumerics would be all underscores — use a readable fallback.
         return $"{BasePrefix}_{(hasAlnum ? text : "device")}";
     }
 
-    /// <summary>
-    /// A user-typed node id reduced to the same alphabet <see cref="NodeId"/> produces, capped at
-    /// <see cref="MaxNodeIdLength"/>. The <c>chargekeeper_</c> prefix is deliberately NOT forced — only
-    /// the machine-name default carries it; a user who types "office_thinkpad" gets exactly that.
-    /// </summary>
+    /// <summary>A user-typed node id reduced to the same alphabet <see cref="NodeId"/> produces, capped
+    /// at <see cref="MaxNodeIdLength"/>. The <c>chargekeeper_</c> prefix is deliberately not forced —
+    /// only the machine-name default carries it.</summary>
     public static string NormalizeNodeId(string raw)
     {
         var (text, _) = Sanitise(raw.Trim());
         return text.Length <= MaxNodeIdLength ? text : text[..MaxNodeIdLength];
     }
 
-    /// <summary>
-    /// Why a user-typed node id is unusable, or null when it is fine. Blank is NOT an error: an empty
-    /// setting means "use the machine-name default", so the same validator serves the settings field.
-    /// </summary>
+    /// <summary>Why a user-typed node id is unusable, or null when it is fine. Blank is not an error —
+    /// an empty setting means "use the machine-name default".</summary>
     public static string? ValidateNodeId(string raw)
     {
         string trimmed = raw.Trim();
@@ -113,12 +76,9 @@ internal static class HaDiscovery
         return null;
     }
 
-    /// <summary>
-    /// The node id actually published under: the sanitised <paramref name="custom"/> when the user set
-    /// one, otherwise <see cref="NodeId"/> for <paramref name="machineName"/>. A custom value that
-    /// sanitises to nothing usable (all punctuation — reachable by hand-editing settings.json past the
-    /// validator) also falls back, so we can never publish under an all-underscore topic segment.
-    /// </summary>
+    /// <summary>The node id actually published under: the sanitised <paramref name="custom"/>, or the
+    /// machine-name default. A custom value that sanitises to nothing usable — reachable by hand-editing
+    /// settings.json past the validator — falls back too.</summary>
     public static string EffectiveNodeId(string? custom, string machineName)
     {
         if (string.IsNullOrWhiteSpace(custom)) return NodeId(machineName);
@@ -132,7 +92,6 @@ internal static class HaDiscovery
     /// <summary>The command topic for one command entity, e.g. <c>chargekeeper/&lt;node&gt;/cmd/smart_charge</c>.</summary>
     public static string CommandTopic(string nodeId, string objectId) => $"{BasePrefix}/{nodeId}/cmd/{objectId}";
 
-    /// <summary>The single wildcard the service subscribes to for ALL inbound commands.</summary>
     public static string CommandTopicFilter(string nodeId) => $"{BasePrefix}/{nodeId}/cmd/#";
 
     /// <summary>The command object-id parsed out of a full command topic, or null if it isn't one.</summary>
@@ -150,41 +109,30 @@ internal static class HaDiscovery
     public const string Online  = "online";
     public const string Offline = "offline";
 
-    /// <summary>Placeholder option for the preset <c>select</c> when no presets are configured — HA
-    /// rejects a select with an empty <c>options</c> list, so we publish a single safe non-empty value.</summary>
+    /// <summary>Placeholder option for the preset <c>select</c>: HA rejects an empty options list.</summary>
     public const string NoPresetOption = "(none)";
 
-    /// <summary>
-    /// State payload that resets the preset <c>select</c> to <c>unknown</c>. The select is the one
-    /// entity that must be told EXPLICITLY when nothing is selected: HA documents "A 'None' payload
-    /// resets to an <c>unknown</c> state. An empty payload is ignored." — so the omit-when-unknown
-    /// treatment every other optional field gets would leave the select showing the LAST preset name
-    /// it ever saw, forever. (A user-defined preset actually named "None" would be indistinguishable
-    /// from a reset here; that's HA's protocol, not something this end can encode around.)
-    /// </summary>
+    /// <summary>Resets the preset <c>select</c> to unknown. HA ignores an empty payload on a select, so
+    /// omitting the field would leave it showing the last preset name forever.</summary>
     public const string PresetNone = "None";
 
-    // Battery-state strings, aligned with the HA mobile app's sensor.battery_state values.
+    // Aligned with the HA mobile app's sensor.battery_state values.
     public const string StateCharging    = "Charging";
     public const string StateNotCharging = "Not Charging";
     public const string StateFull        = "Full";
 
-    // Command entity object-ids (issue #30). Shared so the discovery config, the command router,
-    // and the tests all name them identically.
+    // Shared so the discovery config, the command router and the tests name each entity identically.
     public const string CmdSmartCharge  = "smart_charge";
     public const string CmdChargeStart  = "charge_start";
     public const string CmdChargeStop   = "charge_stop";
     public const string CmdChargeToFull = "charge_to_full";
     public const string CmdPreset       = "preset";
 
-    // Entity definitions: object id, HA component, friendly name, whether it accepts commands, and
-    // the extra discovery fields (device_class/unit/value_template/payloads/etc.). Kept in one place
-    // so DiscoveryConfigs and the retained-clear list stay in sync.
+    // One definition per entity, so DiscoveryConfigs and the retained-clear list stay in sync.
     private sealed record Entity(string ObjectId, string Component, string Name, bool IsCommand, Dictionary<string, object> Extra);
 
     private static readonly Entity[] _entities =
     [
-        // ── Read-only battery sensors (issue #29) — HA mobile-app naming/semantics ──────────────
         new("battery_level", "sensor", "Battery level", false, new()
         {
             ["device_class"] = "battery", ["unit_of_measurement"] = "%", ["state_class"] = "measurement",
@@ -194,7 +142,7 @@ internal static class HaDiscovery
         {
             ["icon"] = "mdi:battery-charging",
             ["value_template"] = "{{ value_json.battery_state }}",
-            // Low Power Mode surfaces as an attribute on this sensor, matching the mobile app.
+            // Low Power Mode is an attribute on this sensor, matching the mobile app.
             ["json_attributes_topic"]    = "",  // filled with the state topic in DiscoveryConfigs
             ["json_attributes_template"] = "{{ {'low_power_mode': value_json.low_power_mode} | tojson }}",
         }),
@@ -219,7 +167,6 @@ internal static class HaDiscovery
         {
             ["device_class"] = "duration", ["unit_of_measurement"] = "min",
             ["icon"] = "mdi:timer-sand",
-            // Omitted from state while discharging → the entity reads "unknown/unavailable".
             ["value_template"] = "{{ value_json.remaining_min }}",
         }),
         new("on_ac", "binary_sensor", "On AC", false, new()
@@ -234,7 +181,6 @@ internal static class HaDiscovery
             ["value_template"] = "{{ value_json.adapter_watts }}",
         }),
 
-        // ── Charge-control command entities (issue #30) — typed/enumerated, no free text ────────
         new(CmdSmartCharge, "switch", "Smart Charge", true, new()
         {
             ["icon"] = "mdi:battery-heart-variant",
@@ -273,15 +219,9 @@ internal static class HaDiscovery
     public static IEnumerable<(string Component, string ObjectId)> Entities =>
         _entities.Select(e => (e.Component, e.ObjectId));
 
-    /// <summary>
-    /// Config topics for the OLD entity ids that issue #29 renamed. Because the HA component is part
-    /// of the discovery config topic, a component change (binary_sensor→switch, sensor→number) or an
-    /// object-id rename (soc→battery_level, power→battery_power) leaves the previous retained config
-    /// orphaned at its old path — an upgrading user keeps a ghost entity forever. Publish an empty
-    /// retained payload to each of these (on connect AND on disable) to evict them. Verified against
-    /// <c>git show 11669b8:Services/HaDiscovery.cs</c> (the pre-#29 entity set); <c>on_ac</c> and
-    /// <c>adapter_watts</c> kept the same id+component, so they are NOT ghosts and are omitted.
-    /// </summary>
+    /// <summary>Config topics an earlier entity set owned. The HA component is part of the config
+    /// topic, so a component change or an object-id rename orphans the retained config at its old path
+    /// and leaves an upgrading user a ghost entity; each gets an empty retained payload.</summary>
     public static readonly (string Component, string ObjectId)[] LegacyEntities =
     [
         ("sensor",        "soc"),          // → sensor/battery_level
@@ -291,18 +231,10 @@ internal static class HaDiscovery
         ("sensor",        "charge_stop"),  // → number/charge_stop
     ];
 
-    /// <summary>
-    /// EVERY retained topic a node id owns: the discovery config of each current AND
-    /// <see cref="LegacyEntities"/> entity, the availability topic, and the STATE topic. Publishing an
-    /// empty retained payload to each evicts the device and its entities from Home Assistant — what a
-    /// node-id change must do to the OLD id (issue #87).
-    /// <para>
-    /// State is in the list because it is published retained too and no other clear path covers it:
-    /// without it, changing the id strands a retained state payload under the old id on the broker
-    /// forever. (HA's recorder keeps the old entity ids' history until its own purge window expires —
-    /// inherent to HA, not something this end can evict.)
-    /// </para>
-    /// </summary>
+    /// <summary>Every retained topic a node id owns: each current and legacy discovery config, the
+    /// availability topic, and the state topic. An empty retained payload to each evicts the device
+    /// from HA. State belongs here because it is published retained too — leave it out and a payload
+    /// is stranded on the broker under the abandoned id.</summary>
     public static IEnumerable<string> TopicsToClear(string nodeId, string discoveryPrefix)
     {
         foreach (var (component, objectId) in Entities.Concat(LegacyEntities))
@@ -320,13 +252,8 @@ internal static class HaDiscovery
         ["sw_version"]   = swVersion,
     };
 
-    /// <summary>
-    /// The retained discovery configs to publish on connect: one (topic, json) per entity.
-    /// <paramref name="presetNames"/> populates the preset <c>select</c>'s options (empty list → a
-    /// single <see cref="NoPresetOption"/> placeholder, since HA rejects an empty select). Serialised
-    /// with default options; value_templates contain
-    /// literal <c>{{ }}</c> which are fine inside a JSON string.
-    /// </summary>
+    /// <summary>The retained discovery configs to publish on connect: one (topic, json) per entity.
+    /// <paramref name="presetNames"/> populates the preset <c>select</c>'s options.</summary>
     public static IEnumerable<(string Topic, string Json)> DiscoveryConfigs(
         string nodeId, string discoveryPrefix, string deviceName, string swVersion, IReadOnlyList<string> presetNames)
     {
@@ -353,12 +280,10 @@ internal static class HaDiscovery
                 config["command_topic"] = CommandTopic(nodeId, e.ObjectId);
 
             foreach (var (k, v) in e.Extra)
-                // The battery_state attribute topic is the shared state topic (couldn't be a const
-                // above because it depends on the node id).
+                // The attribute topic depends on the node id, so it can't be a const in the table.
                 config[k] = (k == "json_attributes_topic") ? state : v;
 
-            // The preset select's options are dynamic (the configured preset names). HA rejects an
-            // empty select, so fall back to a single placeholder when there are no presets.
+            // HA rejects a select with no options, so an empty preset list gets a placeholder.
             if (e.ObjectId == CmdPreset)
                 config["options"] = presetNames.Count > 0
                     ? presetNames
@@ -369,14 +294,8 @@ internal static class HaDiscovery
         }
     }
 
-    /// <summary>
-    /// The shared state payload. Always-present battery fields plus optional fields only when known —
-    /// an omitted field renders its entity "unknown" in HA. <c>remaining_min</c> is omitted while
-    /// discharging (issue #29), <c>charge_start</c> is omitted with Smart Charge off, and
-    /// <c>adapter_watts</c>/<c>battery_health</c> are omitted when unknown. <c>active_preset</c> is the
-    /// exception: it is ALWAYS published, as <see cref="PresetNone"/> when there is no active preset,
-    /// because HA's select ignores an empty payload and would keep displaying the previous name.
-    /// </summary>
+    /// <summary>The shared state payload: the always-present battery fields, plus the optional ones
+    /// only when known. <c>active_preset</c> is the exception — see <see cref="PresetNone"/>.</summary>
     public static string StatePayload(HaState s)
     {
         var payload = new Dictionary<string, object>

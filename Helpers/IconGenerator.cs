@@ -6,84 +6,56 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Generates the ChargeKeeper "0z0 steel battery" tray icon at runtime — the static fallback
-/// shown at startup until the first battery event replaces it with the live arc/number icon.
-/// Writing to a file on disk lets H.NotifyIcon reload the icon if it is recreated,
-/// and avoids the GDI handle leak that <c>Bitmap.GetHicon()</c> introduces.
+/// Renders the ChargeKeeper tray icon: the static "0z0 steel battery" brand mark, written once to a
+/// multi-size .ico on disk, and the live arc/numeric battery icon built in memory per state change.
+/// The on-disk file lets H.NotifyIcon reload the icon if it is recreated, and avoids the GDI handle
+/// leak <c>Bitmap.GetHicon()</c> introduces.
 /// </summary>
 internal static class IconGenerator
 {
     // Rounded-square background geometry shared by the numeric icon renderer.
-    private const float CornerRadiusFraction = 0.18f; // rounded-square corner radius
+    private const float CornerRadiusFraction = 0.18f;
     private const float MarginFraction        = 0.04f; // gap from icon edge to background square
 
-    // Sizes baked into the STATIC on-disk .ico — covers 100/125/150/200% tray DPI without upscaling.
-    // The LIVE icon renders only the current tray slot size instead (see RenderBatteryIcon).
+    // Sizes baked into the static on-disk .ico — 100/125/150/200 % tray DPI without upscaling.
     private static readonly int[] IconSizes = [32, 24, 20, 16];
 
-    // The logical (DPI-unscaled) small-icon size, in pixels at 96 DPI. Scaled up by the taskbar's
-    // DPI to get the physical slot size — see SlotSizeForDpi / CurrentTraySlotSize.
+    // Logical small-icon size in px at 96 DPI, scaled by the taskbar DPI for the physical slot.
     private const int LogicalSmallIconSize = 16;
 
-    /// <summary>
-    /// The physical pixel size to render the live tray icon at, given a monitor <paramref name="dpi"/>.
-    /// This is the 16 px logical small-icon size scaled to that DPI (<c>round(16 * dpi / 96)</c>),
-    /// clamped to 16..64 — 100 %..400 % — so a bogus DPI can never yield a giant or empty bitmap.
-    /// Pure and side-effect-free so the DPI→size mapping can be unit-tested without a live taskbar.
-    /// </summary>
+    /// <summary>Physical pixel size for the live tray icon at monitor <paramref name="dpi"/>: 16 px
+    /// logical scaled to that DPI, clamped to 16..64 (100 %..400 %) so a bogus DPI can never yield a
+    /// giant or empty bitmap.</summary>
     internal static int SlotSizeForDpi(uint dpi)
     {
-        // dpi == 0 means "unknown" from the Win32 query; treat as 96 (100 %) rather than collapsing
-        // to the clamp floor, so the icon is still rendered at the true logical size.
+        // 0 means "unknown" from the Win32 query; 96 keeps the true logical size rather than the floor.
         if (dpi == 0) dpi = 96;
         int size = (int)Math.Round(LogicalSmallIconSize * dpi / 96.0, MidpointRounding.AwayFromZero);
-        return Math.Clamp(size, 16, 64); // 16..64 covers 100 %..400 % small-icon DPI
+        return Math.Clamp(size, 16, 64);
     }
 
-    /// <summary>
-    /// The tray slot size the shell will actually display, sized to the TASKBAR's DPI (not the
-    /// process's DPI context). Used to render the LIVE icon at exactly one size rather than the four
-    /// the static .ico bakes in — the shell only ever shows one, so rendering the other three every
-    /// state change was wasted GDI work.
-    ///
-    /// Querying the taskbar's own monitor DPI (rather than <c>GetSystemMetrics(SM_CXSMICON)</c>,
-    /// which reports the small-icon size for the PROCESS's DPI context) is what makes the arc render
-    /// crisp when the taskbar is on a secondary monitor at a different scale (issue #40 item 2): the
-    /// old per-process size was wrong for that taskbar, so the shell rescaled the single frame and
-    /// the thin low-battery arc washed out. Falls back via <see cref="NativeMethods.GetTaskbarDpi"/>
-    /// to the system DPI, then 96 (100 %).
-    /// </summary>
+    /// <summary>The tray slot size the shell will display, sized to the TASKBAR's DPI rather than the
+    /// process's DPI context — the two differ when the taskbar sits on a secondary monitor at another
+    /// scale, and rendering for the wrong one washes out the thin arc stroke.</summary>
     private static int CurrentTraySlotSize() =>
         _cachedSlotSize ??= SlotSizeForDpi(NativeMethods.GetTaskbarDpi());
 
-    // The taskbar DPI only changes on a display event (monitor added/removed, taskbar moved to
-    // another monitor, scale changed), never between two battery ticks — so the FindWindow +
-    // GetDpiForWindow round-trips are cached and only recomputed after
-    // <see cref="InvalidateSlotSizeCache"/> (called from App on SystemEvents.DisplaySettingsChanged),
-    // instead of on every live icon repaint.
+    // The taskbar DPI only changes on a display event, never between two battery ticks, so the
+    // FindWindow + GetDpiForWindow round-trips are cached rather than repeated per repaint.
     private static int? _cachedSlotSize;
 
     /// <summary>Drops the cached tray-slot size so the next render re-queries the taskbar DPI. Call
-    /// when the display configuration changes (DPI / monitor topology).</summary>
+    /// when the display configuration changes.</summary>
     internal static void InvalidateSlotSizeCache() => _cachedSlotSize = null;
 
-    // ── ChargeKeeper "0z0 steel battery" brand mark palette ───────────────────
-    // Same design as Assets\AppIcon.ico / brand\chargekeeper-icon.svg (the authoritative
-    // vector), redrawn natively per frame from a 256-unit reference canvas. Flat "0z0
-    // geometric" colours from the product's own GaugePalette — no gradients.
-    //
-    // These three DON'T need to be kept in sync with the build-time generators by hand: they read
-    // from GaugePalette, which is the same source scripts\BatteryGlyph.ps1's Product palette
-    // transcribes. The GEOMETRY does — see RenderIconBitmap.
+    // Brand-mark palette, read from GaugePalette so the tray icon and the dashboard cannot drift.
+    // The GEOMETRY is not shared that way — see RenderIconBitmap.
     private static readonly Color MarkSteel      = FromPacked(GaugePalette.SteelBlue);  // body outline + cap
     private static readonly Color MarkSage       = FromPacked(GaugePalette.SageGreen);  // interior fill
     private static readonly Color MarkTerracotta = FromPacked(GaugePalette.Terracotta); // guard line
 
-    // ── Arc fill colours — charge state (TODO #34) ────────────────────────────
-    // System.Drawing has no shared type with WinUI's Windows.UI.Color, but packed ARGB bytes cross
-    // that divide fine: these build from the same GaugePalette constants AppColors uses, so the
-    // tray icon and the dashboard gauge are consistent (TODO #34) structurally instead of by a
-    // "keep in sync BY HAND" comment.
+    // Arc fill colours by charge state. System.Drawing shares no type with WinUI's Windows.UI.Color,
+    // but the packed ARGB bytes in GaugePalette cross that divide.
     private static readonly Color FillGreen    = FromPacked(GaugePalette.SageGreen);   // > GreenAbovePct
     private static readonly Color FillYellow   = FromPacked(GaugePalette.Amber);       // middle tier
     private static readonly Color FillOrange   = FromPacked(GaugePalette.Terracotta);  // ≤ LowAtOrBelowPct
@@ -91,8 +63,7 @@ internal static class IconGenerator
 
     private static Color FromPacked(uint argb) => Color.FromArgb(unchecked((int)argb));
 
-    // Charge-state fill colour shared by BOTH tray renderers (arc + numeric) and matching the
-    // dashboard gauge via GaugePalette — one switch so the two icon modes can't drift on tiers.
+    // Shared by both tray renderers so the arc and numeric modes cannot drift on tiers.
     private static Color FillFor(int percent, bool charging) => charging
         ? FillCharging
         : percent switch
@@ -102,22 +73,16 @@ internal static class IconGenerator
             _                              => FillOrange,
         };
 
-    /// <summary>
-    /// Generates a multi-size ICO file and returns its path.
-    /// The file is created once; subsequent calls return the cached path immediately.
-    /// </summary>
-    // Version stamp baked into the filename so an in-place app update regenerates the icon
-    // automatically rather than serving the stale cached file from a previous version.
-    // v5: the red Lenovo "L" was replaced by the ChargeKeeper "Guarded Battery" mark.
-    // v6: dropped the dark background plate (transparent, scaled to fill the canvas).
-    // v7: restyled to the flat "0z0 steel battery" (SteelBlue body+cap, Sage fill, Terracotta guard line).
+    // Stamped into the filename so an in-place app update regenerates the icon rather than serving
+    // the previous version's cached file. Bump on any change to the mark.
     private const string IconVersion = "v7";
 
+    /// <summary>Generates the multi-size ICO file and returns its path, or returns the cached path
+    /// when it already exists.</summary>
     internal static string GenerateAndSaveTrayIcon(string outputDirectory)
     {
         var icoPath = Path.Combine(outputDirectory, $"ChargeKeeper-{IconVersion}.ico");
-        // A zero-length file is a killed earlier launch's leftover, not a cached icon — existence
-        // alone treated it as valid, and the shell then failed to load it on every start forever.
+        // A zero-length file is a killed launch's leftover, not a cached icon.
         if (File.Exists(icoPath) && new FileInfo(icoPath).Length > 0) return icoPath;
 
         SaveAsIco(icoPath);
@@ -125,22 +90,11 @@ internal static class IconGenerator
     }
 
     /// <summary>
-    /// Renders a live battery-level tray icon as a single-frame <see cref="System.Drawing.Icon"/>
-    /// natively at the current tray-slot size (see <see cref="WriteIco"/> / <see cref="CurrentTraySlotSize"/>).
-    /// When <paramref name="mode"/> is <see cref="TrayIconMode.Numeric"/> the icon shows a
-    /// large percentage number on a colour-coded background instead of an arc gauge.
-    /// The returned icon owns an independent, data-backed handle, so the caller can safely
-    /// <see cref="System.Drawing.Icon.Dispose"/> it once a newer icon replaces it.
+    /// Renders the live battery icon as a single-frame <see cref="System.Drawing.Icon"/> at the
+    /// current tray-slot size — an arc gauge, or a large percentage number when
+    /// <paramref name="mode"/> is <see cref="TrayIconMode.Numeric"/>. The returned icon owns an
+    /// independent, data-backed handle, so the caller may dispose it once a newer icon replaces it.
     /// </summary>
-    /// <remarks>
-    /// Renders at exactly the current tray slot size (<see cref="CurrentTraySlotSize"/>) rather than
-    /// baking all four <see cref="IconSizes"/> the way the static on-disk icon does: the shell only
-    /// ever displays one slot, so the other three frames were rendered and PNG-encoded on every
-    /// state change for nothing. Rendering natively at the real slot size (instead of an earlier
-    /// approach that rendered one 32px frame and let the shell downscale it — which washed out the
-    /// thin ~6px semi-transparent arc stroke, especially the low-battery Terracotta) keeps the
-    /// colour crisp while doing a quarter of the work.
-    /// </remarks>
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc)
     {
@@ -151,13 +105,10 @@ internal static class IconGenerator
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
         ms.Position = 0;
-        return new System.Drawing.Icon(ms);  // owns its data + handle; safe to dispose
+        return new System.Drawing.Icon(ms);
     }
 
-    /// <summary>
-    /// Renders a 32×32 tray icon that displays the percentage as a large number on a
-    /// colour-coded rounded-square background (same colour scheme as the arc icon).
-    /// </summary>
+    /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
     private static Bitmap RenderNumericBitmap(int size, int percent, bool charging)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
@@ -166,12 +117,6 @@ internal static class IconGenerator
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        // Colour-coded background — same palette, thresholds, and charging override as the arc
-        // fill (TODO #34). This mode previously used its own hardcoded vivid traffic-light colours
-        // (a teal-green/orange/red scheme at 50/20% cutoffs) left over from before #34 introduced
-        // the shared palette, so a discharging battery at low charge showed a jarring saturated
-        // red/orange here instead of the muted Terracotta everywhere else in the app — reusing the
-        // same Fill* constants and GaugePalette cutoffs as RenderBatteryBitmap fixes that.
         Color bg = FillFor(percent, charging);
 
         int margin = Math.Max(1, (int)Math.Round(size * MarginFraction));
@@ -181,8 +126,7 @@ internal static class IconGenerator
         using (var path    = BuildRoundedRectPath(rect, radius))
             g.FillPath(bgBrush, path);
 
-        // Large % number filling the icon — sized to stay legible after Windows downscales
-        // the 32 px bitmap to the ~16 px tray slot. Three-digit "100" is scaled down to fit.
+        // Three-digit "100" is scaled down so it still fits the slot.
         string label  = percent > 0 ? $"{percent}" : "?";
         float  emSize = size * (label.Length >= 3 ? 0.46f : 0.66f);
         using var sf  = new StringFormat
@@ -193,9 +137,7 @@ internal static class IconGenerator
             Trimming      = StringTrimming.None,
         };
 
-        // Draw the digits as a path with a dark outline + white fill. Plain white is invisible
-        // on the light-green "healthy/charging" background; the dark halo keeps the number
-        // readable on every background colour (green / orange / red).
+        // Dark outline under the white fill: plain white is invisible on the light-green background.
         using var family = new FontFamily("Segoe UI");
         using var gp     = new GraphicsPath();
         gp.AddString(label, family, (int)System.Drawing.FontStyle.Bold, emSize,
@@ -209,27 +151,16 @@ internal static class IconGenerator
         return bmp;
     }
 
-    // ── Private rendering ─────────────────────────────────────────────────────
-
     /// <summary>
-    /// Renders the "0z0 steel battery" mark: a flat, squared SteelBlue battery outline with a
-    /// Sage-green interior fill and a Terracotta guard line crossing the body — ChargeKeeper's
-    /// own muted product palette (GaugePalette), no gradients. Fully transparent background —
-    /// no background plate — geometry scaled to fill the canvas. Geometry is expressed on a
-    /// 256-unit reference canvas (the same numbers as <c>brand\chargekeeper-icon.svg</c>) and
-    /// scaled to <paramref name="size"/>, with minimum stroke widths so the mark stays legible
-    /// at 16 px.
+    /// Renders the "0z0 steel battery" mark on a transparent background: a SteelBlue outline and cap,
+    /// a Sage interior fill and a Terracotta guard line, expressed on a 256-unit reference canvas
+    /// scaled to <paramref name="size"/> with stroke floors that keep it legible at 16 px.
     /// </summary>
     /// <remarks>
-    /// This is a HAND-MAINTAINED THIRD COPY of the glyph geometry, and deliberately so. The two
-    /// build-time generators (scripts\make-appicon.ps1, installer\make-wizard-images.ps1) share
-    /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process at startup: reaching it
-    /// would mean shelling out to PowerShell on the tray-icon path, which is far worse than the
-    /// duplication. The numbers below are identical to Draw-BatteryGlyph's (same 256-unit canvas,
-    /// same 1.6/2.0 stroke floors), and there is NO test that will catch them drifting apart.
-    ///
-    /// So: brand\chargekeeper-icon.svg is authoritative — change it first, then BatteryGlyph.ps1,
-    /// then here, then re-run both generators and confirm the tray icon still matches.
+    /// A deliberate hand-maintained third copy of the geometry: the two build-time generators share
+    /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process and cannot shell out to
+    /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative — change it,
+    /// then BatteryGlyph.ps1, then here. No test catches the three drifting apart.
     /// </remarks>
     private static Bitmap RenderIconBitmap(int size)
     {
@@ -241,26 +172,25 @@ internal static class IconGenerator
 
         float s = size / 256f;
 
-        // Battery body outline: flat SteelBlue stroke, round line-join.
+        // Battery body outline.
         var bodyRect = new RectangleF(15 * s, 80 * s, 191 * s, 96 * s);
         using (var bodyPath = BuildRoundedRectPath(bodyRect, 6 * s))
         using (var bodyPen  = new System.Drawing.Pen(MarkSteel, Math.Max(13 * s, 1.6f))
                                    { LineJoin = LineJoin.Round })
             g.DrawPath(bodyPen, bodyPath);
 
-        // Battery cap (positive terminal): solid SteelBlue.
+        // Battery cap (positive terminal).
         using (var capPath = BuildRoundedRectPath(new RectangleF(221 * s, 106 * s, 20 * s, 44 * s), 3 * s))
         using (var cap     = new SolidBrush(MarkSteel))
             g.FillPath(cap, capPath);
 
-        // Interior charge fill: solid Sage green at ~90 % opacity (alpha ≈ 230).
+        // Interior charge fill, at ~90 % opacity.
         var fillRect = new RectangleF(36 * s, 101 * s, 110 * s, 55 * s);
         using (var fillPath  = BuildRoundedRectPath(fillRect, 3 * s))
         using (var fillBrush = new SolidBrush(Color.FromArgb(230, MarkSage)))
             g.FillPath(fillBrush, fillPath);
 
-        // Terracotta guard line crossing the body — flat/butt caps (NOT round).
-        // Clamped to ≥2 px so it survives the 16 px frame.
+        // Guard line crossing the body — flat caps, clamped to ≥2 px so it survives the 16 px frame.
         using (var limitPen = new System.Drawing.Pen(MarkTerracotta, Math.Max(9 * s, 2f)))
         {
             limitPen.StartCap = limitPen.EndCap = LineCap.Flat;
@@ -271,15 +201,9 @@ internal static class IconGenerator
     }
 
     /// <summary>
-    /// Renders a 32×32 battery arc icon.
-    /// Arc geometry: 100×100 virtual canvas mapped to <paramref name="size"/> px,
-    /// centre 50/50, radius 33, 7-o'clock start (135°), 270° sweep — same proportions
-    /// as the DashboardWindow gauge so the two visuals feel consistent.
-    /// Fully transparent background (no plate) — the ring itself must read on any taskbar
-    /// colour, so the track uses a translucent mid-grey (readable against both light and
-    /// dark backgrounds via alpha blending) instead of the old dark-plate-relative dim grey,
-    /// and the coloured fill arc gets a thin dark halo stroke underneath it so it doesn't look
-    /// "floaty" without a backdrop on light taskbars specifically.
+    /// Renders the battery arc icon: a 100-unit virtual canvas mapped to <paramref name="size"/> px,
+    /// centre 50/50, radius 33, 135° start, 270° sweep — the same proportions as the dashboard gauge.
+    /// The background is transparent, so the ring has to read on any taskbar colour by itself.
     /// </summary>
     private static Bitmap RenderBatteryBitmap(int size, int percent, bool charging)
     {
@@ -289,30 +213,23 @@ internal static class IconGenerator
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        // Arc geometry: stroke fills as much of the icon as possible.
-        // Outer arc edge lands ~1 px inside the icon edge so antialiasing doesn't clip.
+        // The outer arc edge lands ~1 px inside the icon edge so antialiasing doesn't clip.
         float stroke = size * 0.19f;                    // ~6 px at 32 px
         float cx     = size / 2f;
         float cy     = size / 2f;
         float r      = cx - stroke / 2f - 1f;          // outer edge = cx + r + stroke/2 ≈ size-1
 
-        // Track (empty portion of ring) — translucent mid-grey blends readably against both a
-        // dark and a light taskbar now that there's no dark plate behind it to contrast against.
+        // Track: translucent mid-grey, so it blends readably against both a dark and a light taskbar.
         using var trackPen = new System.Drawing.Pen(Color.FromArgb(160, 140, 140, 140), stroke);
         trackPen.StartCap = trackPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
         DrawArc(g, trackPen, cx, cy, r, 135f, 270f);
 
         if (percent > 0)
         {
-            // Fill colour by charge state (TODO #34): green above GreenAbovePct, orange at/below
-            // LowAtOrBelowPct, amber between, charging/on-AC forces blue. Values are the muted
-            // shared palette (GaugePalette → same bytes AppColors builds from), not a vivid
-            // traffic-light scheme — the gauge and this icon are consistent structurally.
             Color fillColor = FillFor(percent, charging);
 
-            // Thin dark halo just behind the coloured fill (slightly wider stroke, drawn first)
-            // so the arc keeps a crisp edge on a light/white taskbar now that there's no dark
-            // plate providing that contrast for free.
+            // Wider dark stroke drawn first, as a halo: without it the arc has no crisp edge on a
+            // light taskbar.
             using (var haloPen = new System.Drawing.Pen(Color.FromArgb(90, 0, 0, 0), stroke + Math.Max(1.5f, size * 0.06f)))
             {
                 haloPen.StartCap = haloPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
@@ -338,8 +255,6 @@ internal static class IconGenerator
         float top    = cy - r;
         float diam   = r * 2;
 
-        // GDI+ angles: 0° = 3 o'clock, increases clockwise.
-        // Clock-face: 0° = 12 o'clock → subtract 90°.
         g.DrawArc(pen, left, top, diam, diam, startDeg - 90f, sweepDeg);
     }
 
@@ -355,11 +270,9 @@ internal static class IconGenerator
         return path;
     }
 
-    /// <summary>
-    /// Float-precision rounded rect used by the scaled brand-mark geometry. The radius is
-    /// clamped to half the shorter side — at 16 px some scaled radii would otherwise exceed
-    /// the rect and make GDI+ arcs fold over themselves.
-    /// </summary>
+    /// <summary>Float-precision rounded rect for the scaled brand-mark geometry. The radius is
+    /// clamped to half the shorter side — at 16 px a scaled radius can otherwise exceed the rect and
+    /// make GDI+ arcs fold over themselves.</summary>
     private static GraphicsPath BuildRoundedRectPath(RectangleF b, float radius)
     {
         radius   = Math.Min(radius, Math.Min(b.Width, b.Height) / 2f);
@@ -374,13 +287,9 @@ internal static class IconGenerator
     }
 
     /// <summary>
-    /// Writes a valid ICO to <paramref name="stream"/> with one PNG-compressed frame per entry in
-    /// <paramref name="sizes"/>, each rendered natively via <paramref name="render"/> (no
-    /// downscaling from a single larger frame) so every size stays sharp. PNG-in-ICO is supported by
-    /// Windows Vista and later. Shared by <see cref="SaveAsIco"/> (the static brand icon → all four
-    /// <see cref="IconSizes"/>, written to a file) and <see cref="RenderBatteryIcon"/> (the live
-    /// arc/numeric icon → the single current tray-slot size, built in memory on every state change).
-    /// Each size must fit in a byte (0 means 256); the callers only ever pass 16..64.
+    /// Writes an ICO to <paramref name="stream"/> with one PNG-compressed frame per entry in
+    /// <paramref name="sizes"/>, each rendered natively via <paramref name="render"/> so no size is
+    /// downscaled from a larger frame. Each size must fit in a byte (0 means 256).
     /// </summary>
     private static void WriteIco(Stream stream, Func<int, Bitmap> render, int[] sizes)
     {
@@ -414,18 +323,13 @@ internal static class IconGenerator
             dataOffset += frames[i].Length;
         }
 
-        // Image data
         foreach (var frame in frames)
             bw.Write(frame);
         bw.Flush();
     }
 
-    /// <summary>
-    /// Writes the static brand icon to disk as a multi-resolution ICO file. Renders to a temp file and
-    /// moves it into place — the same atomic pattern SettingsService.Save and BatteryHistoryService
-    /// use — so a launch killed mid-render leaves no half-written .ico at the final path, which the
-    /// existence check would then serve to the shell for the rest of that version's life.
-    /// </summary>
+    /// <summary>Writes the static brand icon to disk. Renders to a temp file and moves it into place,
+    /// so a launch killed mid-render leaves no half-written .ico for the existence check to serve.</summary>
     private static void SaveAsIco(string filePath)
     {
         var tmp = filePath + ".tmp";

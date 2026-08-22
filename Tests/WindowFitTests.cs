@@ -56,8 +56,8 @@ public class WindowFitTests
     [Fact]
     public void Fit_SavedRectAlreadyFits_LeftAlone()
     {
-        // Espen's rule: the saved size is a good starting point, so a valid rect must survive
-        // untouched — no creeping re-centring every time the window opens.
+        // A valid saved rect survives untouched, so the window does not creep back to centre every
+        // time it opens.
         var rect = (200, 150, 1200, 800);
         Assert.Equal(rect, WindowFit.Fit(rect, requiredHeight: 700, Work));
     }
@@ -72,9 +72,9 @@ public class WindowFitTests
     [Fact]
     public void Fit_UndockedLaptopPanel_RegressionFromTheSavedDockedRect()
     {
-        // The measured bug: 2150x1497 at (1150,297) was saved while docked (virtual desktop
-        // 5634x1440). Undocked the work area is 2194x1323, so the rect was 174px too tall and its
-        // right edge sat at x=3300, a thousand pixels past the screen.
+        // A measured case: a rect saved while docked to a 5634x1440 virtual desktop, reopened on a
+        // 2194x1323 work area, so it is 174 px too tall and its right edge sits a thousand pixels
+        // past the screen.
         var work = (0, 0, 2194, 1323);
         var r = WindowFit.Fit((1150, 297, 2150, 1497), requiredHeight: 1497, work);
 
@@ -85,13 +85,12 @@ public class WindowFitTests
         Assert.True(r.X + r.W <= work.Item3 && r.Y + r.H <= work.Item4);
     }
 
-    // ── HeightForContent: the About window's measured sizing ──────────────────────
+    // HeightForContent: the About window's measured sizing
 
     [Fact]
     public void HeightForContent_ContentShorterThanViewport_ShrinksTheWindow()
     {
-        // The About defect: 660 DIP of window around ~330 DIP of content, so the bottom half sat
-        // empty below the copyright line. Chrome here is 660 - 620 = 40.
+        // 660 DIP of window around ~330 DIP of content leaves the bottom half empty; chrome is 40.
         Assert.Equal(370, WindowFit.HeightForContent(660, contentHeight: 330, viewportHeight: 620, minHeight: 320));
     }
 

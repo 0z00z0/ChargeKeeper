@@ -4,13 +4,10 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Covers <c>StartupArgs</c> — the argv half of the startup decision, split out from Program.Main
-/// precisely so it can be tested without spawning the process it decides the fate of.
-///
-/// <para>Two things ride on this being right, and both fail SILENTLY (no crash, no log) if it is
-/// wrong: a misread watchdog probe either boots the whole WinUI stack ~288 times a day or refuses
-/// to resurrect a dead tray, and a misread retry count either freezes a user launch for 3 seconds
-/// or breaks the self-heal relaunch race the retry exists for.</para>
+/// The argv half of the startup decision, split out from Program.Main so it can be tested without
+/// spawning the process whose fate it decides. Both failure modes are silent: a misread watchdog
+/// probe either boots the WinUI stack every five minutes or refuses to resurrect a dead tray, and a
+/// misread retry count either freezes a user launch or loses the self-heal relaunch race.
 /// </summary>
 public class StartupArgsTests
 {
@@ -49,17 +46,16 @@ public class StartupArgsTests
     [Fact]
     public void ProbeAndRelaunchArgsAreDistinct()
     {
-        // They must never collide: one means "check whether the app is gone", the other means "the
-        // app just died and this IS the replacement" — and they get opposite retry budgets below.
+        // One means "check whether the app is gone", the other "the app just died and this is the
+        // replacement", and they get opposite retry budgets below.
         Assert.NotEqual(StartupArgs.AutoRelaunchArg, TaskDefinitions.WatchdogArg);
     }
 
     [Fact]
     public void DebugCommand_IsRecognised()
     {
-        // Delegated to CrashDumps.ParseDebugCommand (its own tests own the arg-shape rules); this
-        // only pins that a /debug launch is flagged as a command at all, which is what keeps
-        // Program.Main from booting XAML for it.
+        // The arg-shape rules belong to CrashDumps.ParseDebugCommand; this only pins that a /debug
+        // launch is flagged, which is what keeps Program.Main from booting XAML for it.
         Assert.True(StartupArgs.Parse([Exe, "/debug"]).IsDebugCommand);
         Assert.True(StartupArgs.Parse([Exe, "/debug", "off"]).IsDebugCommand);
         Assert.False(StartupArgs.Parse([Exe]).IsDebugCommand);
@@ -68,8 +64,8 @@ public class StartupArgsTests
     [Fact]
     public void InternalSpawnArgsAreNotDebugCommands()
     {
-        // A probe or a self-heal relaunch must never be mistaken for the /debug command — it would
-        // exit instead of doing its job, silently ending the tray app's resurrection path.
+        // Read as /debug, a probe or self-heal relaunch would exit instead of doing its job and
+        // silently end the tray app's resurrection path.
         Assert.False(StartupArgs.Parse([Exe, "--watchdog-relaunch"]).IsDebugCommand);
         Assert.False(StartupArgs.Parse([Exe, StartupArgs.AutoRelaunchArg]).IsDebugCommand);
     }
@@ -85,18 +81,17 @@ public class StartupArgsTests
     [Fact]
     public void AutoRelaunch_KeepsTheFullThreeSecondRetry()
     {
-        // The self-heal relaunch is spawned while the OLD process may still be milliseconds from
-        // releasing the mutex. This is the ONE path the retry exists for; shortening it here would
-        // mean the replacement reads the dying instance as "already running" and exits, killing the
-        // tray for good.
+        // The self-heal relaunch is spawned while the old process may still be milliseconds from
+        // releasing the mutex. Shortening this makes the replacement read the dying instance as
+        // "already running" and exit, killing the tray for good.
         Assert.Equal(15, StartupArgs.Parse([Exe, StartupArgs.AutoRelaunchArg]).SingleInstanceAttempts);
     }
 
     [Fact]
     public void PlainLaunch_DoesNotPayTheSelfHealRetry()
     {
-        // A user's duplicate launch used to sit through all 15 attempts — 3 s of no icon, no window
-        // and no message — to cover a race that only the auto-relaunch path can hit.
+        // The mutex race only the auto-relaunch path can hit is not worth seconds of no icon, no
+        // window and no message on a user's duplicate launch.
         int attempts = StartupArgs.Parse([Exe]).SingleInstanceAttempts;
 
         Assert.InRange(attempts, 2, 3);   // a couple: "Exit, then start it again" still has to work

@@ -2,83 +2,52 @@ using Windows.System.Power;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// Manages the "charge to 100 % once" travel override.
-/// <para>
-/// When <see cref="Activate"/> is called the current Smart Charge threshold is saved
-/// to settings and the threshold is disabled so the battery can charge to 100 %.
-/// <c>App</c> feeds every battery reading to <see cref="OnBatteryReport"/>; once the battery
-/// reaches a full/idle state the saved threshold is restored automatically. The user can also
-/// cancel early via <see cref="Cancel"/>.
-/// </para>
-/// <para>
-/// State is persisted so the override survives an app restart mid-charge.
-/// </para>
-/// </summary>
+/// <summary>Manages the "charge to 100 % once" travel override: saves the Smart Charge threshold,
+/// disables it so the battery reaches 100 %, then restores it once <see cref="OnBatteryReport"/> sees
+/// charging complete. Persisted, so the override survives a restart mid-charge.</summary>
 internal static class TravelOverrideService
 {
-    /// <summary>True while a travel override is active.</summary>
     public static bool IsActive => SettingsService.Current.TravelOverrideActive;
 
-    /// <summary>
-    /// True when the override has pre-override thresholds saved, i.e. <see cref="Cancel"/> will
-    /// actually write to the device. False when Smart Charge was already off at <see cref="Activate"/>.
-    /// </summary>
+    /// <summary>False when Smart Charge was already off, so <see cref="Cancel"/> writes nothing.</summary>
     public static bool HasSavedRevertThresholds =>
         SettingsService.Current is { TravelOverrideRevertStart: not null, TravelOverrideRevertStop: not null };
 
-    /// <summary>
-    /// Raised once the override has been activated or reverted and the state has settled
-    /// (threshold written + TravelOverrideActive saved). The tray tooltip isn't driven by a
-    /// battery event, so it subscribes to this to refresh immediately instead of staying stale.
-    /// Fires on a background thread.
-    /// </summary>
+    /// <summary>Raised on a background thread once an activation or revert has settled. The tray tooltip
+    /// is not driven by a battery event, so it refreshes from here.</summary>
     public static event Action? StateChanged;
 
-    /// <summary>The dashboard's action-button label for the override, reflecting its current
-    /// state. (The tray menu no longer uses this — it shows a constant-caption toggle item with
-    /// a check mark instead, see <c>TrayMenu</c>.) 🔝 ("to 100 %") matches the tooltip's
-    /// "Charging to 100 %" line.</summary>
     public static string ActionLabel =>
         IsActive ? "✕  Revert to charge threshold" : "🔝  Charge to 100 % once";
 
-    // Fire-once latch for the current activation (0 = armed, 1 = revert dispatched). ApplyRevert
-    // clears TravelOverrideActive only asynchronously (background Task), so IsActive lags for a
-    // few battery ticks after the revert is dispatched — this latch stops a second dispatch.
-    // Reset to 0 whenever the override is no longer active, readying it for the next activation.
-    // Swapped with Interlocked because OnBatteryReport runs on the MTA battery thread and the
-    // synchronous startup call can overlap an OS report — the CAS guarantees a single winner.
+    // Fire-once latch (0 = armed, 1 = revert dispatched). ApplyRevert clears TravelOverrideActive
+    // asynchronously, so IsActive lags a few battery ticks behind the dispatch and would otherwise
+    // let a second one through. Interlocked: OnBatteryReport runs on the MTA battery thread.
     private static int _revertDispatched;
 
-    // Previous battery status, for detecting the Charging→Idle completion edge. Only touched
-    // from OnBatteryReport; a benign race there at worst misses one edge (the next tick, or the
-    // pct≥100 fallback, still reverts).
+    // Previous status, for the Charging→Idle edge. A race here at worst misses one edge, and the
+    // pct≥100 fallback still reverts.
     private static BatteryStatus _lastStatus = BatteryStatus.NotPresent;
 
-    /// <summary>
-    /// Saves the current thresholds and disables Smart Charge so the battery charges to 100 %.
-    /// </summary>
+    /// <summary>Saves the current thresholds, then disables Smart Charge so the battery reaches 100 %.</summary>
     public static void Activate()
     {
         Task.Run(() =>
         {
             var state = ChargeThresholdService.Read();
 
-            // Update() reads/mutates/saves atomically — a plain "var s = Current; ...; Save();"
-            // here would race SettingsService.Reload() (the "Reload settings from disk" menu
-            // command): Reload can swap Current out from under this Task.Run's async gap (the RPC
-            // read above), orphaning the mutation and silently losing it (see Update's doc comment).
+            // Update() so a Reload() during this Task's async gap cannot orphan the mutation.
             SettingsService.Update(s =>
             {
-                // Remember what to restore only when Smart Charge is on with valid values.
-                if (state is { Capable: true, Enabled: true, Start: > 0, Stop: > 0 })
+                // IsLimiting, not Start > 0: HP and Surface report Start as 0 by contract, and
+                // testing it would leave nothing to restore on those machines.
+                if (state is { IsLimiting: true })
                 {
                     s.TravelOverrideRevertStart = state.Start;
                     s.TravelOverrideRevertStop  = state.Stop;
                 }
                 else
                 {
-                    // Was already disabled — nothing to restore.
                     s.TravelOverrideRevertStart = null;
                     s.TravelOverrideRevertStop  = null;
                 }
@@ -86,8 +55,8 @@ internal static class TravelOverrideService
                 s.TravelOverrideActive = true;
             });
 
-            // Disable threshold (start=0, stop=0 → charge to 100 %). A rejected write leaves the
-            // override armed over an unchanged device — log it, or it looks identical to a success.
+            // A rejected write leaves the override armed over an unchanged device — log it, or it
+            // looks identical to a success.
             if (!ChargeThresholdService.SetEnabled(false))
                 AppLog.Info("TravelOverride: activation rejected by the device — thresholds unchanged.");
 
@@ -95,46 +64,44 @@ internal static class TravelOverrideService
         });
     }
 
-    /// <summary>Immediately cancels the override and restores the previous thresholds.</summary>
     public static void Cancel() => ApplyRevert();
 
-    /// <summary>
-    /// Clears the override state WITHOUT touching the charge thresholds — for when an explicit
-    /// new threshold choice (e.g. applying a preset) supersedes the override. The caller is about
-    /// to write thresholds of its own, so restoring the saved pre-override values (what
-    /// <see cref="Cancel"/> does) would clobber them — and leaving the override armed would let
-    /// the auto-revert clobber them later, at the next full charge. No-op when not active.
-    /// </summary>
+    /// <summary>Clears the override without touching the thresholds, for when an explicit new choice
+    /// supersedes it. Restoring the saved pair (what <see cref="Cancel"/> does) would clobber the
+    /// caller's own write; leaving it armed would let the auto-revert clobber it later.</summary>
     public static void Deactivate()
     {
         if (!IsActive) return;
         ClearOverrideState();
     }
 
-    /// <summary>
-    /// Writes an explicit new charge threshold to the device, superseding any in-flight override —
-    /// the single primitive every "apply an explicit Start/Stop" caller (a preset apply, a
-    /// dashboard slider commit, a Settings-window preset edit) funnels through, so the load-bearing
-    /// ORDERING lives in exactly one place. <see cref="Deactivate"/> runs FIRST, before the write:
-    /// an armed "charge to 100 % once" auto-revert would otherwise fire between the write and the
-    /// deactivation and clobber the new thresholds with the pre-override snapshot at the next full
-    /// charge. Writing valid non-zero thresholds is itself how Smart Charge is enabled, so no
-    /// preceding <see cref="ChargeThresholdService.SetEnabled"/> is needed (it would only commit
-    /// throwaway values to firmware first). Returns the vendor write's success flag; runs on the
-    /// caller's thread (callers already wrap it in their own <c>Task.Run</c> since the RPC blocks).
-    /// </summary>
+    /// <summary>The single primitive every "apply a Start/Stop" caller funnels through.
+    /// <see cref="Deactivate"/> must run FIRST: an armed auto-revert would otherwise clobber the new
+    /// thresholds at the next full charge.</summary>
     public static bool ApplyExplicitThresholds(int start, int stop)
     {
+        // Snapshot before Deactivate clears it. The saved pair is the only record of the user's real
+        // thresholds, so a rejected write has to put it back.
+        var s = SettingsService.Current;
+        var (wasActive, revertStart, revertStop) =
+            (s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop);
+
         Deactivate();
-        return ChargeThresholdService.SetThresholds(start, stop);
+
+        // Valid non-zero thresholds enable Smart Charge by themselves, so no SetEnabled first.
+        if (ChargeThresholdService.SetThresholds(start, stop)) return true;
+
+        if (wasActive)
+            SettingsService.Update(x =>
+            {
+                x.TravelOverrideActive      = true;
+                x.TravelOverrideRevertStart = revertStart;
+                x.TravelOverrideRevertStop  = revertStop;
+            });
+        return false;
     }
 
-    /// <summary>
-    /// The state-clearing half of a deactivate/revert: drop the persisted override flag and the
-    /// saved revert thresholds, then fire <see cref="StateChanged"/>. Shared by <see cref="Deactivate"/>
-    /// (clear only) and <see cref="ApplyRevert"/> (restore thresholds THEN clear) so a future added
-    /// override field can't be cleared in one place and forgotten in the other.
-    /// </summary>
+    /// <summary>Shared by <see cref="Deactivate"/> (clear only) and <see cref="ApplyRevert"/> (restore, then clear).</summary>
     private static void ClearOverrideState()
     {
         SettingsService.Update(s =>
@@ -147,18 +114,9 @@ internal static class TravelOverrideService
         StateChanged?.Invoke();   // tray tooltip + menu resync immediately
     }
 
-    /// <summary>
-    /// Fed the latest battery state by <c>App</c> on every report. Reverts to the saved thresholds
-    /// once the override is active and charging has completed. "Complete" is either:
-    /// <list type="bullet">
-    /// <item>the Charging→Idle edge — fires at whatever level the firmware calls "full" (covers a
-    /// worn battery that settles to Idle a couple of percent below 100), or</item>
-    /// <item>sitting Idle at 100 % — a fallback for firmware that jumps straight to Idle without an
-    /// observable Charging phase (e.g. override activated while already idle).</item>
-    /// </list>
-    /// The two together restore the behaviour an earlier single-trigger refactor narrowed: the
-    /// edge alone missed the already-idle case, the level alone missed sub-100 % completion.
-    /// </summary>
+    /// <summary>Reverts once the override is active and charging has completed. "Complete" is the
+    /// Charging→Idle edge (catches a worn battery settling below 100 %) or Idle at 100 % (catches
+    /// firmware that never reports a Charging phase) — each alone misses one case.</summary>
     public static void OnBatteryReport(int pct, BatteryStatus status)
     {
         if (!IsActive)
@@ -183,9 +141,7 @@ internal static class TravelOverrideService
 
     private static void ApplyRevert()
     {
-        // Read now, synchronously, before the async gap below — safe as a plain property read.
-        // The WRITE side (the `finally` block) is what must go through Update(), since Save()
-        // there is what would otherwise race a concurrent Reload() (see Update's doc comment).
+        // Read synchronously, before the async gap below. Only the write side needs Update().
         var s           = SettingsService.Current;
         var revertStart = s.TravelOverrideRevertStart;
         var revertStop  = s.TravelOverrideRevertStop;
@@ -196,26 +152,32 @@ internal static class TravelOverrideService
                 if (revertStart is { } start && revertStop is { } stop)
                 {
                     // Attempt both writes, then judge — enabling is not a precondition for the
-                    // threshold write (valid non-zero thresholds enable Smart Charge by themselves).
+                    // threshold write.
                     bool ok = ChargeThresholdService.SetEnabled(true);
                     ok     &= ChargeThresholdService.SetThresholds(start, stop);
                     if (!ok)
                     {
-                        // Persist only on success — same rule as ChargeControlService's threshold
-                        // writes. The saved pair is the ONLY record of the user's real thresholds, and
-                        // the device is still at 0/0, so keep both the flag and the values: the state
-                        // stays honest and the tray's "Revert to charge threshold" can retry.
+                        // Keep flag and values: they are the only record of the user's real
+                        // thresholds, and the device is still at 0/0. Re-arm here too — the flag
+                        // stays true, so OnBatteryReport's re-arm never runs and one rejection would
+                        // otherwise ignore every later completion edge.
                         AppLog.Info($"TravelOverride: revert to {start}/{stop} rejected by the device — " +
                                     "override left active, saved thresholds kept.");
+                        Interlocked.Exchange(ref _revertDispatched, 0);
                         return;
                     }
                 }
-                // If there was no threshold before the override, leave Smart Charge disabled.
+                // Nothing was saved, so Smart Charge stays disabled.
 
-                // Clear flag + saved thresholds and fire StateChanged (tooltip/menu resync).
                 ClearOverrideState();
             }
-            catch (Exception ex) { AppLog.Error("TravelOverrideService.ApplyRevert", ex); }
+            catch (Exception ex)
+            {
+                // Same reasoning as the rejection path: the override is still active, so
+                // OnBatteryReport's re-arm never runs and a throw would disarm auto-revert for good.
+                AppLog.Error("TravelOverrideService.ApplyRevert", ex);
+                Interlocked.Exchange(ref _revertDispatched, 0);
+            }
         });
     }
 }

@@ -13,26 +13,16 @@ internal enum SmartChargeSurface
     Numeric,
 }
 
-/// <summary>
-/// Pure decision for what the Smart Charge surface should offer, shared by Settings and the
-/// dashboard so the two cannot drift — the exact failure PRs #80/#81 fixed on the Settings side
-/// only. Extracted so the rule is unit-testable without a live WinUI window or vendor hardware.
-/// </summary>
+/// <summary>Pure decision for what the Smart Charge surface should offer, shared by Settings and the
+/// dashboard so the two cannot drift. Unit-testable without a WinUI window or vendor hardware.</summary>
 internal static class ThresholdCapabilityPolicy
 {
-    /// <summary>
-    /// Picks the surface from a vendor read (<c>null</c> = interface unavailable) and whether that
-    /// vendor honours arbitrary percentages.
-    /// </summary>
+    /// <summary>A <c>null</c> <paramref name="state"/> means the vendor interface is unavailable.</summary>
     public static SmartChargeSurface Classify(ChargeThresholdState? state, bool supportsNumeric) =>
-        // No vendor answered — driver missing, unsupported hardware, transport error. There is
-        // nothing to configure and no reading to show, so a permanently "Unavailable" badge is
-        // dead UI.
         state is null ? SmartChargeSurface.Hidden
 
-        // Capable:false with a READABLE state (HP's read-only BIOS setting) deliberately keeps the
-        // surface: the hardware has the feature, ChargeKeeper just cannot drive it, and hiding it
-        // would read as a detection bug. The caller notes the read-only part.
+        // Capable:false with a readable state (HP's read-only BIOS setting) deliberately keeps the
+        // surface — the hardware has the feature, so hiding it would read as a detection bug.
         : supportsNumeric ? SmartChargeSurface.Numeric
         : SmartChargeSurface.FixedModes;
 }

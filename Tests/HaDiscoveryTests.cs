@@ -4,7 +4,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure-contract tests for the Home Assistant MQTT discovery layer (TODO #28/#29/#30) — no broker.
+// Pure-contract tests for the Home Assistant MQTT discovery layer. No broker.
 public class HaDiscoveryTests
 {
     private static readonly string[] Presets = ["Daily", "Travel"];
@@ -22,7 +22,7 @@ public class HaDiscoveryTests
         Assert.Equal(expected, HaDiscovery.NodeId(machine));
     }
 
-    // ── Configurable node id (issue #87) ─────────────────────────────────────────
+    // Configurable node id
 
     [Theory]
     [InlineData("Office ThinkPad", "office_thinkpad")]
@@ -31,7 +31,7 @@ public class HaDiscoveryTests
     [InlineData("ALREADY_ok_9", "already_ok_9")]
     public void NormalizeNodeId_MirrorsNodeIdSanitation_WithoutForcingThePrefix(string raw, string expected)
     {
-        // The chargekeeper_ prefix belongs to the DEFAULT only — a typed id is stored as typed.
+        // The chargekeeper_ prefix belongs to the default only; a typed id is stored as typed.
         Assert.Equal(expected, HaDiscovery.NormalizeNodeId(raw));
     }
 
@@ -84,14 +84,14 @@ public class HaDiscoveryTests
     {
         var topics = HaDiscovery.TopicsToClear("old_id", "homeassistant").ToList();
 
-        // Every CURRENT entity's discovery config…
+        // Every current entity's discovery config…
         foreach (var (component, objectId) in HaDiscovery.Entities)
             Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
-        // …every LEGACY one (an id change must not leave the pre-#29 ghosts behind either)…
+        // …every legacy one, so an id change leaves no renamed ghosts behind…
         foreach (var (component, objectId) in HaDiscovery.LegacyEntities)
             Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
-        // …availability, and STATE — state is published retained but no other clear path covers it,
-        // so without it an id change strands a retained payload under the old id forever.
+        // …availability, and state. State is published retained and no other clear path covers it,
+        // so an id change would strand a retained payload under the old id forever.
         Assert.Contains(HaDiscovery.AvailabilityTopic("old_id"), topics);
         Assert.Contains(HaDiscovery.StateTopic("old_id"), topics);
 
@@ -102,7 +102,7 @@ public class HaDiscoveryTests
     [Fact]
     public void TopicsToClear_UsesTheGivenDiscoveryPrefix()
     {
-        // The old id's configs live under the prefix they were PUBLISHED with, which may itself have
+        // The old id's configs live under the prefix they were published with, which may itself have
         // changed in the same settings apply.
         var topics = HaDiscovery.TopicsToClear("old_id", "ha").ToList();
         Assert.Contains("ha/sensor/old_id/battery_level/config", topics);
@@ -241,8 +241,8 @@ public class HaDiscoveryTests
     [Fact]
     public void DiscoveryConfigs_Issue30_PresetSelect_EmptyPresets_FallsBackToNonEmptyOptions()
     {
-        // HA rejects a select with an empty options list — with no presets configured we must still
-        // publish a single safe placeholder (issue #30 review).
+        // HA rejects a select with an empty options list, so with no presets configured a single
+        // placeholder is published instead.
         string node = HaDiscovery.NodeId("PC");
         var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [])
             .Single(c => c.Topic == $"homeassistant/select/{node}/preset/config");
@@ -256,18 +256,18 @@ public class HaDiscoveryTests
     [Fact]
     public void LegacyEntities_CoverThePre29RenamedIds_ForRetainedClear()
     {
-        // The #29 renames whose retained discovery must be evicted (old component/id → new).
+        // Renamed entities whose retained discovery must be evicted.
         var legacy = HaDiscovery.LegacyEntities;
         Assert.Contains(("sensor", "soc"), legacy);
         Assert.Contains(("sensor", "power"), legacy);
         Assert.Contains(("binary_sensor", "smart_charge"), legacy);
         Assert.Contains(("sensor", "charge_start"), legacy);
         Assert.Contains(("sensor", "charge_stop"), legacy);
-        // The current entity set must NOT overlap the legacy set (else we'd clear a live entity).
+        // An overlap between the current and legacy sets would clear a live entity.
         Assert.Empty(HaDiscovery.Entities.Intersect(legacy));
     }
 
-    // ── State payload ────────────────────────────────────────────────────────────
+    // State payload
 
     private static HaState State(
         int soc = 73, string batteryState = HaDiscovery.StateCharging, bool lowPower = false,
@@ -301,10 +301,9 @@ public class HaDiscoveryTests
     [Fact]
     public void StatePayload_NoActivePreset_PublishesNone_RatherThanOmittingTheField()
     {
-        // active_preset is deliberately NOT omit-when-unknown like the other optionals: HA's MQTT
-        // select ignores an empty payload and keeps the last option it saw, so omitting it left the
-        // select claiming a preset that a custom-threshold write had already cleared. "None" is HA's
-        // documented reset-to-unknown payload for a select.
+        // Unlike the other optionals, active_preset is not omitted when unknown: HA's MQTT select
+        // ignores an empty payload and keeps the last option it saw, so it would go on claiming a
+        // preset the device has moved off. "None" is HA's documented reset payload for a select.
         var json = HaDiscovery.StatePayload(State(preset: null));
 
         using var doc = JsonDocument.Parse(json);

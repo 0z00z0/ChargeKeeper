@@ -1,11 +1,8 @@
 namespace ChargeKeeper.Vendors;
 
 /// <summary>
-/// One laptop vendor's power-management integration (charge thresholds + standby control).
-/// Each vendor lives in its own assembly (e.g. <c>ChargeKeeper.Vendors.Lenovo</c>) implementing
-/// this contract, so support for another vendor (HP, Dell, …) is a new project plus a one-line
-/// registration in the app's <c>VendorCatalog</c> — no changes to the UI or feature code, which
-/// only ever talk to these interfaces.
+/// One laptop vendor's power-management integration. Adding a vendor is an implementation of this
+/// contract plus a one-line registration in <c>VendorCatalog</c>; nothing above it names a vendor.
 /// </summary>
 public interface IVendorPowerModule
 {

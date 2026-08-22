@@ -3,32 +3,22 @@ using System.Globalization;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// One recorded battery-capacity reading (TODO #24) — a single point in the slow-moving
-/// degradation trend, NOT the fast SoC history. <see cref="FullChargeMwh"/> is the battery's
-/// current maximum charge; <see cref="DesignMwh"/> is its as-new rated capacity, present only on
-/// controllers that support <c>BatteryReport.DesignCapacityInMilliwattHours</c> — never
-/// faked/guessed when absent.
+/// A point in the slow degradation trend, not the fast SoC history. <see cref="DesignMwh"/> is the
+/// as-new rated capacity, present only on controllers that report it and never guessed when absent.
 /// </summary>
 internal readonly record struct CapacitySample(DateTime AtUtc, int FullChargeMwh, int? DesignMwh);
 
 /// <summary>
-/// File-backed, slow-cadence battery capacity history (TODO #24) — tracks long-term degradation
-/// (FullChargeCapacity trending down over months/years) completely separately from the fast SoC
-/// history in <see cref="BatteryHistoryService"/>: capacity barely changes hour to hour, so logging
-/// it at that ~20s cadence would be pure noise on disk for no benefit. One sample per calendar day
-/// is plenty — the value of this data is in having many months of it, not fine time resolution, and
-/// the sooner it starts, the sooner "capacity lost since new" becomes meaningful.
+/// File-backed capacity history, tracking long-term degradation separately from the fast SoC history
+/// in <see cref="BatteryHistoryService"/>. Capacity barely changes hour to hour, so one sample per
+/// calendar day is enough; the value is in having months of it.
 /// </summary>
 internal static class BatteryCapacityHistoryService
 {
-    // All raw file I/O (path build, dir-ensure-once, append, read-last) lives in the shared
-    // CsvSampleStore; this service keeps only its OWN domain logic (Format/TryParse and the
-    // once-a-day cache below). Every store call happens under _lock, the same lock that guards that
-    // cache — see CsvSampleStore's remarks on why it holds no lock of its own.
-    // Descriptive header (a leading '#' comment describing the file + units, then the column-name
-    // row) written once when the store first creates the file. Both lines fail TryParse, so
-    // LoadAll/ReadLastLine skip them for free. LoadAll never rewrites the file, so there is no prune
-    // path to re-emit it here (unlike BatteryHistoryService).
+    // Raw file I/O lives in the shared CsvSampleStore; every call to it happens under _lock, the same
+    // lock that guards the once-a-day cache below. The header is written when the store creates the
+    // file; both its lines fail TryParse, so readers skip them for free. Nothing here rewrites the
+    // file, so there is no prune path to re-emit it (unlike BatteryHistoryService).
     internal const string HeaderComment =
         "# ChargeKeeper battery-capacity history — one row per calendar day, kept indefinitely. " +
         "timestamp = ISO 8601 with local UTC offset; " +
@@ -41,18 +31,14 @@ internal static class BatteryCapacityHistoryService
 
     private static readonly Lock _lock = new();
 
-    // Cached so a call on every battery event (which can fire many times an hour) doesn't re-open
-    // and re-scan the file after the first successful write each day.
+    // Cached so a call on every battery event, which can fire many times an hour, doesn't re-open and
+    // re-scan the file after the first successful write each day.
     private static DateTime? _lastRecordedDateLocal;
 
-    /// <summary>Path to the CSV file — surfaced in UI/logs for backup/inspection if ever needed.</summary>
     public static string FilePath => _store.FilePath;
 
-    /// <summary>
-    /// TEST-ONLY seam: points the service at an isolated file and resets all in-memory state, same
-    /// pattern as <see cref="BatteryHistoryService.UseTestPath"/> and for the same reason (every
-    /// member here is static, so it otherwise persists for the whole process).
-    /// </summary>
+    /// <summary>Test-only seam: an isolated file, and a reset of state that is otherwise static and
+    /// would leak from one test to the next.</summary>
     internal static void UseTestPath(string path)
     {
         lock (_lock)
@@ -63,10 +49,9 @@ internal static class BatteryCapacityHistoryService
     }
 
     /// <summary>
-    /// Appends a sample only if none has been recorded yet today (LOCAL date — "once a day" should
-    /// track the calendar day the user experiences, not a UTC one that rolls over mid-afternoon in
-    /// most timezones). Cheap no-op on every call after the first success each day. Call from any
-    /// battery-report event; never throws.
+    /// Appends a sample only if none has been recorded yet today. The date is the LOCAL one, so this
+    /// tracks the calendar day the user experiences rather than a UTC one that rolls over
+    /// mid-afternoon. Safe to call from any battery-report event; never throws.
     /// </summary>
     public static void RecordIfNewDay(int fullChargeMwh, int? designMwh)
     {
@@ -79,10 +64,8 @@ internal static class BatteryCapacityHistoryService
 
             try
             {
-                // First check this process makes: also look at the FILE's last line, not just the
-                // in-memory cache — a same-day app restart must not duplicate a row a previous
-                // process already wrote before exiting. (ReadLastLine returns null when the file
-                // doesn't exist yet, same as the old File.Exists guard.)
+                // On this process's first check, consult the file too: a same-day restart must not
+                // duplicate a row a previous process already wrote.
                 if (_lastRecordedDateLocal is null)
                 {
                     var lastLine = _store.ReadLastLine();
@@ -95,23 +78,20 @@ internal static class BatteryCapacityHistoryService
                 }
 
                 var sample = new CapacitySample(DateTime.UtcNow, fullChargeMwh, designMwh);
-                _store.AppendLine(Format(sample));   // ensures the directory on first write
+                _store.AppendLine(Format(sample));
                 _lastRecordedDateLocal = today;
             }
             catch (Exception ex)
             {
-                // Logging must never crash the app — but a write failure silently means today's
-                // sample is lost forever, so it's worth a log line.
+                // Logging must never crash the app, but a failed write loses today's sample for
+                // good, so it is worth a log line.
                 AppLog.Error("BatteryCapacityHistoryService.RecordIfNewDay", ex);
             }
         }
     }
 
-    /// <summary>
-    /// Loads every logged sample, oldest first. No windowing like <see cref="BatteryHistoryService"/>
-    /// needs — at most one row per day, so even years of history stays trivially small to read
-    /// whole.
-    /// </summary>
+    /// <summary>Loads every sample, oldest first. No windowing: at most one row per day, so years of
+    /// history stays small enough to read whole.</summary>
     public static IReadOnlyList<CapacitySample> LoadAll()
     {
         lock (_lock)
@@ -131,11 +111,9 @@ internal static class BatteryCapacityHistoryService
         }
     }
 
-    // CSV row: timestamp,full_charge_mwh,design_capacity_mwh where timestamp is ISO 8601 with the
-    // machine's local UTC offset (e.g. 2026-07-15T14:30:00+02:00) and the design column is blank when
-    // the controller doesn't report it. Internal (not private) so unit tests can verify the round-trip
-    // without touching any file. The stored AtUtc is always Kind=Utc; the local offset in the file is
-    // purely for human readability and round-trips the same instant.
+    // CSV row: timestamp,full_charge_mwh,design_capacity_mwh. The timestamp is ISO 8601 with the
+    // machine's local UTC offset (AtUtc itself is always Kind=Utc; the offset is for readability and
+    // round-trips the same instant), and the design column is blank when the controller is silent.
     internal static string Format(CapacitySample s) => string.Create(CultureInfo.InvariantCulture,
         $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.FullChargeMwh},{s.DesignMwh?.ToString(CultureInfo.InvariantCulture) ?? ""}");
 

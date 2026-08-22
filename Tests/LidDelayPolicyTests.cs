@@ -5,10 +5,10 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure decision table behind the lid-close delay (issue #90) — no power scheme, no timer, no suspend.
+// The pure decision table behind the lid-close delay — no power scheme, no timer, no suspend.
 public class LidDelayPolicyTests
 {
-    // ── OnLidState ───────────────────────────────────────────────────────────────
+    // OnLidState
 
     [Fact]
     public void OnLidState_Closed_StartsTheDelay()
@@ -20,8 +20,7 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnLidState_Closed_FeatureOff_DoesNothing()
     {
-        // The feature off must mean the app is inert: Windows' own lid action is back in place and
-        // handles the close.
+        // With the feature off, Windows' own lid action is back in place and handles the close.
         Assert.Equal(LidDelayAction.None,
             LidDelayPolicy.OnLidState(LidState.Closed, enabled: false, delayPending: false, isFirstReading: false));
     }
@@ -29,9 +28,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnLidState_FirstReadingIsASeed_NeverALidClose()
     {
-        // Windows invokes the power-setting callback IMMEDIATELY on registration with the CURRENT lid
-        // state. Acting on that replay would start a delay — and suspend the machine N minutes later —
-        // because the app started, which is the one outcome nobody asked for.
+        // Windows invokes the power-setting callback immediately on registration with the current lid
+        // state; acting on that replay would suspend the machine minutes after the app merely started.
         Assert.Equal(LidDelayAction.None,
             LidDelayPolicy.OnLidState(LidState.Closed, enabled: true, delayPending: false, isFirstReading: true));
     }
@@ -39,8 +37,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnLidState_ClosedAgainWhileCountingDown_DoesNotRestartTheWindow()
     {
-        // The notification can repeat. A repeat that re-armed the timer would silently extend a
-        // countdown the user is already waiting on.
+        // The notification can repeat, and a re-armed timer would silently extend a countdown the
+        // user is already waiting on.
         Assert.Equal(LidDelayAction.None,
             LidDelayPolicy.OnLidState(LidState.Closed, enabled: true, delayPending: true, isFirstReading: false));
     }
@@ -62,13 +60,13 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnLidState_OpenedAfterTheFeatureWasTurnedOffMidWindow_StillCancels()
     {
-        // The hold is ours and outlives the setting — releasing it can never depend on the feature
-        // still being on, or turning the feature off mid-countdown would strand the machine awake.
+        // The hold outlives the setting: if releasing it depended on the feature still being on,
+        // turning the feature off mid-countdown would strand the machine awake.
         Assert.Equal(LidDelayAction.Cancel,
             LidDelayPolicy.OnLidState(LidState.Opened, enabled: false, delayPending: true, isFirstReading: false));
     }
 
-    // ── OnTimerFired ─────────────────────────────────────────────────────────────
+    // OnTimerFired
 
     [Fact]
     public void OnTimerFired_WindowStillOpen_Suspends()
@@ -80,8 +78,7 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnTimerFired_LidAlreadyReopened_DoesNothing()
     {
-        // A stale tick: the cancel already released the hold, so suspending here would sleep a machine
-        // the user is sitting in front of.
+        // A stale tick: suspending here would sleep a machine the user is sitting in front of.
         Assert.Equal(LidDelayAction.None,
             LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false));
     }
@@ -89,9 +86,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void OnTimerFired_KeepAwakeSessionRunning_ReleasesTheHoldButDoesNotSleep()
     {
-        // A keep-awake session is an explicit "do not sleep this machine" the user asked for BY HAND,
-        // and it outranks a background rule about lids. Closing the lid on a long build with "keep
-        // awake until 17:00" running must not suspend the machine and kill the build.
+        // A keep-awake session is an explicit request and outranks a background rule about lids:
+        // closing the lid on a long build must not kill it.
         Assert.Equal(LidDelayAction.Cancel,
             LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true));
     }
@@ -103,7 +99,7 @@ public class LidDelayPolicyTests
             LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false));
     }
 
-    // ── DelayFor ─────────────────────────────────────────────────────────────────
+    // DelayFor
 
     [Fact]
     public void DelayFor_UsesTheConfiguredMinutes()
@@ -114,8 +110,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void DelayFor_ZeroOrNegative_ClampsToTheFloor_NotAnInstantSleep()
     {
-        // Reachable by hand-editing settings.json. A zero delay would make lid close sleep INSTANTLY
-        // through a feature whose entire purpose is to delay it.
+        // Reachable by hand-editing settings.json, and a zero delay would sleep the machine instantly
+        // through a feature whose purpose is to delay it.
         Assert.Equal(TimeSpan.FromMinutes(LidDelayPolicy.MinMinutes), LidDelayPolicy.DelayFor(0));
         Assert.Equal(TimeSpan.FromMinutes(LidDelayPolicy.MinMinutes), LidDelayPolicy.DelayFor(-30));
     }
@@ -127,7 +123,7 @@ public class LidDelayPolicyTests
         Assert.Equal(TimeSpan.FromMinutes(LidDelayPolicy.MaxMinutes), LidDelayPolicy.DelayFor(100_000));
     }
 
-    // ── DecideStartup — the crash-recovery table ─────────────────────────────────
+    // DecideStartup — the crash-recovery table
 
     [Fact]
     public void DecideStartup_OnWithNothingSaved_CapturesTheUsersValuesFirst()
@@ -139,10 +135,9 @@ public class LidDelayPolicyTests
     [Fact]
     public void DecideStartup_OnWithValuesAlreadySaved_ReappliesWithoutRecapturing()
     {
-        // THE cell that makes this a table. With saved values present, the scheme's current lid action
-        // is our OWN "do nothing" — re-capturing it would persist that as the user's setting, and the
-        // feature could then never restore anything but "do nothing", permanently stopping the laptop
-        // sleeping on lid close.
+        // With saved values present the scheme's current lid action is the app's own "do nothing".
+        // Re-capturing it would persist that as the user's setting, so restore could never put
+        // anything else back and the laptop would stop sleeping on lid close for good.
         Assert.Equal(LidActionOverride.ReapplyOverride,
             LidDelayPolicy.DecideStartup(enabled: true, hasSavedAction: true));
     }
@@ -150,8 +145,7 @@ public class LidDelayPolicyTests
     [Fact]
     public void DecideStartup_OffWithValuesStillSaved_RestoresThem()
     {
-        // The crash-recovery path: the app died with the override in place, so the user's own lid
-        // action is put back before anything else happens.
+        // The app died with the override in place, so the user's own lid action goes back first.
         Assert.Equal(LidActionOverride.Restore,
             LidDelayPolicy.DecideStartup(enabled: false, hasSavedAction: true));
     }
@@ -159,19 +153,18 @@ public class LidDelayPolicyTests
     [Fact]
     public void DecideStartup_OffWithNothingSaved_LeavesThePowerSchemeAlone()
     {
-        // The default state for every user who never turns the feature on — it must not touch a
-        // system setting to discover it has nothing to do.
+        // The default state must not touch a system setting to discover it has nothing to do.
         Assert.Equal(LidActionOverride.None,
             LidDelayPolicy.DecideStartup(enabled: false, hasSavedAction: false));
     }
 
-    // ── Persisted shape ──────────────────────────────────────────────────────────
+    // Persisted shape
 
     [Fact]
     public void LidDelay_IsOffByDefault_AndSavesNoLidAction()
     {
-        // Never on by default: enabling it changes a Windows power setting outside the app, which is
-        // only ever the user's call.
+        // Enabling it changes a Windows power setting outside the app, which is only ever the
+        // user's call.
         var s = new AppSettings();
         Assert.False(s.LidDelayEnabled);
         Assert.Equal(10, s.LidDelayMinutes);
@@ -182,9 +175,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void SavedLidAction_IsNullable_SoSavedZeroIsNotMistakenForNothingSaved()
     {
-        // "Do nothing" IS a legitimate value a user can already have set (index 0). If these were
-        // plain ints, that user's setting would be indistinguishable from "we saved nothing", and
-        // restore would skip them.
+        // "Do nothing" is a legitimate user setting (index 0). As plain ints it would be
+        // indistinguishable from "nothing saved", and restore would skip it.
         var s = new AppSettings { LidDelaySavedAcAction = 0, LidDelaySavedDcAction = 0 };
         Assert.True(s.HasSavedLidAction);
 
@@ -194,9 +186,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void SavedLidAction_SurvivesSettingsJson_BecauseThatIsTheCrashRecord()
     {
-        // These two values ARE the crash recovery: if they do not survive a round trip through
-        // settings.json, the app restarts believing it never touched the power scheme and the user's
-        // lid-close action is stranded on "do nothing" with nothing left that knows better.
+        // These two values are the crash recovery. Without a clean round trip the app restarts
+        // believing it never touched the power scheme, stranding the lid action on "do nothing".
         var scheme = "381b4222-f694-41f0-9685-ff5bb260df2e";
         var settings = new AppSettings { LidDelayEnabled = true, LidDelayMinutes = 15,
                                          LidDelaySavedAcAction = 1, LidDelaySavedDcAction = 0,
@@ -208,8 +199,8 @@ public class LidDelayPolicyTests
         Assert.Equal(15, loaded.LidDelayMinutes);
         Assert.Equal(1, loaded.LidDelaySavedAcAction);
         Assert.Equal(0, loaded.LidDelaySavedDcAction);   // a saved zero must not come back as null
-        // Lid actions are per-scheme: without this the restore could write one plan's values into
-        // another, clobbering that plan and leaving the captured one on the override.
+        // Lid actions are per-scheme, so restoring without the scheme could write one plan's values
+        // into another.
         Assert.Equal(scheme, loaded.LidDelaySavedScheme);
         Assert.True(loaded.HasSavedLidAction);
     }
@@ -226,8 +217,8 @@ public class LidDelayPolicyTests
     [Fact]
     public void LidDelaySettings_AbsentFromAnOlderFile_LoadAsOffWithNothingSaved()
     {
-        // An existing install upgrading into this feature must come up inert — off, nothing saved —
-        // rather than with a half-state that drives a restore of values that were never captured.
+        // An upgrading install must come up inert rather than in a half-state that drives a restore
+        // of values never captured.
         var loaded = JsonSerializer.Deserialize<AppSettings>("""{"KeepAwakeDisplayOn":true}""");
 
         Assert.NotNull(loaded);
@@ -239,26 +230,23 @@ public class LidDelayPolicyTests
     [Fact]
     public void HasSavedLidAction_IsTrueWhenEitherSideIsStored()
     {
-        // A half-written pair still means the power scheme was touched, so it must still drive a
-        // restore rather than being treated as clean.
+        // A half-written pair still means the power scheme was touched, so it must drive a restore.
         Assert.True(new AppSettings { LidDelaySavedAcAction = 1 }.HasSavedLidAction);
         Assert.True(new AppSettings { LidDelaySavedDcAction = 1 }.HasSavedLidAction);
     }
 
-    // ── P/Invoke smoke test — READ ONLY ──────────────────────────────────────────
+    // P/Invoke smoke test — read only
 
     [Fact]
     public void ReadActiveLidCloseAction_SignatureIsSound_AndNeverWrites()
     {
-        // Same reasoning as the SetThreadExecutionState smoke test: a wrong P/Invoke signature here
-        // fails SILENTLY (a non-zero return marshalled wrong, or a garbage index), and this feature
-        // persists whatever it reads as the value it will later restore — so a bad read is how a
-        // user's lid setting gets destroyed. Deliberately read-only: the test suite must never write
-        // a power setting on the machine running it.
+        // A wrong P/Invoke signature fails silently, and the feature persists whatever it reads as
+        // the value it later restores, so a bad read is how a user's lid setting gets destroyed.
+        // Read-only on purpose: the suite must never write a power setting on the host machine.
         var before = NativeMethods.ReadActiveLidCloseAction();
 
-        // Null is a legitimate answer (a machine with no lid setting in its scheme); a value must be
-        // one of the four documented actions rather than uninitialised memory.
+        // Null is legitimate (a scheme with no lid setting); a value must be one of the four
+        // documented actions rather than uninitialised memory.
         if (before is { } v)
         {
             Assert.InRange(v.Ac, 0u, 3u);

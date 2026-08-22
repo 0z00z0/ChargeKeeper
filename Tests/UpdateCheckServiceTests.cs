@@ -7,9 +7,8 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Drives every arm of the update check through a stub handler. The point of the exercise is that
-/// each cause stays distinguishable: before this, a GitHub throttle, a 500 and a dead network all
-/// collapsed into one <c>Error</c> that told the user to check their internet connection.
+/// Drives every arm of the update check through a stub handler, so a GitHub throttle, a 500 and a
+/// dead network each stay distinguishable rather than collapsing into one <c>Error</c>.
 /// </summary>
 public class UpdateCheckServiceTests
 {
@@ -55,7 +54,7 @@ public class UpdateCheckServiceTests
         Assert.Equal(UpdateStatus.Available, outcome.Status);
         Assert.Equal("9.9.9", outcome.LatestVersion);
         Assert.NotNull(outcome.InstallerUrl);
-        // Markdown stripping is a ChargeKeeper advantage worth keeping: the heading marker goes.
+        // Release notes are shown as plain text, so the markdown heading marker goes.
         Assert.DoesNotContain("##", outcome.ReleaseNotes);
     }
 
@@ -185,8 +184,8 @@ public class UpdateCheckServiceTests
     [Fact]
     public async Task CancelledRequest_IsTimedOut_NotANetworkFailure()
     {
-        // HttpClient reports its own timeout as a TaskCanceledException; landing that in the
-        // network arm is exactly what made a slow GitHub read as a broken connection.
+        // HttpClient reports its own timeout as a TaskCanceledException, and landing that in the
+        // network arm would make a slow GitHub read as a broken connection.
         var outcome = await ServiceFor(new ThrowingHandler(() => new TaskCanceledException()))
                             .CheckNowAsync();
 

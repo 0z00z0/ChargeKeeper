@@ -5,21 +5,14 @@ using Windows.UI;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Shared color constants and pre-allocated brushes.
-/// Centralises magic hex values and avoids allocating new brush objects on every UI refresh.
+/// Shared colour constants and pre-allocated brushes. Centralises magic hex values and avoids
+/// allocating new brush objects on every UI refresh.
 /// </summary>
 internal static class AppColors
 {
-    // ── Semantic state ─────────────────────────────────────────────────────────
-    // SteelBlue is the app's primary "active/positive" accent (charging glyph, active badges,
-    // selected controls, and the history graph's SoC line) — a dusty steel-blue that replaced an
-    // earlier saturated green so the whole dashboard reads as one consistent accent colour instead
-    // of green-in-some-places, blue-in-others. TODO #34 reintroduced a genuine green (SageGreen,
-    // below) as a deliberate, scoped exception to that rule: the arc gauge and tray icon now
-    // colour-code charge state (green/yellow/orange/blue), a stronger signal there than accent
-    // uniformity. The gauge-tier bytes themselves live in GaugePalette (shared with the GDI+ tray
-    // icon renderer, which can't use Windows.UI.Color) — this class builds its WinUI Colors from
-    // those packed values so the dashboard and tray icon can't drift.
+    // SteelBlue is the app's primary "active/positive" accent: charging glyph, active badges,
+    // selected controls, the history graph's SoC line. The gauge-tier bytes live in GaugePalette,
+    // shared with the GDI+ tray-icon renderer, which cannot use Windows.UI.Color.
     internal static readonly Color SteelBlue   = FromPacked(GaugePalette.SteelBlue);
     internal static readonly Color Orange      = Color.FromArgb(255, 0xFF, 0x8C, 0x00);
     internal static readonly Color Grey        = Color.FromArgb(255, 0x9E, 0x9E, 0x9E);
@@ -29,71 +22,43 @@ internal static class AppColors
     private static Color FromPacked(uint argb) => Color.FromArgb(
         (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
 
-    // ── Battery status glyph (gauge centre) ─────────────────────────────────────
+    // Battery status glyph (gauge centre).
     internal static readonly SolidColorBrush StatusChargingBrush    = new(SteelBlue);  // charging  ▲
     internal static readonly SolidColorBrush StatusIdleBrush        = new(Blue);       // full/idle ●
     internal static readonly SolidColorBrush StatusDischargingBrush = new(Amber);      // draining  ▼
     internal static readonly SolidColorBrush StatusUnknownBrush     = new(Grey);       // none / —
 
-    // ── Badge backgrounds (semi-transparent fills) ──────────────────────────────
+    // Badge backgrounds (semi-transparent fills).
     internal static readonly SolidColorBrush BadgeActiveBrush =
         new(Color.FromArgb(20, SteelBlue.R, SteelBlue.G, SteelBlue.B));
     internal static readonly SolidColorBrush BadgeInactiveBrush = new(Color.FromArgb(12, 0x80, 0x80, 0x80));
 
-    // BadgeActiveBrush's ~8% opacity reads fine on the large Smart Charge/Standby badges but is
-    // too faint to mark a small (34px) selected button in the time-scale row — this is ~3x more
-    // opaque, tuned for that smaller control instead.
+    // ~3x more opaque than BadgeActiveBrush: at 8 % a 34 px selected button is too faint to read.
     internal static readonly SolidColorBrush TimeScaleSelectedBrush =
         new(Color.FromArgb(60, SteelBlue.R, SteelBlue.G, SteelBlue.B));
 
-    // The indicator-dot brushes that lived here are gone with the dots themselves: both dashboard
-    // badges now carry a ToggleSwitch, which states on/off in its own theme colours (issue #86).
-
-    // ── Arc gauge fills (by battery level) ─────────────────────────────────────
-    // TODO #34: colour-code charge state — green > 75 %, yellow 26-75 %, orange ≤ 25 %, and a
-    // charging/on-AC override (GaugeChargingBrush) that forces blue regardless of level. Still
-    // dusty/muted tones, not the vivid traffic-light red-orange-green this kind of scheme usually
-    // means: SageGreen is the one genuinely new colour added for this (no muted green existed in
-    // the palette before); the yellow and orange tiers deliberately REUSE existing colours rather
-    // than adding near-duplicates — Amber already reads as a golden yellow, and Terracotta's dusty
-    // orange-tan hue reads as muted orange convincingly enough that a distinct new "orange" would
-    // have been redundant. The old DustyRed (a true muted red, ≤ 20 % tier) is gone: nothing in
-    // this new red/orange-less scheme called for a red, and it had no other callers.
+    // Arc gauge fills by battery level. Muted tones rather than a vivid traffic light, and the
+    // yellow/orange tiers reuse Amber and Terracotta rather than adding near-duplicates.
     internal static readonly Color SageGreen  = FromPacked(GaugePalette.SageGreen);   // dusty sage green
     internal static readonly Color Terracotta = FromPacked(GaugePalette.Terracotta);  // dusty terracotta
     internal static readonly SolidColorBrush GaugeGreenBrush    = new(SageGreen);  // > 75 %
     internal static readonly SolidColorBrush GaugeMedBrush      = new(Amber);      // 26-75 % ("yellow")
-    // Terracotta moves here from the old medium tier — it keeps its shared-colour relationship
-    // with HistoryLimitBrush (below) so "the charge-limit/warning colour" still reads as one
-    // concept across the dashboard, just tied to the new low/orange tier instead of the old medium
-    // one.
     internal static readonly SolidColorBrush GaugeLowBrush      = new(Terracotta); // ≤ 25 % ("orange") — matches HistoryLimitBrush
-    // Reverted to SteelBlue (was the vivid Blue) per user feedback — Blue read as jarring next to
-    // the muted green/yellow/orange tiers, and didn't match StatusChargingBrush (the ▲ glyph) or
-    // the threshold-slider/SoC-line accent, which were already SteelBlue. Charging/on-AC now
-    // reads as the same muted accent everywhere instead of two different blues.
     internal static readonly SolidColorBrush GaugeChargingBrush = new(SteelBlue);  // charging/on-AC override, any %
 
-    // ── History graph series ("Nordic mist") ────────────────────────────────────
-    // One fixed accent per series, not a level-based switch — the old red/amber/green cycling
-    // for SoC read as a jarring traffic light, especially alongside red/green min-max markers.
-    // Each series now stays one steady colour across the whole line regardless of level; SoC
-    // reuses SteelBlue and Limit reuses Terracotta so the graph and the rest of the dashboard
-    // (including the gauge's low/orange tier, above) match.
+    // History graph series: one fixed accent each, not a level-based switch, which read as a
+    // traffic light next to the red/green min-max markers. SoC and Limit reuse the dashboard's own
+    // SteelBlue and Terracotta.
     internal static readonly SolidColorBrush HistorySocBrush   = new(SteelBlue);
     internal static readonly SolidColorBrush HistoryLimitBrush = new(Terracotta);
     internal static readonly SolidColorBrush HistoryPowerBrush = new(Color.FromArgb(255, 0x9C, 0x8F, 0xBD));  // muted lavender
 
-    // ── Graph "Expand" affordance ────────────────────────────────────────────────
-    // Terracotta again (not the vivid Orange) — the palette's orange tint everywhere else on
-    // the dashboard is this muted tone, so the pop-out trigger reads as "part of the same
-    // system" rather than introducing a second, brighter orange.
+    // Terracotta, not the vivid Orange, so the pop-out trigger matches the dashboard's orange tint.
     internal static readonly SolidColorBrush ExpandGlyphBrush = new(Terracotta);
     internal static readonly SolidColorBrush ExpandGlyphBackgroundBrush =
         new(Color.FromArgb(34, Terracotta.R, Terracotta.G, Terracotta.B));
 
-    // Gradient fill under the SoC line: SteelBlue fading to fully transparent. Cached once —
-    // never allocated per render tick (see the class doc comment).
+    // Gradient fill under the SoC line: SteelBlue fading to fully transparent.
     internal static readonly LinearGradientBrush HistorySocFillBrush = BuildFadeBrush(SteelBlue);
 
     private static LinearGradientBrush BuildFadeBrush(Color c) => new()

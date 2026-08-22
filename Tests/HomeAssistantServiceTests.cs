@@ -4,11 +4,9 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Item-3 reflect contract (issue #40): after an MQTT threshold/smart-charge command,
-// HomeAssistantService reads ChargeThresholdService fresh and republishes via
-// HaStateBuilder.ApplyChargeControl. These assert that mapping reflects the post-command truth
-// (Smart Charge ON with the applied start/stop; OFF → stop 100 / start omitted) rather than a
-// stale/optimistic value. The MQTT I/O plumbing itself is exercised against a live broker, not here.
+// After an MQTT threshold or smart-charge command, HomeAssistantService reads ChargeThresholdService
+// fresh and republishes through HaStateBuilder.ApplyChargeControl. These pin that the mapping
+// reflects the post-command truth rather than an optimistic value; the MQTT I/O is not covered here.
 public class HomeAssistantServiceTests
 {
     private static HaState BaseState() => new(

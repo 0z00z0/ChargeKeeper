@@ -11,9 +11,9 @@ public class ThresholdCapabilityPolicyTests
     [InlineData(false)]
     public void Classify_NoVendorAnswer_Hidden(bool supportsNumeric)
     {
-        // Read() returning null is the ONE "is this working" signal the provider contract gives:
-        // driver missing, unsupported hardware, transport error. Nothing to configure, nothing to
-        // read back — so neither surface, and no permanent "Unavailable" badge either.
+        // A null Read is the contract's only "is this working" signal, covering a missing driver,
+        // unsupported hardware and a transport error alike. Nothing to configure, nothing to read
+        // back, so neither surface appears.
         Assert.Equal(
             SmartChargeSurface.Hidden,
             ThresholdCapabilityPolicy.Classify(null, supportsNumeric));
@@ -44,9 +44,8 @@ public class ThresholdCapabilityPolicyTests
     [Fact]
     public void Classify_ReadOnlyModeVendor_StillFixedModes_NotHidden()
     {
-        // HP's read-only BIOS case: the setting is readable but refuses writes. The hardware HAS
-        // the feature, so hiding the surface would read as a detection bug rather than a locked
-        // setting; the surface stays and the caller adds the read-only note.
+        // A read-only BIOS setting is readable but refuses writes. The hardware has the feature, so
+        // hiding the surface would look like a detection bug rather than a locked setting.
         var state = new ChargeThresholdState(Capable: false, Enabled: true, Start: 0, Stop: 80);
 
         Assert.Equal(

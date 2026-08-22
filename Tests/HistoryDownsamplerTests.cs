@@ -35,9 +35,8 @@ public class HistoryDownsamplerTests
     [Fact]
     public void Reduce_NeverDropsAGapBoundary()
     {
-        // A long dense run, then a single sample 2 hours later (a real "restart" gap), then one
-        // more sample — the gap's boundary points must survive regardless of where the stride
-        // would otherwise land.
+        // A long dense run, a sample two hours later, then one more: the gap's boundary points must
+        // survive wherever the stride would otherwise land.
         var before  = Enumerable.Range(0, 5000).Select(i => Sample(i, 50)).ToList();
         var after   = Sample(5000 + 120, 51);
         var samples = before.Append(after).ToList();
@@ -57,8 +56,7 @@ public class HistoryDownsamplerTests
 
         var result = HistoryDownsampler.Reduce(samples, maxPoints: 100, gapThreshold: TimeSpan.FromMinutes(60));
 
-        // The gap boundary must be reported using an index into the REDUCED list (result.Samples),
-        // not the original — that index should point at the "after" sample.
+        // The gap boundary is an index into the reduced list, not the original.
         int afterIndex = result.Samples.ToList().IndexOf(after);
         Assert.True(afterIndex > 0);
         Assert.Contains(afterIndex, result.GapBeforeIndices);
@@ -67,10 +65,9 @@ public class HistoryDownsamplerTests
     [Fact]
     public void Reduce_DoesNotTreatOrdinaryStrideSpacingAsAGap()
     {
-        // 10,000 samples 1 minute apart, no real downtime anywhere. Downsampled to 100 points,
-        // adjacent reduced points end up ~100 minutes apart — far more than a typical gap
-        // threshold — but since nothing in the ORIGINAL data exceeded gapThreshold, none of that
-        // stride spacing should be reported as a gap.
+        // Reducing 10,000 one-minute samples to 100 points leaves adjacent points ~100 minutes
+        // apart, well over a typical gap threshold. The original data has no gap, so neither may
+        // the reduced list.
         var samples = Enumerable.Range(0, 10_000).Select(i => Sample(i, i % 100)).ToList();
 
         var result = HistoryDownsampler.Reduce(samples, maxPoints: 100, gapThreshold: TimeSpan.FromMinutes(60));

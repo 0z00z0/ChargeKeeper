@@ -3,8 +3,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure argument-building for the "Open settings folder" action relocated from the tray menu into
-// the Settings window's Advanced footer (TODO #28).
+// Pure argument-building for the Settings window's "Open settings folder" action.
 public class ExplorerLauncherTests
 {
     [Fact]
