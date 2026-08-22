@@ -229,7 +229,12 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Current network">
-                        <TextBlock x:Name="CurrentNetworkText" Text="—" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="the current network"
+                                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
+                            <TextBlock x:Name="CurrentNetworkText" Text="—" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
@@ -341,8 +346,12 @@
                     </StackPanel>
 
                     <controls:SettingsCard Header="Current network">
-                        <TextBlock x:Name="KeepAwakeCurrentNetworkText" Text="—"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="the current network"
+                                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
+                            <TextBlock x:Name="KeepAwakeCurrentNetworkText" Text="—" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <StackPanel x:Name="KeepAwakeNetworkRulesListPanel" Spacing="4"/>

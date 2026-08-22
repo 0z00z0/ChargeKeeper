@@ -684,4 +684,47 @@ public class NetworkLocationServiceTests
 
         Assert.Null(NetworkLocationService.DescribeStaleKey(rule, current, MeasuredPeers));
     }
+
+    // The "current network" line is three-way, and the middle case is the one that matters: an
+    // unmatched network must still name the adapter and subnet a profile would be keyed on.
+
+    [Fact]
+    public void DescribeCurrentNetwork_ProfileMatches_ShowsTheProfileName()
+    {
+        var location = new NetworkLocation("AA:BB:CC:DD:EE:FF", "10.0.0.0/23", true, "Ethernet");
+        var rule     = new NetworkLocationRule { Name = "Office dock", AdapterMac = "AA:BB:CC:DD:EE:FF" };
+
+        Assert.Equal("Office dock", NetworkLocationService.DescribeCurrentNetwork(location, rule));
+    }
+
+    [Fact]
+    public void DescribeCurrentNetwork_NoProfile_ShowsTheDetectedAdapterAndSubnet()
+    {
+        // Fed from Detect rather than a hand-built location, so the line is pinned to the adapter
+        // label the detection actually settles on.
+        var tether   = Tether("100.110.83.0/24");
+        var location = NetworkLocationService.Detect([tether], PeersOf(tether), (uint)tether.IPv4Index,
+                                                     () => null);
+
+        Assert.Equal("Mobile · 100.110.83.0/24",
+                     NetworkLocationService.DescribeCurrentNetwork(location, null));
+    }
+
+    [Fact]
+    public void DescribeCurrentNetwork_NoProfileAndNoAdapterName_FallsBackToTheSubnet()
+    {
+        // SSID reads are best-effort, so a matched-nothing Wi-Fi location can arrive with no hint.
+        var location = new NetworkLocation("AA:BB:CC:DD:EE:FF", "192.168.1.0/24", false, null);
+
+        Assert.Equal("192.168.1.0/24", NetworkLocationService.DescribeCurrentNetwork(location, null));
+    }
+
+    [Fact]
+    public void DescribeCurrentNetwork_NothingResolved_SaysNoNetworkDetected()
+    {
+        // Fail-closed, and a different statement from "no profile matches": nothing was detected at
+        // all, so no profile could apply even if one existed.
+        Assert.Equal(NetworkLocationService.NoNetworkDetected,
+                     NetworkLocationService.DescribeCurrentNetwork(default, null));
+    }
 }

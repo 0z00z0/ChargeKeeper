@@ -20,6 +20,11 @@ public sealed partial class DashboardWindow : Window
 {
     private const int WindowWidth = 340;
 
+    // What PresetButtonPanel is allowed before its first arrange: WindowWidth less RootGrid's 20 px
+    // padding either side and the Smart Charge badge's 10 px either side. The same width the
+    // travel-override button occupies, which is what the preset rows have to line up with.
+    private const double PresetPanelWidth = WindowWidth - 40 - 20;
+
     // Arc gauge geometry: 100×100 px canvas, 7-o'clock start (135°), 270° sweep.
     private const double GaugeCx         = 50;
     private const double GaugeCy         = 50;
@@ -52,6 +57,11 @@ public sealed partial class DashboardWindow : Window
 
     // Same for PresetButtonPanel: rebuilding on every 5 s tick would drop the button under the pointer.
     private IReadOnlyList<string> _presetButtonLabels = [];
+
+    // The column/row shape PresetButtonPanel is currently arranged in, so a SizeChanged that does not
+    // change it re-places nothing. Reset whenever the buttons are rebuilt: the new ones carry no
+    // Grid.Row/Column and would otherwise all pile into the first cell.
+    private (int Columns, int Rows) _presetGridShape;
 
     // Set from the first slider move until the debounced apply lands; freezes Refresh's slider sync.
     private bool _thresholdEditPending = false;
@@ -105,6 +115,10 @@ public sealed partial class DashboardWindow : Window
 
         // Keep Awake has its own RPC-free reconcile; neither event above covers it.
         KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+
+        // The panel's width is unknown when the buttons are built, and changes with the monitor's
+        // DPI; the column count is recomputed from whatever it turns out to be.
+        PresetButtonPanel.SizeChanged += (_, _) => LayoutPresetButtons();
 
         Activated += OnActivated;
         Closed    += (_, _) =>
@@ -435,7 +449,15 @@ public sealed partial class DashboardWindow : Window
             // Smart Charge off included.
             string? activeName = ActivePresetPolicy.Match(presets, chargeState)?.Name;
             foreach (var button in PresetButtonPanel.Children.OfType<Button>())
-                button.IsEnabled = (string?)button.Tag != activeName;
+            {
+                bool isActive    = (string?)button.Tag == activeName;
+                button.IsEnabled = !isActive;
+                // Weight as well as colour: the filled chip must not be the only thing separating
+                // the preset in use from the rest.
+                button.FontWeight = isActive
+                    ? Microsoft.UI.Text.FontWeights.SemiBold
+                    : Microsoft.UI.Text.FontWeights.Normal;
+            }
         }
         PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;
 
@@ -477,14 +499,19 @@ public sealed partial class DashboardWindow : Window
         if (wanted.SequenceEqual(_presetButtonLabels)) return;
 
         _presetButtonLabels = wanted;
+        _presetGridShape    = default;
         PresetButtonPanel.Children.Clear();
+        PresetButtonPanel.ColumnSpacing = PresetButtonLayout.Spacing;
+        PresetButtonPanel.RowSpacing    = PresetButtonLayout.Spacing;
 
-        // The button of the preset in use is disabled, so the disabled visual is that state here and
-        // has to carry the accent rather than the default grey. Set before the buttons are parented,
-        // so their templates resolve it.
-        PresetButtonPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.TimeScaleSelectedBrush;
-        PresetButtonPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.TimeScaleSelectedBrush;
-        PresetButtonPanel.Resources["ButtonForegroundDisabled"]  = AppColors.StatusChargingBrush;
+        // The button of the preset in use is disabled, so the DISABLED visual state is what paints
+        // the marker — it overrides any Background/Foreground set on the button itself, which is why
+        // the accent goes on these three template resources instead. Same brushes as the Settings
+        // preset rows, so the two surfaces read alike. Set before the buttons are parented, so their
+        // templates resolve them.
+        PresetButtonPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.AccentBrush;
+        PresetButtonPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.AccentBrush;
+        PresetButtonPanel.Resources["ButtonForegroundDisabled"]  = AppColors.OnAccentBrush;
 
         foreach (var preset in presets)
         {
@@ -494,7 +521,7 @@ public sealed partial class DashboardWindow : Window
                 FontSize                   = 11,
                 Padding                    = new Thickness(6, 2, 6, 2),
                 MinWidth                   = 0,   // the default would spend width this popup hasn't got
-                Margin                     = new Thickness(0, 0, 4, 4),
+                Height                     = 28,
                 CornerRadius               = new CornerRadius(4),
                 BorderThickness            = new Thickness(0),
                 HorizontalAlignment        = HorizontalAlignment.Stretch,
@@ -505,6 +532,50 @@ public sealed partial class DashboardWindow : Window
             ToolTipService.SetToolTip(button, ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop));
             button.Click += OnPresetButtonClick;
             PresetButtonPanel.Children.Add(button);
+        }
+
+        LayoutPresetButtons();
+    }
+
+    /// <summary>
+    /// Places the buttons in equal-width columns spanning the whole panel, so every row — the last
+    /// one included — ends flush with the travel-override button beneath. A last row holding fewer
+    /// buttons than there are columns spreads them over the spare columns rather than leaving a gap.
+    /// </summary>
+    private void LayoutPresetButtons()
+    {
+        var buttons = PresetButtonPanel.Children.OfType<Button>().ToList();
+        if (buttons.Count == 0) return;
+
+        // ActualWidth is 0 until the first arrange, and the buttons are built before it; the fallback
+        // is the same width the travel-override button gets, so the initial pass is already right.
+        double available = PresetButtonPanel.ActualWidth > 0 ? PresetButtonPanel.ActualWidth : PresetPanelWidth;
+        var shape = PresetButtonLayout.Choose(buttons.Count, available);
+        if (shape == _presetGridShape) return;
+        _presetGridShape = shape;
+
+        PresetButtonPanel.ColumnDefinitions.Clear();
+        PresetButtonPanel.RowDefinitions.Clear();
+        for (int c = 0; c < shape.Columns; c++)
+            PresetButtonPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int r = 0; r < shape.Rows; r++)
+            PresetButtonPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        int index = 0;
+        for (int row = 0; row < shape.Rows; row++)
+        {
+            int inRow    = Math.Min(shape.Columns, buttons.Count - index);
+            int baseSpan = shape.Columns / inRow;
+            int extra    = shape.Columns % inRow;
+            int column   = 0;
+            for (int k = 0; k < inRow; k++, index++)
+            {
+                int span = baseSpan + (k < extra ? 1 : 0);
+                Grid.SetRow(buttons[index], row);
+                Grid.SetColumn(buttons[index], column);
+                Grid.SetColumnSpan(buttons[index], span);
+                column += span;
+            }
         }
     }
 
