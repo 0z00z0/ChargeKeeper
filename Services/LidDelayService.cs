@@ -42,6 +42,15 @@ internal static class LidDelayService
 
     private static bool _started;
 
+    // Hardware, so it is asked once: the dashboard reconciles its Lid close section every refresh.
+    private static bool? _lidPresent;
+
+    /// <summary>
+    /// Whether this machine has a lid to delay. A failed capability query counts as present — hiding
+    /// the feature on a laptop is worse than offering it on a machine that will never close a lid.
+    /// </summary>
+    public static bool IsSupported => _lidPresent ??= NativeMethods.LidPresent() ?? true;
+
     /// <summary>
     /// Called once at startup, and also the crash-recovery entry point: it runs the
     /// <see cref="LidDelayPolicy.DecideStartup"/> table first, so a lid action left overridden by a

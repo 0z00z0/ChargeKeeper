@@ -93,6 +93,27 @@ internal static class NativeMethods
     [DllImport("powrprof.dll")]
     private static extern uint PowerSettingUnregisterNotification(IntPtr registrationHandle);
 
+    // GetPwrCapabilities takes no buffer length and always writes the whole SYSTEM_POWER_CAPABILITIES,
+    // so the buffer is deliberately oversized — a struct that grows in a later Windows build cannot
+    // then overrun it. LidPresent is the third BOOLEAN in that struct, hence index 2.
+    private const int LidPresentOffset = 2;
+
+    [DllImport("powrprof.dll")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool GetPwrCapabilities(byte[] systemPowerCapabilities);
+
+    /// <summary>
+    /// Whether this machine has a lid, from the OS power capabilities — the same answer the Windows
+    /// power UI uses to decide whether to offer a lid-close action at all. Null when the query fails,
+    /// which the caller must not read as "no lid": a laptop losing the feature is the worse outcome.
+    /// </summary>
+    internal static bool? LidPresent()
+    {
+        var buffer = new byte[256];
+        try { return GetPwrCapabilities(buffer) ? buffer[LidPresentOffset] != 0 : null; }
+        catch { return null; }
+    }
+
     // Rooted for the subscription's lifetime: the OS keeps a RAW function pointer to this delegate,
     // which the GC cannot see. Letting it be collected turns the next lid event into a hard crash.
     private static DeviceNotifyCallback? _lidCallback;

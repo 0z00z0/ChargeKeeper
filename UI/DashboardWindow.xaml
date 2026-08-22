@@ -16,7 +16,7 @@
     <!-- No fixed Width: the grid fills the window, which is sized in code per monitor DPI.
          The window height is measured from this grid (PlaceWindow), so rows can appear/disappear
          without any hard-coded height constants. -->
-    <Grid x:Name="RootGrid" Padding="20,16,20,20">
+    <Grid x:Name="RootGrid" Padding="20,16,20,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- 0: Header -->
             <RowDefinition Height="Auto"/>  <!-- 1: Gauge + stats -->
@@ -28,7 +28,7 @@
         <!-- Header. A Grid rather than the old StackPanel so the settings button can sit hard right
              — a horizontal StackPanel gives every child its desired width in sequence and has no
              way to push the last one to the far edge. -->
-        <Grid Grid.Row="0" Margin="0,0,0,14">
+        <Grid Grid.Row="0" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -148,14 +148,14 @@
              126px it always had here, keeping this popup's measured size unchanged. -->
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph"
                                            Grid.Row="2"
-                                           Margin="0,0,0,12"
+                                           Margin="0,0,0,8"
                                            PlotAreaHeight="126"/>
 
         <!-- Separator -->
         <Border Grid.Row="3"
                 Height="1"
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                Margin="0,0,0,12"/>
+                Margin="0,0,0,8"/>
 
         <!-- Status badges -->
         <StackPanel Grid.Row="4" Spacing="8">
@@ -163,7 +163,7 @@
             <!-- Smart Charge badge -->
             <Border x:Name="SmartChargeBadge"
                     CornerRadius="6"
-                    Padding="10,8">
+                    Padding="10,6">
                 <StackPanel Spacing="0">
                     <!-- Header row: title + on/off switch -->
                     <Grid>
@@ -272,7 +272,7 @@
                          measured width; the buttons themselves come from BuildPresetButtons. A name
                          too long for its column is trimmed, with the full label on the tooltip. -->
                     <Grid x:Name="PresetButtonPanel"
-                          Margin="0,8,0,0"
+                          Margin="0,6,0,0"
                           Visibility="Collapsed"/>
 
                     <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
@@ -283,7 +283,7 @@
                             HorizontalContentAlignment="Center"
                             FontSize="11"
                             Padding="8,4"
-                            Margin="0,8,0,0"
+                            Margin="0,6,0,0"
                             Visibility="Collapsed"
                             Click="OnTravelOverrideButton"/>
                 </StackPanel>
@@ -292,7 +292,7 @@
             <!-- Smart Standby badge -->
             <Border x:Name="SmartStandbyBadge"
                     CornerRadius="6"
-                    Padding="10,8">
+                    Padding="10,6">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -335,12 +335,72 @@
                 </Grid>
             </Border>
 
-            <!-- Keep Awake badge. Never collapsed, unlike the two above: this feature is
+            <!-- Lid close badge. Between the sleep sections and Keep Awake by subject: Smart Standby
+                 decides how the machine sleeps, this decides when, and Keep Awake — the one section
+                 that is never hidden — stays last so the stack still ends on a control where the
+                 others collapse. Only the switch and the delay live here; locking at lid close, and
+                 delays outside the chip row, stay in Settings. -->
+            <Border x:Name="LidDelayBadge"
+                    CornerRadius="6"
+                    Padding="10,6">
+                <StackPanel Spacing="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
+                                    Tapped="OnLidDelayLabelTapped">
+                            <TextBlock Text="Lid close"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280" Spacing="6">
+                                            <TextBlock Text="Waits before sleeping when the lid closes, instead of sleeping at once."
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                                Turning this on sets the Windows lid-close action to "Do nothing" and runs a sleep timer instead; the Windows setting is put back when it is turned off. Opening the lid before the delay is up cancels it, and a running keep-awake session holds the sleep off entirely. Pick a delay from the row below — locking the computer at lid close, and delays other than these, are in Settings.
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
+                            <TextBlock x:Name="LidDelayDetailText"
+                                       Text="—"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="LidDelayToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Lid close delay"
+                                      Toggled="OnLidDelayToggled"/>
+                    </Grid>
+
+                    <!-- Delay chips. Built in code (BuildLidDelayChips) for the same reason the
+                         keep-awake row is: the set depends on the stored delay, and their look is
+                         set there rather than by a style out of scope here. -->
+                    <StackPanel x:Name="LidDelayPresetPanel"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Keep Awake badge. Never collapsed, unlike the three above: this feature is
                  vendor-independent (a SetThreadExecutionState hold, not a BIOS/EC write), so there
                  is no "this hardware can't" case to hide it for. -->
             <Border x:Name="KeepAwakeBadge"
                     CornerRadius="6"
-                    Padding="10,8">
+                    Padding="10,6">
                 <StackPanel Spacing="0">
                     <Grid>
                         <Grid.ColumnDefinitions>

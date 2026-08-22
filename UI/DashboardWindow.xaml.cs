@@ -55,6 +55,10 @@ public sealed partial class DashboardWindow : Window
     // What KeepAwakePresetPanel is built from; rebuilding only on a change keeps the reconcile cheap.
     private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
 
+    // Same purpose for the lid-delay chips: the set only changes when the stored delay leaves the
+    // quick list, so the 5 s reconcile must not rebuild the row underneath a pointer.
+    private IReadOnlyList<int> _lidDelayChips = [];
+
     // Same for PresetButtonPanel: rebuilding on every 5 s tick would drop the button under the pointer.
     private IReadOnlyList<string> _presetButtonLabels = [];
 
@@ -280,6 +284,9 @@ public sealed partial class DashboardWindow : Window
 
         // In-process state only, and the remaining-time line needs this tick to count down.
         ApplyKeepAwakeBadge();
+
+        // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
+        ApplyLidBadge();
 
         // The badge reads go through the vendor RPC — off-thread, then marshal back to apply.
         Task.Run(() =>
@@ -771,6 +778,114 @@ public sealed partial class DashboardWindow : Window
             AppLog.Error("DashboardWindow.ActivateKeepAwake", ex);
             ApplyKeepAwakeBadge();   // StateChanged never fired — put the switch and chips back
         }
+    }
+
+    // Second hit target for the switch, as on the badges above.
+    private void OnLidDelayLabelTapped(object sender, TappedRoutedEventArgs e) =>
+        LidDelayToggle.IsOn = !LidDelayToggle.IsOn;
+
+    /// <summary>Reconciles the whole Lid close badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
+    private void ApplyLidBadge()
+    {
+        _updatingBadges = true;
+        try { WriteLidBadge(); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteLidBadge()
+    {
+        var s = SettingsService.Current;
+
+        // Hidden where there is no lid — except while this app is still holding the override, which
+        // has to stay switchable off. LidDashboardPolicy owns that rule.
+        bool visible = LidDashboardPolicy.ShouldShow(LidDelayService.IsSupported, s.LidDelayEnabled, s.HasSavedLidAction);
+        LidDelayBadge.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (!visible) return;
+
+        SetFeatureBadge(LidDelayBadge, LidDelayToggle, s.LidDelayEnabled);
+        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayMinutes);
+
+        BuildLidDelayChips(s.LidDelayMinutes);
+
+        int? active = LidDashboardPolicy.ActiveChip(s.LidDelayEnabled, s.LidDelayMinutes);
+        foreach (var chip in LidDelayPresetPanel.Children.OfType<ToggleButton>())
+            chip.IsChecked = active is { } minutes && Equals(chip.Tag, minutes);
+    }
+
+    /// <summary>(Re)builds the delay chips. Returns untouched when the set hasn't changed.</summary>
+    private void BuildLidDelayChips(int currentMinutes)
+    {
+        var wanted = LidDashboardPolicy.Chips(currentMinutes);
+        if (wanted.SequenceEqual(_lidDelayChips)) return;
+
+        _lidDelayChips = wanted;
+        LidDelayPresetPanel.Children.Clear();
+
+        // Set before the chips are parented, so their templates resolve it.
+        foreach (string state in new[] { "", "PointerOver", "Pressed" })
+        {
+            LidDelayPresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            LidDelayPresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+        }
+
+        foreach (int minutes in wanted)
+        {
+            var chip = new ToggleButton
+            {
+                Content         = LidDashboardPolicy.ShortLabel(minutes),
+                Tag             = minutes,
+                FontSize        = 11,
+                Padding         = new Thickness(8, 3, 8, 3),
+                MinWidth        = 0,
+                CornerRadius    = new CornerRadius(4),
+                BorderThickness = new Thickness(0),
+            };
+            ToolTipService.SetToolTip(chip, $"Sleep {LidDashboardPolicy.ShortLabel(minutes)} after the lid closes");
+            chip.Checked   += OnLidDelayChipChecked;
+            chip.Unchecked += OnLidDelayChipUnchecked;
+            LidDelayPresetPanel.Children.Add(chip);
+        }
+    }
+
+    /// <summary>
+    /// Lid-delay on/off. <see cref="LidDelayService.SetEnabled"/> owns the setting and the
+    /// power-scheme write together, so this window never touches either directly; the reconcile after
+    /// it is what puts the switch back when the scheme write was refused, since the setting is then
+    /// left off rather than promising a delay the machine will not honour.
+    /// </summary>
+    private void OnLidDelayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own sync, not a user action
+
+        try { LidDelayService.SetEnabled(LidDelayToggle.IsOn); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayToggled", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Picking a delay also turns the feature on — the chip row is the quick way in, exactly
+    /// as the keep-awake chips start a session.</summary>
+    private void OnLidDelayChipChecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        if (sender is not ToggleButton { Tag: int minutes }) return;
+
+        try
+        {
+            SettingsService.Update(x => x.LidDelayMinutes = minutes);
+            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
+        }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipChecked", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Clicking the filled chip turns the delay off — a ToggleButton unchecking itself is that click.</summary>
+    private void OnLidDelayChipUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        try { LidDelayService.SetEnabled(false); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipUnchecked", ex); }
+        ApplyLidBadge();
     }
 
     /// <summary>Opens the Settings window. The popup auto-dismissing as it takes focus is deliberate.</summary>
