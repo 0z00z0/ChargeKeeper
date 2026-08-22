@@ -465,23 +465,9 @@ public sealed partial class DashboardWindow : Window
             PlaceWindow();
     }
 
-    /// <summary>
-    /// Which preset the device's current thresholds came from, or "Custom" when none does. The
-    /// persisted name alone isn't enough — a preset edit or a failed device write can leave it behind
-    /// while the hardware never moved — so it is matched against the live Start/Stop.
-    /// </summary>
-    private static string PresetLabel(ChargeThresholdState state)
-    {
-        var s = SettingsService.Current;
-        // Snapshot once: background threads mutate this in place, so a re-read could flip to null.
-        var active = s.ActivePreset;
-        if (string.IsNullOrWhiteSpace(active)) return "Custom";
-
-        var preset = s.Presets.FirstOrDefault(p => p.Name == active);
-        return preset is not null && preset.Start == state.Start && preset.Stop == state.Stop
-            ? active
-            : "Custom";
-    }
+    /// <summary>Which preset the device's current thresholds are, or "Custom" when none matches.</summary>
+    private static string PresetLabel(ChargeThresholdState state) =>
+        SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name ?? "Custom";
 
     /// <summary>(Re)builds the preset buttons. Returns untouched when the set hasn't changed, so the
     /// 5 s reconcile only repaints the highlight.</summary>
@@ -776,9 +762,8 @@ public sealed partial class DashboardWindow : Window
             bool ok = false;
             try
             {
-                // The shared composition the tray and MQTT paths use, so the drag reflects to them at
-                // once. clearActivePreset:true because the threshold is now custom.
-                ok = ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
+                // The shared composition the tray and MQTT paths use, so the drag reflects to them at once.
+                ok = ChargeControlService.SetExplicitThresholds(start, stop);
             }
             catch (Exception ex) { AppLog.Error("DashboardWindow.CommitThresholds", ex); }
 

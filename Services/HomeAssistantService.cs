@@ -405,8 +405,8 @@ internal sealed class HomeAssistantService : IDisposable
     {
         if (CurrentStateProvider?.Invoke() is not { } baseState) return;
         var fresh = ChargeThresholdService.Read();
-        string? activePreset = SettingsService.Read(s => s.ActivePreset);
-        PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, activePreset));
+        var presets = SettingsService.Read(s => s.Presets.ToList());
+        PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, presets));
     }
 
     /// <summary>The device's current thresholds, the companion value for a single-bound threshold set.

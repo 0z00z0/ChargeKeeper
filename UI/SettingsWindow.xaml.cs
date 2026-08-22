@@ -613,12 +613,20 @@ internal sealed partial class SettingsWindow : Window
         RefreshUnknownPresetCombo();
     }
 
+    /// <summary>The preset the firmware's thresholds are, or null when none matches. The vendor read
+    /// is taken first: it blocks, and the settings lock must not be held across it.</summary>
+    private static string? ActivePresetInUse()
+    {
+        var state = ChargeThresholdService.Read();
+        return SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
+    }
+
     /// <summary>Marks the row whose thresholds the firmware is running and leaves the rest offering
     /// activation. Hidden entirely where the vendor refuses threshold writes — an affordance that
     /// cannot work is worse than none.</summary>
     private void RefreshPresetActivationStates(ChargeThresholdState? state)
     {
-        string? activeName = ActivePresetPolicy.Match(SettingsService.Current.Presets, state)?.Name;
+        string? activeName = SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
         var visibility     = state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed;
 
         foreach (var button in PresetsListPanel.Children.OfType<SettingsExpander>()
@@ -775,7 +783,9 @@ internal sealed partial class SettingsWindow : Window
         errorText.Visibility = Visibility.Collapsed;
 
         bool renamed   = newName != originalName;
-        bool wasActive = cur.ActivePreset == originalName;
+        // Matched before the edit lands, while the stored preset still carries the values the device
+        // would be running if it were the active one.
+        bool wasActive = ActivePresetInUse() == originalName;
 
         SettingsService.Update(s =>
         {
@@ -813,8 +823,7 @@ internal sealed partial class SettingsWindow : Window
         _menu.ReconcileFromExternalChange();
     }
 
-    /// <summary>Pushes thresholds to the device off the UI thread. <c>clearActivePreset</c> stays
-    /// at its default: the callers here own ActivePreset. A failure is reported by toast rather
+    /// <summary>Pushes thresholds to the device off the UI thread. A failure is reported by toast rather
     /// than a row's inline error, because by the time the write completes the row may be gone.</summary>
     private void PushThresholdsToDevice(int start, int stop) => Task.Run(() =>
     {
@@ -831,7 +840,7 @@ internal sealed partial class SettingsWindow : Window
     private void DeletePreset(string name)
     {
         var s0 = SettingsService.Current;
-        bool wasActive = s0.ActivePreset == name;
+        bool wasActive = ActivePresetInUse() == name;
         var fallbackPreset = s0.Presets.FirstOrDefault(p => p.Name != name);
         string? fallback = fallbackPreset?.Name;
 
@@ -1066,7 +1075,8 @@ internal sealed partial class SettingsWindow : Window
         if (name is null) return null;   // cancelled
 
         var s0 = SettingsService.Current;
-        string defaultPreset = s0.ActivePreset ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+        // The preset in use is the obvious default for a new rule; the first one when none is.
+        string defaultPreset = ActivePresetInUse() ?? s0.Presets.FirstOrDefault()?.Name ?? "";
 
         SettingsService.Update(s =>
         {

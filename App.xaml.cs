@@ -255,7 +255,7 @@ public partial class App : Application
                 return HaStateBuilder.Build(
                     _lastIconState.Pct, _lastRateMW, _lastIconState.Charging, _lastBatteryStatus, _lastThresholdState,
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                    SettingsService.Current.ActivePreset);
+                    SettingsService.Read(s => s.Presets.ToList()));
             }
         };
         _ha.ApplySettings(SettingsService.Current);
@@ -523,7 +523,7 @@ public partial class App : Application
                 haSnapshot = HaStateBuilder.Build(
                     pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
                     _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                    SettingsService.Current.ActivePreset);
+                    SettingsService.Read(s => s.Presets.ToList()));
 
                 if (_lastBatteryStatus == BatteryStatus.Discharging &&
                     report.Status      == BatteryStatus.Charging)
