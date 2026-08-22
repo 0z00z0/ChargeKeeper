@@ -13,21 +13,18 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- No fixed Width: the grid fills the window, which is sized in code per monitor DPI.
-         The window height is measured from this grid (PlaceWindow), so rows can appear/disappear
-         without any hard-coded height constants. -->
+    <!-- No fixed size: the window is measured from this grid, so rows can appear and disappear
+         without hard-coded height constants. -->
     <Grid x:Name="RootGrid" Padding="20,16,20,20">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- 0: Header -->
-            <RowDefinition Height="Auto"/>  <!-- 1: Gauge + stats -->
-            <RowDefinition Height="Auto"/>  <!-- 2: History graph (time-scale selector + sparkline) -->
-            <RowDefinition Height="Auto"/>  <!-- 3: Separator -->
-            <RowDefinition Height="Auto"/>  <!-- 4: Status badges -->
+            <RowDefinition Height="Auto"/>  <!-- header -->
+            <RowDefinition Height="Auto"/>  <!-- gauge and stats -->
+            <RowDefinition Height="Auto"/>  <!-- history graph -->
+            <RowDefinition Height="Auto"/>  <!-- separator -->
+            <RowDefinition Height="Auto"/>  <!-- status badges -->
         </Grid.RowDefinitions>
 
-        <!-- Header. A Grid rather than the old StackPanel so the settings button can sit hard right
-             — a horizontal StackPanel gives every child its desired width in sequence and has no
-             way to push the last one to the far edge. -->
+        <!-- A Grid, not a StackPanel: only a Grid can push the settings button to the far edge. -->
         <Grid Grid.Row="0" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -45,9 +42,8 @@
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
             </StackPanel>
 
-            <!-- Settings shortcut. Properties are set inline rather than via a shared style: the
-                 subtle-button style this matches (TimeScaleButtonStyle) lives in
-                 BatteryHistoryGraphControl's own resources and is not in scope here. -->
+            <!-- Set inline rather than through TimeScaleButtonStyle, which lives in
+                 BatteryHistoryGraphControl's resources and is not in scope here. -->
             <Button Grid.Column="1"
                     x:Name="SettingsButton"
                     Width="28" Height="28"
@@ -64,16 +60,15 @@
             </Button>
         </Grid>
 
-        <!-- Battery gauge section: gauge left, stats right filling remaining width -->
+        <!-- Gauge left, stats filling the remaining width. -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Circular arc gauge -->
             <Grid Grid.Column="0" Width="100" Height="100" Margin="0,0,16,0">
-                <!-- Background arc (track) -->
+                <!-- Track. -->
                 <Canvas Width="100" Height="100">
                     <Path x:Name="GaugeTrack"
                           Stroke="{ThemeResource ControlStrokeColorDefaultBrush}"
@@ -86,11 +81,9 @@
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
-                    <!-- Charge threshold tick markers. Strokes (ticks AND the fill above) are
-                         assigned in code-behind from the shared palette — ticks get
-                         AppColors.HistoryLimitBrush (Terracotta) so the "charge limit" concept
-                         reads as one colour everywhere; hex literals here had to be hand-synced
-                         and once drifted. -->
+                    <!-- Charge-limit ticks. Strokes come from the shared palette in code-behind, so
+                         the charge-limit concept reads as one colour everywhere and no hex literal
+                         here can drift from it. -->
                     <Path x:Name="GaugeStartTick"
                           StrokeThickness="2.5"
                           StrokeStartLineCap="Round"
@@ -106,9 +99,8 @@
                           Visibility="Collapsed"
                           Opacity="0.9"/>
                 </Canvas>
-                <!-- Percentage + a compact status glyph in the centre. The glyph (▲ charging /
-                     ● idle / ▼ discharging) replaces the old status word, which was too wide and
-                     touched the arc. Colour conveys state and is set in code. -->
+                <!-- A glyph rather than a status word, which was wide enough to touch the arc.
+                     Colour carries the state and is set in code. -->
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="-3">
                     <TextBlock x:Name="BatteryPercentText"
                                Text="--"
@@ -124,7 +116,6 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Right side stats -->
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                 <StackPanel Spacing="2">
                     <TextBlock Text="POWER" Style="{StaticResource StatLabelStyle}"/>
@@ -141,40 +132,32 @@
             </StackPanel>
         </Grid>
 
-        <!-- Battery history graph + its time-scale ("period") controls — extracted into
-             BatteryHistoryGraphControl so the exact same graph can also be hosted in the bigger,
-             resizable BatteryHistoryWindow pop-out (opened via this control's "Expand" button)
-             without duplicating the drawing code. PlotAreaHeight pins the plot canvas to the same
-             126px it always had here, keeping this popup's measured size unchanged. -->
+        <!-- The graph is its own control so BatteryHistoryWindow can host the same drawing code at
+             a larger size. PlotAreaHeight pins the canvas so this popup's measured size is fixed. -->
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph"
                                            Grid.Row="2"
                                            Margin="0,0,0,12"
                                            PlotAreaHeight="126"/>
 
-        <!-- Separator -->
         <Border Grid.Row="3"
                 Height="1"
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                 Margin="0,0,0,12"/>
 
-        <!-- Status badges -->
         <StackPanel Grid.Row="4" Spacing="8">
 
-            <!-- Smart Charge badge -->
             <Border x:Name="SmartChargeBadge"
                     CornerRadius="6"
                     Padding="10,8">
                 <StackPanel Spacing="0">
-                    <!-- Header row: title + on/off switch -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <!-- Tapped: the label block is a second hit target for the switch, so a
-                             click anywhere on the badge text works (issue #86). Background must be
-                             set for that — a panel with no brush at all is not hit-testable, which
-                             would leave only the text glyphs themselves clickable. -->
+                        <!-- A second hit target for the switch, so a click anywhere on the badge
+                             text works. The Background is required: a panel with no brush is not
+                             hit-testable, leaving only the glyphs clickable. -->
                         <StackPanel Grid.Column="0" Spacing="1"
                                     Background="Transparent"
                                     Tapped="OnSmartChargeLabelTapped">
@@ -182,11 +165,8 @@
                                        FontSize="12"
                                        FontWeight="SemiBold"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                                <!-- Rich tooltip: a bold one-line summary, then a longer plain-
-                                     language explanation — a plain-string ToolTip can't carry two
-                                     font weights, so this uses an explicit ToolTip/StackPanel
-                                     instead. MaxWidth keeps the paragraph from stretching edge to
-                                     edge before it wraps. -->
+                                <!-- An explicit ToolTip rather than a plain string, which cannot
+                                     carry two font weights. -->
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="280" Spacing="6">
@@ -206,10 +186,9 @@
                                        FontSize="11"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
-                        <!-- Replaces the old read-only 8-px indicator dot. Empty On/OffContent +
-                             MinWidth=0 strip the default 154-px label track so the switch occupies
-                             roughly the space the dot did; the badge background still carries the
-                             active/inactive colour (SetFeatureBadge). -->
+                        <!-- Empty On/OffContent and MinWidth 0 strip the default 154 px label
+                             track, so the switch takes only the space it needs. The badge
+                             background carries the active colour. -->
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="SmartChargeToggle"
                                       OnContent=""
@@ -220,16 +199,10 @@
                                       Toggled="OnSmartChargeToggled"/>
                     </Grid>
 
-                    <!-- Threshold range — visible when Smart Charge is capable and enabled.
-                         Changes auto-apply (debounced); there is no Apply button. A single
-                         dual-thumb RangeSelector (CommunityToolkit.WinUI.Controls, MIT license —
-                         see README external-libraries table) replaces the old two separate
-                         sliders: Start% on the left, Stop% on the right of the same track, so the
-                         relationship between them ("charge between X% and Y%") reads as one
-                         control instead of two independent ones. Minimum/Maximum/StepFrequency
-                         are set in code-behind (ConfigureThresholdRange) — assigning them via
-                         XAML throws a XamlParseException on this Windows App SDK build (same
-                         issue the old Slider.Minimum had). -->
+                    <!-- One dual-thumb selector rather than two sliders, so "charge between X and
+                         Y" reads as a single control. Changes auto-apply, debounced, with no Apply
+                         button. Minimum, Maximum and StepFrequency are set in code-behind: setting
+                         them in XAML throws a XamlParseException on this Windows App SDK build. -->
                     <StackPanel x:Name="ThresholdSliders"
                                 Spacing="0"
                                 Margin="0,6,0,0"
@@ -253,11 +226,9 @@
                         </Grid>
                     </StackPanel>
 
-                    <!-- Shown INSTEAD of the range picker on vendors that have no numeric
-                         threshold. HP exposes three coarse BIOS modes ("Battery Health Manager")
-                         and no percentage at all, so a draggable range would invite the user to
-                         pick a value the firmware silently ignores. Text is set in code-behind
-                         because the cap figure comes from the active vendor. -->
+                    <!-- Replaces the range picker on vendors with no numeric threshold, where a
+                         draggable range would offer values the firmware silently ignores. The text
+                         is set in code-behind because the cap figure comes from the vendor. -->
                     <TextBlock x:Name="ThresholdFixedNote"
                                FontSize="11"
                                Margin="0,6,0,0"
@@ -265,18 +236,15 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
-                    <!-- One button per preset, in equal-width columns that divide the panel, so
-                         every row ends flush with the travel-override button below rather than
-                         short. A wrapping panel with fixed cells cannot do that. Columns, rows and
-                         spans are set in code (LayoutPresetButtons) from the preset count and the
-                         measured width; the buttons themselves come from BuildPresetButtons. A name
-                         too long for its column is trimmed, with the full label on the tooltip. -->
+                    <!-- Equal-width columns so every row ends flush with the button below, which a
+                         wrapping panel with fixed cells cannot do. Columns, rows and spans are set
+                         in code from the preset count and the measured width. -->
                     <Grid x:Name="PresetButtonPanel"
                           Margin="0,8,0,0"
                           Visibility="Collapsed"/>
 
-                    <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
-                         Charge is capable so it can also be cancelled while active. -->
+                    <!-- Visible whenever Smart Charge is capable, so an active override can also be
+                         cancelled from here. -->
                     <Button x:Name="TravelOverrideButton"
                             Content="🔝  Charge to 100 % once"
                             HorizontalAlignment="Stretch"
@@ -289,7 +257,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Smart Standby badge -->
             <Border x:Name="SmartStandbyBadge"
                     CornerRadius="6"
                     Padding="10,8">
@@ -335,9 +302,8 @@
                 </Grid>
             </Border>
 
-            <!-- Keep Awake badge. Never collapsed, unlike the two above: this feature is
-                 vendor-independent (a SetThreadExecutionState hold, not a BIOS/EC write), so there
-                 is no "this hardware can't" case to hide it for. -->
+            <!-- Never collapsed, unlike the two above: the hold is vendor-independent, so there is
+                 no unsupported-hardware case to hide it for. -->
             <Border x:Name="KeepAwakeBadge"
                     CornerRadius="6"
                     Padding="10,8">
@@ -383,10 +349,8 @@
                                       Toggled="OnKeepAwakeToggled"/>
                     </Grid>
 
-                    <!-- Preset chips. Built in code (BuildKeepAwakeChips) because the spans come
-                         from settings; their look is set inline there for the same reason the
-                         settings button above sets its own — TimeScaleButtonStyle lives in
-                         BatteryHistoryGraphControl's resources and is not in scope here. -->
+                    <!-- Built in code because the spans come from settings, and styled inline there
+                         because TimeScaleButtonStyle is not in scope here. -->
                     <StackPanel x:Name="KeepAwakePresetPanel"
                                 Orientation="Horizontal"
                                 Spacing="4"

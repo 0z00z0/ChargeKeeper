@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ChargeKeeper.Services;
@@ -55,6 +55,11 @@ internal sealed class AppSettings
 
     public bool LowBatteryWarningEnabled { get; set; } = true;
     public int  LowBatteryWarningPct     { get; set; } = 15;
+
+    /// <summary>Off by default: on a machine with no charge cap the level reaches 100 % every time
+    /// it is left plugged in, and a warning for that is noise rather than news.</summary>
+    public bool HighBatteryWarningEnabled { get; set; } = false;
+    public int  HighBatteryWarningPct     { get; set; } = 80;
 
     /// <summary>Normal Modern Standby drain is well under 1 %/hour, so 3 leaves headroom.</summary>
     public bool DrainAnomalyWarningEnabled  { get; set; } = true;

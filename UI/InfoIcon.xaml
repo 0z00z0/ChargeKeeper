@@ -7,11 +7,9 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <!-- The one info affordance for the whole app: a Segoe Fluent "Info" glyph that opens a Flyout,
-         never a ToolTip — a three-sentence explanation cannot live somewhere that closes as soon as
-         the pointer moves. A Button carries it because Button.Flyout opens on Space and Enter as
-         well as a click, so the keyboard path needs no code. Glyph size and the secondary-text
-         foreground match the header button in DashboardWindow.xaml. -->
+    <!-- A Flyout, not a ToolTip: an explanation of several sentences cannot live somewhere that
+         closes as the pointer moves. A Button carries it because Button.Flyout already opens on
+         Space and Enter, so the keyboard path needs no code. -->
     <Button x:Name="Root"
             Width="24" Height="24"
             Padding="0"

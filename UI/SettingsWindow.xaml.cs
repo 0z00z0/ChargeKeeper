@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.WinUI.Controls;
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -165,7 +165,7 @@ internal sealed partial class SettingsWindow : Window
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, SmartChargePanel, KeepAwakePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+            [GeneralPanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -288,6 +288,7 @@ internal sealed partial class SettingsWindow : Window
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
+        LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
@@ -432,6 +433,8 @@ internal sealed partial class SettingsWindow : Window
         [("None", 0), ("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60)];
     private static readonly (string Label, int Value)[] LowBattPctPresets =
         [("5 %", 5), ("10 %", 10), ("15 %", 15), ("20 %", 20), ("25 %", 25), ("30 %", 30), ("40 %", 40), ("50 %", 50)];
+    private static readonly (string Label, int Value)[] HighBattPctPresets =
+        [("60 %", 60), ("70 %", 70), ("75 %", 75), ("80 %", 80), ("85 %", 85), ("90 %", 90), ("95 %", 95)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
     // No "None": a zero lid delay would sleep the machine instantly through the very feature meant
@@ -529,6 +532,9 @@ internal sealed partial class SettingsWindow : Window
             LowBattEnabledToggle.IsOn      = s.LowBatteryWarningEnabled;
             LoadPresetCombo(LowBattPctCombo, LowBattPctPresets, s.LowBatteryWarningPct, v => $"{v} %");
             LowBattPctCombo.IsEnabled      = s.LowBatteryWarningEnabled;
+            HighBattEnabledToggle.IsOn     = s.HighBatteryWarningEnabled;
+            LoadPresetCombo(HighBattPctCombo, HighBattPctPresets, s.HighBatteryWarningPct, v => $"{v} %");
+            HighBattPctCombo.IsEnabled     = s.HighBatteryWarningEnabled;
             DrainEnabledToggle.IsOn        = s.DrainAnomalyWarningEnabled;
             LoadPresetCombo(DrainPctPerHourCombo, DrainPctPresets, s.DrainAnomalyPercentPerHour, v => $"{v} %/h");
             DrainPctPerHourCombo.IsEnabled = s.DrainAnomalyWarningEnabled;
@@ -545,6 +551,17 @@ internal sealed partial class SettingsWindow : Window
 
     private void OnLowBattPctChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(LowBattPctCombo, (s, v) => s.LowBatteryWarningPct = v);
+
+    private void OnHighBattEnabledToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = HighBattEnabledToggle.IsOn;
+        HighBattPctCombo.IsEnabled = on;
+        SettingsService.Update(s => s.HighBatteryWarningEnabled = on);
+    }
+
+    private void OnHighBattPctChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(HighBattPctCombo, (s, v) => s.HighBatteryWarningPct = v);
 
     private void OnDrainEnabledToggled(object sender, RoutedEventArgs e)
     {

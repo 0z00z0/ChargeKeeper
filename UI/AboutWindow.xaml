@@ -9,10 +9,8 @@
     xmlns:brand="using:ZeroZero.Brand.WinUI"
     mc:Ignorable="d">
 
-    <!-- #59: ChargeKeeper-owned About window. Chrome (Mica BaseAlt, sizing, close) is ours;
-         the actual About CONTENT (brand header, links, credits) is the shared
-         ZeroZero.Brand.WinUI.BrandAboutControl, hosted content-only. The shared control has NO
-         update button by design — ChargeKeeper keeps its own tray "Check for updates" item. -->
+    <!-- The chrome is this app's; the content is the shared BrandAboutControl, which carries no
+         update button so the tray keeps that job. -->
     <Window.SystemBackdrop>
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>

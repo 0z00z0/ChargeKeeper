@@ -12,19 +12,16 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- A frameless, resizable, close-on-blur window (DashboardWindow-style chrome, just bigger)
-         hosting the same graph control — "Expand" already got the user here, so ShowExpandButton
-         is off (hides the corner glyph and disables double-click-to-expand). -->
+    <!-- The same graph control at full size. ShowExpandButton is off: this window is where
+         expanding leads. -->
     <Grid Padding="20,16,20,20" RowSpacing="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- 0: POWER/REMAINING stats -->
-            <RowDefinition Height="*"/>     <!-- 1: graph -->
-            <RowDefinition Height="Auto"/>  <!-- 2: battery health panel (TODO #24) -->
+            <RowDefinition Height="Auto"/>  <!-- stats -->
+            <RowDefinition Height="*"/>     <!-- graph -->
+            <RowDefinition Height="Auto"/>  <!-- health -->
         </Grid.RowDefinitions>
 
-        <!-- Same POWER/REMAINING stats as the small dashboard, just with room to show the adapter's
-             rated wattage ("AC Power (60W charger)") — the small popup's fixed 340px width can't fit
-             that without overflowing, so it stays plain there and shows up here instead. -->
+        <!-- Room here for the adapter wattage the 340 px dashboard popup cannot fit. -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="28">
             <StackPanel Spacing="2">
                 <TextBlock Text="POWER" Style="{StaticResource StatLabelStyle}"/>

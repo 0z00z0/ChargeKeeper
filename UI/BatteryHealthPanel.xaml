@@ -7,13 +7,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <!-- Battery health / degradation panel (TODO #24): a separate, slow-timescale section below
-         the main SoC/Power graph — deliberately NOT folded into that graph, whose two Y-axes
-         already cover a completely different (minutes-to-days) scale, and whose gap-collapsing
-         x-axis would misrepresent a value that changes over months. Collapses to a single
-         "gathering data" line until at least two daily samples exist. -->
-    <!-- Studio card surface (CardBackgroundFillColorDefaultBrush is remapped to the studio bg2 in
-         App.xaml) with a hairline studio border, so this health card matches the Settings cards. -->
+    <!-- Health moves over months, so it gets its own panel rather than a third series on the
+         SoC/Power graph, whose gap-collapsing x-axis would misrepresent it. -->
     <Border CornerRadius="12"
             Padding="16,12"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -34,9 +29,8 @@
                        Style="{StaticResource StatValueStyle}"
                        TextWrapping="Wrap"/>
 
-            <!-- Solid line = actual logged FullChargeCapacity; dashed continuation = a simple
-                 linear-trend projection. Built in code (TrendCanvas.Children) since the data is
-                 dynamic; SizeChanged re-renders on resize like the main graph's canvas does. -->
+            <!-- Solid line is logged capacity, dashed is the linear projection. Drawn in code
+                 because the series is dynamic. -->
             <Canvas x:Name="TrendCanvas" Grid.Row="2"
                     Background="Transparent"
                     SizeChanged="OnCanvasSizeChanged"/>

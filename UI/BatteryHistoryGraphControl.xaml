@@ -8,10 +8,8 @@
     mc:Ignorable="d">
 
     <UserControl.Resources>
-        <!-- Compact segmented-toggle style for the time-scale row (15m/1h/6h/.../14d).
-             Selection highlight (background/foreground) is applied per-button in code-behind
-             (SetSelectedScaleButton) since it changes at runtime; this style only sets the
-             resting/hover/pressed look shared by all seven buttons. -->
+        <!-- The resting, hover and pressed look shared by the time-scale buttons. The selection
+             highlight changes at runtime and is applied per button in code-behind. -->
         <Style x:Key="TimeScaleButtonStyle" TargetType="Button">
             <Setter Property="Padding" Value="0,4"/>
             <Setter Property="MinWidth" Value="36"/>
@@ -24,22 +22,18 @@
         </Style>
     </UserControl.Resources>
 
-    <!-- Root is a Grid (not a StackPanel) so the plot row (Row 1) can be given "*" by a resizable
-         host and actually receive the extra space — a StackPanel never gives a child more than its
-         own desired size along the stack axis, which would silently defeat a bigger pop-out window.
-         SparklineCard and the legend are direct children of this Grid (not wrapped in another
-         Auto-sized Grid) so nothing between Row 1's "*" and the card itself caps its growth. -->
+    <!-- A Grid, not a StackPanel, so the plot row can take "*" from a resizable host: a StackPanel
+         never gives a child more than its desired size along the stack axis. The card and the
+         legend are direct children so nothing between that "*" and the card caps its growth. -->
     <Grid x:Name="RootGrid" RowSpacing="6">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- 0: Time-scale selector -->
-            <RowDefinition Height="*"/>     <!-- 1: History sparkline card -->
-            <RowDefinition Height="Auto"/>  <!-- 2: Legend -->
+            <RowDefinition Height="Auto"/>  <!-- time-scale selector -->
+            <RowDefinition Height="*"/>     <!-- sparkline card -->
+            <RowDefinition Height="Auto"/>  <!-- legend -->
         </Grid.RowDefinitions>
 
-        <!-- Time-scale selector: compact segmented control, one toggle button per GraphTimeScale
-             value in order. The selected scale button is highlighted in code
-             (SetSelectedScaleButton). The expand trigger lives on the plot card itself
-             (ExpandGlyph below), not in this row, so the seven buttons get the full width. -->
+        <!-- One toggle button per GraphTimeScale value, in order. The expand trigger is not in this
+             row, so the buttons get the full width. -->
         <StackPanel Grid.Row="0"
                     x:Name="TimeScalePanel"
                     Orientation="Horizontal"
@@ -53,25 +47,17 @@
             <Button x:Name="Scale14dButton" Content="14d" Tag="FourteenDays"   Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
         </StackPanel>
 
-        <!-- Hidden references read from code for the gap/min-max annotation pills, matching this
-             codebase's existing pattern of sourcing ThemeResource brushes from an inert XAML
-             element instead of a code-behind resource lookup. GraphLabelPillTextBrushRef gives a
-             higher-contrast text brush than the axis labels' Tertiary. AnnotationPillBackgroundRef
-             is deliberately NOT SparklineCard's own ControlFillColorDefaultBrush — that Fluent
-             brush is a translucent "reveal" surface by design, not solid, so a pill using it would
-             still let the coloured line/gradient underneath bleed through and defeat the whole
-             point of the pill (contrast). SolidBackgroundFillColorBase IS a fully opaque brush. -->
+        <!-- Inert elements the annotation pills read their brushes from, rather than a code-behind
+             resource lookup. The pill background must be a fully opaque brush: the Fluent fill
+             brushes are translucent, and the line underneath would bleed through the pill. -->
         <TextBlock x:Name="GraphLabelPillTextBrushRef" Grid.Row="1" Visibility="Collapsed"
                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
         <Border x:Name="AnnotationPillBackgroundRef" Grid.Row="1" Visibility="Collapsed"
                 Background="{ThemeResource SolidBackgroundFillColorBase}"/>
 
-        <!-- Battery history graph: SoC + charge-limit (left % axis) and charge power (right W
-             axis, dotted), a time axis along the bottom. Rounded corners (8px) and a touch of
-             inner padding give the plot a card-like feel. Row is "*" by default so a resizable
-             host lets it grow; the small embedded dashboard pins it back to a fixed pixel height
-             via the PlotAreaHeight property (see code-behind) to stay pixel-identical to before
-             this control existed. -->
+        <!-- SoC and charge limit on the left axis, charge power on the right, time along the
+             bottom. The row takes "*" so a resizable host lets it grow; the dashboard pins it to a
+             fixed height through PlotAreaHeight instead. -->
         <Border x:Name="SparklineCard"
                 Grid.Row="1"
                 CornerRadius="12"
@@ -80,7 +66,7 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition x:Name="CanvasRow" Height="*"/>
-                    <RowDefinition Height="Auto"/>  <!-- SoC stress heat strip (TODO #25) -->
+                    <RowDefinition Height="Auto"/>  <!-- stress heat strip -->
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
@@ -96,9 +82,9 @@
                     <TextBlock x:Name="LeftAxisBottomLabel" Text="0"   FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
 
-                <!-- Background is set (Transparent) so the empty plot area hit-tests: a Canvas
-                     with a null Background is invisible to pointer input everywhere its children
-                     aren't, which would silently limit DoubleTapped-to-expand to the lines only. -->
+                <!-- A Transparent Background so the empty plot area hit-tests: a Canvas with a null
+                     Background takes no pointer input except where its children are, which would
+                     limit double-tap-to-expand to the lines. -->
                 <Canvas x:Name="SparklineCanvas" Grid.Row="0" Grid.Column="1"
                         Background="Transparent"
                         SizeChanged="OnCanvasSizeChanged"
@@ -106,23 +92,18 @@
                         PointerMoved="OnCanvasPointerMoved"
                         PointerExited="OnCanvasPointerExited"/>
 
-                <!-- Right axis: charge power W, auto-scaled to the visible window (min/0/max),
-                     always including 0. Populated in code since the range is dynamic. -->
+                <!-- Charge power, auto-scaled to the visible window and always including zero.
+                     Populated in code because the range is dynamic. -->
                 <Grid Grid.Row="0" Grid.Column="2" Margin="3,2,4,4">
                     <TextBlock x:Name="RightAxisTopLabel"    Text="—" FontSize="11" VerticalAlignment="Top"    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     <TextBlock x:Name="RightAxisMidLabel"    Text="—" FontSize="11" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     <TextBlock x:Name="RightAxisBottomLabel" Text="—" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 </Grid>
 
-                <!-- SoC "stress" heat strip (TODO #25): a slim gradient bar under the plot, colour-
-                     coding time spent at high SoC (more stressful long-term) vs moderate SoC
-                     (gentler) across the visible window — pop-out only (ShowStressHeatmap), same
-                     "no room in the small popup" reasoning as ShowGapMarkers. Fill (a per-sample-
-                     stop LinearGradientBrush) is built in code-behind every Render() since the
-                     underlying SoC data changes; Visibility is also driven from code so the Auto
-                     row collapses to zero height when hidden, matching how ThresholdSliders does
-                     it elsewhere in this codebase. Column 1 only, aligned exactly with the canvas
-                     above it so the gradient's x-positions line up with the SoC line's samples. -->
+                <!-- Colour-codes time spent at high SoC across the visible window. Pop-out only,
+                     for want of room in the small popup. The gradient is rebuilt in code on every
+                     render, and Visibility is driven from code so the Auto row collapses to nothing
+                     when hidden. Column 1 only, so the stops line up with the SoC samples above. -->
                 <Rectangle x:Name="StressHeatmapBar"
                            Grid.Row="1"
                            Grid.Column="1"
@@ -131,11 +112,8 @@
                            RadiusX="3.5"
                            RadiusY="3.5"/>
 
-                <!-- Time axis: left = age of the OLDEST loaded sample, right = age of the newest
-                     (usually "now", but shows an elapsed time instead once sampling has gone
-                     quiet for longer than GapThreshold). NOT a fixed span — leading downtime is
-                     collapsed by the compressed x-axis, so the left edge can be more recent than
-                     the selected GraphTimeScale. Set dynamically in Render(). -->
+                <!-- Not a fixed span: the compressed x-axis collapses leading downtime, so the left
+                     edge can be more recent than the selected time scale. Set in Render(). -->
                 <Grid Grid.Row="2" Grid.Column="1" Margin="7,3,7,6">
                     <TextBlock x:Name="SparklineStartLabel"
                                Text="—"
@@ -152,27 +130,18 @@
             </Grid>
         </Border>
 
-        <!-- Footer row: compact legend on the left, the expand button on the right — OUTSIDE the
-             plot card entirely, not overlaid on the canvas (per user feedback: an overlay sitting
-             on top of the chart reads as part of the graph and gets lost/obscured behind the
-             lines; a real button in its own row is unambiguous). Two columns so the legend keeps
-             its natural width and the button gets whatever space is left, right-aligned.
-             Glyph: "⛶" (SQUARE FOUR CORNERS) instead of an earlier "⤢" — the diagonal
-             double-headed-arrow glyph is mostly thin strokes with a lot of empty space in its own
-             em-box, so it read as small/faint no matter how large FontSize was pushed (per user
-             follow-up: "the button itself is large, but not the visible symbol"). FontWeight="Bold"
-             (Button Content as a plain string isn't bolded by a bold-ish font automatically) adds
-             extra visual weight. Colours (ExpandGlyphBrush/ExpandGlyphBackgroundBrush — the
-             palette's orange tint) are assigned in code-behind, matching this codebase's existing
-             AppColors-in-code convention. -->
+        <!-- The expand button sits in its own row rather than overlaid on the canvas, where it
+             reads as part of the graph and is obscured by the lines. Two columns, so the legend
+             keeps its natural width and the button takes the rest. The glyph is SQUARE FOUR
+             CORNERS: the diagonal arrow glyph is thin strokes in a mostly empty em-box and reads
+             faint at any size. Colours are assigned in code-behind from AppColors. -->
         <Grid Grid.Row="2" Margin="4,0,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Compact legend: coloured swatch + label per series. Swatch colours are assigned in
-                 code-behind (AppColors), matching how the rest of this codebase applies brushes. -->
+            <!-- A swatch and label per series; swatch colours are assigned in code-behind. -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
@@ -188,12 +157,9 @@
                 </StackPanel>
             </StackPanel>
 
-            <!-- Same footprint as the time-scale buttons (Style below supplies MinWidth/
-                 CornerRadius/BorderThickness/HorizontalContentAlignment; Width/Height pin it
-                 exactly rather than relying on auto-size, since "⛶" and e.g. "15m" measure
-                 differently) — Padding is tighter than the style's own (3 vs. the style's "0,4")
-                 so the glyph reads large within that same box while still keeping a visible gap
-                 from the edges. -->
+            <!-- The same footprint as the time-scale buttons. Width and Height are pinned rather
+                 than auto-sized, because the glyph and a label like "15m" measure differently, and
+                 the tighter Padding lets the glyph read large inside that same box. -->
             <Button x:Name="ExpandGlyph"
                     Grid.Column="1"
                     Style="{StaticResource TimeScaleButtonStyle}"
