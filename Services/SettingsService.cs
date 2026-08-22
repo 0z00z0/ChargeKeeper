@@ -135,6 +135,17 @@ internal sealed class AppSettings
     public string MqttPassword   { get; set; } = "";
     public bool   MqttUseTls     { get; set; } = false;
 
+    /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
+    /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
+    /// WebSocket ignores the port and uses <c>wss://&lt;host&gt;</c> unless the host names a URI —
+    /// see <see cref="MqttTransportEndpoint"/>.</summary>
+    public MqttTransportSetting MqttTransportMode { get; set; } = MqttTransportSetting.Auto;
+
+    /// <summary>Which transport last connected. State rather than a setting: it records where the
+    /// machine turned out to be, so Auto starts with the path that worked, and it never changes what
+    /// <see cref="MqttTransportMode"/> says the user chose. Null until something connects.</summary>
+    public MqttTransport? MqttLastGoodTransport { get; set; }
+
     /// <summary>Must match HA's own prefix, or discovery configs land where nothing reads them.</summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
 

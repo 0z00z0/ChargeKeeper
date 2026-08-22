@@ -139,9 +139,10 @@ public class MqttConnectionProbeTests
     [Fact]
     public void Describe_GivesEachOutcomeADistinctSentence()
     {
-        string success     = MqttConnectionProbe.Describe(new(MqttProbeOutcome.Success, ""));
-        string unreachable = MqttConnectionProbe.Describe(new(MqttProbeOutcome.Unreachable, "connection refused"));
-        string auth        = MqttConnectionProbe.Describe(new(MqttProbeOutcome.AuthRejected, "NotAuthorized"));
+        var tcp = MqttTransport.Tcp;
+        string success     = MqttConnectionProbe.Describe(new(MqttProbeOutcome.Success, ""), tcp);
+        string unreachable = MqttConnectionProbe.Describe(new(MqttProbeOutcome.Unreachable, "connection refused"), tcp);
+        string auth        = MqttConnectionProbe.Describe(new(MqttProbeOutcome.AuthRejected, "NotAuthorized"), tcp);
 
         Assert.Equal(3, new[] { success, unreachable, auth }.Distinct().Count());
         Assert.Contains("Connected", success);
@@ -149,13 +150,67 @@ public class MqttConnectionProbeTests
         Assert.Contains("rejected these credentials", auth);
     }
 
+    // The transport is the point of the answer under Auto, so no verdict may be silent about it.
+    [Fact]
+    public void Describe_NamesTheTransportInEverySentence()
+    {
+        foreach (var outcome in Enum.GetValues<MqttProbeOutcome>())
+        {
+            Assert.Contains("TCP", MqttConnectionProbe.Describe(new(outcome, "x"), MqttTransport.Tcp));
+            Assert.Contains("WebSocket", MqttConnectionProbe.Describe(new(outcome, "x"), MqttTransport.WebSocket));
+        }
+    }
+
     [Fact]
     public void IsFailure_IsTrueForEverythingButSuccess()
     {
-        Assert.False(MqttConnectionProbe.IsFailure(new(MqttProbeOutcome.Success, "")));
-        Assert.True (MqttConnectionProbe.IsFailure(new(MqttProbeOutcome.AuthRejected, "")));
-        Assert.True (MqttConnectionProbe.IsFailure(new(MqttProbeOutcome.Unreachable, "")));
+        Assert.False(MqttConnectionProbe.IsFailure(Report((MqttTransport.Tcp, MqttProbeOutcome.Success))));
+        Assert.True (MqttConnectionProbe.IsFailure(Report((MqttTransport.Tcp, MqttProbeOutcome.AuthRejected))));
+        Assert.True (MqttConnectionProbe.IsFailure(Report((MqttTransport.Tcp, MqttProbeOutcome.Unreachable))));
     }
+
+    // A run that reached the broker names the transport that did and keeps the other as context; a
+    // run that reached nothing has no single verdict, so it lists every transport tried.
+    [Fact]
+    public void Describe_Report_SeparatesAFallbackFromReachingNothing()
+    {
+        string fellBack = MqttConnectionProbe.Describe(Report(
+            (MqttTransport.Tcp, MqttProbeOutcome.Unreachable),
+            (MqttTransport.WebSocket, MqttProbeOutcome.Success)));
+        Assert.StartsWith("Connected over WebSocket.", fellBack);
+        Assert.Contains("TCP could not be reached", fellBack);
+
+        string nothing = MqttConnectionProbe.Describe(Report(
+            (MqttTransport.Tcp, MqttProbeOutcome.Unreachable),
+            (MqttTransport.WebSocket, MqttProbeOutcome.TimedOut)));
+        Assert.StartsWith("Neither transport reached the broker.", nothing);
+        Assert.Contains("TCP could not be reached", nothing);
+        Assert.Contains("WebSocket did not answer", nothing);
+
+        Assert.NotEqual(fellBack, nothing);
+    }
+
+    // A refused credential and a closed port must not read alike: one sends the user to the broker's
+    // user list, the other to its ports.
+    [Fact]
+    public void Describe_Report_TellsRefusedCredentialsFromAClosedPort()
+    {
+        string auth = MqttConnectionProbe.Describe(Report((MqttTransport.Tcp, MqttProbeOutcome.AuthRejected)));
+        string shut = MqttConnectionProbe.Describe(Report((MqttTransport.Tcp, MqttProbeOutcome.Unreachable)));
+
+        Assert.Contains("rejected these credentials", auth);
+        Assert.Contains("Could not reach the broker", shut);
+        Assert.DoesNotContain("credential", shut);
+    }
+
+    [Fact]
+    public void Describe_Report_WithNothingTried_SaysThereIsNoHost()
+    {
+        Assert.Equal("No broker host set.", MqttConnectionProbe.Describe(new MqttProbeReport([])));
+    }
+
+    private static MqttProbeReport Report(params (MqttTransport Transport, MqttProbeOutcome Outcome)[] attempts) =>
+        new([.. attempts.Select(a => new MqttTransportAttempt(a.Transport, a.Outcome))]);
 
     // The probe must never present itself to the broker as the publisher: an identical client id makes
     // the broker evict the live session, so pressing "Test connection" would drop the real connection.

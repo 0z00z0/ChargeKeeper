@@ -451,6 +451,18 @@
                     <controls:SettingsCard Header="Port">
                         <NumberBox x:Name="HaPortBox" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Hidden" MinWidth="120"/>
                     </controls:SettingsCard>
+                    <!-- Auto is first so it is the default selection, matching the setting. -->
+                    <controls:SettingsCard Header="Transport" Description="How the broker is reached.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="HaTransportCombo" MinWidth="160">
+                                <ComboBoxItem Content="Auto"/>
+                                <ComboBoxItem Content="TCP"/>
+                                <ComboBoxItem Content="WebSocket"/>
+                            </ComboBox>
+                            <local:InfoIcon Subject="the transport"
+                                            Info="Auto tries plain TCP first and falls back to WebSocket, then remembers whichever answered and starts there next time — the usual case for a machine that is on the internal network sometimes and outside it at others. TCP uses the host and port above. WebSocket uses wss://&lt;host&gt; on port 443 and ignores the port box, unless the host is written as a ws:// or wss:// address."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                     <controls:SettingsCard Header="Username" Description="Leave blank for an anonymous broker.">
                         <TextBox x:Name="HaUsernameBox" MinWidth="220"/>
                     </controls:SettingsCard>
