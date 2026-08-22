@@ -144,11 +144,13 @@
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                 Margin="0,0,0,8"/>
 
+        <!-- Badge padding is 5 top and bottom rather than the 6 a card would take: the section
+             headings are a size larger here, and the popup is height-constrained. -->
         <StackPanel Grid.Row="4" Spacing="8">
 
             <Border x:Name="SmartChargeBadge"
                     CornerRadius="6"
-                    Padding="10,6">
+                    Padding="10,5">
                 <StackPanel Spacing="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -162,9 +164,7 @@
                                     Background="Transparent"
                                     Tapped="OnSmartChargeLabelTapped">
                             <TextBlock Text="Smart Charge"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                       Style="{StaticResource DashboardHeaderStyle}">
                                 <!-- An explicit ToolTip rather than a plain string, which cannot
                                      carry two font weights. -->
                                 <ToolTipService.ToolTip>
@@ -259,7 +259,7 @@
 
             <Border x:Name="SmartStandbyBadge"
                     CornerRadius="6"
-                    Padding="10,6">
+                    Padding="10,5">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -269,9 +269,7 @@
                                 Background="Transparent"
                                 Tapped="OnSmartStandbyLabelTapped">
                         <TextBlock Text="Smart Standby"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                   Style="{StaticResource DashboardHeaderStyle}">
                             <ToolTipService.ToolTip>
                                 <ToolTip>
                                     <StackPanel MaxWidth="280" Spacing="6">
@@ -306,7 +304,7 @@
                  the delay live here — locking at lid close stays in Settings. -->
             <Border x:Name="LidDelayBadge"
                     CornerRadius="6"
-                    Padding="10,6">
+                    Padding="10,5">
                 <StackPanel Spacing="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -317,9 +315,7 @@
                                     Background="Transparent"
                                     Tapped="OnLidDelayLabelTapped">
                             <TextBlock Text="Lid close"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                       Style="{StaticResource DashboardHeaderStyle}">
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="280" Spacing="6">
@@ -363,7 +359,7 @@
                  no unsupported-hardware case to hide it for. -->
             <Border x:Name="KeepAwakeBadge"
                     CornerRadius="6"
-                    Padding="10,6">
+                    Padding="10,5">
                 <StackPanel Spacing="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -374,9 +370,7 @@
                                     Background="Transparent"
                                     Tapped="OnKeepAwakeLabelTapped">
                             <TextBlock Text="Keep Awake"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                       Style="{StaticResource DashboardHeaderStyle}">
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="280" Spacing="6">
