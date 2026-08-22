@@ -91,17 +91,37 @@ public class NetworkLocationServiceTests
     // SelectPrimary: the primary-adapter heuristic, exercised without live adapters
 
     [Fact]
-    public void SelectPrimary_BridgedHyperV_RoutingTableWinsOverPhysicalVirtualBias()
+    public void BridgedHyperV_RoutingTableNamesTheSwitchPort_ButTheKeyComesFromThePhysicalNic()
     {
         // On a Hyper-V external switch the routable IP and default route live on the virtual
         // "vEthernet (…)" adapter while the bridged physical NIC keeps no usable IP, so the routing
-        // table has to beat the "prefer physical, demote virtual" bias.
-        var physical  = new AdapterCandidate(IPv4Index: 7,  IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
-        var vEthernet = new AdapterCandidate(IPv4Index: 12, IsVirtual: true,  Type: NetworkInterfaceType.Ethernet);
+        // table still names the switch port and SelectPrimary still returns it. What the key is taken
+        // from is the reverse of what it once was: the MAC and the suggested name follow the NIC
+        // behind the switch, and only the subnet stays with the port that holds the address.
+        var port = BridgedSwitchPort();
 
-        var result = NetworkLocationService.SelectPrimary([physical, vEthernet], bestIndex: 12);
+        Assert.Same(port, NetworkLocationService.SelectPrimary([port], bestIndex: 31));
 
-        Assert.Same(vEthernet, result);
+        var location = NetworkLocationService.Detect([port], MeasuredPeers, bestIndex: 31, () => null);
+
+        // The name is the discriminator that the key follows the NIC: the port is called
+        // "vEthernet (Bridged)" and would have named itself.
+        Assert.Equal("Ethernet", location.DisplayHint);
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("10.0.1.0/23", location.IpCidr);
+    }
+
+    [Fact]
+    public void Detect_HyperVSwitchPortWithNoNicBehindIt_ReportsNoLocation()
+    {
+        // A switch recreated with a dynamic MAC leaves the port on a Microsoft-OUI address that pairs
+        // with nothing. The old contract stored that address; storing it is what let one key stand for
+        // several places, so the reading is given up instead.
+        var orphan = Adapter(31, NetworkInterfaceType.Ethernet, BridgeAlias, BridgeDesc,
+                             "00:15:5D:01:02:03", "10.0.1.0/23", metric: 15);
+
+        Assert.True(NetworkLocationService.Detect(
+            [orphan], [Peer(orphan)], bestIndex: 31, () => null).IsEmpty);
     }
 
     [Fact]
@@ -422,5 +442,246 @@ public class NetworkLocationServiceTests
     public void DescribeMatchKey_NoFacets_SaysTheProfileCanNeverApply()
     {
         Assert.Contains("never apply", NetworkLocationService.DescribeMatchKey(null, null));
+    }
+
+    // Resolving the routed adapter down to the physical NIC. The fixtures are measured from this
+    // machine: a WireGuard tunnel reports IANA ifType 53 with no hardware address at all, mobile
+    // broadband reports Wwanpp rather than Ethernet, and the interface metrics are the ones
+    // Get-NetIPInterface shows.
+
+    private const string WifiMac   = "30:89:4A:68:1C:3A";
+    private const string MobileMac = "84:8D:B0:53:5F:55";
+    private const string DockMac   = "3C:2C:30:CA:98:D7";
+    private const string VpnCidr   = "10.0.50.0/24";
+    private const uint   VpnIndex  = 72;
+
+    // IsVirtual comes from the real predicate, so a fixture can never claim a nature the shipped
+    // classification would not give it.
+    private static AdapterCandidate Adapter(
+        int index, NetworkInterfaceType type, string name, string description,
+        string? mac, string? cidr, uint metric) =>
+        new(index, NetworkLocationService.LooksVirtual(description), type, name, description, mac, cidr, metric);
+
+    private static AdapterCandidate WireGuard(string cidr = VpnCidr) =>
+        Adapter((int)VpnIndex, (NetworkInterfaceType)53, "B1", "WireGuard Tunnel", null, cidr, metric: 5);
+
+    private static AdapterCandidate WifiCard(string cidr, uint metric = 30) =>
+        Adapter(9, NetworkInterfaceType.Wireless80211, "WiFi", "Intel(R) Wi-Fi 6E AX211 160MHz", WifiMac, cidr, metric);
+
+    private static AdapterCandidate Dock(string cidr, uint metric = 25) =>
+        Adapter(5, NetworkInterfaceType.Ethernet, "Ethernet", "Realtek USB GbE Family Controller", DockMac, cidr, metric);
+
+    private static AdapterCandidate Tether(string cidr, uint metric = 35) =>
+        Adapter(15, NetworkInterfaceType.Wwanpp, "Mobile", "5G Solution 5000", MobileMac, cidr, metric);
+
+    // The external switch's port, holding the address while the NIC behind it holds none and lending
+    // its hardware address verbatim — which is what makes the pairing possible at all.
+    private static AdapterCandidate BridgedSwitchPort() =>
+        Adapter(31, NetworkInterfaceType.Ethernet, BridgeAlias, BridgeDesc, PhysicalMac, "10.0.1.0/23", metric: 15);
+
+    private static BridgePeer Peer(AdapterCandidate c) => new(c.Name, c.Mac, c.IsVirtual, OperationalStatus.Up);
+
+    private static BridgePeer[] PeersOf(params AdapterCandidate[] candidates) => [.. candidates.Select(Peer)];
+
+    // The routing table points at the tunnel, which is what a live VPN makes it do.
+    private static NetworkLocation DetectBehindVpn(params AdapterCandidate[] carriers)
+    {
+        AdapterCandidate[] all = [WireGuard(), .. carriers];
+        return NetworkLocationService.Detect(all, PeersOf(all), VpnIndex, () => "SomeSsid");
+    }
+
+    [Theory]
+    [InlineData("WireGuard Tunnel")]
+    [InlineData("PANGP Virtual Ethernet Adapter Secure")]
+    [InlineData("Hyper-V Virtual Ethernet Adapter #2")]
+    [InlineData("Microsoft Wi-Fi Direct Virtual Adapter")]
+    [InlineData("TAP-Windows Adapter V9")]
+    [InlineData("Software Loopback Interface 1")]
+    public void LooksVirtual_RecognisesWhatIsNotANic(string description)
+    {
+        Assert.True(NetworkLocationService.LooksVirtual(description));
+    }
+
+    [Theory]
+    [InlineData("Intel(R) Wi-Fi 6E AX211 160MHz")]
+    [InlineData("Realtek USB GbE Family Controller")]
+    [InlineData("5G Solution 5000")]
+    [InlineData("Bluetooth Device (Personal Area Network)")]
+    public void LooksVirtual_LeavesRealNicsAlone(string description)
+    {
+        Assert.False(NetworkLocationService.LooksVirtual(description));
+    }
+
+    [Fact]
+    public void IsPhysical_MobileBroadband_CountsAsANic()
+    {
+        // Measured: Windows reports the 5G modem as Wwanpp, so restricting the type list to Ethernet
+        // and Wireless80211 would leave tethering resolving to nothing.
+        Assert.True(NetworkLocationService.IsPhysical(Tether("100.110.83.0/24")));
+    }
+
+    [Fact]
+    public void IsPhysical_TunnelWithNoHardwareAddress_IsNotANic()
+    {
+        Assert.False(NetworkLocationService.IsPhysical(WireGuard()));
+    }
+
+    [Fact]
+    public void IsPhysical_VpnAdapterWithAnEthernetTypeAndAMac_IsNotANic()
+    {
+        // A VPN client's adapter is indistinguishable from a NIC apart from its description.
+        var pangp = Adapter(28, NetworkInterfaceType.Ethernet, "Ethernet 2",
+                            "PANGP Virtual Ethernet Adapter Secure", "02:50:41:00:00:01", "10.9.0.0/24", metric: 20);
+
+        Assert.False(NetworkLocationService.IsPhysical(pangp));
+    }
+
+    [Fact]
+    public void Detect_OneVpnOverWifiEthernetAndMobile_KeysStayApart()
+    {
+        // The defect this whole path exists for: with the tunnel supplying the key, all three read as
+        // one place and one set of charge thresholds followed the machine everywhere.
+        var overWifi     = DetectBehindVpn(WifiCard("10.0.0.0/23"));
+        var overEthernet = DetectBehindVpn(Dock("192.168.1.0/24"));
+        var overMobile   = DetectBehindVpn(Tether("100.110.83.0/24"));
+
+        Assert.Equal(WifiMac,   overWifi.AdapterMac);
+        Assert.Equal(DockMac,   overEthernet.AdapterMac);
+        Assert.Equal(MobileMac, overMobile.AdapterMac);
+
+        Assert.False(overWifi.SameLocationAs(overEthernet));
+        Assert.False(overWifi.SameLocationAs(overMobile));
+        Assert.False(overEthernet.SameLocationAs(overMobile));
+
+        // And the tunnel's own subnet reaches none of them.
+        Assert.All([overWifi, overEthernet, overMobile], l => Assert.NotEqual(VpnCidr, l.IpCidr));
+    }
+
+    [Fact]
+    public void Detect_OneWifiCardOnTwoSubnets_KeysStayApart()
+    {
+        // A home and a cabin reached over the same radio differ only by subnet, so the subnet cannot
+        // leave the key.
+        var home  = DetectBehindVpn(WifiCard("10.0.0.0/23"));
+        var cabin = DetectBehindVpn(WifiCard("10.0.20.0/24"));
+
+        Assert.Equal(home.AdapterMac, cabin.AdapterMac);
+        Assert.False(home.SameLocationAs(cabin));
+    }
+
+    [Fact]
+    public void Detect_DockedWithTheWifiRadioStillUp_LowestInterfaceMetricDecides()
+    {
+        // Docked, Windows gives the wired link the lower metric and routes over it, so that is the
+        // adapter the location is keyed on.
+        var location = DetectBehindVpn(WifiCard("10.0.0.0/23", metric: 30), Dock("192.168.1.0/24", metric: 25));
+
+        Assert.Equal(DockMac, location.AdapterMac);
+        Assert.Equal("192.168.1.0/24", location.IpCidr);
+    }
+
+    [Fact]
+    public void Detect_DockTieBreak_FollowsTheMetricAndNotTheAdapterType()
+    {
+        // Metrics swapped: nothing about "wired beats wireless" decides this.
+        var location = DetectBehindVpn(WifiCard("10.0.0.0/23", metric: 20), Dock("192.168.1.0/24", metric: 45));
+
+        Assert.Equal(WifiMac, location.AdapterMac);
+        Assert.Equal("10.0.0.0/23", location.IpCidr);
+    }
+
+    [Fact]
+    public void Detect_VpnOverAHyperVBridgedDock_ResolvesThroughBothLayersToTheNic()
+    {
+        // Two layers at once, which is this machine docked with the tunnel up: the tunnel holds the
+        // route, the switch port holds the address, and the NIC behind the switch holds neither.
+        AdapterCandidate[] all = [WireGuard(), BridgedSwitchPort(), Tether("100.110.83.0/24")];
+
+        var location = NetworkLocationService.Detect(all, MeasuredPeers, VpnIndex, () => null);
+
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("10.0.1.0/23", location.IpCidr);
+    }
+
+    [Fact]
+    public void Detect_PlainWifi_KeysOnTheCardAndSuggestsTheSsid()
+    {
+        var wifi = WifiCard("10.0.0.0/23");
+
+        var location = NetworkLocationService.Detect([wifi], PeersOf(wifi), bestIndex: 9, () => "HomeWiFi");
+
+        Assert.Equal(WifiMac, location.AdapterMac);
+        Assert.Equal("10.0.0.0/23", location.IpCidr);
+        Assert.False(location.IsWired);
+        Assert.Equal("HomeWiFi", location.DisplayHint);
+    }
+
+    [Fact]
+    public void Detect_NothingButATunnel_ReportsNoLocation()
+    {
+        // Fail closed: a wrong location applies the wrong charge thresholds without a word.
+        var vpn = WireGuard();
+
+        Assert.True(NetworkLocationService.Detect([vpn], PeersOf(vpn), VpnIndex, () => null).IsEmpty);
+    }
+
+    [Fact]
+    public void Detect_InternalHyperVSwitchOnly_ReportsNoLocation()
+    {
+        // "vEthernet (Default Switch)" holds a routable address on a Microsoft-OUI MAC belonging to no
+        // NIC. Keying on it would name the host's own private switch as a place.
+        var internalSwitch = Adapter(51, NetworkInterfaceType.Ethernet, "vEthernet (Default Switch)",
+                                     "Hyper-V Virtual Ethernet Adapter", DefaultSwitchMac, "172.24.64.0/20", metric: 5000);
+
+        Assert.True(NetworkLocationService.Detect(
+            [internalSwitch], PeersOf(internalSwitch), bestIndex: 51, () => null).IsEmpty);
+    }
+
+    [Fact]
+    public void Detect_NoAdaptersAtAll_ReportsNoLocation()
+    {
+        Assert.True(NetworkLocationService.Detect([], [], bestIndex: 0, () => null).IsEmpty);
+    }
+
+    // The stale-key hint, now that a stored MAC can also be one no NIC ever had
+
+    [Fact]
+    public void DescribeStaleKey_MacBelongsOnlyToVirtualAdapters_SaysTheKeyIsAVirtualOne()
+    {
+        var rule = new NetworkLocationRule { AdapterMac = DefaultSwitchMac, IpCidr = "172.24.64.0/20" };
+
+        Assert.True(NetworkLocationService.IsVirtualAdapterMac(DefaultSwitchMac, MeasuredPeers));
+        Assert.Equal(NetworkLocationService.VirtualMacHint,
+                     NetworkLocationService.DescribeStaleKey(rule, default, MeasuredPeers));
+    }
+
+    [Fact]
+    public void DescribeStaleKey_MacSharedWithTheNicBehindASwitch_IsNotCalledVirtual()
+    {
+        // An external switch port inherits the NIC's address verbatim, so both adapters own that MAC
+        // and a rule keyed on it still names a real one.
+        var rule = new NetworkLocationRule { AdapterMac = PhysicalMac, IpCidr = "10.0.1.0/23" };
+
+        Assert.False(NetworkLocationService.IsVirtualAdapterMac(PhysicalMac, MeasuredPeers));
+        Assert.Null(NetworkLocationService.DescribeStaleKey(rule, default, MeasuredPeers));
+    }
+
+    [Fact]
+    public void DescribeStaleKey_SameSubnetDifferentMac_StillSaysSo()
+    {
+        var rule    = new NetworkLocationRule { AdapterMac = DockMac, IpCidr = "10.0.0.0/23" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", true, "Ethernet");
+
+        Assert.Equal(NetworkLocationService.StaleKeyHint,
+                     NetworkLocationService.DescribeStaleKey(rule, current, MeasuredPeers));
+    }
+
+    [Fact]
+    public void DescribeStaleKey_SoundKey_SaysNothing()
+    {
+        var rule    = new NetworkLocationRule { AdapterMac = PhysicalMac, IpCidr = "10.0.0.0/23" };
+        var current = new NetworkLocation(PhysicalMac, "10.0.0.0/23", true, "Ethernet");
+
+        Assert.Null(NetworkLocationService.DescribeStaleKey(rule, current, MeasuredPeers));
     }
 }

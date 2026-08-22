@@ -122,4 +122,60 @@ public class NetworkLocationRuleTests
         };
         Assert.Null(settings.FindNetworkRule(OfficeDock));
     }
+
+    // The one-time clear of rules written before locations were keyed on the physical adapter
+
+    private static AppSettings SettingsWithRules() => new()
+    {
+        NetworkProfilesEnabled   = true,
+        UnknownNetworkPresetName = "Daily",
+        NetworkLocationRules =
+        [
+            new() { Name = "Office", AdapterMac = "00:15:5D:EA:DC:CF", IpCidr = "172.24.64.0/20", PresetName = "Daily" },
+            new() { Name = "Home",   AdapterMac = "00:15:5D:EA:DC:CF", IpCidr = "172.24.64.0/20", PresetName = "Travel" },
+        ],
+    };
+
+    [Fact]
+    public void ClearRoutedAdapterRules_DropsEveryRuleAndReportsHowMany()
+    {
+        var s = SettingsWithRules();
+
+        Assert.Equal(2, SettingsService.ClearRoutedAdapterRules(s));
+        Assert.Empty(s.NetworkLocationRules);
+        Assert.True(s.NetworkRulesKeyedOnPhysicalAdapter);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_SecondCall_DoesNothing()
+    {
+        // The marker is the whole guard: clearing on every start would drop the rules saved since.
+        var s = SettingsWithRules();
+        SettingsService.ClearRoutedAdapterRules(s);
+        s.NetworkLocationRules.Add(new() { Name = "Cabin", AdapterMac = "30:89:4A:68:1C:3A", IpCidr = "10.0.20.0/24" });
+
+        Assert.Null(SettingsService.ClearRoutedAdapterRules(s));
+        Assert.Single(s.NetworkLocationRules);
+        Assert.Equal("Cabin", s.NetworkLocationRules[0].Name);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_TouchesNothingElse()
+    {
+        var s = SettingsWithRules();
+        SettingsService.ClearRoutedAdapterRules(s);
+
+        Assert.True(s.NetworkProfilesEnabled);
+        Assert.Equal("Daily", s.UnknownNetworkPresetName);
+        Assert.Equal(2, s.Presets.Count);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_NoRulesToDrop_StillMarksItDone()
+    {
+        var s = new AppSettings();
+
+        Assert.Equal(0, SettingsService.ClearRoutedAdapterRules(s));
+        Assert.True(s.NetworkRulesKeyedOnPhysicalAdapter);
+    }
 }

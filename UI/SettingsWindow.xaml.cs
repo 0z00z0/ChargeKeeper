@@ -924,19 +924,22 @@ internal sealed partial class SettingsWindow : Window
         }
 
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-        var current     = CurrentLocation();   // resolved ONCE per rebuild, not per row
+        // Both resolved ONCE per rebuild, not per row.
+        var current  = CurrentLocation();
+        var adapters = NetworkLocationService.EnumerateAdapters();
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames, current));
+            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames, current, adapters));
     }
 
-    /// <summary>The rule's match key, plus the stale-key hint when its subnet is the one we are on
-    /// but its MAC is not — what a dock change or a recreated Hyper-V switch leaves behind, after
-    /// which the rule silently never applies. Stated only: nothing here rewrites a stored key.</summary>
-    private static string DescribeMatchKey(NetworkLocationRule rule, NetworkLocation current)
+    /// <summary>The rule's match key, plus a hint when the key no longer fits: its MAC belongs to a
+    /// virtual adapter, or its subnet is the one we are on while its MAC is not. Stated only: nothing
+    /// here rewrites a stored key.</summary>
+    private static string DescribeMatchKey(
+        NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters)
     {
         string key = NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
-        return NetworkLocationService.IsStaleKey(rule, current)
-            ? $"{key}\n{NetworkLocationService.StaleKeyHint}"
+        return NetworkLocationService.DescribeStaleKey(rule, current, adapters) is { } hint
+            ? $"{key}\n{hint}"
             : key;
     }
 
@@ -947,7 +950,8 @@ internal sealed partial class SettingsWindow : Window
     /// identity of its own and two may share a name, which is unambiguous only because every commit
     /// path below rebuilds the whole list.</summary>
     private SettingsExpander BuildNetworkRuleRow(
-        int index, NetworkLocationRule rule, List<string> presetNames, NetworkLocation current)
+        int index, NetworkLocationRule rule, List<string> presetNames, NetworkLocation current,
+        IReadOnlyList<BridgePeer> adapters)
     {
         var expander = new SettingsExpander();
 
@@ -966,7 +970,7 @@ internal sealed partial class SettingsWindow : Window
         expander.ItemsSource = new List<SettingsCard>
         {
             new SettingsCard { Header = "Name",    Content = nameBox },
-            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current) },
+            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current, adapters) },
             new SettingsCard { Header = "Preset",  Content = presetCombo },
         };
         expander.ItemsFooter = footer;
@@ -1437,7 +1441,9 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
-        var current = CurrentLocation();   // resolved ONCE per rebuild, not per row
+        // Both resolved ONCE per rebuild, not per row.
+        var current  = CurrentLocation();
+        var adapters = NetworkLocationService.EnumerateAdapters();
         for (int i = 0; i < rules.Count; i++)
         {
             int index = i;
@@ -1448,7 +1454,7 @@ internal sealed partial class SettingsWindow : Window
             KeepAwakeNetworkRulesListPanel.Children.Add(new SettingsCard
             {
                 Header      = rules[i].Name,
-                Description = DescribeMatchKey(rules[i], current),
+                Description = DescribeMatchKey(rules[i], current, adapters),
                 Content     = toggle,
             });
         }

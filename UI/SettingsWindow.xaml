@@ -223,7 +223,7 @@
                                             Description="Applies a preset automatically when the detected network location changes.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <local:InfoIcon Subject="network profiles"
-                                            Info="Matching is by adapter MAC address and IP subnet only, never by Wi-Fi network name."/>
+                                            Info="Matching is by the MAC address and IP subnet of the physical adapter carrying the connection, never by Wi-Fi network name and never by a VPN or virtual switch above it."/>
                             <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>

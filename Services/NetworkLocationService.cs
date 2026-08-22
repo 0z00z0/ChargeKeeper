@@ -24,11 +24,11 @@ internal sealed class NetworkLocationRule
 }
 
 /// <summary>
-/// Fingerprint of the currently-connected primary network adapter. On a Hyper-V external switch
-/// <see cref="AdapterMac"/> is the physical NIC behind the switch rather than the vNIC that holds the
-/// IP (see <see cref="NetworkLocationService.Compose"/>); <see cref="IpCidr"/> and
-/// <see cref="IsWired"/> always come from the selected adapter. <see cref="DisplayHint"/> (Wi-Fi SSID
-/// or wired adapter name) is never part of matching — only a friendlier default when naming a rule.
+/// Fingerprint of the physical adapter carrying the current connection, never of a tunnel or a switch
+/// port above it (see <see cref="NetworkLocationService.ResolvePhysical"/>). <see cref="IpCidr"/> is
+/// kept alongside <see cref="AdapterMac"/> because one Wi-Fi card reaches many places, and the subnet
+/// is what tells them apart. <see cref="DisplayHint"/> (Wi-Fi SSID or adapter name) is never part of
+/// matching — only a friendlier default when naming a rule.
 /// </summary>
 internal readonly record struct NetworkLocation(string? AdapterMac, string? IpCidr, bool IsWired, string? DisplayHint)
 {
@@ -44,15 +44,27 @@ internal readonly record struct NetworkLocation(string? AdapterMac, string? IpCi
 }
 
 /// <summary>
-/// What <see cref="NetworkLocationService.SelectPrimary"/> needs of a live adapter, so that heuristic
-/// stays pure. <see cref="IsVirtual"/> is a last-resort tiebreaker, never a reason to drop the
-/// routing-table winner. <see cref="Adapter"/> is null in tests.
+/// What the adapter heuristics need of a live adapter, so they stay pure. <see cref="Metric"/> is the
+/// IPv4 interface metric Windows routes by; <see cref="uint.MaxValue"/> means it could not be read, so
+/// such an adapter sorts last. <see cref="IsVirtual"/> is a last-resort tiebreaker in
+/// <see cref="NetworkLocationService.SelectPrimary"/>, never a reason to drop the routing-table winner.
 /// </summary>
 internal sealed record AdapterCandidate(
     int IPv4Index,
     bool IsVirtual,
     NetworkInterfaceType Type,
-    NetworkInterface? Adapter = null);
+    string Name = "",
+    string Description = "",
+    string? Mac = null,
+    string? IpCidr = null,
+    uint Metric = uint.MaxValue);
+
+/// <summary>
+/// The physical adapter a location is keyed on. <see cref="Carrier"/> holds the IP, so it supplies the
+/// subnet and the wired flag; <see cref="Bridged"/> is the NIC behind a Hyper-V external switch, which
+/// then supplies the MAC and the suggested name.
+/// </summary>
+internal sealed record PhysicalRoute(AdapterCandidate Carrier, BridgePeer? Bridged);
 
 /// <summary>
 /// What the Hyper-V bridge walk-back below needs of a live adapter, so it is testable without a
@@ -62,13 +74,17 @@ internal sealed record AdapterCandidate(
 internal sealed record BridgePeer(string Name, string? Mac, bool IsVirtual, OperationalStatus Status);
 
 /// <summary>
-/// Detects the current network location by fingerprinting the primary adapter — the one Windows'
-/// routing table (<c>GetBestInterface</c>) says traffic goes through — by MAC address and IP subnet
-/// rather than by Wi-Fi SSID. That works identically for a docked Ethernet connection, needs no WLAN
-/// capability declaration (this app is unpackaged), and prefers a dock over a simultaneously-active
-/// Wi-Fi radio. The routing table is followed authoritatively, including a "vEthernet (…)" Hyper-V
-/// external-switch bridge that carries the default route.
+/// Detects the current network location by fingerprinting the physical adapter carrying the traffic,
+/// by MAC address and IP subnet rather than by Wi-Fi SSID. That works identically for a docked
+/// Ethernet connection and needs no WLAN capability declaration (this app is unpackaged).
 /// </summary>
+/// <remarks>
+/// Windows' routing table (<c>GetBestInterface</c>) names the adapter traffic leaves by, but that
+/// adapter is often not a NIC: a VPN tunnel, or a Hyper-V external switch, holds the default route and
+/// lends its own MAC and subnet to every network reached through it. Keying on those collapses
+/// tethering, Wi-Fi and a dock into one location. So the routed adapter is resolved down to the
+/// physical NIC first, and both halves of the key come from that NIC.
+/// </remarks>
 internal static class NetworkLocationService
 {
     // Coalesces a burst of NetworkChange events around one physical transition (dock/undock, Wi-Fi
@@ -194,26 +210,10 @@ internal static class NetworkLocationService
     {
         try
         {
-            // FindPrimaryAdapter must stay INSIDE the try: it enumerates interfaces and touches
-            // adapter properties, which throw during the dock/undock race this catch exists for, and
-            // the synchronous UI caller has no guard of its own.
-            var primary = FindPrimaryAdapter();
-            if (primary is null) return default;
-
-            string mac = NormalizeMac(primary.GetPhysicalAddress().ToString());
-            var props  = primary.GetIPProperties();
-            // Same predicate the adapter was SELECTED by: a NIC commonly holds an APIPA address
-            // alongside a real lease, and keying the rule on 169.254.0.0/16 would match any
-            // link-local network and never the real subnet.
-            var ipv4   = props.UnicastAddresses.FirstOrDefault(a => IsUsableIPv4(a.Address));
-            string? cidr = ipv4 is not null ? CalculateCidr(ipv4.Address, ipv4.IPv4Mask) : null;
-            bool wired   = primary.NetworkInterfaceType != NetworkInterfaceType.Wireless80211;
-
-            // One pairing lookup feeds both the stored MAC and the suggested name, so the name can
-            // never describe a different adapter from the one the key identifies.
-            var bridged  = wired ? FindBridgedPeer(primary, mac) : null;
-            string? ssid = wired ? null : TryGetWifiSsid();
-            return Compose(mac, cidr, wired, bridged, SuggestDisplayHint(wired, primary.Name, bridged, ssid));
+            // The enumerations must stay INSIDE the try: they touch adapter properties, which throw
+            // during the dock/undock race this catch exists for, and the synchronous UI caller has no
+            // guard of its own.
+            return Detect(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(), TryGetWifiSsid);
         }
         catch
         {
@@ -222,25 +222,60 @@ internal static class NetworkLocationService
         }
     }
 
-    // Asks Windows' routing table (GetBestInterface) which adapter traffic goes through. The
-    // candidate set is every Up adapter owning a usable IPv4 address, and is not restricted to
-    // Ethernet/Wireless types or to non-"Virtual" descriptions: on a Hyper-V external switch the
-    // routable IP and default route live on the "vEthernet (…)" adapter while the bridged physical
-    // NIC keeps no IP, so dropping anything named Virtual detects nothing at all.
-    private static NetworkInterface? FindPrimaryAdapter()
+    /// <summary>
+    /// The whole detection over supplied adapter state, so it is testable without live adapters: the
+    /// routing table names the adapter traffic leaves by, that adapter is resolved down to the physical
+    /// NIC behind it, and the key comes from that NIC. Resolving nothing yields the empty location
+    /// rather than a guess — a wrong location applies the wrong charge thresholds silently.
+    /// </summary>
+    internal static NetworkLocation Detect(
+        IReadOnlyList<AdapterCandidate> candidates,
+        IReadOnlyList<BridgePeer> peers,
+        uint bestIndex,
+        Func<string?> readSsid)
     {
-        var candidates = NetworkInterface.GetAllNetworkInterfaces()
+        if (ResolvePhysical(SelectPrimary(candidates, bestIndex), candidates, peers) is not { } route)
+            return default;
+
+        bool wired   = route.Carrier.Type != NetworkInterfaceType.Wireless80211;
+        string? ssid = wired ? null : readSsid();
+        // One resolution feeds both the stored MAC and the suggested name, so the name can never
+        // describe a different adapter from the one the key identifies.
+        return Compose(route.Carrier.Mac ?? "", route.Carrier.IpCidr, wired, route.Bridged,
+                       SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid));
+    }
+
+    // Every Up adapter owning a usable IPv4 address. Not restricted to physical types or non-virtual
+    // descriptions: on a Hyper-V external switch the routable IP and default route live on the
+    // "vEthernet (…)" adapter while the bridged NIC keeps no IP, so dropping the virtual ones here
+    // would leave nothing to walk down from.
+    private static List<AdapterCandidate> EnumerateCandidates() =>
+        NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up)
             .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
-            .Where(HasUsableIPv4)
-            .Select(n => new AdapterCandidate(
-                IPv4InterfaceIndex(n),
-                n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase),
-                n.NetworkInterfaceType,
-                n))
+            .Select(Describe)
+            .Where(c => c.IpCidr is not null)
             .ToList();
 
-        return SelectPrimary(candidates, GetBestInterfaceIndex())?.Adapter;
+    // Never throws: GetIPProperties can fail mid-enumeration, and an adapter with no readable subnet
+    // is dropped by the caller.
+    private static AdapterCandidate Describe(NetworkInterface n)
+    {
+        int index    = -1;
+        string? cidr = null;
+        try
+        {
+            var props = n.GetIPProperties();
+            index = props.GetIPv4Properties()?.Index ?? -1;
+            // A NIC commonly holds an APIPA address alongside a real lease, and keying on
+            // 169.254.0.0/16 would match any link-local network and never the real subnet.
+            if (props.UnicastAddresses.FirstOrDefault(a => IsUsableIPv4(a.Address)) is { } ipv4)
+                cidr = CalculateCidr(ipv4.Address, ipv4.IPv4Mask);
+        }
+        catch { }
+
+        return new AdapterCandidate(index, LooksVirtual(n.Description), n.NetworkInterfaceType,
+                                    n.Name, n.Description, MacOrNull(n), cidr, ReadInterfaceMetric(index));
     }
 
     /// <summary>
@@ -264,6 +299,66 @@ internal static class NetworkLocationService
             ?? candidates.FirstOrDefault(c => !c.IsVirtual && c.Type == NetworkInterfaceType.Wireless80211)
             ?? candidates.FirstOrDefault(c => c.Type == NetworkInterfaceType.Ethernet)
             ?? candidates[0];
+    }
+
+    // Adapter types a NIC actually reports. Measured on this hardware: mobile broadband is Wwanpp,
+    // not Ethernet, and a WireGuard tunnel is IANA ifType 53 (propVirtual), which the enum has no
+    // member for at all — so the type test alone already rejects it.
+    private static readonly NetworkInterfaceType[] PhysicalTypes =
+    [
+        NetworkInterfaceType.Ethernet, NetworkInterfaceType.GigabitEthernet,
+        NetworkInterfaceType.FastEthernetT, NetworkInterfaceType.FastEthernetFx,
+        NetworkInterfaceType.Wireless80211, NetworkInterfaceType.Wwanpp, NetworkInterfaceType.Wwanpp2,
+    ];
+
+    // Description markers for adapters that are not a NIC. Only the description is matched, never the
+    // alias: the alias is user-editable, and every measured case ("WireGuard Tunnel", "PANGP Virtual
+    // Ethernet Adapter Secure", "Hyper-V Virtual Ethernet Adapter", "Microsoft Wi-Fi Direct Virtual
+    // Adapter") is already named by the driver.
+    private static readonly string[] VirtualMarkers =
+    [
+        "virtual", "vpn", "tunnel", "tap-windows", "tap adapter", "wintun", "wireguard", "tailscale",
+        "zerotier", "anyconnect", "openvpn", "pangp", "vmware", "virtualbox", "docker", "loopback",
+    ];
+
+    /// <summary>Whether an adapter's driver description marks it as a tunnel, a VPN client, a
+    /// hypervisor switch port or another pseudo-adapter rather than a NIC.</summary>
+    internal static bool LooksVirtual(string? description) =>
+        description is { Length: > 0 } &&
+        VirtualMarkers.Any(m => description.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A real NIC: a physical adapter type, its own 6-byte hardware address, and no virtual
+    /// marker in its description.</summary>
+    internal static bool IsPhysical(AdapterCandidate candidate) =>
+        PhysicalTypes.Contains(candidate.Type) && candidate.Mac is { Length: > 0 } && !candidate.IsVirtual;
+
+    /// <summary>
+    /// Resolves the adapter the routing table picked down to the physical NIC carrying its traffic.
+    /// A NIC resolves to itself; a Hyper-V external switch port resolves to the NIC bound behind it.
+    /// A tunnel or VPN adapter resolves to nothing of its own, so the walk falls back to the live
+    /// adapter with the lowest interface metric — the one Windows itself would route over, which is
+    /// what separates a dock from a simultaneously-connected Wi-Fi radio. Null when nothing resolves.
+    /// </summary>
+    internal static PhysicalRoute? ResolvePhysical(
+        AdapterCandidate? routed, IReadOnlyList<AdapterCandidate> candidates, IReadOnlyList<BridgePeer> peers)
+    {
+        if (routed is not null && ResolveCarrier(routed, peers) is { } direct) return direct;
+
+        return candidates
+            .OrderBy(c => c.Metric)
+            // Equal metrics are a genuine tie; wired first, then interface index, so one order-free
+            // adapter list always yields the same answer.
+            .ThenBy(c => c.Type == NetworkInterfaceType.Wireless80211)
+            .ThenBy(c => c.IPv4Index)
+            .Select(c => ResolveCarrier(c, peers))
+            .FirstOrDefault(r => r is not null);
+    }
+
+    private static PhysicalRoute? ResolveCarrier(AdapterCandidate candidate, IReadOnlyList<BridgePeer> peers)
+    {
+        if (IsPhysical(candidate)) return new PhysicalRoute(candidate, null);
+        var bridged = ResolveBridgedPeer(candidate.Name, candidate.Description, candidate.Mac, peers);
+        return bridged is { Mac.Length: > 0 } ? new PhysicalRoute(candidate, bridged) : null;
     }
 
     // The Hyper-V bridge walk-back. The routing table picks the "vEthernet (…)" vNIC, but that is the
@@ -329,32 +424,45 @@ internal static class NetworkLocationService
         rule.AdapterMac is not null && current.AdapterMac is not null &&
         rule.AdapterMac != current.AdapterMac;
 
+    /// <summary>
+    /// A stored MAC that belongs to a virtual adapter on this machine — a VPN tunnel or a switch port,
+    /// which several networks share. Such a key was written before locations were resolved down to the
+    /// physical NIC, and matching it is worse than not matching: it fits every place reached over that
+    /// tunnel.
+    /// </summary>
+    internal static bool IsVirtualAdapterMac(string? mac, IReadOnlyList<BridgePeer> adapters)
+    {
+        if (mac is not { Length: > 0 }) return false;
+        var owners = adapters.Where(a => a.Mac == mac).ToList();
+        return owners.Count > 0 && owners.All(a => a.IsVirtual);
+    }
+
     /// <summary>Wording for the <see cref="IsStaleKey"/> hint, shown under the rule's match key.</summary>
     internal const string StaleKeyHint =
         "Same subnet as the current network, but a different MAC — this profile will not apply here.";
 
-    // Live-adapter side of ResolveBridgedPeer. Must never throw: DetectCurrent's own catch would turn
-    // a pairing hiccup into "No network detected".
-    private static BridgePeer? FindBridgedPeer(NetworkInterface primary, string mac)
-    {
-        try
-        {
-            if (!LooksLikeHyperVSwitchPort(primary.Name, primary.Description)) return null;
-            return ResolveBridgedPeer(primary.Name, primary.Description,
-                                      mac.Length > 0 ? mac : null, EnumerateBridgePeers());
-        }
-        catch
-        {
-            // Hyper-V absent, an adapter vanishing mid-enumeration, a property read denied.
-            return null;
-        }
-    }
+    /// <inheritdoc cref="IsVirtualAdapterMac"/>
+    internal const string VirtualMacHint =
+        "Keyed on a virtual adapter, which several networks share — save this location again to key it "
+        + "on the physical adapter.";
 
-    // A separate enumeration from FindPrimaryAdapter's, with a looser filter. The physical NIC behind
-    // an external switch is Up with no IPv4 at all, so it must not become a selection candidate; and
-    // OperationalStatus is not filtered either, so a disabled same-MAC namesake stays visible to
-    // ResolveBridgedPeer and can be ranked below the present one rather than silently winning.
-    private static List<BridgePeer> EnumerateBridgePeers() =>
+    /// <summary>The one hint that fits, or null when the stored key is sound. The virtual-adapter case
+    /// is stated first: it explains a key that matches too much, which the subnet comparison cannot
+    /// see.</summary>
+    internal static string? DescribeStaleKey(
+        NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters) =>
+        IsVirtualAdapterMac(rule.AdapterMac, adapters) ? VirtualMacHint
+        : IsStaleKey(rule, current)                    ? StaleKeyHint
+        : null;
+
+    /// <summary>
+    /// Every adapter, on a looser filter than <c>EnumerateCandidates</c>: the NIC behind an external
+    /// switch is Up with no IPv4 at all, and OperationalStatus is not filtered either, so a disabled
+    /// same-MAC namesake stays visible to <see cref="ResolveBridgedPeer"/> and can be ranked below the
+    /// present one rather than silently winning. Also what the Settings page checks a stored MAC
+    /// against.
+    /// </summary>
+    internal static List<BridgePeer> EnumerateAdapters() =>
         NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
             .Select(n => new BridgePeer(
@@ -377,14 +485,6 @@ internal static class NetworkLocationService
         catch { return null; }
     }
 
-    // True when the adapter owns an IPv4 unicast address usable as a real connection. GetIPProperties
-    // can throw during a dock/undock race, in which case the adapter simply isn't a candidate.
-    private static bool HasUsableIPv4(NetworkInterface n)
-    {
-        try { return n.GetIPProperties().UnicastAddresses.Any(a => IsUsableIPv4(a.Address)); }
-        catch { return false; }
-    }
-
     private static bool IsUsableIPv4(IPAddress addr)
     {
         if (addr.AddressFamily != AddressFamily.InterNetwork) return false;
@@ -393,13 +493,37 @@ internal static class NetworkLocationService
         return !(b[0] == 169 && b[1] == 254);   // 169.254.0.0/16 APIPA / link-local
     }
 
-    // The adapter's IPv4 interface index, or -1 when it has none or the read races an adapter
-    // removal — a value no real bestIndex can equal, so such a candidate only ever wins the fallback.
-    private static int IPv4InterfaceIndex(NetworkInterface n)
+    // The interface metric Windows routes by. Neither IPInterfaceProperties nor IPv4InterfaceProperties
+    // exposes it, so it comes from iphlpapi; uint.MaxValue means "not read", which sorts last.
+    private static uint ReadInterfaceMetric(int ipv4Index)
     {
-        try { return n.GetIPProperties().GetIPv4Properties()?.Index ?? -1; }
-        catch { return -1; }
+        if (ipv4Index <= 0) return uint.MaxValue;
+        try
+        {
+            var row = new MibIpInterfaceRow
+            {
+                Family         = (ushort)AddressFamily.InterNetwork,
+                InterfaceIndex = (uint)ipv4Index,
+                Metric         = 0,
+            };
+            return GetIpInterfaceEntry(ref row) == 0 ? row.Metric : uint.MaxValue;
+        }
+        catch { return uint.MaxValue; }
     }
+
+    // MIB_IPINTERFACE_ROW (iphlpapi.h), 168 bytes on x64. Only three fields are touched, but the whole
+    // row must be allocated because GetIpInterfaceEntry fills all of it. Offsets verified against
+    // Get-NetIPInterface on this machine.
+    [StructLayout(LayoutKind.Explicit, Size = 168)]
+    private struct MibIpInterfaceRow
+    {
+        [FieldOffset(0)]   public ushort Family;
+        [FieldOffset(16)]  public uint   InterfaceIndex;
+        [FieldOffset(148)] public uint   Metric;
+    }
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int GetIpInterfaceEntry(ref MibIpInterfaceRow row);
 
     private static uint GetBestInterfaceIndex()
     {
