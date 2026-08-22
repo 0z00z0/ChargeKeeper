@@ -1,4 +1,4 @@
-# ChargeKeeper
+﻿# ChargeKeeper
 
 Battery care from the system tray — charge limits, a live battery gauge, and smart standby
 control. Runs on ThinkPad laptops today (formerly published as **Lenovo Power Tray**); built to
@@ -149,16 +149,16 @@ Output: `bin\Release\net10.0-windows10.0.26100.0\win-x64\`
 
 ## Installing & updating
 
-End users install via **winget** (`winget install 0z00z0.ChargeKeeper`) or by running
-`ChargeKeeper-Setup.exe` from the GitHub releases. The installer is a **per-user Inno Setup**
-package — it installs to `%LocalAppData%` with **no admin prompt**, adds a Start-menu shortcut, and
-offers two checkboxes: **"Run at startup"** and **"Auto update in background"**. Updates otherwise
-come from `winget upgrade`.
+End users install by running `ChargeKeeper-Setup.exe` from the GitHub releases. The installer is a
+**per-user Inno Setup** package — it installs to `%LocalAppData%` with **no admin prompt**, adds a
+Start-menu shortcut, and offers one checkbox: **"Run at startup"**.
 
-The **"Auto update in background"** option creates a non-elevated logon task (`ChargeKeeper AutoUpdate`)
-that runs `winget upgrade` silently after each sign-in — so the app self-updates without the user
-running anything, *provided the package is reachable from a winget source* (public `winget-pkgs`
-submission or a local source). It needs no elevation to set up.
+Updates come from GitHub Releases, over the same path as the tray menu's **Check for updates**. The
+app asks 30 seconds after start and once every 24 hours while it runs. A downloaded installer is
+refused unless its digest is intact, a signature is present and the signer is `CN=ZeroZero Software`.
+
+An installer carrying the older `ChargeKeeper AutoUpdate` logon task removes it on install: that task
+ran `winget upgrade`, and the package is not in a winget source.
 
 The app stays `requireAdministrator`, so it elevates only at runtime. The single place the installer
 elevates is when "Run at startup" is ticked, to register a `RunLevel=Highest` logon task

@@ -1,4 +1,4 @@
-using H.NotifyIcon;
+﻿using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
@@ -721,21 +721,31 @@ public partial class App : Application
         });
     }
 
+    /// <summary>How often the background check re-asks GitHub after the first one.</summary>
+    internal static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(24);
+
     private void ScheduleUpdateCheck()
     {
-        // Delayed 30 s so the check doesn't slow the cold-start path. The async lambda is what makes
-        // the inner CheckAsync awaited — ContinueWith would return Task<Task> and orphan the request.
+        // Delayed 30 s so the check doesn't slow the cold-start path, then repeated daily: this is
+        // the whole background update mechanism, so a machine left signed in has to keep checking.
+        // The async lambda is what makes the inner CheckAsync awaited — ContinueWith would return
+        // Task<Task> and orphan the request.
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            await UpdateCheckService.Shared.CheckAsync(version =>
+            while (true)
             {
-                _updateAvailableVersion = version;
-                // Pass the cached capacities: nulls here would drop the "remaining" line and latch
-                // the shortened text into _lastTooltip.
-                UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
-                RunOnUi(() => _menu?.SetUpdateBadge(version));
-            }).ConfigureAwait(false);
+                await UpdateCheckService.Shared.CheckAsync(version =>
+                {
+                    _updateAvailableVersion = version;
+                    // Pass the cached capacities: nulls here would drop the "remaining" line and
+                    // latch the shortened text into _lastTooltip.
+                    UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
+                    RunOnUi(() => _menu?.SetUpdateBadge(version));
+                }).ConfigureAwait(false);
+
+                await Task.Delay(UpdateCheckInterval).ConfigureAwait(false);
+            }
         });
     }
 

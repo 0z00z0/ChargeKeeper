@@ -1,4 +1,4 @@
-# ChargeKeeper
+﻿# ChargeKeeper
 
 **Battery care from the system tray** — charge limits, a live battery gauge, and smart standby
 control. ChargeKeeper runs on Lenovo ThinkPads (via the Lenovo Power Management Driver) and on
@@ -61,21 +61,18 @@ number.
 
 ## Install
 
-**winget** (recommended):
-
-```powershell
-winget install 0z00z0.ChargeKeeper
-winget upgrade 0z00z0.ChargeKeeper   # update later
-```
-
-Or grab `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
-and run it. The installer is **per-user — no admin needed to install** — and offers two options:
+Download `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
+and run it. The installer is **per-user — no admin needed to install** — and offers one option:
 
 - **Run at startup** — auto-starts the app at sign-in. Ticking it asks for elevation once, to
   register a prompt-free elevated logon task.
-- **Auto update in background** — a logon task that silently runs `winget upgrade` after each
-  sign-in, so the app keeps itself current. Needs no elevation, and only works once the package is
-  available from a winget source (see [installer/README.md](installer/README.md)).
+
+Updates come from GitHub Releases. The app checks 30 seconds after start and once a day after that,
+and the tray menu's **Check for updates** asks on demand. A downloaded installer is verified before
+it is launched: intact digest, a present signature, and the signer `CN=ZeroZero Software`.
+
+winget manifests ship as release assets, but the package is not in `microsoft/winget-pkgs`, so
+`winget install 0z00z0.ChargeKeeper` finds nothing.
 
 The app itself shows a UAC prompt when it launches, since changing the charge threshold / standby
 service requires administrator rights.

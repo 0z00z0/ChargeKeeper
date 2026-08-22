@@ -1,4 +1,4 @@
-; Inno Setup script for ChargeKeeper.
+﻿; Inno Setup script for ChargeKeeper.
 ;
 ; Per-user install (no admin required). The app itself is requireAdministrator and
 ; elevates at runtime; the installer does not. The optional "Run at startup" task is
@@ -12,7 +12,6 @@
 #define AppPublisher  "ZeroZero Software"
 #define AppUrl        "https://github.com/0z00z0/ChargeKeeper"
 #define TaskName      "ChargeKeeper AutoStart"
-#define WingetId      "0z00z0.ChargeKeeper"
 
 ; Legacy names from this app's previous identity ("Lenovo Power Tray", v1.1.x and older).
 ; Kept ONLY so an in-place upgrade can kill the old process and clean up its leftovers —
@@ -154,7 +153,6 @@ Name: "{userdesktop}\{#AppName}";  Filename: "{app}\{#AppExe}"; IconFilename: "{
 
 [Tasks]
 Name: "runstartup"; Description: "Run {#AppName} automatically at sign-in (starts elevated without a UAC prompt at boot)"; Flags: unchecked
-Name: "autoupdate"; Description: "Auto update in background (checks for updates via winget after each sign-in)"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 ; NOTE: launching the app is handled in [Code] (LaunchApp), not [Run]. A [Run] entry uses
@@ -286,25 +284,11 @@ begin
             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-procedure RegisterAutoUpdateTask();
-var
-  ResultCode: Integer;
-  Params: string;
-begin
-  // Per-user, NON-elevated logon task (runs 5 min after sign-in) that lets winget pull
-  // any newer published version silently. No /RL HIGHEST -> creating it needs no admin,
-  // so the "Auto update in background" option never triggers a UAC prompt.
-  Params := '/Create /TN "' + UpdateTaskName + '" /TR "winget upgrade --id {#WingetId} '
-          + '--silent --accept-package-agreements --accept-source-agreements" /SC ONLOGON '
-          + '/DELAY 0005:00 /F';
-  Exec('schtasks.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-end;
-
 procedure RemoveAutoUpdateTask();
 var
   ResultCode: Integer;
 begin
-  // Non-elevated; harmless if the task doesn't exist.
+  // Non-elevated; harmless if the task doesn't exist. Kept for installs carrying one.
   Exec('schtasks.exe', '/Delete /TN "' + UpdateTaskName + '" /F', '',
        SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
@@ -375,8 +359,7 @@ begin
     WasRunning := WasRunning or LegacyWasRunning;
 
     // The legacy "LenovoTray AutoUpdate" logon task is non-elevated, so it can always be
-    // removed without a prompt; harmless when it doesn't exist. Its ChargeKeeper
-    // replacement is created in ssPostInstall when the autoupdate task is ticked.
+    // removed without a prompt; harmless when it doesn't exist.
     Exec('schtasks.exe', '/Delete /TN "{#LegacyUpdateTask}" /F', '',
          SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
@@ -384,7 +367,8 @@ begin
   if CurStep = ssPostInstall then
   begin
     if WizardIsTaskSelected('runstartup') then RegisterStartupTask();
-    if WizardIsTaskSelected('autoupdate') then RegisterAutoUpdateTask();
+    // Clears the winget logon task earlier versions created. The app checks GitHub itself.
+    RemoveAutoUpdateTask();
     if not WizardSilent() then
       // Interactive install: launch after task creation so a freshly-created startup task
       // is used for a prompt-free launch.

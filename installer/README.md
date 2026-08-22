@@ -1,4 +1,4 @@
-# Installer & distribution
+﻿# Installer & distribution
 
 ChargeKeeper ships as a **per-user Inno Setup installer** (`%LocalAppData%`, no admin to
 install) and is distributed through **winget**. The app itself is elevated at runtime; the installer
@@ -37,12 +37,9 @@ The script prints the installer's **SHA256** — paste it into the winget manife
   (`ChargeKeeper AutoStart`) so the elevated app auto-starts with no boot-time UAC. Creating that
   task is the *only* step that elevates, and only when the box is checked. (The same task is what
   the app's "Launch at startup" tray toggle manages.)
-- Optional **"Auto update in background"** checkbox: creates a **non-elevated** logon task
-  (`ChargeKeeper AutoUpdate`, runs 5 min after sign-in) that runs
-  `winget upgrade --id 0z00z0.ChargeKeeper --silent`. Creating it needs **no admin** (no UAC).
-  - This only finds updates once the package is reachable from a **winget source** — i.e. submitted
-    to the public `microsoft/winget-pkgs`, or a [local source](#winget) the machine has configured.
-    Until then the task runs harmlessly and finds nothing.
+- Any `ChargeKeeper AutoUpdate` logon task from an earlier version is removed on install. It ran
+  `winget upgrade`, and the package is not in a winget source, so it found nothing. Updates are the
+  app's own job now: it queries GitHub Releases 30 s after start and every 24 hours thereafter.
   - When an update is found while the app is running, Inno closes it (`CloseApplications=yes`) and
     replaces the files but does **not** relaunch (`RestartApplications=no`) — relaunching an
     elevated app would pop an unexpected UAC prompt. The new version starts at the next sign-in
@@ -228,8 +225,8 @@ winget install 0z00z0.ChargeKeeper     # first install (per-user, silent, no adm
 winget upgrade 0z00z0.ChargeKeeper      # update to a newer published version
 ```
 
-> winget has **no background auto-updater** — updates happen when the user runs `winget upgrade`.
-> This is the intended trade-off for keeping the app and installer simple.
+> The package is **not** in `microsoft/winget-pkgs`, so these commands find nothing until it is
+> submitted. The manifests ship as release assets so a local source can consume them.
 
 ### Manifests (`winget/`)
 Three files target `0z00z0.ChargeKeeper`: `*.installer.yaml`, `*.locale.en-GB.yaml`, and the version
