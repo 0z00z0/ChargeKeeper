@@ -63,8 +63,9 @@
             <NavigationViewItem Content="Keep Awake"       Tag="KeepAwake">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/keep-awake.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Lid close"        Tag="LidClose"/>
-            <NavigationViewItem Content="Notifications"    Tag="Notifications">
+            <NavigationViewItem Content="Lid close"        Tag="LidClose">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/lid-close.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>            <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <!-- Network profiles live on the Smart Charge page, not a nav item of their own: a
