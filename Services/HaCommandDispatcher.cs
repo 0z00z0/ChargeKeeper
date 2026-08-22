@@ -105,12 +105,8 @@ internal sealed class ChargeControlActions : IChargeControlActions
             : (60, 80);
     }
 
-    public void ApplyThresholds(int start, int stop)
-    {
-        // clearActivePreset:true — a hand-picked range belongs to no named preset, so the HA numbers
-        // must clear it just as the dashboard's threshold slider does.
-        ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
-    }
+    public void ApplyThresholds(int start, int stop) =>
+        ChargeControlService.SetExplicitThresholds(start, stop);
 
     public void SetSmartChargeEnabled(bool enable) => ChargeControlService.SetSmartChargeEnabled(enable);
 

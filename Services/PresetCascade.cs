@@ -1,8 +1,8 @@
 namespace ChargeKeeper.Services;
 
 /// <summary>Rename/delete cascade for threshold presets. A preset's <see cref="ThresholdPreset.Name"/> is
-/// also referenced by <see cref="AppSettings.ActivePreset"/>, every <see cref="NetworkLocationRule.PresetName"/>
-/// and <see cref="AppSettings.UnknownNetworkPresetName"/>, and missing one silently orphans a network rule.
+/// also referenced by every <see cref="NetworkLocationRule.PresetName"/> and by
+/// <see cref="AppSettings.UnknownNetworkPresetName"/>, and missing one silently orphans a network rule.
 /// Takes a plain <see cref="AppSettings"/> so callers can run it inside <c>SettingsService.Update</c>.</summary>
 internal static class PresetCascade
 {
@@ -12,7 +12,6 @@ internal static class PresetCascade
     {
         if (oldName == newName) return;
 
-        if (s.ActivePreset == oldName) s.ActivePreset = newName;
         if (s.UnknownNetworkPresetName == oldName) s.UnknownNetworkPresetName = newName;
         foreach (var rule in s.NetworkLocationRules)
             if (rule.PresetName == oldName) rule.PresetName = newName;
@@ -29,7 +28,6 @@ internal static class PresetCascade
         int index = s.Presets.FindIndex(p => p.Name == name);
         if (index >= 0) s.Presets.RemoveAt(index);
 
-        if (s.ActivePreset == name) s.ActivePreset = fallbackName;
         if (s.UnknownNetworkPresetName == name) s.UnknownNetworkPresetName = fallbackName;
         foreach (var rule in s.NetworkLocationRules)
             if (rule.PresetName == name) rule.PresetName = fallbackName ?? "";

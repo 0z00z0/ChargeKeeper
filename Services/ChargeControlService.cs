@@ -29,19 +29,17 @@ internal static class ChargeControlService
     }
 
     /// <summary>Every threshold write that is not a named preset. Writing valid non-zero thresholds is
-    /// itself how Smart Charge is (re)enabled, so this activates it as a side effect, by design.</summary>
-    /// <param name="clearActivePreset">True for a manual edit, which makes the value "custom" — cleared
-    /// on a successful write only, or the UI would claim no preset while the device never moved.</param>
-    public static bool SetExplicitThresholds(int start, int stop, bool clearActivePreset = false)
+    /// itself how Smart Charge is (re)enabled, so this activates it as a side effect, by design.
+    /// Nothing records that the range is "custom": every surface derives that from the thresholds.</summary>
+    public static bool SetExplicitThresholds(int start, int stop)
     {
         bool ok = Primitives.ApplyExplicitThresholds(start, stop);
-        if (ok && clearActivePreset) Primitives.SetActivePreset(null);
         StateChanged?.Invoke();
         return ok;
     }
 
-    /// <summary>Persists ActivePreset only when the write succeeded. Returns false — no state change,
-    /// no event — when the name is blank, matches no preset, or the preset is out of policy.</summary>
+    /// <summary>Writes a named preset's thresholds. Returns false — no state change, no event — when
+    /// the name is blank, matches no preset, or the preset is out of policy.</summary>
     public static bool ApplyPresetByName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -58,7 +56,6 @@ internal static class ChargeControlService
         }
 
         bool ok = Primitives.ApplyExplicitThresholds(preset.Start, preset.Stop);
-        if (ok) Primitives.SetActivePreset(preset.Name);
         StateChanged?.Invoke();
         return ok;
     }
@@ -80,9 +77,6 @@ internal interface IChargeControlPrimitives
     bool ApplyExplicitThresholds(int start, int stop);
 
     ThresholdPreset? FindPreset(string name);
-
-    /// <summary>Null clears it, for a custom-threshold write.</summary>
-    void SetActivePreset(string? name);
 }
 
 internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
@@ -93,5 +87,4 @@ internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
     public void SetEnabled(bool enable) => ChargeThresholdService.SetEnabled(enable);
     public bool ApplyExplicitThresholds(int start, int stop) => TravelOverrideService.ApplyExplicitThresholds(start, stop);
     public ThresholdPreset? FindPreset(string name) => SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
-    public void SetActivePreset(string? name) => SettingsService.Update(s => s.ActivePreset = name);
 }

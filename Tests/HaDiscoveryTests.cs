@@ -1,5 +1,7 @@
 using System.Text.Json;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
+using Windows.System.Power;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -323,6 +325,54 @@ public class HaDiscoveryTests
         Assert.Equal(80, root.GetProperty("charge_stop").GetInt32());
         Assert.Equal(65, root.GetProperty("adapter_watts").GetInt32());
         Assert.Equal("Daily", root.GetProperty("active_preset").GetString());
+    }
+
+    // active_preset end to end: the thresholds decide it, so these go through HaStateBuilder rather
+    // than handing StatePayload a name.
+
+    private static List<ThresholdPreset> PresetList() =>
+    [
+        new ThresholdPreset("Daily",  60, 80),
+        new ThresholdPreset("Travel", 80, 100),
+    ];
+
+    private static string PayloadFor(ChargeThresholdState threshold) =>
+        HaDiscovery.StatePayload(HaStateBuilder.Build(
+            soc: 72, chargeRateMw: 45000, onAc: true, status: BatteryStatus.Charging,
+            threshold: threshold, adapterWatts: 65, remainingMwh: 40000, fullMwh: 60000,
+            designMwh: 60000, lowPowerMode: false, presets: PresetList()));
+
+    private static string? ActivePresetIn(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("active_preset").GetString();
+    }
+
+    [Fact]
+    public void StatePayload_ThresholdsEqualAPreset_PublishesThatPresetsName()
+    {
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: true, Start: 80, Stop: 100));
+        Assert.Equal("Travel", ActivePresetIn(json));
+    }
+
+    [Fact]
+    public void StatePayload_ThresholdsEqualNoPreset_PublishesNone()
+    {
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: true, Start: 55, Stop: 75));
+        Assert.Equal(HaDiscovery.PresetNone, ActivePresetIn(json));
+    }
+
+    [Fact]
+    public void StatePayload_DuringTravelOverride_PublishesNone_WithSmartChargeOff()
+    {
+        // The override switches Smart Charge off and leaves the saved pair readable, so the values
+        // can still equal a preset while the battery is deliberately charging past it. No preset is
+        // in force; a consumer that needs to tell this apart from "custom range" reads smart_charge.
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: false, Start: 80, Stop: 100));
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(HaDiscovery.PresetNone, doc.RootElement.GetProperty("active_preset").GetString());
+        Assert.False(doc.RootElement.GetProperty("smart_charge").GetBoolean());
     }
 
     [Fact]

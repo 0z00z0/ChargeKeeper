@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ChargeKeeper.Services;
 using ChargeKeeper.Vendors;
 using Xunit;
@@ -96,5 +97,17 @@ public class ActivePresetPolicyTests
         var fixedMode = new ChargeThresholdState(Capable: true, Enabled: true, Start: 0, Stop: 80);
 
         Assert.Null(ActivePresetPolicy.Match(TwoPresets(), fixedMode));
+    }
+
+    [Fact]
+    public void SettingsCarryingTheRemovedActivePresetKey_StillLoad()
+    {
+        // Files in the wild still hold the key from when the active preset was stored. Deserialising
+        // must ignore it rather than throw, or the whole settings file falls back to defaults.
+        var loaded = JsonSerializer.Deserialize<AppSettings>(
+            """{"ActivePreset":"Travel","LowBatteryWarningPct":22}""");
+
+        Assert.NotNull(loaded);
+        Assert.Equal(22, loaded.LowBatteryWarningPct);
     }
 }

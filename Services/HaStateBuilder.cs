@@ -3,14 +3,16 @@ using Windows.System.Power;
 namespace ChargeKeeper.Services;
 
 /// <summary>Pure mapping from the live battery values to an <see cref="HaState"/> for MQTT publishing.
-/// The derivations follow the Home Assistant mobile app, so the entities read the same alongside it.</summary>
+/// The derivations follow the Home Assistant mobile app, so the entities read the same alongside it.
+/// Takes the preset list rather than a preset name: the published <c>active_preset</c> is derived from
+/// the thresholds passed alongside it, so no caller can publish a name the device has moved off.</summary>
 internal static class HaStateBuilder
 {
     public static HaState Build(
         int soc, int chargeRateMw, bool onAc, BatteryStatus status,
         ChargeThresholdState? threshold, int? adapterWatts,
         int? remainingMwh, int? fullMwh, int? designMwh,
-        bool lowPowerMode, string? activePreset)
+        bool lowPowerMode, IReadOnlyList<ThresholdPreset>? presets)
     {
         bool isCharging = status == BatteryStatus.Charging;
         // "Full" needs external power: a pack at 100 % that has just been unplugged is Not Charging.
@@ -37,7 +39,7 @@ internal static class HaStateBuilder
             ChargeStart: start,
             ChargeStop: stop,
             AdapterWatts: watts,
-            ActivePreset: activePreset);
+            ActivePreset: ActivePresetPolicy.Match(presets, threshold)?.Name);
     }
 
     /// <summary>The Smart Charge flag and the reflected Charge start/stop numbers. Not limiting → stop
@@ -53,8 +55,10 @@ internal static class HaStateBuilder
     }
 
     /// <summary>Returns <paramref name="baseState"/> with only its charge-control fields replaced from a
-    /// fresh device read, for the republish right after an inbound command writes new thresholds.</summary>
-    internal static HaState ApplyChargeControl(HaState baseState, ChargeThresholdState? threshold, string? activePreset)
+    /// fresh device read, for the republish right after an inbound command writes new thresholds. The
+    /// active preset re-derives from that fresh read, never from <paramref name="baseState"/>.</summary>
+    internal static HaState ApplyChargeControl(
+        HaState baseState, ChargeThresholdState? threshold, IReadOnlyList<ThresholdPreset>? presets)
     {
         var (scEnabled, start, stop) = ChargeControlFields(threshold);
         return baseState with
@@ -62,7 +66,7 @@ internal static class HaStateBuilder
             SmartChargeEnabled = scEnabled,
             ChargeStart = start,
             ChargeStop = stop,
-            ActivePreset = activePreset,
+            ActivePreset = ActivePresetPolicy.Match(presets, threshold)?.Name,
         };
     }
 

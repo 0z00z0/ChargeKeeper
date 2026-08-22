@@ -48,9 +48,6 @@ internal sealed class AppSettings
         new("Travel", 80, 100),
     ];
 
-    /// <summary>Null when a custom threshold is in use.</summary>
-    public string? ActivePreset { get; set; }
-
     /// <summary>The one-shot "charge to 100 % once" override, and what to restore when it completes.</summary>
     public bool TravelOverrideActive      { get; set; }
     public int? TravelOverrideRevertStart { get; set; }
