@@ -52,6 +52,9 @@ internal static class ToastService
     public static void NotifyLowBattery(int pct) =>
         TryShow("Low battery", $"Battery at {pct}% — connect AC power");
 
+    public static void NotifyHighBattery(int pct, int warnAtPct) =>
+        TryShow("High battery", $"Battery at {pct}% — above the {warnAtPct}% warning level");
+
     /// <summary><paramref name="dropPercent"/> is always positive — the caller filters rises and flats.</summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
     {

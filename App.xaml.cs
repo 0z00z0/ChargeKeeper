@@ -1,4 +1,4 @@
-﻿using H.NotifyIcon;
+using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
@@ -42,6 +42,9 @@ public partial class App : Application
 
     // Fire-once latch, reset with 5 % hysteresis so a brief charge re-arms it.
     private bool _lowBatteryWarningFired;
+
+    // Fire-once latch for the opposite end, re-armed the moment the level falls back below.
+    private bool _highBatteryWarningFired;
 
     // A GPU fault during a power transition kills the compositor connection, and WinUI then tears
     // the process down as a CLEAN exit with nothing in any log. These flags let OnProcessExit tell
@@ -461,6 +464,7 @@ public partial class App : Application
             // publish are deferred to after the lock releases.
             HaState haSnapshot;
             bool fireLowBattery = false;
+            int? highBatteryWarnAtPct = null;   // the configured level, carried out of the lock
             bool fireChargingStarted = false;
             int? chargeCompleteStopPct = null;
             bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
@@ -499,6 +503,19 @@ public partial class App : Application
                 else if (pct > s.LowBatteryWarningPct + 5)
                 {
                     _lowBatteryWarningFired = false;
+                }
+
+                // The threshold state decides whether a high level is news: within the cap it is
+                // the cap working, above it the cap is not holding.
+                if (HighBatteryWarningPolicy.ShouldWarn(s.HighBatteryWarningEnabled, pct,
+                        s.HighBatteryWarningPct, _highBatteryWarningFired, thresholdState))
+                {
+                    _highBatteryWarningFired = true;
+                    highBatteryWarnAtPct = s.HighBatteryWarningPct;   // fired outside the lock (see below)
+                }
+                else if (HighBatteryWarningPolicy.ClearsLatch(pct, s.HighBatteryWarningPct))
+                {
+                    _highBatteryWarningFired = false;
                 }
 
                 if (_lastBatteryStatus == BatteryStatus.Charging &&
@@ -558,6 +575,7 @@ public partial class App : Application
             // ToastService.Notify* does a synchronous WinRT/COM Show; the decisions and the latch
             // above were taken under the lock, so only the Show is deferred.
             if (fireLowBattery)                    ToastService.NotifyLowBattery(pct);
+            if (highBatteryWarnAtPct is { } warnAt) ToastService.NotifyHighBattery(pct, warnAt);
             if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop);
             if (fireChargingStarted)               ToastService.NotifyChargingStarted();
 

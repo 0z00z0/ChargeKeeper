@@ -379,6 +379,17 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="High battery warning"
+                                            Description="Notify when the battery rises to this level.">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <local:InfoIcon Subject="the high battery warning"
+                                            Info="The warning fires once on the way up and stays silent until the level falls back below. It is suppressed while Smart Charge is limiting and the level is within its cap, so it means the battery went higher than the cap allows."/>
+                            <ComboBox x:Name="HighBattPctCombo" MinWidth="110"
+                                      SelectionChanged="OnHighBattPctChanged"/>
+                            <ToggleSwitch x:Name="HighBattEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHighBattEnabledToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="Overnight-drain warning"
                                             Description="Notify when the battery loses charge faster than this rate across a detected downtime gap.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
