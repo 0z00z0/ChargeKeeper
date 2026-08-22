@@ -608,14 +608,7 @@ internal sealed partial class SettingsWindow : Window
         PresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.Presets;
 
-        // The row whose thresholds are in use disables its own button, so the DISABLED visual state
-        // is what paints the marker — it overrides any Background/Foreground set on the button
-        // itself, which is why the accent goes on these three template resources instead. Set before
-        // the rows are parented, so their templates resolve them; activation buttons are the only
-        // ones in this panel that are ever disabled.
-        PresetsListPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.AccentBrush;
-        PresetsListPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.AccentBrush;
-        PresetsListPanel.Resources["ButtonForegroundDisabled"]  = AppColors.OnAccentBrush;
+        PresetRows.ApplyActiveResources(PresetsListPanel);
 
         if (presets.Count == 0)
         {
@@ -645,40 +638,11 @@ internal sealed partial class SettingsWindow : Window
     private void RefreshPresetActivationStates(ChargeThresholdState? state)
     {
         string? activeName = SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
-        var visibility     = state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed;
 
-        foreach (var row in PresetsListPanel.Children.OfType<SettingsExpander>())
-        {
-            if (row.Content is not Button button) continue;
-            bool isActive     = activeName is not null && (string?)button.Tag == activeName;
-            button.Content    = isActive ? "In use" : "Activate";
-            button.IsEnabled  = !isActive;
-            button.Visibility = visibility;
-            ToolTipService.SetToolTip(button, isActive
-                ? "These thresholds are the ones in use."
-                : "Applies these thresholds now.");
-
-            // The name carries the accent too, so the row reads as active without hunting for the
-            // button. Suppressed where the marker itself is hidden, since colour alone would then be
-            // the only cue left.
-            if (row.Header is TextBlock header) StyleActiveName(header, isActive && visibility == Visibility.Visible);
-        }
-    }
-
-    /// <summary>Accent plus weight on the active preset's name; both cleared back to the row's
-    /// inherited values otherwise, so nothing has to remember what the default was.</summary>
-    private static void StyleActiveName(TextBlock header, bool active)
-    {
-        if (active)
-        {
-            header.Foreground = AppColors.AccentBrush;
-            header.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        }
-        else
-        {
-            header.ClearValue(TextBlock.ForegroundProperty);
-            header.ClearValue(TextBlock.FontWeightProperty);
-        }
+        PresetRows.RefreshActivation(
+            PresetsListPanel, activeName, state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed,
+            "These thresholds are the ones in use.",
+            "Applies these thresholds now.");
     }
 
     /// <summary>Applies a preset from its row, through the same composition every other trigger
@@ -705,7 +669,6 @@ internal sealed partial class SettingsWindow : Window
     private SettingsExpander BuildPresetRow(ThresholdPreset preset)
     {
         string presetName = preset.Name;
-        var expander = new SettingsExpander();
 
         var nameBox = new TextBox { Text = preset.Name, MinWidth = 220 };
 
@@ -738,45 +701,27 @@ internal sealed partial class SettingsWindow : Window
         rangeRow.Children.Add(range);
         rangeRow.Children.Add(stopText);
 
-        var errorText = new TextBlock
-        {
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed,
-            Foreground = CriticalBrush(),
-        };
-        var deleteBtn = new Button { Content = "Delete preset" };
-        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
-        footer.Children.Add(errorText);
-        footer.Children.Add(deleteBtn);
+        var row = PresetRows.Build(
+            ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop), "", presetName,
+            [
+                new SettingsCard { Header = "Name",                              Content = nameBox },
+                // ContentAlignment.Vertical drops the slider onto its own row, but a SettingsCard's
+                // HorizontalContentAlignment still defaults to Right — the star column then collapses
+                // and the slider shrinks to ~250 px. Stretch is what makes the Grid span the card.
+                new SettingsCard
+                {
+                    Header                     = "Range (5-point minimum gap)",
+                    ContentAlignment           = ContentAlignment.Vertical,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Content                    = rangeRow,
+                },
+            ],
+            CriticalBrush());
 
-        // In the header row, so activation is one click from the list without opening the editor.
-        // Its label, enabled state and visibility are all set by RefreshPresetActivationStates.
-        var activateBtn = new Button { Tag = presetName, MinWidth = 88 };
-        activateBtn.Click += (_, _) => ActivatePreset(presetName);
+        row.Activate.Click += (_, _) => ActivatePreset(presetName);
 
-        // A TextBlock rather than the plain string, so RefreshPresetActivationStates has something
-        // whose Foreground and FontWeight it can set when this preset is the one in use.
-        expander.Header  = new TextBlock { Text = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop) };
-        expander.Content = activateBtn;
-        expander.ItemsSource = new List<SettingsCard>
-        {
-            new SettingsCard { Header = "Name",                              Content = nameBox },
-            // ContentAlignment.Vertical drops the slider onto its own row, but a SettingsCard's
-            // HorizontalContentAlignment still defaults to Right — the star column then collapses
-            // and the slider shrinks to ~250 px. Stretch is what makes the Grid span the card.
-            new SettingsCard
-            {
-                Header                     = "Range (5-point minimum gap)",
-                ContentAlignment           = ContentAlignment.Vertical,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Content                    = rangeRow,
-            },
-        };
-        expander.ItemsFooter = footer;
-
-        nameBox.LostFocus += (_, _) => CommitPresetRow(presetName, nameBox, range, errorText, expander);
-        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetName, nameBox, range, errorText, expander); };
+        nameBox.LostFocus += (_, _) => CommitPresetRow(presetName, nameBox, range, row);
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetName, nameBox, range, row); };
 
         // Debounced commit, same 700 ms as DashboardWindow's threshold sliders: validating on every
         // ValueChanged would flash an error for each intermediate sub-gap position during a drag.
@@ -787,7 +732,7 @@ internal sealed partial class SettingsWindow : Window
         debounce.Tick += (_, _) =>
         {
             debounce.Stop();
-            CommitPresetRow(presetName, nameBox, range, errorText, expander);
+            CommitPresetRow(presetName, nameBox, range, row);
         };
         range.ValueChanged += (_, _) =>
         {
@@ -797,17 +742,18 @@ internal sealed partial class SettingsWindow : Window
             debounce.Start();
         };
 
-        deleteBtn.Click += (_, _) => DeletePreset(presetName);
+        row.Delete.Click += (_, _) => DeletePreset(presetName);
 
-        return expander;
+        return row.Expander;
     }
 
     /// <summary>Validates and, if valid, saves a preset row's name and thresholds. Reject-on-save:
     /// an invalid edit shows an inline error and writes nothing, leaving the row as the user left
     /// it.</summary>
     private void CommitPresetRow(string originalName, TextBox nameBox, RangeSelector range,
-        TextBlock errorText, SettingsExpander expander)
+        PresetRows.Parts row)
     {
+        var errorText = row.Error;
         string newName = nameBox.Text?.Trim() ?? "";
         int start = (int)range.RangeStart;
         int stop  = (int)range.RangeEnd;
@@ -856,9 +802,9 @@ internal sealed partial class SettingsWindow : Window
             RebuildNetworkRuleRows();
             _onPresetsChanged();   // HA's preset select carries the old name until discovery is republished
         }
-        else if (expander.Header is TextBlock header)
+        else
         {
-            header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
+            row.Header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
         }
 
         _menu.ReconcileFromExternalChange();
@@ -1208,6 +1154,9 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakeRemainingText.Text = session is null
             ? "Not holding this computer awake."
             : KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session);
+
+        // Covers every way a session can start or end, including expiry and the dashboard's chips.
+        RefreshKeepAwakeActivationStates();
     }
 
     private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
@@ -1315,11 +1264,7 @@ internal sealed partial class SettingsWindow : Window
         {
             var captured = preset;
             var chip = new Button { Content = DescribePreset(captured) };
-            chip.Click += (_, _) =>
-            {
-                KeepAwakeService.Activate(captured);
-                RefreshKeepAwakeState();
-            };
+            chip.Click += (_, _) => ActivateKeepAwakePreset(captured);
             KeepAwakeChipsPanel.Children.Add(chip);
         }
     }
@@ -1364,6 +1309,8 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakePresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.KeepAwakePresets;
 
+        PresetRows.ApplyActiveResources(KeepAwakePresetsListPanel);
+
         if (presets.Count == 0)
         {
             KeepAwakePresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
@@ -1372,6 +1319,37 @@ internal sealed partial class SettingsWindow : Window
 
         for (int i = 0; i < presets.Count; i++)
             KeepAwakePresetsListPanel.Children.Add(BuildKeepAwakePresetRow(i, presets[i]));
+
+        RefreshKeepAwakeActivationStates();
+    }
+
+    /// <summary>Marks the row whose preset started the running session. Always visible: no hardware
+    /// can refuse a keep-awake hold the way fixed-mode firmware refuses thresholds.</summary>
+    private void RefreshKeepAwakeActivationStates()
+    {
+        int active = ActiveKeepAwakePresetPolicy.MatchIndex(
+            SettingsService.Current.KeepAwakePresets, KeepAwakeService.Current);
+
+        PresetRows.RefreshActivation(
+            KeepAwakePresetsListPanel, active >= 0 ? active : null, Visibility.Visible,
+            "A session from this preset is running.",
+            "Starts a session from this preset now.");
+    }
+
+    /// <summary>Starts a session from a saved preset, re-read by position so an edit committed since
+    /// the row was built is the span that starts. Goes through
+    /// <see cref="KeepAwakeService.Activate"/>, the one start path every surface uses.</summary>
+    private void ActivateKeepAwakePresetAt(int index)
+    {
+        var presets = SettingsService.Current.KeepAwakePresets;
+        if (index < 0 || index >= presets.Count) return;
+        ActivateKeepAwakePreset(presets[index]);
+    }
+
+    private void ActivateKeepAwakePreset(KeepAwakeRequest preset)
+    {
+        KeepAwakeService.Activate(preset);
+        RefreshKeepAwakeState();
     }
 
     /// <summary>One keep-awake preset's editor row — a name and a single "Expires" box, because
@@ -1382,46 +1360,33 @@ internal sealed partial class SettingsWindow : Window
         var nameBox    = new TextBox { Text = preset.Name ?? "", MinWidth = 220, PlaceholderText = DescribeSpan(preset) };
         var expiresBox = new TextBox { Text = ToEditableSpan(preset), MinWidth = 220, PlaceholderText = "3h, 90m or 17:00" };
 
-        var errorText = new TextBlock
-        {
-            FontSize     = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility   = Visibility.Collapsed,
-            Foreground   = CriticalBrush(),
-        };
-        var deleteBtn = new Button { Content = "Delete preset" };
-        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
-        footer.Children.Add(errorText);
-        footer.Children.Add(deleteBtn);
-
-        var expander = new SettingsExpander
-        {
-            Header      = DescribePreset(preset),
-            Description = DescribePresetSubtitle(preset),
-            ItemsSource = new List<SettingsCard>
-            {
+        // Tagged by position, not by name: a keep-awake preset need not have one.
+        var row = PresetRows.Build(
+            DescribePreset(preset), DescribePresetSubtitle(preset), index,
+            [
                 new SettingsCard { Header = "Name",    Description = "Optional — the span is shown when this is blank.", Content = nameBox },
                 new SettingsCard { Header = "Expires", Description = "A duration (3h, 90m, 1h30) or a clock time (17:00).", Content = expiresBox },
-            },
-            ItemsFooter = footer,
-        };
+            ],
+            CriticalBrush());
 
-        void Commit() => CommitKeepAwakePresetRow(index, nameBox, expiresBox, errorText, expander);
+        row.Activate.Click += (_, _) => ActivateKeepAwakePresetAt(index);
+
+        void Commit() => CommitKeepAwakePresetRow(index, nameBox, expiresBox, row);
         nameBox.LostFocus    += (_, _) => Commit();
         nameBox.KeyDown      += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
         expiresBox.LostFocus += (_, _) => Commit();
         expiresBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
 
-        deleteBtn.Click += (_, _) => DeleteKeepAwakePreset(index);
+        row.Delete.Click += (_, _) => DeleteKeepAwakePreset(index);
 
-        return expander;
+        return row.Expander;
     }
 
     /// <summary>Validates and saves one preset row, same reject-on-save contract as the threshold
     /// presets. A blank "Expires" keeps the stored span, so clearing the field cannot destroy a
     /// preset.</summary>
     private void CommitKeepAwakePresetRow(int index, TextBox nameBox, TextBox expiresBox,
-        TextBlock errorText, SettingsExpander expander)
+        PresetRows.Parts row)
     {
         var presets = SettingsService.Current.KeepAwakePresets;
         if (index < 0 || index >= presets.Count) return;
@@ -1432,12 +1397,12 @@ internal sealed partial class SettingsWindow : Window
         {
             if (!KeepAwakeInputParser.TryParse(expires, out var parsed))
             {
-                ShowInlineError(errorText, "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+                ShowInlineError(row.Error, "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
                 return;
             }
             span = parsed;
         }
-        errorText.Visibility = Visibility.Collapsed;
+        row.Error.Visibility = Visibility.Collapsed;
 
         string? name = nameBox.Text?.Trim() is { Length: > 0 } n ? n : null;
         var updated = span with { Name = name };
@@ -1447,11 +1412,14 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.KeepAwakePresets.Count) s.KeepAwakePresets[index] = updated;
         });
 
-        expander.Header      = DescribePreset(updated);
-        expander.Description = DescribePresetSubtitle(updated);
-        expiresBox.Text      = ToEditableSpan(updated);   // normalises "1h30m" to "1h30"
-        nameBox.PlaceholderText = DescribeSpan(updated);
+        row.Header.Text          = DescribePreset(updated);
+        row.Expander.Description = DescribePresetSubtitle(updated);
+        expiresBox.Text          = ToEditableSpan(updated);   // normalises "1h30m" to "1h30"
+        nameBox.PlaceholderText  = DescribeSpan(updated);
         RebuildKeepAwakeChips();   // the chip row shows these same presets
+
+        // An edited preset no longer matches the session it started, so the marker moves off it.
+        RefreshKeepAwakeActivationStates();
     }
 
     private void DeleteKeepAwakePreset(int index)
