@@ -140,21 +140,30 @@
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             </Style>
 
-            <!-- SettingsWindow (TODO #19) section + sub-section headers. Same extraction rationale
-                 as the stat styles above: these TextBlock property sets were pasted per-section.
-                 SectionHeaderStyle carries the uniform bottom margin; SubHeaderStyle leaves Margin
-                 inline since it varies between the first sub-header and the later ones. -->
+            <!-- Settings page title and the sub-section headers within it. The two levels are held
+                 apart on size and weight together, because one axis alone reads as a rendering
+                 accident rather than a hierarchy. -->
             <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="14"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Margin" Value="0,0,0,4"/>
+                <Setter Property="FontSize" Value="19"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Margin" Value="0,0,0,12"/>
             </Style>
             <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Opacity" Value="0.85"/>
+                <Setter Property="CharacterSpacing" Value="80"/>
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Style>
+
+            <!-- Marks where one sub-section ends and the next begins. The whole gap between groups
+                 sits above the rule and the heading, so a heading binds downwards to its own cards
+                 rather than floating between two groups. -->
+            <Style x:Key="SectionDividerStyle" TargetType="Border">
+                <Setter Property="Height" Value="1"/>
+                <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                <Setter Property="Margin" Value="0,24,0,12"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

@@ -159,7 +159,8 @@
 
                     <!-- Advanced: the two settings-file actions that used to live in the tray menu
                          (TODO #28 — "Open settings folder" / "Reload settings from file"). -->
-                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}"/>
                     <controls:SettingsCard Header="Settings file"
                                             Description="ChargeKeeper stores its configuration in settings.json.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -192,7 +193,7 @@
                          feature is misleading rather than merely limited. Text is set in
                          code-behind because the cap figure comes from the active vendor. -->
                     <StackPanel x:Name="FixedModeSettings" Spacing="4" Visibility="Collapsed">
-                        <TextBlock Text="Charge limit" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Charge limit" Style="{StaticResource SubHeaderStyle}"/>
 
                         <!-- Items are built in code-behind from the active vendor's AvailableModes,
                              so the firmware owns both the option list and its order. A radio group
@@ -211,13 +212,14 @@
                     <!-- Presets and network profiles both require arbitrary percentages. Grouped
                          so they can be hidden together on fixed-mode hardware. -->
                     <StackPanel x:Name="NumericThresholdSettings" Spacing="4">
-                    <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" Margin="0,0,0,4"/>
+                    <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}"/>
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,12"/>
 
                     <!-- Reads in the order the feature works: define presets, then say which
                          network picks which, then the fallback for everything unmatched. -->
-                    <TextBlock Text="Network profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <TextBlock Text="Network profiles" Style="{StaticResource SubHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Enable network profiles"
                                             Description="Applies a preset automatically when the detected network location changes.">
@@ -298,7 +300,8 @@
 
                     <!-- Deliberately blunt wording: the user is agreeing to a change to their Windows
                          power settings, so the card says which setting and how it comes back. -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Lid close" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="lid close"
                                         Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
@@ -326,7 +329,8 @@
                         <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
                     </controls:SettingsCard>
 
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="keep-awake presets"
                                         Info="One “Expires” field defines both the kind and the value: a duration (3h, 90m, 1h30) or a clock time (17:00). The first preset is the one the tray toggle and the dashboard switch use."/>
@@ -339,7 +343,8 @@
                          those sit inside NumericThresholdSettings, which is collapsed entirely on
                          fixed-mode hardware (HP, Surface) where keep-awake-per-network still has to
                          work. Each page shows its own facet of the shared list. -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Networks" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="keep-awake networks"
                                         Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side. “Enable network profiles” must be on there for them to act."/>
@@ -399,7 +404,8 @@
                          connects. The two fields are deliberately NOT treated alike: the name is
                          cosmetic and rides the Apply batch, the id is destructive and only changes
                          through its own confirmation dialog. -->
-                    <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Device name"
                                             Description="The display name published for this machine. Cosmetic — it renames nothing else.">
@@ -417,7 +423,8 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="the broker fields"
                                         Info="The broker fields are staged locally and take effect on Apply. The MQTT connection then reconnects once per Apply, not once per keystroke."/>
@@ -474,7 +481,8 @@
                     <!-- ── Status — read-only, same weight as the Smart Charge page's "Current
                          network" card: secondary-brush text in a SettingsCard, not a panel. These
                          describe the LIVE connection (what is applied), not the staged boxes. -->
-                    <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Last publish"
                                             Description="When ChargeKeeper last got a message onto the broker.">
