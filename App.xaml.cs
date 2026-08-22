@@ -233,6 +233,9 @@ public partial class App : Application
         SubscribeBatteryEvents();
         StartHistorySampling();
         ScheduleUpdateCheck();
+        // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
+        // and applying its preset is exactly what this drops the rule to avoid.
+        SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
         NetworkLocationService.Start();
         KeepAwakeService.Start();
         // Also the crash-recovery point: puts the user's own Windows lid-close action back if a

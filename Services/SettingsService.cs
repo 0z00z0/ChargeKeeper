@@ -111,6 +111,10 @@ internal sealed class AppSettings
 
     public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
 
+    /// <summary>Set once the rules keyed on the routed adapter have been dropped. Persisted, because
+    /// clearing on every start would also drop the rules saved since.</summary>
+    public bool NetworkRulesKeyedOnPhysicalAdapter { get; set; }
+
     /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
     /// on a network the user simply hasn't named yet.</summary>
     public string? UnknownNetworkPresetName { get; set; }
@@ -234,20 +238,61 @@ internal static class SettingsService
         return null;
     }
 
-    /// <summary>Best-effort: this runs under the load path, so a failed copy is logged, never thrown.</summary>
-    private static void PreserveUnreadable(string path, string reason)
+    private static void PreserveUnreadable(string path, string reason) =>
+        PreserveCopy(path, "unreadable", $"could not be read ({reason}), defaults loaded");
+
+    /// <summary>Copies settings.json aside as <c>settings.json.&lt;tag&gt;-&lt;timestamp&gt;</c>.
+    /// Best-effort: callers have nothing to do about a failed copy, so it is logged, never thrown.</summary>
+    private static void PreserveCopy(string path, string tag, string reason)
     {
+        if (!File.Exists(path)) return;
         string stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
-        string copy  = $"{path}.unreadable-{stamp}";
+        string copy  = $"{path}.{tag}-{stamp}";
         try
         {
             File.Copy(path, copy, overwrite: true);
-            AppLog.Info($"settings.json could not be read ({reason}); defaults loaded, original kept as '{Path.GetFileName(copy)}'.");
+            AppLog.Info($"settings.json {reason}; original kept as '{Path.GetFileName(copy)}'.");
         }
         catch (Exception ex)
         {
-            AppLog.Error($"SettingsService: settings.json unreadable ({reason}) and the aside copy failed", ex);
+            AppLog.Error($"SettingsService: settings.json {reason}, and copying it aside as '{tag}' failed", ex);
         }
+    }
+
+    /// <summary>
+    /// Drops network location rules written before locations were keyed on the physical adapter: those
+    /// carry whatever the routing table pointed at, so a VPN's or a virtual switch's MAC and subnet can
+    /// stand for several places at once and cannot be mapped back to a NIC. Runs once, and touches
+    /// nothing else in settings; settings.json is copied aside first.
+    /// </summary>
+    public static void ClearRulesKeyedOnTheRoutedAdapter()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (settings.NetworkRulesKeyedOnPhysicalAdapter) return;
+
+            // Copies the file as it still stands on disk: ClearRoutedAdapterRules only mutates memory,
+            // and nothing reaches settings.json until Save below.
+            if (settings.NetworkLocationRules.Count > 0)
+                PreserveCopy(_path, "backup", "network location rules cleared");
+
+            int dropped = ClearRoutedAdapterRules(settings) ?? 0;
+            Save();
+            AppLog.Info($"Network location rules cleared ({dropped} dropped): locations are now keyed on the physical adapter.");
+        }
+    }
+
+    /// <summary>The decision behind <see cref="ClearRulesKeyedOnTheRoutedAdapter"/>, separated so the
+    /// once-only guard is testable: how many rules were dropped, or null when the clear has already run
+    /// and must not run again.</summary>
+    internal static int? ClearRoutedAdapterRules(AppSettings settings)
+    {
+        if (settings.NetworkRulesKeyedOnPhysicalAdapter) return null;
+        int dropped = settings.NetworkLocationRules.Count;
+        settings.NetworkLocationRules.Clear();
+        settings.NetworkRulesKeyedOnPhysicalAdapter = true;
+        return dropped;
     }
 
     /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an
