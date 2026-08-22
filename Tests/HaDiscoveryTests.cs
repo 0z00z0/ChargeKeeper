@@ -11,8 +11,12 @@ public class HaDiscoveryTests
 {
     private static readonly string[] Presets = ["Daily", "Travel"];
 
+    /// <summary>The full surface: every group on, every vendor gate open.</summary>
+    private static IReadOnlyList<HaEntity> FullSurface =>
+        HaEntityCatalog.Announce(HaCategorySet.All, HaCapabilities.Full);
+
     private static List<(string Topic, string Json)> Configs(string node) =>
-        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets).ToList();
+        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets, FullSurface).ToList();
 
     [Theory]
     [InlineData("ESPEN-X1", "chargekeeper_espen_x1")]
@@ -96,8 +100,9 @@ public class HaDiscoveryTests
         // so an id change would strand a retained payload under the old id forever.
         Assert.Contains(HaDiscovery.AvailabilityTopic("old_id"), topics);
         Assert.Contains(HaDiscovery.StateTopic("old_id"), topics);
+        Assert.Contains(HaDiscovery.StatusTopic("old_id"), topics);
 
-        Assert.Equal(HaDiscovery.Entities.Count() + HaDiscovery.LegacyEntities.Length + 2, topics.Count);
+        Assert.Equal(HaDiscovery.Entities.Count() + HaDiscovery.LegacyEntities.Length + 3, topics.Count);
         Assert.Equal(topics.Count, topics.Distinct().Count());   // nothing cleared twice
     }
 
@@ -133,13 +138,13 @@ public class HaDiscoveryTests
     }
 
     [Fact]
-    public void DiscoveryConfigs_CoverEveryEntity_AllShareDeviceAndAvailability()
+    public void DiscoveryConfigs_CoverEveryAnnouncedEntity_AllShareDeviceAndAvailability()
     {
         string node = HaDiscovery.NodeId("PC");
         var configs = Configs(node);
 
-        // 8 read-only sensors + 5 command entities.
-        Assert.Equal(13, configs.Count);
+        // With every group on and every gate open, the announced set is the whole catalogue.
+        Assert.Equal(FullSurface.Count, configs.Count);
         Assert.Equal(configs.Count, HaDiscovery.Entities.Count());
 
         foreach (var (_, json) in configs)
@@ -246,7 +251,7 @@ public class HaDiscoveryTests
         // HA rejects a select with an empty options list, so with no presets configured a single
         // placeholder is published instead.
         string node = HaDiscovery.NodeId("PC");
-        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [])
+        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [], FullSurface)
             .Single(c => c.Topic == $"homeassistant/select/{node}/preset/config");
 
         using var doc = JsonDocument.Parse(json);

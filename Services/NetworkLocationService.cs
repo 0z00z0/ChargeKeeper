@@ -57,7 +57,8 @@ internal sealed record AdapterCandidate(
     string Description = "",
     string? Mac = null,
     string? IpCidr = null,
-    uint Metric = uint.MaxValue);
+    uint Metric = uint.MaxValue,
+    string? IpAddress = null);
 
 /// <summary>
 /// The physical adapter a location is keyed on. <see cref="Carrier"/> holds the IP, so it supplies the
@@ -71,7 +72,18 @@ internal sealed record PhysicalRoute(AdapterCandidate Carrier, BridgePeer? Bridg
 /// Hyper-V host. <see cref="Mac"/> is null for pseudo-adapters with no 6-byte hardware address, which
 /// disqualifies them as the NIC behind a switch.
 /// </summary>
-internal sealed record BridgePeer(string Name, string? Mac, bool IsVirtual, OperationalStatus Status);
+internal sealed record BridgePeer(string Name, string? Mac, bool IsVirtual, OperationalStatus Status,
+                                  string? Description = null);
+
+/// <summary>
+/// How the resolved adapter describes itself: the Windows connection alias, the address it holds, and
+/// the hardware name. Not part of the location key — a rule never matches on any of it — so it can
+/// change without re-firing a location change.
+/// </summary>
+internal readonly record struct NetworkAdapterInfo(string? Alias, string? IpAddress, string? AdapterName)
+{
+    public bool IsEmpty => Alias is null && IpAddress is null && AdapterName is null;
+}
 
 /// <summary>
 /// Detects the current network location by fingerprinting the physical adapter carrying the traffic,
@@ -98,6 +110,7 @@ internal static class NetworkLocationService
     private static readonly System.Threading.Lock _sync = new();
     private static System.Threading.Timer? _debounceTimer;
     private static NetworkLocation _last;
+    private static NetworkAdapterInfo _lastAdapter;
     private static bool _started;
 
     // Whether _last holds a real reading yet. The first evaluation after Start() only seeds it —
@@ -115,6 +128,10 @@ internal static class NetworkLocationService
     /// <summary>The cheap read for status display, with no adapter enumeration. Empty until the
     /// first post-<see cref="Start"/> evaluation lands.</summary>
     public static NetworkLocation LastKnown { get { lock (_sync) return _last; } }
+
+    /// <summary>How the last-detected adapter describes itself. Refreshed on every evaluation, not
+    /// only on a location change: an alias or a lease can change without the match key moving.</summary>
+    public static NetworkAdapterInfo LastKnownAdapter { get { lock (_sync) return _lastAdapter; } }
 
     /// <summary>A real location change, rather than the first baseline seed. Pure, so testable.</summary>
     internal static bool IsLocationChange(bool seeded, NetworkLocation current, NetworkLocation last) =>
@@ -166,10 +183,13 @@ internal static class NetworkLocationService
     {
         try
         {
-            var current = DetectCurrent();
+            var (current, adapter) = DetectCurrentDetailed();
             bool changed;
             lock (_sync)
             {
+                // Stored before the early return: the alias and the lease can move without the match
+                // key moving, and the status entities read this.
+                _lastAdapter = adapter;
                 changed = IsLocationChange(_seeded, current, _last);
                 if (_seeded && !changed) return;
                 _seeded = true;
@@ -226,19 +246,22 @@ internal static class NetworkLocationService
 
     /// <summary>Reads the current location synchronously — the tray's "Add configuration for this
     /// network" needs an up-to-the-moment reading, not the last debounced one.</summary>
-    public static NetworkLocation DetectCurrent()
+    public static NetworkLocation DetectCurrent() => DetectCurrentDetailed().Location;
+
+    /// <summary>The same reading with the resolved adapter's own description alongside it.</summary>
+    public static (NetworkLocation Location, NetworkAdapterInfo Adapter) DetectCurrentDetailed()
     {
         try
         {
             // The enumerations must stay INSIDE the try: they touch adapter properties, which throw
             // during the dock/undock race this catch exists for, and the synchronous UI caller has no
             // guard of its own.
-            return Detect(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(), TryGetWifiSsid);
+            return DetectDetailed(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(), TryGetWifiSsid);
         }
         catch
         {
             // The adapter, or its enumeration, can vanish mid-read during a dock/undock transition.
-            return default;
+            return (default, default);
         }
     }
 
@@ -252,18 +275,39 @@ internal static class NetworkLocationService
         IReadOnlyList<AdapterCandidate> candidates,
         IReadOnlyList<BridgePeer> peers,
         uint bestIndex,
+        Func<string?> readSsid) => DetectDetailed(candidates, peers, bestIndex, readSsid).Location;
+
+    /// <summary>The detection above, also returning how the resolved adapter describes itself. One
+    /// resolution feeds both, so the description can never belong to a different adapter from the one
+    /// the key identifies.</summary>
+    internal static (NetworkLocation Location, NetworkAdapterInfo Adapter) DetectDetailed(
+        IReadOnlyList<AdapterCandidate> candidates,
+        IReadOnlyList<BridgePeer> peers,
+        uint bestIndex,
         Func<string?> readSsid)
     {
         if (ResolvePhysical(SelectPrimary(candidates, bestIndex), candidates, peers) is not { } route)
-            return default;
+            return (default, default);
 
         bool wired   = route.Carrier.Type != NetworkInterfaceType.Wireless80211;
         string? ssid = wired ? null : readSsid();
-        // One resolution feeds both the stored MAC and the suggested name, so the name can never
-        // describe a different adapter from the one the key identifies.
-        return Compose(route.Carrier.Mac ?? "", route.Carrier.IpCidr, wired, route.Bridged,
-                       SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid));
+        var location = Compose(route.Carrier.Mac ?? "", route.Carrier.IpCidr, wired, route.Bridged,
+                               SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid));
+        return (location, ComposeAdapter(route));
     }
+
+    /// <summary>
+    /// How the resolved adapter describes itself. Alias and hardware name come from the physical NIC
+    /// the walk-back settled on, so a Hyper-V switch port reports the card behind it rather than
+    /// "vEthernet (…)". The address stays with the carrier, which is the adapter that actually holds
+    /// one — a NIC bound behind an external switch keeps none.
+    /// </summary>
+    internal static NetworkAdapterInfo ComposeAdapter(PhysicalRoute route) => new(
+        Alias:       Blank(route.Bridged?.Name ?? route.Carrier.Name),
+        IpAddress:   Blank(route.Carrier.IpAddress),
+        AdapterName: Blank(route.Bridged?.Description ?? route.Carrier.Description));
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     // Every Up adapter owning a usable IPv4 address. Not restricted to physical types or non-virtual
     // descriptions: on a Hyper-V external switch the routable IP and default route live on the
@@ -281,8 +325,9 @@ internal static class NetworkLocationService
     // is dropped by the caller.
     private static AdapterCandidate Describe(NetworkInterface n)
     {
-        int index    = -1;
-        string? cidr = null;
+        int index       = -1;
+        string? cidr    = null;
+        string? address = null;
         try
         {
             var props = n.GetIPProperties();
@@ -290,12 +335,16 @@ internal static class NetworkLocationService
             // A NIC commonly holds an APIPA address alongside a real lease, and keying on
             // 169.254.0.0/16 would match any link-local network and never the real subnet.
             if (props.UnicastAddresses.FirstOrDefault(a => IsUsableIPv4(a.Address)) is { } ipv4)
+            {
                 cidr = CalculateCidr(ipv4.Address, ipv4.IPv4Mask);
+                address = ipv4.Address.ToString();
+            }
         }
         catch { }
 
         return new AdapterCandidate(index, LooksVirtual(n.Description), n.NetworkInterfaceType,
-                                    n.Name, n.Description, MacOrNull(n), cidr, ReadInterfaceMetric(index));
+                                    n.Name, n.Description, MacOrNull(n), cidr, ReadInterfaceMetric(index),
+                                    address);
     }
 
     /// <summary>
@@ -489,7 +538,8 @@ internal static class NetworkLocationService
                 n.Name,
                 MacOrNull(n),
                 n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase),
-                n.OperationalStatus))
+                n.OperationalStatus,
+                n.Description))
             .ToList();
 
     // The adapter's MAC in the stored format, or null when it has no real 6-byte hardware address —

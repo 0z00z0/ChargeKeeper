@@ -26,9 +26,10 @@ internal sealed partial class SettingsWindow : Window
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
 
-    // Raised when the preset list changes. HA's "Charge preset" select carries its options inside
-    // the retained discovery config, so without this it keeps offering the old names.
-    private readonly Action   _onPresetsChanged;
+    // Raised when what is announced changes: a preset renamed, or a publishing group toggled. The
+    // select options and the announced entity set are both baked into the retained discovery configs,
+    // so without this the broker keeps the set captured at connect time.
+    private readonly Action   _onDiscoveryChanged;
 
     // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
@@ -38,11 +39,11 @@ internal sealed partial class SettingsWindow : Window
     // discarded can be stopped before it fires against a detached row or a closed window.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onPresetsChanged)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onDiscoveryChanged)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
-        _onPresetsChanged       = onPresetsChanged;
+        _onDiscoveryChanged     = onDiscoveryChanged;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -800,7 +801,7 @@ internal sealed partial class SettingsWindow : Window
             // preset names too — rebuild both rather than re-keying a live row in place.
             RebuildPresetRows();
             RebuildNetworkRuleRows();
-            _onPresetsChanged();   // HA's preset select carries the old name until discovery is republished
+            _onDiscoveryChanged();   // HA's preset select carries the old name until discovery is republished
         }
         else
         {
@@ -840,7 +841,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
-        _onPresetsChanged();   // the deleted name must stop being offered in HA's preset select
+        _onDiscoveryChanged();   // the deleted name must stop being offered in HA's preset select
         _menu.ReconcileFromExternalChange();
     }
 
@@ -855,7 +856,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();   // the new preset should be selectable from Network rows at once
-        _onPresetsChanged();        // …and from HA's preset select, once discovery is republished
+        _onDiscoveryChanged();        // …and from HA's preset select, once discovery is republished
         _menu.ReconcileFromExternalChange();
     }
 
@@ -1571,6 +1572,14 @@ internal sealed partial class SettingsWindow : Window
             // than pre-filling it — an untouched field must keep meaning "default".
             HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
             HaDeviceNameBox.Text            = s.MqttDeviceName;
+
+            MqttBatteryStatusToggle.IsOn  = s.MqttPublishBatteryStatus;
+            MqttSmartChargeToggle.IsOn    = s.MqttPublishSmartCharge;
+            MqttKeepAwakeToggle.IsOn      = s.MqttPublishKeepAwake;
+            MqttLidCloseToggle.IsOn       = s.MqttPublishLidClose;
+            MqttNotificationsToggle.IsOn  = s.MqttPublishNotifications;
+            MqttNetworkToggle.IsOn        = s.MqttPublishNetwork;
+            MqttAppDiagnosticsToggle.IsOn = s.MqttPublishAppDiagnostics;
         });
         RefreshHaNodeIdText();
         // This re-sync discards any un-applied broker edit, so a leftover "Applied." must not
@@ -1579,6 +1588,24 @@ internal sealed partial class SettingsWindow : Window
         HaTestResultText.Visibility = Visibility.Collapsed;   // the tested values are gone with it
         RefreshHaBrokerStatusText();
         RefreshHaActivityTexts();
+    }
+
+    /// <summary>Commits every group toggle at once and re-announces. Unlike the broker fields these
+    /// apply immediately: the change is a publish, not a reconnect, so there is nothing to batch.</summary>
+    private void OnMqttCategoryToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        SettingsService.Update(s =>
+        {
+            s.MqttPublishBatteryStatus  = MqttBatteryStatusToggle.IsOn;
+            s.MqttPublishSmartCharge    = MqttSmartChargeToggle.IsOn;
+            s.MqttPublishKeepAwake      = MqttKeepAwakeToggle.IsOn;
+            s.MqttPublishLidClose       = MqttLidCloseToggle.IsOn;
+            s.MqttPublishNotifications  = MqttNotificationsToggle.IsOn;
+            s.MqttPublishNetwork        = MqttNetworkToggle.IsOn;
+            s.MqttPublishAppDiagnostics = MqttAppDiagnosticsToggle.IsOn;
+        });
+        _onDiscoveryChanged();
     }
 
     /// <summary>Hides "Applied." and the test result the moment any broker field is edited — those

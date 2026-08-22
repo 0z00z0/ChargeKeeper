@@ -341,6 +341,50 @@ public class NetworkLocationServiceTests
         Assert.Equal("Ethernet", location.DisplayHint);
     }
 
+    // How the resolved adapter describes itself
+
+    [Fact]
+    public void ComposeAdapter_NoBridge_TakesTheCarriersOwnAliasAddressAndHardwareName()
+    {
+        var carrier = Adapter(9, NetworkInterfaceType.Wireless80211, "WiFi",
+                              "Intel(R) Wi-Fi 6E AX211 160MHz", WifiMac, "10.0.0.0/23", metric: 30)
+                      with { IpAddress = "10.0.0.42" };
+
+        var info = NetworkLocationService.ComposeAdapter(new PhysicalRoute(carrier, null));
+
+        Assert.Equal("WiFi", info.Alias);
+        Assert.Equal("10.0.0.42", info.IpAddress);
+        Assert.Equal("Intel(R) Wi-Fi 6E AX211 160MHz", info.AdapterName);
+    }
+
+    [Fact]
+    public void ComposeAdapter_BehindASwitch_NamesThePhysicalNic_ButKeepsTheCarriersAddress()
+    {
+        // The NIC bound behind an external switch holds no address of its own, so the alias and the
+        // hardware name follow it while the address stays with the port that actually has one.
+        var port = BridgedSwitchPort() with { IpAddress = "10.0.1.7" };
+        var nic  = new BridgePeer("Ethernet", PhysicalMac, IsVirtual: false, OperationalStatus.Up,
+                                  "Intel(R) Ethernet Connection I219-LM");
+
+        var info = NetworkLocationService.ComposeAdapter(new PhysicalRoute(port, nic));
+
+        Assert.Equal("Ethernet", info.Alias);
+        Assert.Equal("10.0.1.7", info.IpAddress);
+        Assert.Equal("Intel(R) Ethernet Connection I219-LM", info.AdapterName);
+    }
+
+    [Fact]
+    public void ComposeAdapter_BlankReadingsBecomeNull_SoTheEntityReadsUnknown()
+    {
+        var bare = new AdapterCandidate(3, IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
+        var info = NetworkLocationService.ComposeAdapter(new PhysicalRoute(bare, null));
+
+        Assert.Null(info.Alias);
+        Assert.Null(info.IpAddress);
+        Assert.Null(info.AdapterName);
+        Assert.True(info.IsEmpty);
+    }
+
     // The suggested name
 
     [Fact]

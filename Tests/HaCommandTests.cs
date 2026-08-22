@@ -109,7 +109,7 @@ public class HaCommandTests
     }
 
     private static void Dispatch(HaCommandKind kind, SpyActions spy, bool b = false, int i = 0, string s = "")
-        => HaCommandDispatcher.Dispatch(new HaCommand(kind, b, i, s), spy);
+        => HaCommandDispatcher.Dispatch(new HaCommand(kind, b, i, s), spy, new HaSettingsSpy());
 
     [Fact]
     public void Dispatch_SmartCharge_TogglesEnable()

@@ -377,6 +377,45 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <!-- Each group maps to a Settings page, so what a toggle covers needs no
+                         explaining beyond its own name. Switching one off is a removal, not a pause —
+                         hence the InfoIcon rather than a longer description on every card. -->
+                    <Border Style="{StaticResource SectionDividerStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="What to publish" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="the publishing groups"
+                                        Info="Each group covers the entities from the Settings page it is named after. Switching a group off withdraws its entities from the broker, so nothing is left behind as unavailable; switching it back on announces them again. Entities the hardware cannot honour are never announced, whatever these are set to."/>
+                    </StackPanel>
+
+                    <controls:SettingsCard Header="Battery status">
+                        <ToggleSwitch x:Name="MqttBatteryStatusToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="Smart Charge">
+                        <ToggleSwitch x:Name="MqttSmartChargeToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="Keep Awake">
+                        <ToggleSwitch x:Name="MqttKeepAwakeToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="Lid close">
+                        <ToggleSwitch x:Name="MqttLidCloseToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="Notifications">
+                        <ToggleSwitch x:Name="MqttNotificationsToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="Network">
+                        <ToggleSwitch x:Name="MqttNetworkToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="App diagnostics">
+                        <ToggleSwitch x:Name="MqttAppDiagnosticsToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnMqttCategoryToggled"/>
+                    </controls:SettingsCard>
+
                     <!-- Above Broker: which device this is comes before how it connects. The name is
                          cosmetic and rides the Apply batch; the id is destructive and changes only
                          through its own confirmation dialog. -->

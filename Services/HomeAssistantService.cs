@@ -12,6 +12,7 @@ internal sealed class HomeAssistantService : IDisposable
     private readonly string _swVersion;
     private readonly IMqttClient _client;
     private readonly IChargeControlActions _actions;
+    private readonly IHaSettingsActions _settingsActions;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     // Drained on a dedicated worker off the MQTT receive callback, which must return promptly. Single
@@ -22,10 +23,14 @@ internal sealed class HomeAssistantService : IDisposable
 
     private volatile bool _enabled;
     private MqttClientOptions? _options;
-    private string _nodeId = "", _stateTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
+    private string _nodeId = "", _stateTopic = "", _statusTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
     private string? _lastStateJson;   // republished on (re)connect so a fresh HA restart gets current values
-    // Guards _lastStateJson, which the battery, command-worker and maintain-loop threads all touch.
+    private string? _lastSurfaceJson; // the settings payload's own dedupe, on its own topic
+    // Guards the cached payloads, which the battery, command-worker and maintain-loop threads all touch.
     private readonly object _stateLock = new();
+    // Which groups are announced. Written from ApplySettings, read on the MQTT threads; guarded by
+    // _stateLock, because a record struct cannot be volatile and a torn read would announce a mix.
+    private HaCategorySet _categories = HaCategorySet.All;
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
@@ -41,6 +46,9 @@ internal sealed class HomeAssistantService : IDisposable
     // Collapses a burst of charge-control signals into one in-flight fresh EC read plus one trailing
     // read, so a slider drag doesn't queue a blocking vendor read per signal.
     private readonly CoalescingGate _reflectGate = new();
+
+    // The same coalescing for the settings snapshot, which several unrelated events can signal at once.
+    private readonly CoalescingGate _surfaceGate = new();
 
     // Cuts the maintain loop's inter-poll delay short. Volatile: swapped for a fresh instance on use.
     private volatile TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,10 +69,28 @@ internal sealed class HomeAssistantService : IDisposable
     /// the first battery tick still shows real values. Null until the first reading.</summary>
     public Func<HaState?>? CurrentStateProvider { get; set; }
 
-    public HomeAssistantService(string swVersion, IChargeControlActions? actions = null)
+    /// <summary>Supplies the settings/network/diagnostic snapshot. Separate from
+    /// <see cref="CurrentStateProvider"/> because it changes on its own events, not on a battery tick.</summary>
+    public Func<HaSurfaceState?>? CurrentSurfaceProvider { get; set; }
+
+    /// <summary>Supplies the vendor capability gates the announcement is filtered through.</summary>
+    public Func<HaCapabilities>? CapabilityProvider { get; set; }
+
+    public HomeAssistantService(string swVersion, IChargeControlActions? actions = null,
+                               IHaSettingsActions? settingsActions = null)
     {
         _swVersion = swVersion;
         _actions = actions ?? new ChargeControlActions(CurrentDeviceThresholds);
+        if (settingsActions is null)
+        {
+            var live = new HaSettingsActions();
+            // A settings write from the broker must reflect back at once; the battery tick that would
+            // otherwise carry it can be minutes away.
+            live.Changed += PublishSurfaceNow;
+            _settingsActions = live;
+        }
+        else
+            _settingsActions = settingsActions;
         _client = new MqttClientFactory().CreateMqttClient();
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
         _client.DisconnectedAsync += OnClientDisconnectedAsync;
@@ -99,9 +125,11 @@ internal sealed class HomeAssistantService : IDisposable
             string previousPrefix = _discoveryPrefix;
             _nodeId          = HaDiscovery.EffectiveNodeId(s.MqttNodeId, machine);
             _stateTopic      = HaDiscovery.StateTopic(_nodeId);
+            _statusTopic     = HaDiscovery.StatusTopic(_nodeId);
             _availTopic      = HaDiscovery.AvailabilityTopic(_nodeId);
             _discoveryPrefix = string.IsNullOrWhiteSpace(s.MqttDiscoveryPrefix) ? "homeassistant" : s.MqttDiscoveryPrefix.Trim();
             _deviceName      = string.IsNullOrWhiteSpace(s.MqttDeviceName) ? $"ChargeKeeper ({machine})" : s.MqttDeviceName.Trim();
+            lock (_stateLock) { _categories = s.MqttCategories; }
 
             // The id is the device identity end to end, so a change orphans every retained topic the
             // old id owned. Record it under the prefix it was published with, which may have changed
@@ -277,9 +305,7 @@ internal sealed class HomeAssistantService : IDisposable
         await ClearStaleIdentityAsync(ct).ConfigureAwait(false);
         // Read under the settings lock: Presets is the live list, which the Settings window mutates in
         // place, and an unsynchronised enumeration throws and skips the whole connect sequence.
-        var presetNames = SettingsService.Read(s => s.Presets.Select(p => p.Name).ToList());
-        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
-            await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
+        await PublishDiscoveryAsync(ct).ConfigureAwait(false);
         await ClearLegacyDiscoveryAsync(ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
 
@@ -304,6 +330,36 @@ internal sealed class HomeAssistantService : IDisposable
             if (last is not null)
                 await PublishAsync(_stateTopic, last, retain: true, ct).ConfigureAwait(false);
         }
+
+        // The settings payload has no "first tick" to wait for, so it is always publishable.
+        if (CurrentSurfaceProvider?.Invoke() is { } surface)
+        {
+            string json = HaSurfacePayload.Build(surface);
+            lock (_stateLock) { _lastSurfaceJson = json; }
+            await PublishAsync(_statusTopic, json, retain: true, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The announcement and its complement, in one pass: a retained config for every entity
+    /// this configuration announces, and an empty retained payload for every entity it does not. The
+    /// second half is what actually deletes a switched-off group's entities — the discovery convention
+    /// removes a component when its config topic is emptied. Leave it out and the retained config that
+    /// created the entity stays on the broker, and the entity lingers as "unavailable" for ever.</summary>
+    private async Task PublishDiscoveryAsync(CancellationToken ct)
+    {
+        HaCategorySet categories;
+        lock (_stateLock) { categories = _categories; }
+        var capabilities = CapabilityProvider?.Invoke() ?? HaCapabilities.Full;
+
+        var presetNames = SettingsService.Read(s => s.Presets.Select(p => p.Name).ToList());
+        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(
+                     _nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames,
+                     HaEntityCatalog.Announce(categories, capabilities)))
+            await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
+
+        foreach (string topic in HaDiscovery.RemovalTopics(
+                     _nodeId, _discoveryPrefix, HaEntityCatalog.Withheld(categories, capabilities)))
+            await PublishAsync(topic, "", retain: true, ct).ConfigureAwait(false);
     }
 
     /// <summary>Publishes an entity state snapshot, retained so HA has a value immediately on restart.
@@ -366,7 +422,9 @@ internal sealed class HomeAssistantService : IDisposable
             try
             {
                 // The fresh reflect happens via the services' StateChanged, not a publish here.
-                HaCommandDispatcher.Dispatch(cmd, _actions);   // synchronous read-modify-write on this worker
+                // Synchronous read-modify-write on this worker.
+                if (!HaCommandDispatcher.Dispatch(cmd, _actions, _settingsActions))
+                    AppLog.Info($"HomeAssistant: refused command {cmd.Kind} (the value is not one this machine accepts).");
             }
             catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitise(ex)); }
         }
@@ -407,6 +465,8 @@ internal sealed class HomeAssistantService : IDisposable
         var fresh = ChargeThresholdService.Read();
         var presets = SettingsService.Read(s => s.Presets.ToList());
         PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, presets));
+        // The one-shot override lives in the settings payload, so it reflects here too.
+        PublishSurfaceNow();
     }
 
     /// <summary>The device's current thresholds, the companion value for a single-bound threshold set.
@@ -414,12 +474,14 @@ internal sealed class HomeAssistantService : IDisposable
     private static (int Start, int Stop)? CurrentDeviceThresholds() =>
         ChargeThresholdService.Read() is { Enabled: true } t ? (t.Start, t.Stop) : null;
 
-    /// <summary>Republishes the retained discovery configs with the current preset names. The select's
-    /// option list is baked into its config at publish time, so without this HA keeps offering the list
-    /// captured at connect time.</summary>
+    /// <summary>Re-runs the announcement after a change to what is announced: a preset renamed (the
+    /// select's option list is baked into its config at publish time), or a group toggled. Also
+    /// republishes the settings payload, since a group coming back on needs a value to show.</summary>
     public void RepublishDiscovery()
     {
-        if (!_enabled || !_client.IsConnected) return;
+        if (!_enabled) return;
+        lock (_stateLock) { _categories = SettingsService.Read(s => s.MqttCategories); }
+        if (!_client.IsConnected) return;   // the next connect runs the whole sequence anyway
         _ = RepublishDiscoveryAsync();
     }
 
@@ -427,11 +489,54 @@ internal sealed class HomeAssistantService : IDisposable
     {
         try
         {
-            var presetNames = SettingsService.Read(s => s.Presets.Select(p => p.Name).ToList());
-            foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames))
-                await PublishAsync(topic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            await PublishDiscoveryAsync(CancellationToken.None).ConfigureAwait(false);
+            PublishSurfaceNow();   // a group coming back on has no value until this lands
         }
         catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitise(ex)); }
+    }
+
+    /// <summary>Publishes the settings/network/diagnostic snapshot, retained and deduped like the
+    /// battery one. The cache is updated while disconnected too, ready for the next connect.</summary>
+    public void PublishSurface(HaSurfaceState surface)
+    {
+        if (!_enabled) return;
+        string json = HaSurfacePayload.Build(surface);
+        lock (_stateLock)
+        {
+            if (string.Equals(json, _lastSurfaceJson, StringComparison.Ordinal)) return;
+            _lastSurfaceJson = json;
+        }
+        if (_client.IsConnected)
+            _ = PublishAsync(_statusTopic, json, retain: true, CancellationToken.None);
+    }
+
+    /// <summary>Reflects a change straight back, without waiting for a battery tick — a settings write
+    /// from the broker, a keep-awake session ending, a network location moving. Signals rather than
+    /// publishes: the snapshot reaches a vendor service and an adapter enumeration, and the loudest
+    /// caller is a Settings toggle on the UI thread.</summary>
+    public void PublishSurfaceNow()
+    {
+        if (!_enabled) return;
+        if (_surfaceGate.Signal())
+            _ = Task.Run(SurfaceLoopAsync);
+    }
+
+    /// <summary>Coalesced driver for the settings publish. The trailing pass is what guarantees the
+    /// last snapshot wins: two concurrent reads could otherwise let an older one take the dedupe slot
+    /// and strand the newer value.</summary>
+    private async Task SurfaceLoopAsync()
+    {
+        do
+        {
+            _surfaceGate.BeginPass();
+            try
+            {
+                if (_enabled && CurrentSurfaceProvider?.Invoke() is { } surface) PublishSurface(surface);
+            }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.PublishSurface", Sanitise(ex)); }
+            await Task.Yield();   // never hold the pool thread across the repeat check
+        }
+        while (_surfaceGate.ShouldRepeat());
     }
 
     /// <summary>Empties every retained topic a superseded node id owned, so HA deletes the old device

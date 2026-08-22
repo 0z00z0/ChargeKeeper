@@ -261,10 +261,19 @@ public partial class App : Application
                     SettingsService.Read(s => s.Presets.ToList()));
             }
         };
+        // The settings, network and diagnostic snapshot, and the vendor gates the announcement is
+        // filtered through. Both run on the MQTT threads.
+        _ha.CurrentSurfaceProvider = () => HaSurfaceReader.Read(AppInfo.Version);
+        _ha.CapabilityProvider     = HaSurfaceReader.Capabilities;
         _ha.ApplySettings(SettingsService.Current);
         // "Reload settings from disk" must reach the live MQTT client too — the Settings window's
         // reload only refreshes what it displays.
         SettingsService.Reloaded += () => _ha?.ApplySettings(SettingsService.Current);
+        // The settings payload has no battery tick of its own, so every source that can move one of
+        // its values publishes it. Unchanged payloads are deduped, so a redundant signal costs nothing.
+        SettingsService.Changed             += () => _ha?.PublishSurfaceNow();
+        KeepAwakeService.StateChanged       += () => _ha?.PublishSurfaceNow();
+        NetworkLocationService.LocationChanged += _ => _ha?.PublishSurfaceNow();
     }
 
     private HomeAssistantService? _ha;
@@ -908,7 +917,7 @@ public partial class App : Application
 
             _settings = new SettingsWindow(_menu!,
                 onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
-                onPresetsChanged: () => _ha?.RepublishDiscovery());
+                onDiscoveryChanged: () => _ha?.RepublishDiscovery());
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }
