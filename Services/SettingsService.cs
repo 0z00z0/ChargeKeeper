@@ -88,6 +88,11 @@ internal sealed class AppSettings
 
     public int LidDelayMinutes { get; set; } = 10;
 
+    /// <summary>On by default, unlike the feature itself: with the lid action parked on "do nothing"
+    /// the machine sits awake and unlocked with the lid shut, so the delay removes the sign-in prompt
+    /// a lid close normally leads to.</summary>
+    public bool LidDelayLockOnClose { get; set; } = true;
+
     /// <summary>Saved so a restore works even after a crash. Nullable because "do nothing" is index 0
     /// and a legitimate choice, so only null can mean "untouched".</summary>
     public int? LidDelaySavedAcAction { get; set; }

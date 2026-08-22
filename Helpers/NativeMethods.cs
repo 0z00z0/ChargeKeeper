@@ -202,6 +202,19 @@ internal static class NativeMethods
         catch { return false; }
     }
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool LockWorkStation();
+
+    /// <summary>
+    /// Locks the workstation, as Win+L does. Used at lid close while the lid-close delay holds the
+    /// machine awake — the one window in which a shut lid no longer implies a sign-in prompt.
+    /// </summary>
+    internal static bool LockComputer()
+    {
+        try { return LockWorkStation(); }
+        catch { return false; }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct RECT { public int Left, Top, Right, Bottom; }
 

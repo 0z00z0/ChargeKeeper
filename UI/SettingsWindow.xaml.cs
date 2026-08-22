@@ -1,4 +1,4 @@
-using CommunityToolkit.WinUI.Controls;
+﻿using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -341,7 +341,7 @@ internal sealed partial class SettingsWindow : Window
         FixedModeText.Text =
             $"This laptop's firmware offers fixed modes ({cap} of design capacity when limited) rather "
             + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
-            + "Windows will still report 100 % while a limit is active — this hardware lowers the "
+            + "Windows still reports 100 % while a limit is active — this hardware lowers the "
             + "battery's reported full-charge capacity instead of stopping the charge early. "
             + "Changes take effect after a restart."
             + (state.Capable
@@ -862,7 +862,7 @@ internal sealed partial class SettingsWindow : Window
         if (rules.Count == 0)
         {
             NetworkRulesListPanel.Children.Add(EmptyListText(
-                "No network profiles yet. Use “Add profile for this network…” below while connected to the network you want to configure."));
+                "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected."));
             return;
         }
 
@@ -1077,6 +1077,8 @@ internal sealed partial class SettingsWindow : Window
             KeepAwakeDisplayToggle.IsOn = s.KeepAwakeDisplayOn;
             LidDelayToggle.IsOn         = s.LidDelayEnabled;
             LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
+            LidLockToggle.IsOn          = s.LidDelayLockOnClose;
+            LidLockToggle.IsEnabled     = s.LidDelayEnabled;
         });
         RefreshKeepAwakeState();
         RefreshKeepAwakeCustomEcho();
@@ -1123,10 +1125,21 @@ internal sealed partial class SettingsWindow : Window
         bool wanted = LidDelayToggle.IsOn;
         if (!LidDelayService.SetEnabled(wanted) && wanted)
             WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
+
+        // Read back from the toggle rather than from "wanted": an enable that was refused above has
+        // already put it back off, and the lock switch follows what the feature actually is.
+        LidLockToggle.IsEnabled = LidDelayToggle.IsOn;
     }
 
     private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(LidDelayMinutesCombo, (s, v) => s.LidDelayMinutes = v);
+
+    private void OnLidLockToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = LidLockToggle.IsOn;
+        SettingsService.Update(s => s.LidDelayLockOnClose = on);
+    }
 
     // Three renderings of the same span, deliberately distinct: full words for display, the parser
     // echo that confirms how typed text was read, and the editable form that must round-trip back
@@ -1363,7 +1376,7 @@ internal sealed partial class SettingsWindow : Window
         if (rules.Count == 0)
         {
             KeepAwakeNetworkRulesListPanel.Children.Add(EmptyListText(
-                "No network rules yet. Use “Add rule for this network…” below while connected to the network you want to configure."));
+                "No network rules yet. “Add rule for this network…” below adds one for the network currently connected."));
             return;
         }
 
@@ -1644,9 +1657,9 @@ internal sealed partial class SettingsWindow : Window
                      + "Automations, dashboards and history that point at the old entities will stop "
                      + "working — they will not report an error, the entities simply will not be there "
                      + "any more.\n\n"
-                     + "ChargeKeeper removes the old entities from the broker when you confirm. "
+                     + "ChargeKeeper removes the old entities from the broker on confirmation. "
                      + "Their recorded history is not carried over to the new ones.\n\n"
-                     + "Leave the box empty to go back to the name derived from this machine.",
+                     + "An empty box restores the name derived from this machine.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(0, 4, 0, 0),
             });

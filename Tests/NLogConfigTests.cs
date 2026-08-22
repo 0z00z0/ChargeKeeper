@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ChargeKeeper.Services;
 using NLog;
 using NLog.Config;
@@ -304,8 +304,8 @@ public class NLogConfigTests
         // Guards the constants AppLog exposes against the real file.
         var shipped = FileTargetOf(LoadShippedConfigStrictly());
 
-        Assert.Equal(shipped.ArchiveAboveSize, AppLog.ArchiveAboveSizeBytes);
-        Assert.Equal(shipped.MaxArchiveDays, AppLog.MaxArchiveDays);
+        Assert.Equal(AppLog.ArchiveAboveSizeBytes, shipped.ArchiveAboveSize);
+        Assert.Equal(AppLog.MaxArchiveDays, shipped.MaxArchiveDays);
         Assert.Equal(TenMegabytes, AppLog.ArchiveAboveSizeBytes);
     }
 }

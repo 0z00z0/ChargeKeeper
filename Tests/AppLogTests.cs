@@ -1,4 +1,4 @@
-using ChargeKeeper.Services;
+﻿using ChargeKeeper.Services;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
@@ -41,8 +41,11 @@ public class AppLogTests : IDisposable
         return new LogFactory { Configuration = config };
     }
 
-    private static FileTarget FileTargetOf(LoggingConfiguration config) =>
-        (FileTarget)((RetryingTargetWrapper)config.FindTargetByName("appfile")).WrappedTarget!;
+    private static FileTarget FileTargetOf(LoggingConfiguration config)
+    {
+        var wrapper = Assert.IsType<RetryingTargetWrapper>(config.FindTargetByName("appfile"));
+        return Assert.IsType<FileTarget>(wrapper.WrappedTarget);
+    }
 
     private string ReadLog() => File.ReadAllText(_testFile);
 

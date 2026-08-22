@@ -121,9 +121,13 @@
                     <TextBlock Text="General" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Startup delay"
-                                            Description="Seconds to wait after sign-in before ChargeKeeper initialises (0 = no delay). Keeps the app off the critical sign-in path.">
-                        <ComboBox x:Name="StartupDelayCombo" MinWidth="140"
-                                  SelectionChanged="OnStartupDelayChanged"/>
+                                            Description="Seconds to wait after sign-in before ChargeKeeper initialises (0 = no delay).">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="StartupDelayCombo" MinWidth="140"
+                                      SelectionChanged="OnStartupDelayChanged"/>
+                            <local:InfoIcon Subject="Startup delay"
+                                            Info="The delay keeps ChargeKeeper off the critical sign-in path. Sign-in completes first, then the app initialises."/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Tray icon style"
@@ -157,10 +161,12 @@
                          (TODO #28 — "Open settings folder" / "Reload settings from file"). -->
                     <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
                     <controls:SettingsCard Header="Settings file"
-                                            Description="ChargeKeeper stores its configuration in settings.json. Reload picks up changes made outside the app (a manual edit, or a file synced in from another machine).">
+                                            Description="ChargeKeeper stores its configuration in settings.json.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="OpenSettingsFolderBtn" Content="Open settings folder" Click="OnOpenSettingsFolder"/>
                             <Button x:Name="ReloadSettingsBtn" Content="Reload settings from file" Click="OnReloadSettings"/>
+                            <local:InfoIcon Subject="the settings file"
+                                            Info="Reload reads settings.json again, picking up changes made outside the app: a manual edit, or a file synced in from another machine."/>
                         </StackPanel>
                     </controls:SettingsCard>
                 </StackPanel>
@@ -214,8 +220,12 @@
                     <TextBlock Text="Network profiles" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
 
                     <controls:SettingsCard Header="Enable network profiles"
-                                            Description="Automatically apply a preset when the detected network location changes. Matching is by adapter MAC address and/or IP subnet only — never by Wi-Fi network name.">
-                        <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
+                                            Description="Applies a preset automatically when the detected network location changes.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="network profiles"
+                                            Info="Matching is by adapter MAC address and IP subnet only, never by Wi-Fi network name."/>
+                            <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Current network">
@@ -226,7 +236,7 @@
                     <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,12"/>
 
                     <controls:SettingsCard Header="Unknown-network preset"
-                                            Description="Preset to apply when the current network matches none of the profiles above, and network profiles are enabled.">
+                                            Description="Preset applied when network profiles are on and the current network matches none of the profiles above.">
                         <ComboBox x:Name="UnknownPresetCombo" MinWidth="200" SelectionChanged="OnUnknownPresetChanged"/>
                     </controls:SettingsCard>
                     </StackPanel>
@@ -245,7 +255,7 @@
                     <TextBlock Text="Keep Awake" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Keep this computer awake"
-                                            Description="Stops Windows sleeping while a session runs. The session is never restored after a restart."
+                                            Description="Stops Windows sleeping while a session runs."
                                             ContentAlignment="Vertical"
                                             HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="8" Margin="0,4,0,4">
@@ -253,6 +263,8 @@
                                 <ToggleSwitch x:Name="KeepAwakeToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeToggled"/>
                                 <TextBlock x:Name="KeepAwakeRemainingText" VerticalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <local:InfoIcon Subject="keeping this computer awake"
+                                                Info="A session holds the computer awake until it expires. It ends by itself, and is never restored after a restart."/>
                             </StackPanel>
 
                             <!-- Same one-click spans as the dashboard's chip row, with room here for
@@ -271,19 +283,29 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Keep the display on too"
-                                            Description="Off by default: the usual case is a long build or download finishing, where the screen may sleep as normal. Takes effect on the next session.">
-                        <ToggleSwitch x:Name="KeepAwakeDisplayToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeDisplayToggled"/>
+                                            Description="Also holds the display on while a keep-awake session runs.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="keeping the display on"
+                                            Info="This is off by default: the usual case is a long build or download finishing, where the screen may sleep as normal. The change takes effect on the next session, not on one already running."/>
+                            <ToggleSwitch x:Name="KeepAwakeDisplayToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeDisplayToggled"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <!-- Deliberately blunt wording: the user is agreeing to a change to their Windows
                          power settings, so the card says which setting and how it comes back. -->
-                    <TextBlock Text="Lid close" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
-                    <TextBlock Text="This is the one setting on this page that changes Windows itself. An app cannot ask Windows to ignore a closing lid — that counts as your decision, not an idle timeout — so while this is on, ChargeKeeper sets the Windows lid-close action to “Do nothing” and sleeps the computer itself once the delay is up. Your own value is saved before it is changed and put back when you turn this off, or at the next start if the app is killed first. One side effect while it is on: Windows stops suppressing stray wakes (a mouse moving in a bag) with the lid shut."
-                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                        <TextBlock Text="Lid close" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="lid close"
+                                        Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
+                    </StackPanel>
 
                     <controls:SettingsCard Header="Delay sleep after the lid closes"
-                                            Description="Opening the lid again before the delay is up cancels it. A running keep-awake session wins — the computer will not be slept out from under one.">
-                        <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
+                                            Description="Waits before sleeping when the lid closes, instead of sleeping at once.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="the lid-close delay"
+                                            Info="Opening the lid before the delay is up cancels it. A running keep-awake session suppresses the sleep, so the computer is never slept out from under one."/>
+                            <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Wait"
@@ -291,9 +313,19 @@
                         <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
-                    <TextBlock Text="One “Expires” field defines both the kind and the value: type a duration (3h, 90m, 1h30) or a clock time (17:00). The first preset is what the tray toggle and the dashboard switch use."
-                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
+                    <!-- On by default, and disabled rather than hidden while the delay is off: the
+                         delay parks the Windows lid-close action on "do nothing", which also removes
+                         the sign-in prompt a lid close normally leads to. This puts it back. -->
+                    <controls:SettingsCard Header="Lock the computer when the lid closes"
+                                            Description="Locks the computer as soon as the lid closes.">
+                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
+                    </controls:SettingsCard>
+
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                        <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="keep-awake presets"
+                                        Info="One “Expires” field defines both the kind and the value: a duration (3h, 90m, 1h30) or a clock time (17:00). The first preset is the one the tray toggle and the dashboard switch use."/>
+                    </StackPanel>
                     <StackPanel x:Name="KeepAwakePresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddKeepAwakePresetBtn" Content="Add preset" Click="OnAddKeepAwakePreset" Margin="0,4,0,12"/>
 
@@ -302,9 +334,11 @@
                          those sit inside NumericThresholdSettings, which is collapsed entirely on
                          fixed-mode hardware (HP, Surface) where keep-awake-per-network still has to
                          work. Each page shows its own facet of the shared list. -->
-                    <TextBlock Text="Networks" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
-                    <TextBlock Text="Holding starts when you arrive on the network and stops when you leave. These are the same network rules the Smart Charge page uses — this page sets their keep-awake side, and needs “Enable network profiles” on there to act."
-                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                        <TextBlock Text="Networks" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="keep-awake networks"
+                                        Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side. “Enable network profiles” must be on there for them to act."/>
+                    </StackPanel>
 
                     <controls:SettingsCard Header="Current network">
                         <TextBlock x:Name="KeepAwakeCurrentNetworkText" Text="—"
@@ -344,8 +378,12 @@
                     <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Publish to MQTT"
-                                            Description="Publishes battery/charge state to an MQTT broker and announces the entities by auto-discovery. Applies immediately.">
-                        <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
+                                            Description="Publishes battery and charge state to an MQTT broker.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="publishing to MQTT"
+                                            Info="The entities are announced by auto-discovery. This toggle applies immediately; the broker fields below apply on Apply."/>
+                            <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <!-- ── Device (#87) — above Broker: which device this is comes before how it
@@ -370,9 +408,11 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" Margin="0,8,0,4"/>
-                    <TextBlock Text="Broker fields below are staged locally and only take effect when you click Apply — so the MQTT connection reconnects once per Apply, not per keystroke."
-                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4">
+                        <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="the broker fields"
+                                        Info="The broker fields are staged locally and take effect on Apply. The MQTT connection then reconnects once per Apply, not once per keystroke."/>
+                    </StackPanel>
 
                     <controls:SettingsCard Header="Host">
                         <TextBox x:Name="HaHostBox" MinWidth="220" PlaceholderText="e.g. 10.0.20.22"/>
@@ -393,8 +433,12 @@
                          published name of the convention the entities are announced with, and it is what
                          the default prefix value spells. Dropping it would leave that default
                          unexplained and the sentence untrue. Everywhere else here says broker. -->
-                    <controls:SettingsCard Header="Discovery prefix" Description="Topic prefix the discovery messages are published under (default: homeassistant). Entities are announced using the Home Assistant MQTT Discovery convention — an openly published spec that some MQTT consumers follow and others ignore. Change this only if yours listens elsewhere.">
-                        <TextBox x:Name="HaPrefixBox" MinWidth="220"/>
+                    <controls:SettingsCard Header="Discovery prefix" Description="Topic prefix the discovery messages are published under (default: homeassistant).">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="HaPrefixBox" MinWidth="220"/>
+                            <local:InfoIcon Subject="the discovery prefix"
+                                            Info="Entities are announced using the Home Assistant MQTT Discovery convention, an openly published spec that some MQTT consumers follow and others ignore. The prefix only needs changing for a consumer that listens elsewhere."/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
@@ -406,6 +450,8 @@
                         <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Visibility="Collapsed"/>
+                        <local:InfoIcon Subject="Test connection"
+                                        Info="Test connection tries the values in the boxes above, including ones not yet applied. It opens its own throwaway connection and never disturbs the running one."/>
                     </StackPanel>
 
                     <!-- Says WHICH values are tested, because under the batch save model the boxes and
@@ -413,9 +459,6 @@
                          a green result was about. -->
                     <TextBlock x:Name="HaTestResultText" Margin="0,8,0,0" FontSize="11"
                                TextWrapping="Wrap" Visibility="Collapsed"/>
-                    <TextBlock Text="“Test connection” tries the values in the boxes above — including ones you have not applied yet. It opens its own throwaway connection, so it never disturbs the running one."
-                               TextWrapping="Wrap" FontSize="11" Opacity="0.7" Margin="0,4,0,0"/>
-
                     <TextBlock x:Name="HaBrokerStatusText" Text="Broker: not set" Margin="0,8,0,0"
                                FontSize="11" Opacity="0.7"/>
 
@@ -425,9 +468,13 @@
                     <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}" Margin="0,12,0,4"/>
 
                     <controls:SettingsCard Header="Last publish"
-                                            Description="When ChargeKeeper last got a message onto the broker. Unchanged values are not re-sent, so this stands still while nothing changes.">
-                        <TextBlock x:Name="HaLastPublishText" Text="—"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            Description="When ChargeKeeper last got a message onto the broker.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock x:Name="HaLastPublishText" Text="—" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <local:InfoIcon Subject="the last publish time"
+                                            Info="Unchanged values are not re-sent, so this stands still while nothing changes."/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Last command received"

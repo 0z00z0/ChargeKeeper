@@ -331,7 +331,7 @@ internal static class NetworkLocationService
 
     /// <summary>Wording for the <see cref="IsStaleKey"/> hint, shown under the rule's match key.</summary>
     internal const string StaleKeyHint =
-        "Same subnet as the network you are on now, but a different MAC — this profile will not apply here.";
+        "Same subnet as the current network, but a different MAC — this profile will not apply here.";
 
     // Live-adapter side of ResolveBridgedPeer. Must never throw: DetectCurrent's own catch would turn
     // a pairing hiccup into "No network detected".

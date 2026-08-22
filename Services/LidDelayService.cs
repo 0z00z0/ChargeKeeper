@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using ChargeKeeper.Helpers;
 
 namespace ChargeKeeper.Services;
@@ -293,11 +293,36 @@ internal static class LidDelayService
 
         switch (action)
         {
-            case LidDelayAction.StartDelay: StartDelay(); break;
+            case LidDelayAction.StartDelay:
+                StartDelay();
+                LockIfConfigured();
+                break;
             case LidDelayAction.Cancel:
                 CancelDelay();
                 PowerLog.Event("Lid-close delay cancelled, the machine stays awake", "lid reopened");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Locks the workstation as the lid closes. The delay window is exactly the period the machine
+    /// sits awake with the lid shut, so the lock belongs here, not beside the suspend at its end.
+    /// </summary>
+    private static void LockIfConfigured()
+    {
+        var s = SettingsService.Current;
+        if (!LidDelayPolicy.ShouldLockOnLidClose(s.LidDelayEnabled, s.LidDelayLockOnClose,
+                                                 KeepAwakeService.Current is not null))
+            return;
+
+        if (NativeMethods.LockComputer())
+        {
+            PowerLog.Event("Computer locked", "the lid closed with the lid-close delay on");
+        }
+        else
+        {
+            PowerLog.Event("Lock was refused by Windows", "LockWorkStation returned false");
+            AppLog.Error("LidDelayService.LockComputer failed", null);
         }
     }
 

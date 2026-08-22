@@ -1,4 +1,4 @@
-namespace ChargeKeeper.Services;
+﻿namespace ChargeKeeper.Services;
 
 internal enum LidState { Opened, Closed }
 
@@ -68,6 +68,14 @@ internal static class LidDelayPolicy
         if (!enabled || keepAwakeActive) return LidDelayAction.Cancel;
         return LidDelayAction.Suspend;
     }
+
+    /// <summary>
+    /// Whether a lid close should lock the workstation. <paramref name="keepAwakeActive"/> is taken
+    /// and deliberately ignored: that session vetoes the sleep, and locking on the same veto would
+    /// leave the machine awake, unlocked and lid-shut for as long as the session runs.
+    /// </summary>
+    public static bool ShouldLockOnLidClose(bool enabled, bool lockOnClose, bool keepAwakeActive)
+        => enabled && lockOnClose;
 
     /// <summary>
     /// With saved values present the scheme's current action is this app's own "do nothing", so
