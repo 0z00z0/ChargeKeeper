@@ -478,7 +478,7 @@ jobs:
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $sha256  = '${{ steps.sha256.outputs.sha256 }}'
-          $tag     = '${{ github.ref_type == ''tag'' && github.ref_name || ''HEAD'' }}'
+          $tag     = '${{ github.ref_type == 'tag' && github.ref_name || 'HEAD' }}'
 
           $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
           $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }
