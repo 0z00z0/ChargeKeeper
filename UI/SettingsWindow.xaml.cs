@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.WinUI.Controls;
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -165,7 +165,7 @@ internal sealed partial class SettingsWindow : Window
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, SmartChargePanel, KeepAwakePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+            [GeneralPanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -288,6 +288,7 @@ internal sealed partial class SettingsWindow : Window
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
+        LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;

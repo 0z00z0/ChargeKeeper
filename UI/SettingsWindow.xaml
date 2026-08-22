@@ -63,6 +63,7 @@
             <NavigationViewItem Content="Keep Awake"       Tag="KeepAwake">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/keep-awake.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="Lid close"        Tag="LidClose"/>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -254,10 +255,8 @@
                      into a TextBox and read by KeepAwakeInputParser ("3h", "90m", "1h30", "17:00").
                      The Windows Settings time pickers were rejected as too heavy for "keep this
                      awake till five" — that fast entry IS the feature, so no TimePicker,
-                     TimeSpanPicker or NumberBox spinner belongs here.
-                     The lid-close delay at the bottom is the ONE control on this page that changes
-                     something outside the app (the Windows lid-close action), which is why it is
-                     off by default and says so in full rather than in a footnote. -->
+                     TimeSpanPicker or NumberBox spinner belongs here. -->
+
                 <StackPanel x:Name="KeepAwakePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Keep Awake" Style="{StaticResource SectionHeaderStyle}"/>
 
@@ -298,36 +297,6 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <!-- Deliberately blunt wording: the user is agreeing to a change to their Windows
-                         power settings, so the card says which setting and how it comes back. -->
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Lid close" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="lid close"
-                                        Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
-                    </StackPanel>
-
-                    <controls:SettingsCard Header="Delay sleep after the lid closes"
-                                            Description="Waits before sleeping when the lid closes, instead of sleeping at once.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="the lid-close delay"
-                                            Info="Opening the lid before the delay is up cancels it. A running keep-awake session suppresses the sleep, so the computer is never slept out from under one."/>
-                            <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Wait"
-                                            Description="How long to stay awake with the lid closed before sleeping.">
-                        <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
-                    </controls:SettingsCard>
-
-                    <!-- On by default, and disabled rather than hidden while the delay is off: the
-                         delay parks the Windows lid-close action on "do nothing", which also removes
-                         the sign-in prompt a lid close normally leads to. This puts it back. -->
-                    <controls:SettingsCard Header="Lock the computer when the lid closes"
-                                            Description="Locks the computer as soon as the lid closes.">
-                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
-                    </controls:SettingsCard>
 
                     <Border Style="{StaticResource SectionDividerStyle}"/>
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -362,6 +331,38 @@
                     <StackPanel x:Name="KeepAwakeNetworkRulesListPanel" Spacing="4"/>
                     <Button x:Name="AddKeepAwakeNetworkRuleBtn" Content="Add rule for this network…"
                             Click="OnAddKeepAwakeNetworkRule" Margin="0,4,0,12"/>
+                </StackPanel>
+                <!-- The only setting in the app that changes a Windows setting outside it, so the
+                     wording is blunt about which setting and how it comes back. -->
+                <StackPanel x:Name="LidClosePanel" Spacing="4" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
+                        <TextBlock Text="Lid close" Style="{StaticResource SectionHeaderStyle}"
+                                   Margin="0" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="lid close"
+                                        Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
+                    </StackPanel>
+
+                    <controls:SettingsCard Header="Delay sleep after the lid closes"
+                                            Description="Waits before sleeping when the lid closes, instead of sleeping at once.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="the lid-close delay"
+                                            Info="Opening the lid before the delay is up cancels it. A running keep-awake session suppresses the sleep, so the computer is never slept out from under one."/>
+                            <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Wait"
+                                            Description="How long to stay awake with the lid closed before sleeping.">
+                        <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
+                    </controls:SettingsCard>
+
+                    <!-- On by default, and disabled rather than hidden while the delay is off: the
+                         delay parks the Windows lid-close action on "do nothing", which also removes
+                         the sign-in prompt a lid close normally leads to. This puts it back. -->
+                    <controls:SettingsCard Header="Lock the computer when the lid closes"
+                                            Description="Locks the computer as soon as the lid closes.">
+                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <!-- ── Notifications ────────────────────────────────────────────── -->
