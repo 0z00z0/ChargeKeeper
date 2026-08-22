@@ -8,9 +8,7 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- "Name location" step (TODO #31) when adding a network-profile configuration for the
-         currently-detected network. Same small always-on-top bordered-no-titlebar chrome as
-         AboutWindow, just with a text-input step instead of static content. -->
+    <!-- Names the detected network when a profile is added for it. -->
     <Grid x:Name="Root" Padding="16,14,16,14" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -25,8 +23,7 @@
 
         <StackPanel Grid.Row="1" Spacing="4">
             <TextBox x:Name="NameBox" FontSize="13"/>
-            <!-- The MAC/subnet this profile is actually keyed on — secondary, muted, and only ever
-                 informational: the name above is a label, these are what the rule matches. -->
+            <!-- The MAC and subnet the rule actually matches on; the name above is only a label. -->
             <TextBlock x:Name="MatchKeyText"
                        FontSize="11" TextWrapping="Wrap"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
