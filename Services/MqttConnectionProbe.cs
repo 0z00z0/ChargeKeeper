@@ -20,25 +20,34 @@ internal enum MqttProbeOutcome
 internal readonly record struct MqttProbeResult(MqttProbeOutcome Outcome, string Detail);
 
 /// <summary>The staged broker values a probe should try. Mirrors the fields the MQTT page stages,
-/// plus the transport setting and what last connected — the probe walks the same plan the live
-/// connection does, so the button's verdict is about the connection that will actually be made.</summary>
+/// plus the transport setting and the endpoint cache — the probe walks the same plan the live
+/// connection does, so the button's verdict is about the connection that will actually be made.
+/// A null <see cref="Port"/> means the port is to be found rather than assumed.</summary>
 internal readonly record struct MqttProbeTarget(
-    string Host, int Port, string Username, string Password, bool UseTls, string ClientId,
+    string Host, int? Port, string Username, string Password, bool UseTls, string ClientId,
     MqttTransportSetting Transport = MqttTransportSetting.Auto,
-    MqttTransport? LastSuccessful = null);
+    MqttEndpointMemory? Memory = null)
+{
+    /// <summary>The staged choices as the pure plan reads them. The password never crosses this
+    /// line: nothing the plan decides depends on it.</summary>
+    public MqttEndpointRequest Request => new(Host, Username, Port, Transport);
+}
 
-/// <summary>Every transport the probe got as far as trying, in order. The last attempt is the
+/// <summary>Every endpoint the probe got as far as trying, in order. The last attempt is the
 /// verdict; the earlier ones are why it came to that.</summary>
-internal readonly record struct MqttProbeReport(IReadOnlyList<MqttTransportAttempt> Attempts)
+internal readonly record struct MqttProbeReport(IReadOnlyList<MqttEndpointAttempt> Attempts)
 {
     /// <summary>Empty only when there was nothing to try, so <see cref="MqttProbeOutcome.Failed"/>
     /// stands in rather than a fake success.</summary>
     public MqttProbeOutcome Outcome =>
         Attempts.Count == 0 ? MqttProbeOutcome.Failed : Attempts[^1].Outcome;
 
+    /// <summary>The port and transport the verdict came from — what the cache records on success.</summary>
+    public MqttEndpointCandidate Candidate =>
+        Attempts.Count == 0 ? new(0, MqttTransport.Tcp) : Attempts[^1].Candidate;
+
     /// <summary>The transport the verdict came from.</summary>
-    public MqttTransport Transport =>
-        Attempts.Count == 0 ? MqttTransport.Tcp : Attempts[^1].Transport;
+    public MqttTransport Transport => Candidate.Transport;
 
     public bool Succeeded => Outcome == MqttProbeOutcome.Success;
 }
@@ -51,47 +60,68 @@ internal readonly record struct MqttProbeReport(IReadOnlyList<MqttTransportAttem
 /// TCP connect comes first, because that is what makes "unreachable" a precise verdict straight from
 /// the OS — an MQTT-library exception reads the same for a typo'd host and a wrong password. Only
 /// once a socket opens is CONNECT sent, where a rejection can only be credentials or session. Both
-/// stages run per transport, so Auto reports which one answered rather than only that one did.
+/// stages run per candidate, so a sweep reports which port and transport answered rather than only
+/// that something did.
 /// </remarks>
 internal static class MqttConnectionProbe
 {
     /// <summary>
-    /// Both stages together, per transport. 10 s matches the app's other network timeouts and beats
-    /// Windows' own ~21 s SYN-retry give-up, so an unreachable IP reports while the user is still
-    /// looking. Auto can spend it twice, which is the price of finding out from a filtered port.
+    /// Both stages together, for a run with one candidate to try. 10 s matches the app's other
+    /// network timeouts and beats Windows' own ~21 s SYN-retry give-up, so an unreachable IP reports
+    /// while the user is still looking.
     /// </summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>What each candidate gets when several are being swept. A filtered port costs the
+    /// whole budget, and the sweep can hold eight candidates, so the full 10 s would put the answer
+    /// over a minute away. 4 s still clears a LAN round trip and a TLS handshake by a wide margin.</summary>
+    public static readonly TimeSpan SweepTimeout = TimeSpan.FromSeconds(4);
 
     /// <summary>The probe's client id — never the publisher's, see the class note.</summary>
     public static string ProbeClientId(string nodeId) => $"{nodeId}_probe";
 
     /// <summary>Never throws: every failure comes back as an outcome. <paramref name="ct"/> is the
-    /// caller's cancellation (window closing), with the timeout above applied on top.</summary>
-    public static async Task<MqttProbeReport> RunAsync(MqttProbeTarget target, CancellationToken ct)
+    /// caller's cancellation (window closing, or the host being retyped), with the per-candidate
+    /// budget applied on top. <paramref name="progress"/> is reported on the probing thread, so a
+    /// UI caller marshals it itself.</summary>
+    public static async Task<MqttProbeReport> RunAsync(
+        MqttProbeTarget target, CancellationToken ct,
+        IProgress<MqttDetectProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(target.Host)) return new([]);
 
-        var attempts = new List<MqttTransportAttempt>();
-        while (MqttTransportPlan.Next(target.Transport, target.LastSuccessful, attempts) is { } transport)
-        {
-            // A fresh budget per transport: one dead endpoint must not eat the other's chance to answer.
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(Timeout);
-            var result = await RunOneAsync(target, transport, budget.Token, ct).ConfigureAwait(false);
-            attempts.Add(new(transport, result));
+        var request = target.Request;
+        var budgetPerCandidate =
+            MqttTransportPlan.Sweep(request, target.Memory).Count > 1 ? SweepTimeout : Timeout;
 
-            if (ct.IsCancellationRequested) break;   // window closed; the remaining transports are moot
+        var attempts = new List<MqttEndpointAttempt>();
+        while (MqttTransportPlan.NextEndpoint(request, target.Memory, attempts) is { } candidate)
+        {
+            // A fresh budget per candidate: one dead endpoint must not eat the next one's chance.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(budgetPerCandidate);
+            var result = await RunOneAsync(target, candidate, progress, budget.Token, ct).ConfigureAwait(false);
+            attempts.Add(new(candidate, result));
+
+            if (ct.IsCancellationRequested) break;   // cancelled; the remaining candidates are moot
         }
         return new(attempts);
     }
 
-    /// <summary>Both stages against one transport.</summary>
+    /// <summary>Both stages against one candidate. The two stages are reported separately because
+    /// they fail for different reasons, and the page says which one is running.</summary>
     private static async Task<MqttProbeResult> RunOneAsync(
-        MqttProbeTarget target, MqttTransport transport, CancellationToken budget, CancellationToken ct)
+        MqttProbeTarget target, MqttEndpointCandidate candidate,
+        IProgress<MqttDetectProgress>? progress, CancellationToken budget, CancellationToken ct)
     {
-        var (host, port) = MqttTransportEndpoint.Reachability(target.Host, target.Port, transport);
-        var tcp = await ProbeTcpAsync(host, port, budget, ct).ConfigureAwait(false);
-        return tcp ?? await ProbeConnectAsync(target, transport, budget, ct).ConfigureAwait(false);
+        var (host, port) = MqttTransportEndpoint.Reachability(
+            target.Host, candidate.Port, candidate.Transport, target.UseTls);
+
+        progress?.Report(new(MqttDetectStage.Port, port, candidate.Transport));
+        if (await ProbeTcpAsync(host, port, budget, ct).ConfigureAwait(false) is { } closed) return closed;
+
+        progress?.Report(new(MqttDetectStage.Transport, port, candidate.Transport));
+        return await ProbeConnectAsync(target, candidate, budget, ct).ConfigureAwait(false);
     }
 
     /// <summary>Stage 1 — can a socket be opened at all. Returns null when it can (i.e. carry on).</summary>
@@ -111,7 +141,7 @@ internal static class MqttConnectionProbe
 
     /// <summary>Stage 2 — does the broker accept a CONNECT with these credentials.</summary>
     private static async Task<MqttProbeResult> ProbeConnectAsync(
-        MqttProbeTarget target, MqttTransport transport, CancellationToken budget, CancellationToken ct)
+        MqttProbeTarget target, MqttEndpointCandidate candidate, CancellationToken budget, CancellationToken ct)
     {
         using var client = new MqttClientFactory().CreateMqttClient();
         try
@@ -120,7 +150,7 @@ internal static class MqttConnectionProbe
             // included, so a passing probe says something about the connection the publisher will
             // make. Minus the will/retain machinery: this session must leave no trace on the broker.
             var ob = new MqttClientOptionsBuilder()
-                .WithTransport(transport, target.Host, target.Port, target.UseTls)
+                .WithTransport(candidate.Transport, target.Host, candidate.Port, target.UseTls)
                 .WithClientId(target.ClientId)
                 .WithCleanSession()
                 .WithTimeout(Timeout);
@@ -210,37 +240,58 @@ internal static class MqttConnectionProbe
         _                             => $"The connection over {Name(transport)} failed — {Detail(result)}.",
     };
 
+    /// <summary>What the sweep is doing right now, as the page shows it. Pure, so the tests pin the
+    /// wording. The two stages read differently because they mean different things: a port that never
+    /// opens, versus a port that opens onto something not speaking MQTT.</summary>
+    public static string Describe(MqttDetectProgress progress) => progress.Stage switch
+    {
+        MqttDetectStage.Port => $"Detecting… | Probing port: {progress.Port}",
+        _                    => $"Detecting… | Probing transport {Name(progress.Transport)}",
+    };
+
     /// <summary>The sentence for a whole run. Pure.</summary>
     /// <remarks>
     /// The shapes differ because the user's next move does. Reaching the broker makes that attempt
     /// the story and any earlier one mere context ("connected over WebSocket, TCP was refused" sends
     /// nobody to check their password). Reaching nothing at all is the opposite: no single attempt
-    /// explains it, so every transport tried is listed.
+    /// explains it, so what was tried is listed — de-duplicated, because a sweep of eight candidates
+    /// mostly repeats the same clause and a wall of them says less than one of each.
     /// </remarks>
     public static string Describe(MqttProbeReport report)
     {
         if (report.Attempts.Count == 0) return "No broker host set.";
 
         var last = report.Attempts[^1];
-        string verdict = Describe(last.Result, last.Transport);
+        string verdict = Describe(last.Result, last.Candidate.Transport);
         if (report.Attempts.Count == 1) return verdict;
 
         if (MqttTransportPlan.Answered(last.Outcome))
-            return $"{verdict} {Fragment(report.Attempts[^2])}.";
+            return $"{verdict} {Fragment(Context(report, last))}.";
 
         return "Neither transport reached the broker. " +
-               string.Join("; ", report.Attempts.Select(Fragment)) + ".";
+               string.Join("; ", report.Attempts.Select(Fragment).Distinct()) + ".";
+    }
+
+    /// <summary>The attempt worth naming beside the verdict: the last one on the other transport,
+    /// which is the fact the user came for. Falls back to the one immediately before when the whole
+    /// run stayed on a single transport.</summary>
+    private static MqttEndpointAttempt Context(MqttProbeReport report, MqttEndpointAttempt verdict)
+    {
+        for (int i = report.Attempts.Count - 2; i >= 0; i--)
+            if (report.Attempts[i].Candidate.Transport != verdict.Candidate.Transport)
+                return report.Attempts[i];
+        return report.Attempts[^2];
     }
 
     /// <summary>One attempt as a clause, for the sentences that name more than one transport.</summary>
-    private static string Fragment(MqttTransportAttempt attempt) => attempt.Outcome switch
+    private static string Fragment(MqttEndpointAttempt attempt) => attempt.Outcome switch
     {
-        MqttProbeOutcome.Success      => $"{Name(attempt.Transport)} connected",
-        MqttProbeOutcome.Unreachable  => $"{Name(attempt.Transport)} could not be reached ({Detail(attempt.Result)})",
-        MqttProbeOutcome.TimedOut     => $"{Name(attempt.Transport)} did not answer",
-        MqttProbeOutcome.AuthRejected => $"{Name(attempt.Transport)} rejected these credentials",
-        MqttProbeOutcome.Rejected     => $"{Name(attempt.Transport)} was refused ({Detail(attempt.Result)})",
-        _                             => $"{Name(attempt.Transport)} failed ({Detail(attempt.Result)})",
+        MqttProbeOutcome.Success      => $"{Name(attempt.Candidate.Transport)} connected",
+        MqttProbeOutcome.Unreachable  => $"{Name(attempt.Candidate.Transport)} could not be reached ({Detail(attempt.Result)})",
+        MqttProbeOutcome.TimedOut     => $"{Name(attempt.Candidate.Transport)} did not answer",
+        MqttProbeOutcome.AuthRejected => $"{Name(attempt.Candidate.Transport)} rejected these credentials",
+        MqttProbeOutcome.Rejected     => $"{Name(attempt.Candidate.Transport)} was refused ({Detail(attempt.Result)})",
+        _                             => $"{Name(attempt.Candidate.Transport)} failed ({Detail(attempt.Result)})",
     };
 
     // An exception message usually ends in its own full stop; the sentences above supply one.

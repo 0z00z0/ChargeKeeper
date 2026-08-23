@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -67,9 +68,11 @@ public class MqttProbeLoopbackTests
 
     /// <summary>Auto must actually try the second transport, not report the first one's failure as
     /// the whole answer. Nothing serves WebSocket on loopback either, so both attempts fail — what is
-    /// asserted is that both were made and both are named.</summary>
+    /// asserted is that both were made and both are named. The port is pinned so the sweep is exactly
+    /// the two transports: with the port left to the search this would be eight attempts of the same
+    /// nothing.</summary>
     [Fact]
-    public async Task Auto_WhenTcpIsClosed_AlsoTriesWebSocket()
+    public async Task AutoOnAPinnedPort_WhenTcpIsClosed_AlsoTriesWebSocket()
     {
         var target = new MqttProbeTarget("127.0.0.1", ClosedPort(), "user", "secret",
             UseTls: false, ClientId: "chargekeeper_probe", Transport: MqttTransportSetting.Auto);
@@ -77,13 +80,77 @@ public class MqttProbeLoopbackTests
         var report = await MqttConnectionProbe.RunAsync(target, CancellationToken.None);
 
         Assert.Equal(2, report.Attempts.Count);
-        Assert.Equal(MqttTransport.Tcp,       report.Attempts[0].Transport);
-        Assert.Equal(MqttTransport.WebSocket, report.Attempts[1].Transport);
+        Assert.Equal(MqttTransport.Tcp,       report.Attempts[0].Candidate.Transport);
+        Assert.Equal(MqttTransport.WebSocket, report.Attempts[1].Candidate.Transport);
 
         string sentence = MqttConnectionProbe.Describe(report);
         Assert.Contains("Neither transport reached the broker", sentence);
         Assert.Contains("TCP", sentence);
         Assert.Contains("WebSocket", sentence);
+    }
+
+    /// <summary>A successful run has to report which port and transport answered — that record is the
+    /// whole of what makes the next connect a single attempt instead of another sweep.</summary>
+    [Fact]
+    public async Task ASuccessfulRun_ReportsThePortAndTransportThatAnswered()
+    {
+        using var broker = new FakeBroker(reject: false);
+
+        var report = await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        Assert.Equal(broker.Port, report.Candidate.Port);
+        Assert.Equal(MqttTransport.Tcp, report.Candidate.Transport);
+    }
+
+    /// <summary>The cache is where the sweep starts, not where it stops. A remembered endpoint that
+    /// has gone dead must not strand the connection: the live broker sits elsewhere, and the sweep
+    /// behind the stale entry has to reach it.</summary>
+    [Fact]
+    public async Task AStaleCacheEntry_CostsOneAttempt_NotTheConnection()
+    {
+        int dead = ClosedPort();
+        var stale = new MqttEndpointMemory("127.0.0.1", "user", dead, MqttTransport.Tcp);
+
+        // The port is left to the search, or pinning one would filter the stale entry out before it
+        // could be tried — which is a different behaviour from the one under test here.
+        var target = new MqttProbeTarget("127.0.0.1", null, "user", "secret",
+            UseTls: false, ClientId: "chargekeeper_probe",
+            Transport: MqttTransportSetting.Tcp, Memory: stale);
+
+        var report = await MqttConnectionProbe.RunAsync(target, CancellationToken.None);
+
+        Assert.Equal(dead, report.Attempts[0].Candidate.Port);   // the remembered endpoint leads
+        Assert.True(report.Attempts.Count > 1);                  // …and losing it does not end the run
+    }
+
+    /// <summary>The progress line is what the page shows while a sweep runs, so the port stage has to
+    /// be reported before anything is known about the endpoint.</summary>
+    [Fact]
+    public async Task ARun_ReportsTheStagesItIsOn()
+    {
+        using var broker = new FakeBroker(reject: false);
+        var seen = new List<string>();
+
+        await MqttConnectionProbe.RunAsync(Target(broker.Port), CancellationToken.None,
+            new Progress<MqttDetectProgress>(p => { lock (seen) seen.Add(MqttConnectionProbe.Describe(p)); }));
+
+        // Progress<T> posts asynchronously, so settle before reading rather than racing the last report.
+        await Task.Delay(250);
+        lock (seen) Assert.Contains($"Detecting… | Probing port: {broker.Port}", seen);
+    }
+
+    /// <summary>Cancellation is what a closing window and a retyped host both do. The run has to come
+    /// back rather than keep a socket open behind a page that is gone.</summary>
+    [Fact]
+    public async Task ACancelledRun_StopsRatherThanFinishingTheSweep()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var report = await MqttConnectionProbe.RunAsync(Target(ClosedPort()), cts.Token);
+
+        Assert.True(report.Attempts.Count <= 1);   // at most the one already in flight
     }
 
     /// <summary>

@@ -130,21 +130,29 @@ internal sealed class AppSettings
     public bool HomeAssistantEnabled { get; set; } = false;
 
     public string MqttBrokerHost { get; set; } = "";
-    public int    MqttBrokerPort { get; set; } = 1883;
-    public string MqttUsername   { get; set; } = "";
-    public string MqttPassword   { get; set; } = "";
-    public bool   MqttUseTls     { get; set; } = false;
+
+    /// <summary>The broker port, or null to find it. Null by default: the port a broker answers on
+    /// depends on the transport and on what fronts it, so assuming 1883 is wrong everywhere except
+    /// the plain internal case.</summary>
+    public int? MqttBrokerPort { get; set; }
+
+    /// <summary>Set once the port inherited from the days when 1883 was the default has been turned
+    /// back into Automatic. Persisted, because a 1883 chosen after that is a choice, not a leftover.</summary>
+    public bool MqttPortDefaultRetiredForAutomatic { get; set; }
+
+    public string MqttUsername { get; set; } = "";
+    public string MqttPassword { get; set; } = "";
+    public bool   MqttUseTls   { get; set; } = false;
 
     /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
     /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
-    /// WebSocket ignores the port and uses <c>wss://&lt;host&gt;</c> unless the host names a URI —
-    /// see <see cref="MqttTransportEndpoint"/>.</summary>
+    /// The port applies to both transports — see <see cref="MqttTransportEndpoint"/>.</summary>
     public MqttTransportSetting MqttTransportMode { get; set; } = MqttTransportSetting.Auto;
 
-    /// <summary>Which transport last connected. State rather than a setting: it records where the
-    /// machine turned out to be, so Auto starts with the path that worked, and it never changes what
-    /// <see cref="MqttTransportMode"/> says the user chose. Null until something connects.</summary>
-    public MqttTransport? MqttLastGoodTransport { get; set; }
+    /// <summary>Where the broker answered last. State rather than a setting: it records where the
+    /// machine turned out to be, so a reconnect starts with what worked, and it never changes what
+    /// the user chose. Null until something connects, and never a password.</summary>
+    public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
 
     /// <summary>Must match HA's own prefix, or discovery configs land where nothing reads them.</summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
@@ -157,17 +165,21 @@ internal sealed class AppSettings
     /// so HA deletes the previous device instead of ghosting it.</summary>
     public string MqttNodeId { get; set; } = "";
 
-    /// <summary>Which groups of entities are announced. All on by default — the surface is the point
-    /// of the feature, and a group is switched off to reduce it, never to opt into it. Turning one off
-    /// removes its entities from the consumer rather than leaving them unavailable; see
-    /// <see cref="HaDiscovery.RemovalTopics"/>.</summary>
+    /// <summary>Which groups of entities are announced. The feature groups are on by default — the
+    /// surface is the point of the feature, and a group is switched off to reduce it, never to opt
+    /// into it. Turning one off removes its entities from the consumer rather than leaving them
+    /// unavailable; see <see cref="HaDiscovery.RemovalTopics"/>.</summary>
     public bool MqttPublishBatteryStatus  { get; set; } = true;
     public bool MqttPublishSmartCharge    { get; set; } = true;
     public bool MqttPublishKeepAwake      { get; set; } = true;
     public bool MqttPublishLidClose       { get; set; } = true;
     public bool MqttPublishNotifications  { get; set; } = true;
     public bool MqttPublishNetwork        { get; set; } = true;
-    public bool MqttPublishAppDiagnostics { get; set; } = true;
+
+    /// <summary>Off, unlike the feature groups above: diagnostics describe ChargeKeeper rather than
+    /// the battery, so they are what an operator opts into rather than what a new install starts
+    /// announcing. Existing installs keep whatever they were saved with.</summary>
+    public bool MqttPublishAppDiagnostics { get; set; } = false;
 
     /// <summary>The group toggles as the publisher's pure input.</summary>
     [JsonIgnore]
@@ -329,6 +341,51 @@ internal static class SettingsService
         settings.NetworkLocationRules.Clear();
         settings.NetworkRulesKeyedOnPhysicalAdapter = true;
         return dropped;
+    }
+
+    /// <summary>The port the broker setting defaulted to before Automatic existed. A settings.json
+    /// written by an older build carries it forward, where it reads as a pinned port.</summary>
+    internal const int RetiredDefaultMqttPort = 1883;
+
+    /// <summary>
+    /// Turns the inherited 1883 back into Automatic, so an upgraded install gets the detection the
+    /// setting was added for instead of staying pinned to the old default. Runs once, and touches
+    /// nothing else in settings.
+    /// </summary>
+    /// <remarks>
+    /// settings.json is deliberately not copied aside first. The rule clear above destroys data; this
+    /// changes one value that Automatic tries first anyway, so being wrong costs a connect attempt.
+    /// </remarks>
+    public static void RetireTheDefaultMqttPort()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (RetireDefaultMqttPort(settings) is not { } retired) return;
+
+            Save();
+            if (retired)
+                AppLog.Info($"MQTT broker port {RetiredDefaultMqttPort} was the old default and is now Automatic, "
+                          + $"which tries TCP {RetiredDefaultMqttPort} first.");
+        }
+    }
+
+    /// <summary>The decision behind <see cref="RetireTheDefaultMqttPort"/>, separated so the once-only
+    /// guard is testable: true when the port was cleared, false when there was nothing to clear, null
+    /// when the migration has already run and must not run again.</summary>
+    /// <remarks>
+    /// A deliberately pinned 1883 is indistinguishable from the inherited default, so both are cleared.
+    /// Safe because Automatic sweeps TCP <see cref="RetiredDefaultMqttPort"/> as its first candidate —
+    /// a broker genuinely there still answers on the first attempt.
+    /// </remarks>
+    internal static bool? RetireDefaultMqttPort(AppSettings settings)
+    {
+        if (settings.MqttPortDefaultRetiredForAutomatic) return null;
+        settings.MqttPortDefaultRetiredForAutomatic = true;
+
+        if (settings.MqttBrokerPort != RetiredDefaultMqttPort) return false;
+        settings.MqttBrokerPort = null;
+        return true;
     }
 
     /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an

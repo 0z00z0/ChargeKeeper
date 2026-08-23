@@ -43,6 +43,37 @@ public class MqttStatusFormatterTests
         Assert.Equal("just now", MqttStatusFormatter.Relative(Now.AddMinutes(5), Now, "never"));
     }
 
+    // The broker line reports what is actually in force: a pinned value where there is one, the
+    // remembered one where there is not, and no half-answer in between.
+    [Fact]
+    public void Broker_ReportsPinnedValuesAndFoundOnesAlike()
+    {
+        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+
+        Assert.Equal("mq.laget.no:443 over WebSocket", MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Auto), memory));
+
+        Assert.Equal("mq.laget.no:8883 over TCP", MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest("mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp), null));
+
+        // A pinned port with the transport left to the search still reads off the cache.
+        Assert.Equal("mq.laget.no:9001 over WebSocket", MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest("mq.laget.no", "ck", 9001, MqttTransportSetting.Auto), memory));
+    }
+
+    // A cache belongs to its own host: on another one it says nothing, and reporting its address
+    // there would name a broker this machine has never reached.
+    [Fact]
+    public void Broker_WithNothingPinnedAndNothingFoundHere_SaysSoRatherThanGuessing()
+    {
+        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+
+        Assert.Equal("10.0.20.22 — not connected yet", MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest("10.0.20.22", "ck", null, MqttTransportSetting.Auto), elsewhere));
+        Assert.Equal("Not set", MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest("  ", "ck", null, MqttTransportSetting.Auto), elsewhere));
+    }
+
     [Fact]
     public void LastCommand_NamesTheEntityTheUserSeesInHomeAssistant()
     {
@@ -210,7 +241,61 @@ public class MqttConnectionProbeTests
     }
 
     private static MqttProbeReport Report(params (MqttTransport Transport, MqttProbeOutcome Outcome)[] attempts) =>
-        new([.. attempts.Select(a => new MqttTransportAttempt(a.Transport, a.Outcome))]);
+        new([.. attempts.Select(a => new MqttEndpointAttempt(new MqttEndpointCandidate(1883, a.Transport), a.Outcome))]);
+
+    // The two lines the page shows while a sweep runs. Pinned exactly: they are the only account of
+    // what a search that can take tens of seconds is doing.
+    [Fact]
+    public void DescribeProgress_NamesThePortStageAndTheTransportStageApart()
+    {
+        Assert.Equal("Detecting… | Probing port: 443",
+            MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Port, 443, MqttTransport.WebSocket)));
+        Assert.Equal("Detecting… | Probing transport WebSocket",
+            MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Transport, 443, MqttTransport.WebSocket)));
+        Assert.Equal("Detecting… | Probing transport TCP",
+            MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Transport, 1883, MqttTransport.Tcp)));
+    }
+
+    // A run that reached nothing can now hold eight attempts of the same clause; one of each is the
+    // whole of what the user can act on.
+    [Fact]
+    public void Describe_Report_DoesNotRepeatTheSameClause()
+    {
+        string sentence = MqttConnectionProbe.Describe(new MqttProbeReport(
+        [
+            new(new MqttEndpointCandidate(1883, MqttTransport.Tcp), MqttProbeOutcome.Unreachable),
+            new(new MqttEndpointCandidate(8883, MqttTransport.Tcp), MqttProbeOutcome.Unreachable),
+            new(new MqttEndpointCandidate(443,  MqttTransport.WebSocket), MqttProbeOutcome.Unreachable),
+        ]));
+
+        Assert.StartsWith("Neither transport reached the broker.", sentence);
+        Assert.Equal(1, CountOf(sentence, "TCP could not be reached"));
+        Assert.Equal(1, CountOf(sentence, "WebSocket could not be reached"));
+    }
+
+    // The verdict's context is the other transport, not whichever attempt happened to be second-last:
+    // a sweep can put several same-transport failures between the two facts worth reporting together.
+    [Fact]
+    public void Describe_Report_TakesItsContextFromTheOtherTransport()
+    {
+        string sentence = MqttConnectionProbe.Describe(new MqttProbeReport(
+        [
+            new(new MqttEndpointCandidate(1883, MqttTransport.Tcp), MqttProbeOutcome.Unreachable),
+            new(new MqttEndpointCandidate(9001, MqttTransport.WebSocket), MqttProbeOutcome.TimedOut),
+            new(new MqttEndpointCandidate(443,  MqttTransport.WebSocket), MqttProbeOutcome.Success),
+        ]));
+
+        Assert.StartsWith("Connected over WebSocket.", sentence);
+        Assert.Contains("TCP could not be reached", sentence);
+    }
+
+    private static int CountOf(string haystack, string needle)
+    {
+        int n = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+                 i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
 
     // The probe must never present itself to the broker as the publisher: an identical client id makes
     // the broker evict the live session, so pressing "Test connection" would drop the real connection.
