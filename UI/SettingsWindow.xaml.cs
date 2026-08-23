@@ -961,12 +961,14 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>The rule's match key, plus a hint when the key no longer fits: its MAC belongs to a
-    /// virtual adapter, or its subnet is the one we are on while its MAC is not. Stated only: nothing
-    /// here rewrites a stored key.</summary>
+    /// virtual adapter, or its subnet is the one we are on while its MAC is not. A stored subnet that
+    /// mobile ignores is shown as ignored, not as a subnet. Stated only: nothing here rewrites a
+    /// stored key.</summary>
     private static string DescribeMatchKey(
         NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters)
     {
-        string key = NetworkLocationService.DescribeMatchKey(rule.AdapterMac, rule.IpCidr);
+        string key = NetworkLocationService.DescribeMatchKey(
+            rule.AdapterMac, rule.IpCidr, rule.SubnetIgnoredOn(current));
         return NetworkLocationService.DescribeStaleKey(rule, current, adapters) is { } hint
             ? $"{key}\n{hint}"
             : key;
@@ -1096,9 +1098,11 @@ internal sealed partial class SettingsWindow : Window
             return null;
         }
 
-        string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
+        string suggested = location.DisplayHint
+            ?? (location.IsMobile ? "Mobile network" : location.IsWired ? "Wired network" : "Wireless network");
         string? name = await new NameLocationWindow(
-            suggested, NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr)).ShowAsync();
+            suggested,
+            NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr, location.IsMobile)).ShowAsync();
         if (name is null) return null;   // cancelled
 
         var s0 = SettingsService.Current;
