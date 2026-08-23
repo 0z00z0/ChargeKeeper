@@ -125,6 +125,55 @@ public class NetworkLocationServiceTests
     }
 
     [Fact]
+    public void Detect_UnresolvableSwitchPortWithOtherAdaptersUp_KeysOnNoneOfThem()
+    {
+        // The measured defect, and what the one-candidate case above cannot show: the routed switch
+        // port failed to pair, the walk fell through to a metric scan over every other live adapter,
+        // and a docked machine was keyed on its idle mobile modem — a different place, silently
+        // applying that place's charge thresholds.
+        var orphan = Adapter(31, NetworkInterfaceType.Ethernet, BridgeAlias, BridgeDesc,
+                             "00:15:5D:01:02:03", "10.0.1.0/23", metric: 15);
+        var modem  = Tether("100.110.83.0/24", metric: 5);   // lowest metric, so the scan would land here
+        AdapterCandidate[] all = [orphan, modem];
+
+        var location = NetworkLocationService.Detect(all, PeersOf(all), bestIndex: 31, () => null);
+
+        Assert.NotEqual(MobileMac, location.AdapterMac);
+        Assert.True(location.IsEmpty);
+    }
+
+    [Fact]
+    public void Detect_SwitchPortWhoseUplinkCannotBeNamed_KeepsTheKeyAndDropsTheAlias()
+    {
+        // Two host vNICs on one external switch: both wear the bound NIC's cloned address, so nothing
+        // non-virtual pairs and the uplink cannot be named. The address is still the NIC's, byte for
+        // byte, so the key is unchanged from the case that does resolve — only the name is unknown,
+        // and a "vEthernet (…)" alias must never become one: it names the switch, not the place.
+        var port = BridgedSwitchPort();
+        BridgePeer[] twoPorts =
+        [
+            Interface(BridgeAlias,            BridgeDesc, PhysicalMac),
+            Interface("vEthernet (Bridged 2)", BridgeDesc, PhysicalMac),
+        ];
+
+        var (location, adapter) = NetworkLocationService.DetectDetailed(
+            [port], twoPorts, bestIndex: 31, () => null);
+
+        Assert.True(location.SameLocationAs(
+            NetworkLocationService.Detect([port], MeasuredPeers, bestIndex: 31, () => null)));
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("10.0.1.0/23", location.IpCidr);
+
+        // Every surface a name reaches: the naming default, the "Current network" line, and the two
+        // Home Assistant adapter attributes.
+        Assert.Equal(NetworkLocationService.WiredLabel, location.DisplayHint);
+        Assert.Equal(NetworkLocationService.WiredLabel, adapter.Alias);
+        Assert.Equal(NetworkLocationService.WiredLabel, adapter.AdapterName);
+        Assert.Equal($"{NetworkLocationService.WiredLabel} · 10.0.1.0/23",
+                     NetworkLocationService.DescribeCurrentNetwork(location, null));
+    }
+
+    [Fact]
     public void SelectPrimary_PlainWired_SelectsThatEthernet()
     {
         var ethernet = new AdapterCandidate(IPv4Index: 5, IsVirtual: false, Type: NetworkInterfaceType.Ethernet);
@@ -177,20 +226,44 @@ public class NetworkLocationServiceTests
     private const string DefaultSwitchMac = "00:15:5D:EA:DC:CF";
     private const string BridgeAlias      = "vEthernet (Bridged)";
     private const string BridgeDesc       = "Hyper-V Virtual Ethernet Adapter #2";
+    private const string PhysicalDesc     = "Realtek USB GbE Family Controller";
+
+    // IsVirtual comes from the real predicate, as it does for AdapterCandidate below.
+    private static BridgePeer Interface(string name, string description, string? mac,
+                                        OperationalStatus status = OperationalStatus.Up) =>
+        new(name, mac, NetworkLocationService.LooksVirtual(description), status, description);
 
     private static BridgePeer Physical(string name = "Ethernet", string mac = PhysicalMac,
                                        OperationalStatus status = OperationalStatus.Up) =>
-        new(name, mac, IsVirtual: false, status);
+        Interface(name, PhysicalDesc, mac, status);
 
-    private static readonly BridgePeer[] MeasuredPeers =
+    // What GetAllNetworkInterfaces returns on the docked machine, before any filtering: six of these
+    // carry the one hardware address, because Windows binds an NDIS filter layer to each adapter and
+    // every layer clones its host's address. The two adapters Get-NetAdapter shows are "Ethernet" and
+    // "vEthernet (Bridged)"; the rest are filter and scheduler layers, named by suffixing whichever
+    // of the alias and the description the stack knows them by.
+    private static readonly BridgePeer[] MeasuredInterfaces =
     [
-        Physical(),                                                                       // Realtek USB GbE, no IPv4
-        new(BridgeAlias,                  PhysicalMac,         IsVirtual: true,  OperationalStatus.Up),
-        new("vEthernet (Default Switch)", DefaultSwitchMac,    IsVirtual: true,  OperationalStatus.Up),
-        new("WiFi",                       "AA:BB:CC:11:22:33", IsVirtual: false, OperationalStatus.Down),
-        new("Ethernet 2",                 "AA:BB:CC:44:55:66", IsVirtual: false, OperationalStatus.Down),
-        new("Local Area Connection* 1",   null,                IsVirtual: false, OperationalStatus.Down),   // WAN miniport, no MAC
+        Physical(),                                                                        // Realtek USB GbE, no IPv4
+        Interface("Ethernet-WFP Native MAC Layer LightWeight Filter-0000",
+                  $"{PhysicalDesc}-WFP Native MAC Layer LightWeight Filter-0000", PhysicalMac),
+        Interface(BridgeAlias, BridgeDesc, PhysicalMac),
+        Interface($"{BridgeAlias}-WFP Native MAC Layer LightWeight Filter-0000",
+                  $"{BridgeDesc}-WFP Native MAC Layer LightWeight Filter-0000",  PhysicalMac),
+        Interface($"{BridgeAlias}-WFP 802.3 MAC Layer LightWeight Filter-0000",
+                  $"{BridgeDesc}-WFP 802.3 MAC Layer LightWeight Filter-0000",   PhysicalMac),
+        Interface($"{BridgeAlias}-QoS Packet Scheduler-0000",
+                  $"{BridgeDesc}-QoS Packet Scheduler-0000",                     PhysicalMac),
+        Interface("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter", DefaultSwitchMac),
+        Interface("WiFi",       "Intel(R) Wi-Fi 6E AX211 160MHz",      "AA:BB:CC:11:22:33", OperationalStatus.Down),
+        Interface("Ethernet 2", "Intel(R) Ethernet Connection I219-LM", "AA:BB:CC:44:55:66", OperationalStatus.Down),
+        Interface("Local Area Connection* 1", "WAN Miniport (Network Monitor)", null, OperationalStatus.Down),
     ];
+
+    // The same set as the shipped enumeration hands to the walk-back: filter layers gone, so the one
+    // hardware address is left on the two adapters that really own it.
+    private static readonly BridgePeer[] MeasuredPeers =
+        [.. MeasuredInterfaces.Where(i => !NetworkLocationService.IsFilterInterface(i.Name, i.Description))];
 
     [Theory]
     [InlineData(BridgeAlias,                  BridgeDesc)]
@@ -270,12 +343,66 @@ public class NetworkLocationServiceTests
     }
 
     [Fact]
-    public void ResolveBridgedPeer_TwoPresentAdaptersShareTheMac_ResolvesNothing()
+    public void ResolveBridgedPeer_TwoPresentAdaptersShareTheMac_NamesTheFirstInAliasOrder()
     {
-        // Genuinely ambiguous (teaming/filter oddity): a wrong key is worse than the vNIC's own.
-        BridgePeer[] peers = [Physical("Ethernet"), Physical("Ethernet 4")];
+        // Tied partners carry the same address by definition — that address is the whole key, so the
+        // choice cannot move it and only the name shown is at stake. Ordinal alias order settles it,
+        // so an unordered adapter list always names the same NIC rather than giving up and letting
+        // the switch port's own "vEthernet (…)" alias stand.
+        BridgePeer[] peers    = [Physical("Ethernet"), Physical("Ethernet 4")];
+        BridgePeer[] reversed = [Physical("Ethernet 4"), Physical("Ethernet")];
 
-        Assert.Null(NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers));
+        Assert.Equal("Ethernet",
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, peers)?.Name);
+        Assert.Equal("Ethernet",
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, reversed)?.Name);
+    }
+
+    // NDIS filter layers, which GetAllNetworkInterfaces returns as interfaces of their own
+
+    [Theory]
+    [InlineData("Ethernet-WFP Native MAC Layer LightWeight Filter-0000")]
+    [InlineData("vEthernet (Bridged)-WFP 802.3 MAC Layer LightWeight Filter-0000")]
+    [InlineData("Ethernet-NDIS Capture LightWeight Filter-0000")]
+    [InlineData("Microsoft Network Adapter Multiplexor Driver")]
+    public void IsFilterInterface_FilterLayers_AreNotAdapters(string label)
+    {
+        // Either side of the pair is enough: the suffix lands on the alias for some layers and on the
+        // description for others.
+        Assert.True(NetworkLocationService.IsFilterInterface(label, "Realtek USB GbE Family Controller"));
+        Assert.True(NetworkLocationService.IsFilterInterface("Ethernet", label));
+    }
+
+    [Theory]
+    [InlineData("Ethernet",            "Realtek USB GbE Family Controller")]
+    [InlineData(BridgeAlias,           BridgeDesc)]
+    [InlineData("WiFi",                "Intel(R) Wi-Fi 6E AX211 160MHz")]
+    [InlineData("Mobile",              "5G Solution 5000")]
+    public void IsFilterInterface_RealAdaptersAreLeftAlone(string name, string description)
+    {
+        Assert.False(NetworkLocationService.IsFilterInterface(name, description));
+    }
+
+    [Fact]
+    public void MeasuredInterfaces_FilterTwinsAreDropped_LeavingOneNicOnTheSharedMac()
+    {
+        // The defect this fixes: six interfaces carry the one address, and the physical NIC's own
+        // filter twin is non-virtual, so it survived as a second partner and the pairing tied. Dropping
+        // the layers leaves exactly one NIC on that address, which is what makes the walk-back settle.
+        Assert.Equal(6, MeasuredInterfaces.Count(i => i.Mac == PhysicalMac));
+        Assert.Equal(2, MeasuredInterfaces.Count(i => i.Mac == PhysicalMac && !i.IsVirtual));
+
+        Assert.DoesNotContain(MeasuredPeers, i => i.Name.Contains("LightWeight Filter"));
+        Assert.Equal("Ethernet", MeasuredPeers.Single(i => i.Mac == PhysicalMac && !i.IsVirtual).Name);
+    }
+
+    [Fact]
+    public void ResolveBridgedPeer_MeasuredDockedInterfaces_PairWithTheNicAndNotItsFilterTwin()
+    {
+        // End to end over the measured set: unfiltered, the NIC and its filter twin tie; filtered, the
+        // NIC is named.
+        Assert.Equal("Ethernet",
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers)?.Name);
     }
 
     // What gets stored: the physical NIC's MAC, the selected adapter's subnet

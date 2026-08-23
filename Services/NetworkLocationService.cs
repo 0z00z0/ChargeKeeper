@@ -339,6 +339,7 @@ internal static class NetworkLocationService
     private static List<AdapterCandidate> EnumerateCandidates() =>
         NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up)
+            .Where(n => !IsFilterInterface(n.Name, n.Description))
             .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
             .Select(Describe)
             .Where(c => c.IpCidr is not null)
@@ -432,6 +433,29 @@ internal static class NetworkLocationService
         description is { Length: > 0 } &&
         VirtualMarkers.Any(m => description.Contains(m, StringComparison.OrdinalIgnoreCase));
 
+    // Markers of an NDIS filter pseudo-interface, which is a driver layer bound to an adapter rather
+    // than an adapter of its own. Multiplexor is the Windows "Bridge Connections" adapter, a bridge
+    // over NICs rather than one of them.
+    private static readonly string[] FilterMarkers =
+    [
+        "-WFP ", "LightWeight Filter", "-NDIS ", "Multiplexor",
+    ];
+
+    /// <summary>
+    /// Whether an interface is an NDIS filter layer rather than an adapter. Both the alias and the
+    /// description are tested, because the filter's suffix is appended to whichever of the two the
+    /// stack names it by. Every one of these clones its host adapter's hardware address, so leaving
+    /// them in doubles each same-MAC set and the bridge walk-back below ties instead of resolving —
+    /// measured, six interfaces on one MAC where <c>Get-NetAdapter</c> shows two. <see
+    /// cref="NetworkInterface.GetAllNetworkInterfaces"/> has returned them since .NET 5.
+    /// </summary>
+    internal static bool IsFilterInterface(string? name, string? description) =>
+        HasFilterMarker(name) || HasFilterMarker(description);
+
+    private static bool HasFilterMarker(string? value) =>
+        value is { Length: > 0 } &&
+        FilterMarkers.Any(m => value.Contains(m, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>A real NIC: a physical adapter type, its own 6-byte hardware address, and no virtual
     /// marker in its description.</summary>
     internal static bool IsPhysical(AdapterCandidate candidate) =>
@@ -447,7 +471,17 @@ internal static class NetworkLocationService
     internal static PhysicalRoute? ResolvePhysical(
         AdapterCandidate? routed, IReadOnlyList<AdapterCandidate> candidates, IReadOnlyList<BridgePeer> peers)
     {
-        if (routed is not null && ResolveCarrier(routed, peers) is { } direct) return direct;
+        if (routed is not null)
+        {
+            if (ResolveCarrier(routed, peers) is { } direct) return direct;
+
+            // A switch port carries one specific NIC's traffic, so failing to name that NIC means the
+            // name is unknown — not that some other adapter carries it. Scanning on from here keyed a
+            // docked machine on its idle mobile modem, a different place with different thresholds, so
+            // the reading is given up instead. A tunnel is the opposite case and still scans: it has no
+            // uplink of its own, and the metric order is what finds the NIC underneath it.
+            if (LooksLikeHyperVSwitchPort(routed.Name, routed.Description)) return null;
+        }
 
         return candidates
             .OrderBy(c => c.Metric)
@@ -463,7 +497,41 @@ internal static class NetworkLocationService
     {
         if (IsPhysical(candidate)) return new PhysicalRoute(candidate, null);
         var bridged = ResolveBridgedPeer(candidate.Name, candidate.Description, candidate.Mac, peers);
-        return bridged is { Mac.Length: > 0 } ? new PhysicalRoute(candidate, bridged) : null;
+        return bridged is { Mac.Length: > 0 }
+            ? new PhysicalRoute(candidate, bridged)
+            : DegradeSwitchPort(candidate, peers);
+    }
+
+    /// <summary>Neutral adapter labels, for a resolved adapter with no name worth showing. A switch
+    /// port's "vEthernet (…)" alias names the switch rather than the place, so it is never one of
+    /// them.</summary>
+    internal const string WiredLabel    = "Wired network";
+    internal const string WirelessLabel = "Wireless network";
+    internal const string MobileLabel   = "Mobile network";
+
+    /// <summary>The neutral label for an adapter type.</summary>
+    internal static string DescribeAdapterType(NetworkInterfaceType type) =>
+        IsMobile(type)                               ? MobileLabel
+        : type == NetworkInterfaceType.Wireless80211 ? WirelessLabel
+                                                     : WiredLabel;
+
+    /// <summary>
+    /// A switch port whose uplink could not be named, but whose hardware address another interface
+    /// also carries — which only happens because an external switch clones the bound NIC's address
+    /// verbatim. The key is the same bytes whichever of the two is named, so it is kept; the name is
+    /// the only unknown, and a neutral one stands in rather than an alias that names the switch.
+    /// A port whose address pairs with nothing has no such backing: that is a switch recreated on a
+    /// Microsoft-OUI address, which changes again on the next recreation, so it resolves to nothing.
+    /// </summary>
+    private static PhysicalRoute? DegradeSwitchPort(AdapterCandidate port, IReadOnlyList<BridgePeer> peers)
+    {
+        if (!LooksLikeHyperVSwitchPort(port.Name, port.Description)) return null;
+        if (port.Mac is not { Length: > 0 } mac) return null;
+        if (!peers.Any(p => p.Mac == mac && !string.Equals(p.Name, port.Name, StringComparison.Ordinal)))
+            return null;
+
+        string label = DescribeAdapterType(port.Type);
+        return new PhysicalRoute(port, new BridgePeer(label, mac, IsVirtual: false, OperationalStatus.Up, label));
     }
 
     // The Hyper-V bridge walk-back. The routing table picks the "vEthernet (…)" vNIC, but that is the
@@ -498,9 +566,9 @@ internal static class NetworkLocationService
 
     /// <summary>
     /// Pairing is by MAC, since an external switch's host vNIC inherits the bound adapter's hardware
-    /// address verbatim — no WMI, no Hyper-V module, no elevation. Returns null whenever the pairing
-    /// is ambiguous, and the caller then keeps the selected adapter's own MAC and alias. Virtual
-    /// adapters are excluded as partners so one vNIC never stands in for another.
+    /// address verbatim — no WMI, no Hyper-V module, no elevation. Returns null when nothing pairs,
+    /// and the caller then keeps the selected adapter's own MAC. Virtual adapters are excluded as
+    /// partners so one vNIC never stands in for another.
     /// </summary>
     internal static BridgePeer? ResolveBridgedPeer(
         string? alias, string? description, string? switchPortMac, IReadOnlyList<BridgePeer> peers)
@@ -511,10 +579,15 @@ internal static class NetworkLocationService
         var paired = peers.Where(p => p.Mac == switchPortMac && !p.IsVirtual).ToList();
         if (paired.Count <= 1) return paired.FirstOrDefault();
 
-        // Prefer the partner that is present over a disabled namesake; still tied means we cannot
-        // tell which NIC drives this switch, and a wrong key is worse than the vNIC's.
-        var present = paired.Where(p => p.Status == OperationalStatus.Up).ToList();
-        return present.Count == 1 ? present[0] : null;
+        // Several partners carry that address, so which NIC drives the switch is genuinely unknown —
+        // but every one of them carries the same address, which is the whole key, so the choice moves
+        // only the name shown. Present beats a disabled namesake, then ordinal alias order, so one
+        // unordered adapter list always names the same NIC instead of giving up and showing the
+        // switch port's own "vEthernet (…)" alias.
+        return paired
+            .OrderBy(p => p.Status == OperationalStatus.Up ? 0 : 1)
+            .ThenBy(p => p.Name, StringComparer.Ordinal)
+            .First();
     }
 
     /// <summary>The SSID on Wi-Fi, otherwise the physical NIC behind the switch when one resolved,
@@ -574,11 +647,12 @@ internal static class NetworkLocationService
     /// </summary>
     internal static List<BridgePeer> EnumerateAdapters() =>
         NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => !IsFilterInterface(n.Name, n.Description))
             .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
             .Select(n => new BridgePeer(
                 n.Name,
                 MacOrNull(n),
-                n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase),
+                LooksVirtual(n.Description),
                 n.OperationalStatus,
                 n.Description))
             .ToList();
