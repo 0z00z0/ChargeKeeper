@@ -245,6 +245,10 @@ public partial class App : Application
         // previous run died with it still overridden.
         LidDelayService.Start();
 
+        // Before the publisher reads the port: an upgraded install carries the old 1883 default, and
+        // connecting on it once would remember it as the endpoint that works.
+        SettingsService.RetireTheDefaultMqttPort();
+
         // Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled and a broker host are set.
         _ha = new HomeAssistantService(AppInfo.Version);
         // Publishes live values on every (re)connect. Set BEFORE ApplySettings, which may start

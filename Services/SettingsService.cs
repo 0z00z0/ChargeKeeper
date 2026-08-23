@@ -136,6 +136,10 @@ internal sealed class AppSettings
     /// the plain internal case.</summary>
     public int? MqttBrokerPort { get; set; }
 
+    /// <summary>Set once the port inherited from the days when 1883 was the default has been turned
+    /// back into Automatic. Persisted, because a 1883 chosen after that is a choice, not a leftover.</summary>
+    public bool MqttPortDefaultRetiredForAutomatic { get; set; }
+
     public string MqttUsername { get; set; } = "";
     public string MqttPassword { get; set; } = "";
     public bool   MqttUseTls   { get; set; } = false;
@@ -337,6 +341,51 @@ internal static class SettingsService
         settings.NetworkLocationRules.Clear();
         settings.NetworkRulesKeyedOnPhysicalAdapter = true;
         return dropped;
+    }
+
+    /// <summary>The port the broker setting defaulted to before Automatic existed. A settings.json
+    /// written by an older build carries it forward, where it reads as a pinned port.</summary>
+    internal const int RetiredDefaultMqttPort = 1883;
+
+    /// <summary>
+    /// Turns the inherited 1883 back into Automatic, so an upgraded install gets the detection the
+    /// setting was added for instead of staying pinned to the old default. Runs once, and touches
+    /// nothing else in settings.
+    /// </summary>
+    /// <remarks>
+    /// settings.json is deliberately not copied aside first. The rule clear above destroys data; this
+    /// changes one value that Automatic tries first anyway, so being wrong costs a connect attempt.
+    /// </remarks>
+    public static void RetireTheDefaultMqttPort()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (RetireDefaultMqttPort(settings) is not { } retired) return;
+
+            Save();
+            if (retired)
+                AppLog.Info($"MQTT broker port {RetiredDefaultMqttPort} was the old default and is now Automatic, "
+                          + $"which tries TCP {RetiredDefaultMqttPort} first.");
+        }
+    }
+
+    /// <summary>The decision behind <see cref="RetireTheDefaultMqttPort"/>, separated so the once-only
+    /// guard is testable: true when the port was cleared, false when there was nothing to clear, null
+    /// when the migration has already run and must not run again.</summary>
+    /// <remarks>
+    /// A deliberately pinned 1883 is indistinguishable from the inherited default, so both are cleared.
+    /// Safe because Automatic sweeps TCP <see cref="RetiredDefaultMqttPort"/> as its first candidate —
+    /// a broker genuinely there still answers on the first attempt.
+    /// </remarks>
+    internal static bool? RetireDefaultMqttPort(AppSettings settings)
+    {
+        if (settings.MqttPortDefaultRetiredForAutomatic) return null;
+        settings.MqttPortDefaultRetiredForAutomatic = true;
+
+        if (settings.MqttBrokerPort != RetiredDefaultMqttPort) return false;
+        settings.MqttBrokerPort = null;
+        return true;
     }
 
     /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an

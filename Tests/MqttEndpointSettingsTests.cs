@@ -105,4 +105,78 @@ public class MqttEndpointSettingsTests
         Assert.True(fresh.MqttPublishNetwork);
         Assert.False(fresh.MqttPublishAppDiagnostics);
     }
+
+    // The whole safety case for migrating a stored 1883 rests on Automatic reaching it first, so the
+    // sweep's leading TCP candidate is asserted rather than assumed.
+    [Fact]
+    public void TheRetiredDefault_IsTheFirstPortAutomaticTries()
+    {
+        Assert.Equal(SettingsService.RetiredDefaultMqttPort, MqttTransportPlan.Ports(MqttTransport.Tcp)[0]);
+
+        var sweep = MqttTransportPlan.Sweep(
+            new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Auto), null);
+
+        Assert.Equal(new MqttEndpointCandidate(SettingsService.RetiredDefaultMqttPort, MqttTransport.Tcp), sweep[0]);
+    }
+
+    // The upgrade case: 1883 in the file is the old default rather than a decision, and leaving it
+    // there pins the machine to the internal port wherever it goes.
+    [Fact]
+    public void TheInheritedDefaultPort_BecomesAutomaticAndIsMarkedDone()
+    {
+        var s = new AppSettings { MqttBrokerHost = "mq.laget.no", MqttBrokerPort = 1883 };
+
+        Assert.True(SettingsService.RetireDefaultMqttPort(s));
+        Assert.Null(s.MqttBrokerPort);
+        Assert.True(s.MqttPortDefaultRetiredForAutomatic);
+        Assert.Equal("mq.laget.no", s.MqttBrokerHost);
+    }
+
+    // The marker is the whole guard: without it, a 1883 picked deliberately would be cleared again on
+    // the next start, for ever.
+    [Fact]
+    public void APortPinnedAfterTheMigration_IsLeftAlone()
+    {
+        var s = new AppSettings { MqttBrokerPort = 1883 };
+        SettingsService.RetireDefaultMqttPort(s);
+        s.MqttBrokerPort = 1883;
+
+        Assert.Null(SettingsService.RetireDefaultMqttPort(s));
+        Assert.Equal(1883, s.MqttBrokerPort);
+    }
+
+    // Any other stored port was typed or picked, so it is a decision and survives untouched.
+    [Fact]
+    public void APortThatWasNeverTheDefault_IsNotMigrated()
+    {
+        var s = new AppSettings { MqttBrokerPort = 8883 };
+
+        Assert.False(SettingsService.RetireDefaultMqttPort(s));
+        Assert.Equal(8883, s.MqttBrokerPort);
+        Assert.True(s.MqttPortDefaultRetiredForAutomatic);
+    }
+
+    // A fresh install is already on Automatic; the migration only records that it need not run.
+    [Fact]
+    public void AFreshInstall_HasNothingToMigrate()
+    {
+        var s = new AppSettings();
+
+        Assert.False(SettingsService.RetireDefaultMqttPort(s));
+        Assert.Null(s.MqttBrokerPort);
+        Assert.True(s.MqttPortDefaultRetiredForAutomatic);
+    }
+
+    // The marker has to reach settings.json, or the migration runs on every start and reverts a
+    // deliberate 1883 each time.
+    [Fact]
+    public void TheMigrationMarker_SurvivesSettingsJson()
+    {
+        var saved = new AppSettings { MqttPortDefaultRetiredForAutomatic = true };
+
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(saved));
+
+        Assert.True(reloaded!.MqttPortDefaultRetiredForAutomatic);
+        Assert.False(new AppSettings().MqttPortDefaultRetiredForAutomatic);
+    }
 }
