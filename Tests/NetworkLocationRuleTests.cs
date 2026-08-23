@@ -69,6 +69,76 @@ public class NetworkLocationRuleTests
         Assert.False(new NetworkLocation(null, "10.0.1.0/24", true, null).IsEmpty);
     }
 
+    // Mobile: the carrier lease rotates, so the modem's MAC is the whole key
+
+    private const string ModemMac = "84:8D:B0:53:5F:55";
+
+    // A detected mobile location carries no subnet at all, whatever the carrier leased this time.
+    private static readonly NetworkLocation OnMobile =
+        new(AdapterMac: ModemMac, IpCidr: null, IsWired: true, DisplayHint: "Mobile", IsMobile: true);
+
+    [Fact]
+    public void Matches_StoredMobileRuleCarryingASubnet_StillMatches()
+    {
+        // Written before the subnet left the mobile key, and there is no migration: the stored value
+        // is ignored rather than rewritten.
+        var rule = new NetworkLocationRule { AdapterMac = ModemMac, IpCidr = "100.110.83.0/24" };
+
+        Assert.True(rule.Matches(OnMobile));
+    }
+
+    [Fact]
+    public void Matches_MobileRuleAgainstADifferentModem_False()
+    {
+        // The MAC is the whole key on mobile, so it has to carry the whole rejection too.
+        var rule = new NetworkLocationRule { AdapterMac = ModemMac, IpCidr = "100.110.83.0/24" };
+
+        Assert.False(rule.Matches(OnMobile with { AdapterMac = "00:11:22:33:44:55" }));
+    }
+
+    [Fact]
+    public void Matches_SubnetOnlyRule_NeverBecomesACatchAllOnMobile()
+    {
+        // With no MAC there is nothing left to match on, so ignoring the subnet as well would fit
+        // every mobile network.
+        var rule = new NetworkLocationRule { AdapterMac = null, IpCidr = "10.0.1.0/24" };
+
+        Assert.False(rule.Matches(OnMobile));
+    }
+
+    [Fact]
+    public void Matches_NewMobileRule_StoresNoSubnet()
+    {
+        // Composed the way the Settings page builds one: straight from the detected key.
+        var rule = new NetworkLocationRule { AdapterMac = OnMobile.AdapterMac, IpCidr = OnMobile.IpCidr };
+
+        Assert.Null(rule.IpCidr);
+        Assert.True(rule.Matches(OnMobile));
+    }
+
+    [Fact]
+    public void Matches_WiredRuleOnItsOwnSubnet_IsUnaffected()
+    {
+        // The mirror of the mobile bug: a wired or Wi-Fi rule still needs both halves, or the home
+        // and the cabin behind one radio collapse into one place.
+        var rule = new NetworkLocationRule { AdapterMac = "AA:BB:CC:DD:EE:FF", IpCidr = "10.0.1.0/24" };
+
+        Assert.True(rule.Matches(OfficeDock));
+        Assert.False(rule.Matches(OfficeDock with { IpCidr = "10.0.20.0/24" }));
+    }
+
+    [Fact]
+    public void SubnetIgnoredOn_OnlyTheAdapterWeAreOn_AndOnlyOnMobile()
+    {
+        // What the Settings "Matches" line reads, so the shown key says what is actually compared.
+        var mobileRule = new NetworkLocationRule { AdapterMac = ModemMac, IpCidr = "100.110.83.0/24" };
+        var wifiRule   = new NetworkLocationRule { AdapterMac = "AA:BB:CC:DD:EE:FF", IpCidr = "10.0.1.0/24" };
+
+        Assert.True(mobileRule.SubnetIgnoredOn(OnMobile));
+        Assert.False(wifiRule.SubnetIgnoredOn(OnMobile));
+        Assert.False(mobileRule.SubnetIgnoredOn(OfficeDock));
+    }
+
     // Keep awake here
 
     [Fact]

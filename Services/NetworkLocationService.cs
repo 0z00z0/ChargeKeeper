@@ -17,20 +17,35 @@ internal sealed class NetworkLocationRule
     /// <summary>Hold the machine awake here; leaving is then the off switch.</summary>
     public bool KeepAwakeHere { get; set; }
 
+    /// <summary>
+    /// Whether the stored subnet plays no part in matching <paramref name="location"/>: this rule names
+    /// the mobile adapter we are on, and a carrier lease rotates, so the modem is the whole key. A
+    /// mobile rule that does carry a subnet still matches — the stored value is ignored, never
+    /// migrated. Also what the Settings "Matches" line reads, so the displayed key says what is
+    /// actually compared.
+    /// </summary>
+    internal bool SubnetIgnoredOn(NetworkLocation location) =>
+        location.IsMobile && AdapterMac is not null && AdapterMac == location.AdapterMac;
+
+    /// <summary>A rule with no MAC of its own still has to match on its subnet: dropping that on
+    /// mobile would make it fit every mobile network.</summary>
     public bool Matches(NetworkLocation location) =>
         (AdapterMac is not null || IpCidr is not null) &&
         (AdapterMac is null || AdapterMac == location.AdapterMac) &&
-        (IpCidr     is null || IpCidr     == location.IpCidr);
+        (IpCidr     is null || IpCidr     == location.IpCidr || SubnetIgnoredOn(location));
 }
 
 /// <summary>
 /// Fingerprint of the physical adapter carrying the current connection, never of a tunnel or a switch
 /// port above it (see <see cref="NetworkLocationService.ResolvePhysical"/>). <see cref="IpCidr"/> is
 /// kept alongside <see cref="AdapterMac"/> because one Wi-Fi card reaches many places, and the subnet
-/// is what tells them apart. <see cref="DisplayHint"/> (Wi-Fi SSID or adapter name) is never part of
-/// matching — only a friendlier default when naming a rule.
+/// is what tells them apart. On mobile it is null instead: the carrier assigns a rotating address, so
+/// the modem is the location and its MAC is the whole key. <see cref="DisplayHint"/> (Wi-Fi SSID or
+/// adapter name) is never part of matching — only a friendlier default when naming a rule.
 /// </summary>
-internal readonly record struct NetworkLocation(string? AdapterMac, string? IpCidr, bool IsWired, string? DisplayHint)
+/// <param name="IsMobile">Mobile broadband, so the subnet is neither stored nor compared.</param>
+internal readonly record struct NetworkLocation(
+    string? AdapterMac, string? IpCidr, bool IsWired, string? DisplayHint, bool IsMobile = false)
 {
     public bool IsEmpty => AdapterMac is null && IpCidr is null;
 
@@ -230,17 +245,24 @@ internal static class NetworkLocationService
         // the subnet is what tells two places on one adapter apart. With neither, only the match key
         // is left, and DescribeMatchKey is already its formatter.
         string? hint = location.DisplayHint is { Length: > 0 } h ? h : null;
-        if (hint is null) return location.IpCidr ?? DescribeMatchKey(location.AdapterMac, location.IpCidr);
+        if (hint is null) return location.IpCidr ?? DescribeMatchKey(location.AdapterMac, null, location.IsMobile);
         return location.IpCidr is { } cidr ? $"{hint} · {cidr}" : hint;
     }
 
+    /// <summary>Stands in for the subnet on mobile, where the key is the modem alone. Stated rather
+    /// than left blank: a stored subnet is still in the file, and showing it would name something the
+    /// match never looks at.</summary>
+    internal const string MobileSubnetNote = "Mobile — any subnet";
+
     /// <summary>The match key as "MAC … · Subnet …". One formatter for the Settings "Matches" line
-    /// and the naming dialog.</summary>
-    internal static string DescribeMatchKey(string? adapterMac, string? ipCidr)
+    /// and the naming dialog. <paramref name="subnetIgnored"/> is the mobile case, and only applies
+    /// with a MAC to fall back on.</summary>
+    internal static string DescribeMatchKey(string? adapterMac, string? ipCidr, bool subnetIgnored = false)
     {
         var parts = new List<string>();
         if (adapterMac is { } mac)  parts.Add($"MAC {mac}");
-        if (ipCidr     is { } cidr) parts.Add($"Subnet {cidr}");
+        if (subnetIgnored && adapterMac is not null) parts.Add(MobileSubnetNote);
+        else if (ipCidr is { } cidr) parts.Add($"Subnet {cidr}");
         return parts.Count > 0 ? string.Join(" · ", parts) : "No match key — this profile will never apply.";
     }
 
@@ -289,10 +311,11 @@ internal static class NetworkLocationService
         if (ResolvePhysical(SelectPrimary(candidates, bestIndex), candidates, peers) is not { } route)
             return (default, default);
 
+        bool mobile  = IsMobile(route.Carrier.Type);
         bool wired   = route.Carrier.Type != NetworkInterfaceType.Wireless80211;
         string? ssid = wired ? null : readSsid();
         var location = Compose(route.Carrier.Mac ?? "", route.Carrier.IpCidr, wired, route.Bridged,
-                               SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid));
+                               SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid), mobile);
         return (location, ComposeAdapter(route));
     }
 
@@ -380,6 +403,19 @@ internal static class NetworkLocationService
         NetworkInterfaceType.Wireless80211, NetworkInterfaceType.Wwanpp, NetworkInterfaceType.Wwanpp2,
     ];
 
+    // Mobile broadband, where the carrier hands out a rotating address from the CGNAT range: the
+    // subnet is a lease, not a place. The enum's third mobile member, Wman (WiMax), is deliberately
+    // absent — it is not in PhysicalTypes either, so it can never carry a location, and adding it
+    // here alone would say nothing.
+    private static readonly NetworkInterfaceType[] MobileTypes =
+    [
+        NetworkInterfaceType.Wwanpp, NetworkInterfaceType.Wwanpp2,
+    ];
+
+    /// <summary>Whether an adapter type is mobile broadband, where the card is the location because
+    /// there is one mobile network reached through one modem.</summary>
+    internal static bool IsMobile(NetworkInterfaceType type) => MobileTypes.Contains(type);
+
     // Description markers for adapters that are not a NIC. Only the description is matched, never the
     // alias: the alias is user-editable, and every measured case ("WireGuard Tunnel", "PANGP Virtual
     // Ethernet Adapter Secure", "Hyper-V Virtual Ethernet Adapter", "Microsoft Wi-Fi Direct Virtual
@@ -439,13 +475,16 @@ internal static class NetworkLocationService
     /// <summary>
     /// <paramref name="cidr"/> and <paramref name="wired"/> come from the selected adapter; the stored
     /// MAC comes from <paramref name="bridged"/> when the pairing resolved a physical NIC, and from
-    /// the selected adapter on every other path.
+    /// the selected adapter on every other path. On <paramref name="mobile"/> the subnet is dropped
+    /// rather than stored: a carrier lease rotates, so keeping it would key the location on something
+    /// that never comes back.
     /// </summary>
     internal static NetworkLocation Compose(
-        string selectedMac, string? cidr, bool wired, BridgePeer? bridged, string? suggestedName)
+        string selectedMac, string? cidr, bool wired, BridgePeer? bridged, string? suggestedName,
+        bool mobile = false)
     {
         string mac = bridged?.Mac ?? selectedMac;
-        return new(mac.Length > 0 ? mac : null, cidr, wired, suggestedName);
+        return new(mac.Length > 0 ? mac : null, mobile ? null : cidr, wired, suggestedName, mobile);
     }
 
     /// <summary>
@@ -486,7 +525,9 @@ internal static class NetworkLocationService
     /// <summary>
     /// A stored key that can no longer match: same subnet as now, different MAC — what a new dock or
     /// a recreated Hyper-V switch leaves behind. Advisory only, and never rewritten, because the same
-    /// reading also fits a genuinely different network on the same private subnet.
+    /// reading also fits a genuinely different network on the same private subnet. Never fires on
+    /// mobile: the current location carries no subnet there, so there is nothing to compare and a
+    /// rotating carrier lease would otherwise read as a moved dock.
     /// </summary>
     internal static bool IsStaleKey(NetworkLocationRule rule, NetworkLocation current) =>
         rule.IpCidr     is not null && rule.IpCidr    == current.IpCidr &&

@@ -746,12 +746,21 @@ public class NetworkLocationServiceTests
     {
         // Fed from Detect rather than a hand-built location, so the line is pinned to the adapter
         // label the detection actually settles on.
-        var tether   = Tether("100.110.83.0/24");
-        var location = NetworkLocationService.Detect([tether], PeersOf(tether), (uint)tether.IPv4Index,
-                                                     () => null);
+        var dock     = Dock("192.168.1.0/24");
+        var location = NetworkLocationService.Detect([dock], PeersOf(dock), (uint)dock.IPv4Index, () => null);
 
-        Assert.Equal("Mobile · 100.110.83.0/24",
+        Assert.Equal("Ethernet · 192.168.1.0/24",
                      NetworkLocationService.DescribeCurrentNetwork(location, null));
+    }
+
+    [Fact]
+    public void DescribeCurrentNetwork_NoProfileOnMobile_ShowsTheAdapterAndNoSubnet()
+    {
+        // The subnet is not part of a mobile key, so naming it would describe a lease rather than
+        // the place a new profile would be keyed on.
+        var location = DetectOnMobile("100.110.83.0/24");
+
+        Assert.Equal("Mobile", NetworkLocationService.DescribeCurrentNetwork(location, null));
     }
 
     [Fact]
@@ -770,5 +779,113 @@ public class NetworkLocationServiceTests
         // all, so no profile could apply even if one existed.
         Assert.Equal(NetworkLocationService.NoNetworkDetected,
                      NetworkLocationService.DescribeCurrentNetwork(default, null));
+    }
+
+    // Mobile broadband, where the carrier lease rotates and the modem is the whole key
+
+    // The modem straight off the routing table, with no tunnel in the way.
+    private static NetworkLocation DetectOnMobile(string cidr)
+    {
+        var tether = Tether(cidr);
+        return NetworkLocationService.Detect([tether], PeersOf(tether), (uint)tether.IPv4Index, () => null);
+    }
+
+    [Theory]
+    [InlineData(NetworkInterfaceType.Wwanpp)]
+    [InlineData(NetworkInterfaceType.Wwanpp2)]
+    public void IsMobile_MobileBroadbandTypes_AreMobile(NetworkInterfaceType type)
+    {
+        Assert.True(NetworkLocationService.IsMobile(type));
+    }
+
+    [Theory]
+    [InlineData(NetworkInterfaceType.Ethernet)]
+    [InlineData(NetworkInterfaceType.GigabitEthernet)]
+    [InlineData(NetworkInterfaceType.Wireless80211)]
+    [InlineData(NetworkInterfaceType.Wman)]
+    public void IsMobile_EverythingThatCarriesALocationOtherwise_IsNot(NetworkInterfaceType type)
+    {
+        // Wman is mobile broadband too, but it is not among the types that resolve as a NIC at all,
+        // so it can never carry a location and calling it mobile would say nothing.
+        Assert.False(NetworkLocationService.IsMobile(type));
+    }
+
+    [Fact]
+    public void Detect_OneModemOnTwoCarrierSubnets_IsOneLocation()
+    {
+        // The defect: measured on this machine the 5G modem landed on 100.110.83.0/24, inside CGNAT,
+        // and the next attach lands elsewhere. With the subnet in the key a mobile profile saved once
+        // never matched again.
+        var first  = DetectOnMobile("100.110.83.0/24");
+        var second = DetectOnMobile("100.72.14.0/22");
+
+        Assert.Equal(MobileMac, first.AdapterMac);
+        Assert.Equal(MobileMac, second.AdapterMac);
+        Assert.True(first.SameLocationAs(second));
+    }
+
+    [Fact]
+    public void Detect_MobileAdapter_KeepsNoSubnetToStore()
+    {
+        // A new rule copies the detected key verbatim, so dropping the subnet here is what stops one
+        // being written.
+        var location = DetectOnMobile("100.110.83.0/24");
+
+        Assert.True(location.IsMobile);
+        Assert.Null(location.IpCidr);
+        Assert.False(location.IsEmpty);   // the MAC alone is a complete key
+    }
+
+    [Fact]
+    public void Detect_WifiAdapter_IsNotMobileAndKeepsItsSubnet()
+    {
+        // The mirror of the bug: a home and a cabin behind one radio must not collapse.
+        var wifi     = WifiCard("10.0.0.0/23");
+        var location = NetworkLocationService.Detect([wifi], PeersOf(wifi), 9, () => "HomeWiFi");
+
+        Assert.False(location.IsMobile);
+        Assert.Equal("10.0.0.0/23", location.IpCidr);
+    }
+
+    [Fact]
+    public void Detect_MobileBehindTheVpn_StillDropsTheSubnet()
+    {
+        // The tunnel holds the default route on this machine, so the mobile path has to survive the
+        // walk-back down to the modem.
+        var location = DetectBehindVpn(Tether("100.110.83.0/24"));
+
+        Assert.Equal(MobileMac, location.AdapterMac);
+        Assert.True(location.IsMobile);
+        Assert.Null(location.IpCidr);
+    }
+
+    [Fact]
+    public void DescribeMatchKey_Mobile_NamesTheModemInsteadOfASubnet()
+    {
+        // A rule saved before the subnet left the key still has one in the file; showing it would
+        // name something the match never looks at.
+        Assert.Equal($"MAC {MobileMac} · {NetworkLocationService.MobileSubnetNote}",
+            NetworkLocationService.DescribeMatchKey(MobileMac, "100.110.83.0/24", subnetIgnored: true));
+        Assert.Equal($"MAC {MobileMac} · {NetworkLocationService.MobileSubnetNote}",
+            NetworkLocationService.DescribeMatchKey(MobileMac, null, subnetIgnored: true));
+    }
+
+    [Fact]
+    public void DescribeMatchKey_SubnetOnlyRule_KeepsItsSubnetEvenOnMobile()
+    {
+        // Such a rule matches on its subnet or not at all, so the line must keep saying so.
+        Assert.Equal("Subnet 10.0.0.0/23",
+            NetworkLocationService.DescribeMatchKey(null, "10.0.0.0/23", subnetIgnored: true));
+    }
+
+    [Fact]
+    public void IsStaleKey_OnMobile_SaysNothingAboutAMobileRule()
+    {
+        // The current location carries no subnet on mobile, so a rotating carrier lease can never
+        // read as "same subnet, different MAC".
+        var rule = new NetworkLocationRule { AdapterMac = MobileMac, IpCidr = "100.110.83.0/24" };
+
+        Assert.False(NetworkLocationService.IsStaleKey(rule, DetectOnMobile("100.72.14.0/22")));
+        Assert.Null(NetworkLocationService.DescribeStaleKey(rule, DetectOnMobile("100.72.14.0/22"), MeasuredPeers));
     }
 }
