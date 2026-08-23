@@ -365,173 +365,399 @@
                     </controls:SettingsCard>
                 </StackPanel>
 
+                <!-- Five sections in the order the questions arise: whether to publish at all, what
+                     the connection is doing, which device this is, how it is reached, and what goes
+                     out. The last two are collapsed, because both are set once and then left. -->
                 <StackPanel x:Name="HomeAssistantPanel" Spacing="4" Visibility="Collapsed">
+
+                    <!-- The alignment contract for the page. Every field is one width, every card
+                         right-aligns its content, and an InfoIcon always sits to the LEFT of the
+                         field it explains — so no adornment can displace a right edge and the whole
+                         column lands on one line without a single per-card measurement. -->
+                    <StackPanel.Resources>
+                        <x:Double x:Key="MqttFieldWidth">240</x:Double>
+                        <Style x:Key="MqttTextFieldStyle" TargetType="TextBox">
+                            <Setter Property="Width" Value="{StaticResource MqttFieldWidth}"/>
+                            <Setter Property="HorizontalAlignment" Value="Right"/>
+                            <Setter Property="TextAlignment" Value="Right"/>
+                        </Style>
+                        <!-- PasswordBox has no TextAlignment: the masked run follows the control's
+                             content alignment instead, which is why this style differs from the
+                             TextBox one by a property name rather than by intent. -->
+                        <Style x:Key="MqttPasswordFieldStyle" TargetType="PasswordBox">
+                            <Setter Property="Width" Value="{StaticResource MqttFieldWidth}"/>
+                            <Setter Property="HorizontalAlignment" Value="Right"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Right"/>
+                        </Style>
+                        <Style x:Key="MqttComboFieldStyle" TargetType="ComboBox">
+                            <Setter Property="Width" Value="{StaticResource MqttFieldWidth}"/>
+                            <Setter Property="HorizontalAlignment" Value="Right"/>
+                        </Style>
+                        <!-- The one small toned-down label used for every row's sub-text and for the
+                             page's status lines, so the secondary tier is defined once. -->
+                        <Style x:Key="SettingHintStyle" TargetType="TextBlock">
+                            <Setter Property="FontSize" Value="11"/>
+                            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Setter Property="TextWrapping" Value="Wrap"/>
+                        </Style>
+                    </StackPanel.Resources>
+
+                    <!-- The page title. Everything below says "broker": Home Assistant is named once,
+                         under Discovery prefix, because that is the published name of the convention
+                         and not the name of a dependency. -->
                     <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <controls:SettingsCard Header="Publish to MQTT"
-                                            Description="Publishes battery and charge state to an MQTT broker.">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Publish to MQTT" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                        <local:InfoIcon Subject="publishing to MQTT"
+                                        Info="The master switch for the whole feature. Nothing on the network is touched while it is off, and the rest of this page is hidden because none of it applies."/>
+                    </StackPanel>
+
+                    <controls:SettingsCard Header="Publish to MQTT">
+                        <controls:SettingsCard.Description>
+                            <TextBlock Text="Publishes battery and charge state to an MQTT broker." Style="{StaticResource SettingHintStyle}"/>
+                        </controls:SettingsCard.Description>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="publishing to MQTT"
-                                            Info="The entities are announced by auto-discovery. This toggle applies immediately; the broker fields below apply on Apply."/>
+                            <local:InfoIcon Subject="the publish switch"
+                                            Info="The entities are announced by auto-discovery. This switch applies immediately; the broker fields apply on Apply."/>
                             <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <!-- Each group maps to a Settings page, so what a toggle covers needs no
-                         explaining beyond its own name. Switching one off is a removal, not a pause —
-                         hence the InfoIcon rather than a longer description on every card. -->
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="What to publish" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="the publishing groups"
-                                        Info="Each group covers the entities from the Settings page it is named after. Switching a group off withdraws its entities from the broker, so nothing is left behind as unavailable; switching it back on announces them again. Entities the hardware cannot honour are never announced, whatever these are set to."/>
+                    <!-- Hidden rather than disabled while publishing is off: a greyed page still
+                         invites reading, and none of it has an answer until the feature is on. -->
+                    <StackPanel x:Name="MqttDetailPanel" Spacing="4">
+
+                        <Border Style="{StaticResource SectionDividerStyle}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                            <local:InfoIcon Subject="status"
+                                            Info="Read-only, and about the live connection rather than the fields below. It is re-read when this page opens, not on a timer."/>
+                        </StackPanel>
+
+                        <!-- First in Status because it answers the question the rest of the page
+                             raises: whether these values were found or chosen. It also carries the
+                             search's progress, so there is one line to watch rather than two. -->
+                        <controls:SettingsCard Header="Connection">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="Where the broker settings in force came from." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="how the connection was found"
+                                                Info="A port and transport left on Automatic are found by probing the host, and the answer is remembered against that host and user name. Setting either by hand pins it, and nothing is probed around it."/>
+                                <TextBlock x:Name="HaDetectText" Text="—" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <controls:SettingsCard Header="Broker in use">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="The address the live connection is using." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="the broker in use"
+                                                Info="The saved values, not the ones staged in the fields below. The two differ until Apply is pressed."/>
+                                <TextBlock x:Name="HaBrokerStatusText" Text="Not set" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <controls:SettingsCard Header="Last publish">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="When a message last reached the broker." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="the last publish time"
+                                                Info="Unchanged values are not re-sent, so this stands still while nothing changes."/>
+                                <TextBlock x:Name="HaLastPublishText" Text="—" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <controls:SettingsCard Header="Last command received">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="The most recent command received from the broker." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="the last command received"
+                                                Info="Commands arrive on the topics the announced entities subscribe to. Nothing is shown until one is acted on."/>
+                                <TextBlock x:Name="HaLastCommandText" Text="—" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <!-- Before Broker: which device this is comes before how it connects. The name
+                             is cosmetic and rides the Apply batch; the id is destructive and changes
+                             only through its own confirmation dialog. -->
+                        <Border Style="{StaticResource SectionDividerStyle}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                            <local:InfoIcon Subject="the device section"
+                                            Info="How this machine appears to whatever consumes the entities: one display name, and one identifier every topic is built from."/>
+                        </StackPanel>
+
+                        <controls:SettingsCard Header="Device name">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="The display name published for this machine." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="the device name"
+                                                Info="Cosmetic — it renames nothing else. An empty box falls back to the name derived from this machine, shown as the placeholder."/>
+                                <!-- PlaceholderText is the machine-derived default, set in code-behind. -->
+                                <TextBox x:Name="HaDeviceNameBox" Style="{StaticResource MqttTextFieldStyle}"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <!-- Read-only with a button, not a text box: the id is the unique_id stem and
+                             every topic segment, so editing it in place would make a rename a
+                             side effect of a keystroke. -->
+                        <controls:SettingsCard Header="Device ID">
+                            <controls:SettingsCard.Description>
+                                <TextBlock Text="Identifies this machine in every topic and entity id." Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <local:InfoIcon Subject="the device ID"
+                                                Info="Changing it renames every published entity, so it has a confirmation of its own rather than riding the Apply batch."/>
+                                <TextBlock x:Name="HaNodeIdText" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingHintStyle}"
+                                           IsTextSelectionEnabled="True"/>
+                                <Button x:Name="HaChangeNodeIdBtn" Content="Change ID…" Click="OnChangeNodeIdClicked"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
+                        <Border Style="{StaticResource SectionDividerStyle}"/>
+
+                        <controls:SettingsExpander x:Name="MqttBrokerExpander" IsExpanded="False"
+                                                   Header="Broker">
+                            <controls:SettingsExpander.Description>
+                                <TextBlock Text="How the broker is reached. Staged here and applied together."
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsExpander.Description>
+                            <local:InfoIcon Subject="the broker section"
+                                            Info="These fields are staged locally and take effect on Apply, so the connection is remade once per edit session rather than once per keystroke. Port and transport left on Automatic are found by probing."/>
+
+                            <controls:SettingsExpander.Items>
+                                <controls:SettingsCard Header="Host">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="The broker's host name or address." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the broker host"
+                                                        Info="A name or an address. A host written as a ws:// or wss:// address is used exactly as typed, which covers a broker served under a path the port alone cannot express."/>
+                                        <TextBox x:Name="HaHostBox" Style="{StaticResource MqttTextFieldStyle}"
+                                                 PlaceholderText="e.g. 10.0.20.22"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- Host then Port then Transport, because that is the order the
+                                     answers narrow in: which machine, which door, which language.
+                                     The typed box and its error line share the field width, so an
+                                     expanded port row keeps the same right edge as every other. -->
+                                <controls:SettingsCard Header="Port">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="The port the broker listens on." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the broker port"
+                                                        Info="Automatic tries the ports brokers are commonly served on, in turn, and remembers the one that answered. The list covers plain MQTT, MQTT over encryption, and the front-door ports a broker published over WebSocket answers on. The last entry takes a port typed by hand."/>
+                                        <StackPanel Spacing="4" HorizontalAlignment="Right">
+                                            <ComboBox x:Name="HaPortCombo" Style="{StaticResource MqttComboFieldStyle}"
+                                                      SelectionChanged="OnHaPortSelectionChanged"/>
+                                            <TextBox x:Name="HaPortCustomBox" Style="{StaticResource MqttTextFieldStyle}"
+                                                     Visibility="Collapsed" PlaceholderText="1-65535"/>
+                                            <TextBlock x:Name="HaPortErrorText" Visibility="Collapsed"
+                                                       Style="{StaticResource SettingHintStyle}"
+                                                       Width="{StaticResource MqttFieldWidth}" TextAlignment="Right"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- Automatic is first so it is the default selection, matching the setting. -->
+                                <controls:SettingsCard Header="Transport">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Which protocol carries MQTT to the broker." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the transport"
+                                                        Info="Automatic tries a plain socket first and falls back to WebSocket, then remembers whichever answered and starts there next time — the usual case for a machine that is on the internal network sometimes and outside it at others. An explicit choice is never reached around."/>
+                                        <ComboBox x:Name="HaTransportCombo" Style="{StaticResource MqttComboFieldStyle}">
+                                            <ComboBoxItem Content="Automatic"/>
+                                            <ComboBoxItem Content="TCP"/>
+                                            <ComboBoxItem Content="WebSocket"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- Renamed away from the acronym, and silent about ports: the port is
+                                     its own setting now and may be anything the broker is served on. -->
+                                <controls:SettingsCard Header="Encrypted connection">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Encrypts everything sent to and from the broker." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the encrypted connection"
+                                                        Info="Required by a broker that accepts encrypted clients only. A broker reached over WebSocket through a public front door is encrypted by its address rather than by this switch, so leaving it off changes nothing there. The certificate is checked against the machine's own trust store."/>
+                                        <ToggleSwitch x:Name="HaTlsToggle" OnContent="On" OffContent="Off"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- The credentials sit below the addressing: they decide whether the
+                                     broker accepts the session, never which door it knocks on. -->
+                                <controls:SettingsCard Header="Username">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Leave blank for an anonymous broker." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the broker username"
+                                                        Info="Part of what a found endpoint is remembered against: a broker commonly fronts a separate listener per account, so changing the user name starts the search again."/>
+                                        <TextBox x:Name="HaUsernameBox" Style="{StaticResource MqttTextFieldStyle}"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <controls:SettingsCard Header="Password">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Leave blank for an anonymous broker." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the broker password"
+                                                        Info="Never written to the log, never published, and never part of what a found endpoint is remembered against."/>
+                                        <PasswordBox x:Name="HaPasswordBox" Style="{StaticResource MqttPasswordFieldStyle}"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- The one place this page names Home Assistant, because that is the
+                                     published name of the discovery convention and what the default
+                                     prefix spells. Everywhere else here says broker. -->
+                                <!-- Last in the section, and the only field here that is about the
+                                     consumer rather than the broker. -->
+                                <controls:SettingsCard Header="Discovery prefix">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Topic prefix the discovery messages are published under." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the discovery prefix"
+                                                        Info="Entities are announced using the Home Assistant MQTT Discovery convention, an openly published spec that some MQTT consumers follow and others ignore. The prefix only needs changing for a consumer that listens elsewhere."/>
+                                        <TextBox x:Name="HaPrefixBox" Style="{StaticResource MqttTextFieldStyle}"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+
+                                <!-- Apply sits at the far right, where every field above puts its own
+                                     edge, so the one control that commits the section lands on the
+                                     page's action edge instead of hiding at the start of a row. -->
+                                <controls:SettingsCard Header="Apply these settings"
+                                                       ContentAlignment="Vertical"
+                                                       HorizontalContentAlignment="Stretch">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="The fields above take effect on Apply, and the connection is remade once." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Spacing="8" Margin="0,4,0,4">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                                <Button x:Name="HaTestBtn" Content="Test connection" Click="OnHaTestConnectionClicked"/>
+                                                <ProgressRing x:Name="HaTestProgress" Width="16" Height="16"
+                                                              IsActive="False" Visibility="Collapsed"
+                                                              VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
+                                                           Style="{StaticResource SettingHintStyle}"
+                                                           Visibility="Collapsed"/>
+                                                <local:InfoIcon Subject="Test connection"
+                                                                Info="Test connection tries the values in the fields above, including ones not yet applied. It opens its own throwaway connection and never disturbs the running one."/>
+                                            </StackPanel>
+                                            <Button x:Name="HaApplyBtn" Grid.Column="1" Content="Apply"
+                                                    HorizontalAlignment="Right" Click="OnHaApplyClicked"/>
+                                        </Grid>
+                                        <!-- Names which values were tested: under the batch save model
+                                             the fields and the saved settings can disagree, and a green
+                                             result must not be ambiguous. -->
+                                        <TextBlock x:Name="HaTestResultText" Style="{StaticResource SettingHintStyle}"
+                                                   Visibility="Collapsed"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                            </controls:SettingsExpander.Items>
+                        </controls:SettingsExpander>
+
+                        <!-- Last, and closed: each group maps to a Settings page, so what a toggle
+                             covers needs no explaining beyond its own name, and the set is changed
+                             far less often than anything above it. -->
+                        <controls:SettingsExpander x:Name="MqttPublishExpander" IsExpanded="False"
+                                                   Header="What to publish"
+                                                   Margin="0,4,0,0">
+                            <controls:SettingsExpander.Description>
+                                <TextBlock Text="Which groups of entities are announced."
+                                           Style="{StaticResource SettingHintStyle}"/>
+                            </controls:SettingsExpander.Description>
+                            <local:InfoIcon Subject="the publishing groups"
+                                            Info="Each group covers the entities from the Settings page it is named after. Switching a group off withdraws its entities from the broker, so nothing is left behind as unavailable; switching it back on announces them again. Entities the hardware cannot honour are never announced, whatever these are set to."/>
+
+                            <controls:SettingsExpander.Items>
+                                <!-- One row per Settings page. Switching one off is a removal, not a
+                                     pause, which is what each InfoIcon is here to say. -->
+                                <controls:SettingsCard Header="Battery status">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the battery status group"
+                                                        Info="Level, charge state, power draw and the battery health figures."/>
+                                        <ToggleSwitch x:Name="MqttBatteryStatusToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="Smart Charge">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the Smart Charge group"
+                                                        Info="The charge limit, the preset in force and the one-shot charge to full."/>
+                                        <ToggleSwitch x:Name="MqttSmartChargeToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="Keep Awake">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the Keep Awake group"
+                                                        Info="Whether a session is holding the computer awake, and when it expires."/>
+                                        <ToggleSwitch x:Name="MqttKeepAwakeToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="Lid close">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the lid close group"
+                                                        Info="The lid-close delay and whether the computer locks when the lid shuts."/>
+                                        <ToggleSwitch x:Name="MqttLidCloseToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="Notifications">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the notifications group"
+                                                        Info="The battery and drain warning thresholds, and whether each is armed."/>
+                                        <ToggleSwitch x:Name="MqttNotificationsToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="Network">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the network group"
+                                                        Info="The detected network location and the profile matching it."/>
+                                        <ToggleSwitch x:Name="MqttNetworkToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="App diagnostics">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="Off by default — these describe ChargeKeeper, not the battery." Style="{StaticResource SettingHintStyle}"/>
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <local:InfoIcon Subject="the app diagnostics group"
+                                                        Info="Version, uptime and the app's own health counters. Useful for watching a fleet, noise on a single machine, so a new install starts with it off."/>
+                                        <ToggleSwitch x:Name="MqttAppDiagnosticsToggle" OnContent="On" OffContent="Off"
+                                                      Toggled="OnMqttCategoryToggled"/>
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                            </controls:SettingsExpander.Items>
+                        </controls:SettingsExpander>
                     </StackPanel>
-
-                    <controls:SettingsCard Header="Battery status">
-                        <ToggleSwitch x:Name="MqttBatteryStatusToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Smart Charge">
-                        <ToggleSwitch x:Name="MqttSmartChargeToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Keep Awake">
-                        <ToggleSwitch x:Name="MqttKeepAwakeToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Lid close">
-                        <ToggleSwitch x:Name="MqttLidCloseToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Notifications">
-                        <ToggleSwitch x:Name="MqttNotificationsToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Network">
-                        <ToggleSwitch x:Name="MqttNetworkToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="App diagnostics">
-                        <ToggleSwitch x:Name="MqttAppDiagnosticsToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnMqttCategoryToggled"/>
-                    </controls:SettingsCard>
-
-                    <!-- Above Broker: which device this is comes before how it connects. The name is
-                         cosmetic and rides the Apply batch; the id is destructive and changes only
-                         through its own confirmation dialog. -->
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <TextBlock Text="Device" Style="{StaticResource SubHeaderStyle}"/>
-
-                    <controls:SettingsCard Header="Device name"
-                                            Description="The display name published for this machine. Cosmetic — it renames nothing else.">
-                        <!-- PlaceholderText is the machine-derived default, set in code-behind. -->
-                        <TextBox x:Name="HaDeviceNameBox" MinWidth="220"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Device ID"
-                                            Description="Identifies this machine in every MQTT topic and in every published entity id. Changing it renames all of them.">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBlock x:Name="HaNodeIdText" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       IsTextSelectionEnabled="True"/>
-                            <Button x:Name="HaChangeNodeIdBtn" Content="Change ID…" Click="OnChangeNodeIdClicked"/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="the broker fields"
-                                        Info="The broker fields are staged locally and take effect on Apply. The MQTT connection then reconnects once per Apply, not once per keystroke."/>
-                    </StackPanel>
-
-                    <controls:SettingsCard Header="Host">
-                        <TextBox x:Name="HaHostBox" MinWidth="220" PlaceholderText="e.g. 10.0.20.22"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Port">
-                        <NumberBox x:Name="HaPortBox" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Hidden" MinWidth="120"/>
-                    </controls:SettingsCard>
-                    <!-- Auto is first so it is the default selection, matching the setting. -->
-                    <controls:SettingsCard Header="Transport" Description="How the broker is reached.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ComboBox x:Name="HaTransportCombo" MinWidth="160">
-                                <ComboBoxItem Content="Auto"/>
-                                <ComboBoxItem Content="TCP"/>
-                                <ComboBoxItem Content="WebSocket"/>
-                            </ComboBox>
-                            <local:InfoIcon Subject="the transport"
-                                            Info="Auto tries plain TCP first and falls back to WebSocket, then remembers whichever answered and starts there next time — the usual case for a machine that is on the internal network sometimes and outside it at others. TCP uses the host and port above. WebSocket uses wss://&lt;host&gt; on port 443 and ignores the port box, unless the host is written as a ws:// or wss:// address."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Username" Description="Leave blank for an anonymous broker.">
-                        <TextBox x:Name="HaUsernameBox" MinWidth="220"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Password" Description="Leave blank for an anonymous broker. Never logged.">
-                        <PasswordBox x:Name="HaPasswordBox" MinWidth="220"/>
-                    </controls:SettingsCard>
-                    <controls:SettingsCard Header="Use TLS" Description="Broker port is usually 8883 when enabled.">
-                        <ToggleSwitch x:Name="HaTlsToggle" OnContent="On" OffContent="Off"/>
-                    </controls:SettingsCard>
-                    <!-- The one place this page names Home Assistant, because that is the published
-                         name of the discovery convention and what the default prefix spells.
-                         Everywhere else here says broker. -->
-                    <controls:SettingsCard Header="Discovery prefix" Description="Topic prefix the discovery messages are published under (default: homeassistant).">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBox x:Name="HaPrefixBox" MinWidth="220"/>
-                            <local:InfoIcon Subject="the discovery prefix"
-                                            Info="Entities are announced using the Home Assistant MQTT Discovery convention, an openly published spec that some MQTT consumers follow and others ignore. The prefix only needs changing for a consumer that listens elsewhere."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <!-- Apply sits at the far right, where every card above puts its control, so the
-                         one button that commits the section lands on the page's action edge instead
-                         of hiding at the start of a row of secondary things. -->
-                    <Grid Margin="0,8,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button x:Name="HaTestBtn" Content="Test connection" Click="OnHaTestConnectionClicked"/>
-                            <ProgressRing x:Name="HaTestProgress" Width="16" Height="16"
-                                          IsActive="False" Visibility="Collapsed"
-                                          VerticalAlignment="Center"/>
-                            <TextBlock x:Name="HaAppliedText" Text="Applied." VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Visibility="Collapsed"/>
-                            <local:InfoIcon Subject="Test connection"
-                                            Info="Test connection tries the values in the boxes above, including ones not yet applied. It opens its own throwaway connection and never disturbs the running one."/>
-                        </StackPanel>
-                        <Button x:Name="HaApplyBtn" Grid.Column="1" Content="Apply"
-                                HorizontalAlignment="Right" Click="OnHaApplyClicked"/>
-                    </Grid>
-
-                    <!-- Names which values were tested: under the batch save model the boxes and the
-                         saved settings can disagree, and a green result must not be ambiguous. -->
-                    <TextBlock x:Name="HaTestResultText" Margin="0,8,0,0" FontSize="11"
-                               TextWrapping="Wrap" Visibility="Collapsed"/>
-                    <TextBlock x:Name="HaBrokerStatusText" Text="Broker: not set" Margin="0,8,0,0"
-                               FontSize="11" Opacity="0.7"/>
-
-                    <!-- Read-only, and about the live connection rather than the staged boxes. -->
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <TextBlock Text="Status" Style="{StaticResource SubHeaderStyle}"/>
-
-                    <controls:SettingsCard Header="Last publish"
-                                            Description="When ChargeKeeper last got a message onto the broker.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock x:Name="HaLastPublishText" Text="—" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <local:InfoIcon Subject="the last publish time"
-                                            Info="Unchanged values are not re-sent, so this stands still while nothing changes."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Last command received"
-                                            Description="The most recent command received from the broker.">
-                        <TextBlock x:Name="HaLastCommandText" Text="—"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </controls:SettingsCard>
                 </StackPanel>
 
                 <!-- The shared BrandAboutControl is hosted inline rather than behind a button that

@@ -130,21 +130,25 @@ internal sealed class AppSettings
     public bool HomeAssistantEnabled { get; set; } = false;
 
     public string MqttBrokerHost { get; set; } = "";
-    public int    MqttBrokerPort { get; set; } = 1883;
-    public string MqttUsername   { get; set; } = "";
-    public string MqttPassword   { get; set; } = "";
-    public bool   MqttUseTls     { get; set; } = false;
+
+    /// <summary>The broker port, or null to find it. Null by default: the port a broker answers on
+    /// depends on the transport and on what fronts it, so assuming 1883 is wrong everywhere except
+    /// the plain internal case.</summary>
+    public int? MqttBrokerPort { get; set; }
+
+    public string MqttUsername { get; set; } = "";
+    public string MqttPassword { get; set; } = "";
+    public bool   MqttUseTls   { get; set; } = false;
 
     /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
     /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
-    /// WebSocket ignores the port and uses <c>wss://&lt;host&gt;</c> unless the host names a URI —
-    /// see <see cref="MqttTransportEndpoint"/>.</summary>
+    /// The port applies to both transports — see <see cref="MqttTransportEndpoint"/>.</summary>
     public MqttTransportSetting MqttTransportMode { get; set; } = MqttTransportSetting.Auto;
 
-    /// <summary>Which transport last connected. State rather than a setting: it records where the
-    /// machine turned out to be, so Auto starts with the path that worked, and it never changes what
-    /// <see cref="MqttTransportMode"/> says the user chose. Null until something connects.</summary>
-    public MqttTransport? MqttLastGoodTransport { get; set; }
+    /// <summary>Where the broker answered last. State rather than a setting: it records where the
+    /// machine turned out to be, so a reconnect starts with what worked, and it never changes what
+    /// the user chose. Null until something connects, and never a password.</summary>
+    public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
 
     /// <summary>Must match HA's own prefix, or discovery configs land where nothing reads them.</summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";

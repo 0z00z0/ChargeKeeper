@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ChargeKeeper.Services;
 
 /// <summary>The most recent inbound command: what it was and when it landed.</summary>
@@ -44,6 +46,30 @@ internal static class MqttStatusFormatter
     }
 
     private static string Plural(int n, string unit) => $"{n} {unit}{(n == 1 ? "" : "s")} ago";
+
+    /// <summary>The "Broker in use" line: the saved host with whatever port and transport are in
+    /// force, whether pinned by hand or found by probing. Pure.</summary>
+    /// <remarks>A cache entry is only ever read for its own host and user name, so a machine that
+    /// has moved reports "not connected yet" rather than the address it used somewhere else.</remarks>
+    public static string DescribeBroker(MqttEndpointRequest request, MqttEndpointMemory? memory)
+    {
+        string host = (request.Host ?? "").Trim();
+        if (host.Length == 0) return "Not set";
+
+        var found = MqttTransportPlan.Reusable(request, memory);
+        int? port = request.Port ?? found?.Port;
+        MqttTransport? transport = request.Transport switch
+        {
+            MqttTransportSetting.Tcp       => MqttTransport.Tcp,
+            MqttTransportSetting.WebSocket => MqttTransport.WebSocket,
+            _ => found?.Transport,
+        };
+
+        // Half an answer is worse than none: "host:— over —" reads as a broken value rather than as
+        // a question that has not been answered yet.
+        if (port is not { } p || transport is not { } t) return $"{host} — not connected yet";
+        return $"{host}:{p.ToString(CultureInfo.InvariantCulture)} over {MqttConnectionProbe.Name(t)}";
+    }
 
     /// <summary>The "Last publish" line.</summary>
     public static string DescribeLastPublish(DateTime? lastUtc, DateTime nowUtc) =>
