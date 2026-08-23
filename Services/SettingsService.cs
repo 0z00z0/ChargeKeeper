@@ -157,17 +157,21 @@ internal sealed class AppSettings
     /// so HA deletes the previous device instead of ghosting it.</summary>
     public string MqttNodeId { get; set; } = "";
 
-    /// <summary>Which groups of entities are announced. All on by default — the surface is the point
-    /// of the feature, and a group is switched off to reduce it, never to opt into it. Turning one off
-    /// removes its entities from the consumer rather than leaving them unavailable; see
-    /// <see cref="HaDiscovery.RemovalTopics"/>.</summary>
+    /// <summary>Which groups of entities are announced. The feature groups are on by default — the
+    /// surface is the point of the feature, and a group is switched off to reduce it, never to opt
+    /// into it. Turning one off removes its entities from the consumer rather than leaving them
+    /// unavailable; see <see cref="HaDiscovery.RemovalTopics"/>.</summary>
     public bool MqttPublishBatteryStatus  { get; set; } = true;
     public bool MqttPublishSmartCharge    { get; set; } = true;
     public bool MqttPublishKeepAwake      { get; set; } = true;
     public bool MqttPublishLidClose       { get; set; } = true;
     public bool MqttPublishNotifications  { get; set; } = true;
     public bool MqttPublishNetwork        { get; set; } = true;
-    public bool MqttPublishAppDiagnostics { get; set; } = true;
+
+    /// <summary>Off, unlike the feature groups above: diagnostics describe ChargeKeeper rather than
+    /// the battery, so they are what an operator opts into rather than what a new install starts
+    /// announcing. Existing installs keep whatever they were saved with.</summary>
+    public bool MqttPublishAppDiagnostics { get; set; } = false;
 
     /// <summary>The group toggles as the publisher's pure input.</summary>
     [JsonIgnore]
