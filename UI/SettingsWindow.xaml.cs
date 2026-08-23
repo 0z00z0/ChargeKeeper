@@ -1099,7 +1099,9 @@ internal sealed partial class SettingsWindow : Window
         }
 
         string suggested = location.DisplayHint
-            ?? (location.IsMobile ? "Mobile network" : location.IsWired ? "Wired network" : "Wireless network");
+            ?? (location.IsMobile ? NetworkLocationService.MobileLabel
+                : location.IsWired ? NetworkLocationService.WiredLabel
+                                   : NetworkLocationService.WirelessLabel);
         string? name = await new NameLocationWindow(
             suggested,
             NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr, location.IsMobile)).ShowAsync();
