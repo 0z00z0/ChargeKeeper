@@ -223,11 +223,15 @@ internal enum MqttProbeTrigger
     Apply,
 }
 
-/// <summary>Which stage of one candidate the sweep is on. The two are worth telling apart because
-/// they fail for different reasons: nothing listening on the port, versus something listening that
-/// does not speak MQTT over this transport.</summary>
-internal enum MqttDetectStage { Port, Transport }
+/// <summary>Which stage of one candidate the sweep is on. The first two are worth telling apart
+/// because they fail for different reasons: nothing listening on the port, versus something
+/// listening that does not speak MQTT over this transport. <see cref="Finished"/> is the candidate's
+/// own verdict, which is what turns a progress line into an account of the search rather than a
+/// spinner with a port number on it.</summary>
+internal enum MqttDetectStage { Port, Transport, Finished }
 
-/// <summary>What the sweep is doing right now, so the page can say so. Pure data.</summary>
+/// <summary>What the sweep is doing right now, so the page can say so. Pure data.
+/// <paramref name="Result"/> is carried by <see cref="MqttDetectStage.Finished"/> alone; the two
+/// stages before it have nothing to report yet.</summary>
 internal readonly record struct MqttDetectProgress(
-    MqttDetectStage Stage, int Port, MqttTransport Transport);
+    MqttDetectStage Stage, int Port, MqttTransport Transport, MqttProbeResult? Result = null);

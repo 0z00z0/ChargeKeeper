@@ -124,10 +124,11 @@ public class MqttProbeLoopbackTests
         Assert.True(report.Attempts.Count > 1);                  // …and losing it does not end the run
     }
 
-    /// <summary>The progress line is what the page shows while a sweep runs, so the port stage has to
-    /// be reported before anything is known about the endpoint.</summary>
+    /// <summary>The progress line is what the page shows under the button row while a sweep runs, so
+    /// the port stage has to be reported before anything is known about the endpoint, and each
+    /// candidate's verdict as it lands.</summary>
     [Fact]
-    public async Task ARun_ReportsTheStagesItIsOn()
+    public async Task ARun_ReportsTheStagesItIsOnAndEachVerdict()
     {
         using var broker = new FakeBroker(reject: false);
         var seen = new List<string>();
@@ -137,7 +138,11 @@ public class MqttProbeLoopbackTests
 
         // Progress<T> posts asynchronously, so settle before reading rather than racing the last report.
         await Task.Delay(250);
-        lock (seen) Assert.Contains($"Detecting… | Probing port: {broker.Port}", seen);
+        lock (seen)
+        {
+            Assert.Contains($"Trying TCP on port {broker.Port}…", seen);
+            Assert.Contains($"TCP on port {broker.Port} connected.", seen);
+        }
     }
 
     /// <summary>Cancellation is what a closing window and a retyped host both do. The run has to come

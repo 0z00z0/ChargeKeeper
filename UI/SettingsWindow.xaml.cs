@@ -1900,13 +1900,19 @@ internal sealed partial class SettingsWindow : Window
 
     private void SetHaTestRunning(bool running)
     {
-        HaTestBtn.IsEnabled          = !running;
-        HaTestProgress.IsActive      = running;
-        HaTestProgress.Visibility    = running ? Visibility.Visible : Visibility.Collapsed;
-        if (!running) return;
+        HaTestBtn.IsEnabled       = !running;
+        HaTestProgress.IsActive   = running;
+        HaTestProgress.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        if (running) ShowHaTestResult("Testing…", failure: false);
+    }
 
-        HaTestResultText.Text       = "Testing…";
-        HaTestResultText.Foreground = SecondaryBrush();
+    /// <summary>The one line under the button row, carrying a sweep's progress endpoint by endpoint
+    /// and then its verdict. The single writer, so the running commentary and the answer cannot end
+    /// up on two different surfaces.</summary>
+    private void ShowHaTestResult(string text, bool failure)
+    {
+        HaTestResultText.Text       = text;
+        HaTestResultText.Foreground = failure ? CriticalBrush() : SecondaryBrush();
         HaTestResultText.Visibility = Visibility.Visible;
     }
 
@@ -1964,22 +1970,22 @@ internal sealed partial class SettingsWindow : Window
         {
             SetHaTestRunning(true);
 
+            // The progress goes under the buttons that caused it, one endpoint at a time, so the
+            // Status block above stays a statement of what is true rather than a commentary.
             // Reported from whichever thread the probe resumed on, so it is bounced through RunOnUi
             // rather than trusted to land on this one. The identity check drops a report from a
             // probe that has already been superseded.
             var progress = new Progress<MqttDetectProgress>(p => RunOnUi(() =>
             {
-                if (_haProbeCts == cts) HaDetectText.Text = MqttConnectionProbe.Describe(p);
+                if (_haProbeCts == cts) ShowHaTestResult(MqttConnectionProbe.Describe(p), failure: false);
             }));
 
             var report = await MqttConnectionProbe.RunAsync(ProbeTarget(request), cts.Token, progress);
             if (cts.IsCancellationRequested || _haProbeCts != cts) return;
 
             RememberProbedEndpoint(request, report);
-            HaTestResultText.Text       = MqttConnectionProbe.Describe(report);
-            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(report) ? CriticalBrush() : SecondaryBrush();
-            HaTestResultText.Visibility = Visibility.Visible;
-            RefreshHaDetectText(report);
+            ShowHaTestResult(MqttConnectionProbe.Describe(report), MqttConnectionProbe.IsFailure(report));
+            RefreshHaDetectText();
             RefreshHaBrokerStatusText();
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.RunProbe", ex); }
@@ -1996,23 +2002,16 @@ internal sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>The Connection line: where the settings in force came from, or why the search found
-    /// nothing. Called with a report only straight after a search.</summary>
-    private void RefreshHaDetectText(MqttProbeReport? report = null)
+    /// <summary>The Connection line: where the settings in force came from. A statement of what is
+    /// true now, never a running commentary — a probe's progress and its verdict belong under the
+    /// buttons that cause them, and a failed sweep leaves this saying what the settings still are.</summary>
+    private void RefreshHaDetectText()
     {
         var request = StagedRequest();
         HaDetectText.Foreground = SecondaryBrush();
-
-        if (string.IsNullOrWhiteSpace(request.Host)) { HaDetectText.Text = "No broker host set"; return; }
-
-        if (report is { Succeeded: false } failed)
-        {
-            HaDetectText.Text       = MqttConnectionProbe.Describe(failed);
-            HaDetectText.Foreground = CriticalBrush();
-            return;
-        }
-
-        HaDetectText.Text = MqttTransportPlan.DescribeProvenance(request);
+        HaDetectText.Text = string.IsNullOrWhiteSpace(request.Host)
+            ? "No broker host set"
+            : MqttTransportPlan.DescribeProvenance(request);
     }
 
     /// <summary>Re-reads the two live-connection facts on page-show and after an Apply, not on a timer.</summary>

@@ -118,10 +118,16 @@ internal static class MqttConnectionProbe
             target.Host, candidate.Port, candidate.Transport, target.UseTls);
 
         progress?.Report(new(MqttDetectStage.Port, port, candidate.Transport));
-        if (await ProbeTcpAsync(host, port, budget, ct).ConfigureAwait(false) is { } closed) return closed;
+        if (await ProbeTcpAsync(host, port, budget, ct).ConfigureAwait(false) is { } closed)
+        {
+            progress?.Report(new(MqttDetectStage.Finished, port, candidate.Transport, closed));
+            return closed;
+        }
 
         progress?.Report(new(MqttDetectStage.Transport, port, candidate.Transport));
-        return await ProbeConnectAsync(target, candidate, budget, ct).ConfigureAwait(false);
+        var result = await ProbeConnectAsync(target, candidate, budget, ct).ConfigureAwait(false);
+        progress?.Report(new(MqttDetectStage.Finished, port, candidate.Transport, result));
+        return result;
     }
 
     /// <summary>Stage 1 — can a socket be opened at all. Returns null when it can (i.e. carry on).</summary>
@@ -240,14 +246,22 @@ internal static class MqttConnectionProbe
         _                             => $"The connection over {Name(transport)} failed — {Detail(result)}.",
     };
 
-    /// <summary>What the sweep is doing right now, as the page shows it. Pure, so the tests pin the
-    /// wording. The two stages read differently because they mean different things: a port that never
-    /// opens, versus a port that opens onto something not speaking MQTT.</summary>
-    public static string Describe(MqttDetectProgress progress) => progress.Stage switch
+    /// <summary>What the sweep is doing right now, as the page shows it under the button that started
+    /// it. Pure, so the tests pin the wording. Every line names the endpoint, because under Automatic
+    /// which one is being tried is most of what the user came to watch; the two attempt stages read
+    /// differently because they mean different things — a port that never opens, versus a port that
+    /// opens onto something not speaking MQTT — and the third is that candidate's own verdict.</summary>
+    public static string Describe(MqttDetectProgress progress)
     {
-        MqttDetectStage.Port => $"Detecting… | Probing port: {progress.Port}",
-        _                    => $"Detecting… | Probing transport {Name(progress.Transport)}",
-    };
+        string endpoint = $"{Name(progress.Transport)} on port {progress.Port}";
+        return progress.Stage switch
+        {
+            MqttDetectStage.Port      => $"Trying {endpoint}…",
+            MqttDetectStage.Transport => $"Trying {endpoint} — asking the broker…",
+            // Never reported without a result, but a missing one must not read as a success.
+            _ => progress.Result is { } r ? $"{endpoint} {Clause(r)}." : $"{endpoint} — no answer recorded.",
+        };
+    }
 
     /// <summary>The sentence for a whole run. Pure.</summary>
     /// <remarks>
@@ -284,14 +298,19 @@ internal static class MqttConnectionProbe
     }
 
     /// <summary>One attempt as a clause, for the sentences that name more than one transport.</summary>
-    private static string Fragment(MqttEndpointAttempt attempt) => attempt.Outcome switch
+    private static string Fragment(MqttEndpointAttempt attempt) =>
+        $"{Name(attempt.Candidate.Transport)} {Clause(attempt.Result)}";
+
+    /// <summary>What one endpoint did, with nothing naming the endpoint: the caller supplies that,
+    /// so a summary clause and a progress line say the same thing about the same result.</summary>
+    private static string Clause(MqttProbeResult result) => result.Outcome switch
     {
-        MqttProbeOutcome.Success      => $"{Name(attempt.Candidate.Transport)} connected",
-        MqttProbeOutcome.Unreachable  => $"{Name(attempt.Candidate.Transport)} could not be reached ({Detail(attempt.Result)})",
-        MqttProbeOutcome.TimedOut     => $"{Name(attempt.Candidate.Transport)} did not answer",
-        MqttProbeOutcome.AuthRejected => $"{Name(attempt.Candidate.Transport)} rejected these credentials",
-        MqttProbeOutcome.Rejected     => $"{Name(attempt.Candidate.Transport)} was refused ({Detail(attempt.Result)})",
-        _                             => $"{Name(attempt.Candidate.Transport)} failed ({Detail(attempt.Result)})",
+        MqttProbeOutcome.Success      => "connected",
+        MqttProbeOutcome.Unreachable  => $"could not be reached ({Detail(result)})",
+        MqttProbeOutcome.TimedOut     => "did not answer",
+        MqttProbeOutcome.AuthRejected => "rejected these credentials",
+        MqttProbeOutcome.Rejected     => $"was refused ({Detail(result)})",
+        _                             => $"failed ({Detail(result)})",
     };
 
     // An exception message usually ends in its own full stop; the sentences above supply one.
