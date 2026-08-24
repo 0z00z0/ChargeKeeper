@@ -50,12 +50,16 @@ jobs:
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # PINNED to the exact 0z0-shared commit this app was validated against, so
+      # PINNED to the exact 0z0-shared release tag this app was validated against, so
       # builds are reproducible and library changes can't break this repo's CI
-      # unnoticed. The SHA lives in a SINGLE shared file — `.github/0z0-shared-ref`
+      # unnoticed. The ref lives in a SINGLE shared file — `.github/0z0-shared-ref`
       # — that both this workflow and release.yml read, so the two pins can no
-      # longer drift out of lockstep. Bump the SHA there (the bump procedure is
+      # longer drift out of lockstep. Bump the ref there (the bump procedure is
       # documented in that file).
+      #
+      # A full `git clone` fetches tags, so `checkout --detach` resolves the v-prefixed
+      # tag the ref file holds. Do NOT add `--depth 1` without `--branch <tag>`: a shallow
+      # clone leaves no tag to check out and the step fails on a ref that is perfectly valid.
       - name: Clone 0z0-shared (sibling dependency, pinned)
         shell: pwsh
         run: |

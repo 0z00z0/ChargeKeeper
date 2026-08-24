@@ -52,9 +52,10 @@ jobs:
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # PINNED to the exact 0z0-shared commit this app was validated against. The
-      # SHA is read from the shared `.github/0z0-shared-ref` file (same file ci.yml
-      # reads) so the release and CI pins can't drift; bump it there.
+      # PINNED to the exact 0z0-shared release tag this app was validated against. The
+      # ref is read from the shared `.github/0z0-shared-ref` file (same file ci.yml
+      # reads) so the release and CI pins can't drift; bump it there. The clone is full,
+      # so `checkout --detach` resolves a tag — a shallow clone would need `--branch`.
       - name: Clone 0z0-shared (sibling dependency, pinned)
         shell: pwsh
         run: |
