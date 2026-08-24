@@ -1,4 +1,5 @@
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 
 namespace ChargeKeeper.Helpers;
 
@@ -7,7 +8,8 @@ namespace ChargeKeeper.Helpers;
 /// input <see cref="IconGenerator.RenderBatteryIcon"/> reads but this record omits is a change that
 /// silently never repaints.
 /// </summary>
-internal readonly record struct TrayIconRequest(int Pct, bool Charging, TrayIconMode Mode);
+internal readonly record struct TrayIconRequest(
+    int Pct, bool Charging, TrayIconMode Mode, ChargeThresholdState? Threshold);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the

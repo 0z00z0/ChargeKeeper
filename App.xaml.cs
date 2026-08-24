@@ -634,8 +634,10 @@ public partial class App : Application
     private void UpdateTrayIcon(int pct, bool charging)
     {
         // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
-        // style in force now rather than the one that was set when it was posted.
-        var request = new TrayIconRequest(pct, charging, SettingsService.Current.IconMode);
+        // style and the thresholds in force now rather than the ones set when it was posted. The
+        // threshold state is already cached from this tick's ChargeThresholdService.Read.
+        var request = new TrayIconRequest(pct, charging, SettingsService.Current.IconMode,
+                                          _lastThresholdState);
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -653,7 +655,8 @@ public partial class App : Application
 
         try
         {
-            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.Charging, request.Mode);
+            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.Charging, request.Mode,
+                                                          request.Threshold);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
@@ -701,9 +704,9 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Rebuilds the tray tooltip from the last cached reading, for the changes that arrive without a
-    /// battery event (the travel-override activate/revert). Re-reads the charge threshold, so a
-    /// just-restored Smart Charge limit shows immediately.
+    /// Rebuilds the tray tooltip and the icon from the last cached reading, for the changes that
+    /// arrive without a battery event (the travel-override activate/revert). Re-reads the charge
+    /// threshold, so a just-restored Smart Charge limit shows in both immediately.
     /// </summary>
     internal void RefreshTooltip()
     {
@@ -721,6 +724,9 @@ public partial class App : Application
             full      = _lastFullMwh;
         }
         UpdateTooltip(pct, remaining, full);
+        // The icon carries the threshold marks too, and the threshold is what just moved. Deduped by
+        // the latch, so an unchanged one costs nothing.
+        RepaintTrayIconFromLastReading();
     }
 
     /// <summary>

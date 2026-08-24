@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 
 namespace ChargeKeeper.Helpers;
 
@@ -142,11 +143,13 @@ internal static class IconGenerator
     /// Renders the live battery icon as a single-frame <see cref="System.Drawing.Icon"/> at the
     /// current tray-slot size, in the style <paramref name="mode"/> selects. The returned icon owns
     /// an independent, data-backed handle, so the caller may dispose it once a newer icon replaces it.
+    /// <paramref name="threshold"/> adds the start and stop marks; null draws none.
     /// </summary>
     internal static System.Drawing.Icon RenderBatteryIcon(
-        int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc)
+        int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc,
+        ChargeThresholdState? threshold = null)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, charging, mode);
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, charging, mode, threshold);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -157,13 +160,24 @@ internal static class IconGenerator
     /// <summary>One frame of the selected style at <paramref name="size"/> px. Split out from
     /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
     /// live tray slot happens to be.</summary>
-    internal static Bitmap RenderStyleBitmap(int size, int percent, bool charging, TrayIconMode mode) =>
+    internal static Bitmap RenderStyleBitmap(int size, int percent, bool charging, TrayIconMode mode,
+                                             ChargeThresholdState? threshold = null) =>
         mode switch
         {
             TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
-            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging),
-            _                      => RenderBatteryBitmap(size, percent, charging),
+            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging, threshold),
+            _                      => RenderBatteryBitmap(size, percent, charging, threshold),
         };
+
+    /// <summary>
+    /// Which threshold marks the icon carries. Nothing at all unless the firmware is actually
+    /// capping the charge, and the start mark separately: HP and Surface report Start = 0 by
+    /// contract, so a start mark can never be assumed from a stop one.
+    /// </summary>
+    internal static (int? Stop, int? Start) ThresholdMarksFor(ChargeThresholdState? state) =>
+        state is null || !state.IsLimiting
+            ? (null, null)
+            : (state.Stop, state.HasStartThreshold ? state.Start : null);
 
     /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
     private static Bitmap RenderNumericBitmap(int size, int percent, bool charging)
@@ -245,9 +259,9 @@ internal static class IconGenerator
 
     /// <summary>
     /// Renders the "0z0 steel battery" mark on a transparent background: a SteelBlue outline and cap,
-    /// an interior fill in the charge tier's colour at <paramref name="percent"/>, and a Terracotta
-    /// guard line, expressed on a 256-unit reference canvas scaled to <paramref name="size"/> with
-    /// stroke floors that keep it legible at 16 px.
+    /// an interior fill in the charge tier's colour at <paramref name="percent"/>, and the Terracotta
+    /// threshold lines <paramref name="threshold"/> calls for, expressed on a 256-unit reference
+    /// canvas scaled to <paramref name="size"/> with stroke floors that keep it legible at 16 px.
     /// </summary>
     /// <remarks>
     /// A deliberate hand-maintained third copy of the geometry: the two build-time generators share
@@ -255,7 +269,8 @@ internal static class IconGenerator
     /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative — change it,
     /// then BatteryGlyph.ps1, then here. No test catches the three drifting apart.
     /// </remarks>
-    private static Bitmap RenderMarkBitmap(int size, int percent, bool charging)
+    private static Bitmap RenderMarkBitmap(int size, int percent, bool charging,
+                                           ChargeThresholdState? threshold)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -290,22 +305,28 @@ internal static class IconGenerator
             g.FillPath(fillBrush, fillPath);
         }
 
-        DrawMarkLine(g, size, MarkCanonicalGuard, MarkTerracotta, CurrentContrast());
+        // The guard line IS the stop threshold, so it is drawn only while the firmware is capping.
+        // Start first: where the two nearly meet, the stop mark is the one that must stay readable.
+        var (stop, start) = ThresholdMarksFor(threshold);
+        var contrast      = CurrentContrast();
+        if (start is { } startPct) DrawMarkLine(g, size, startPct, contrast, minor: true);
+        if (stop  is { } stopPct)  DrawMarkLine(g, size, stopPct,  contrast, minor: false);
 
         return bmp;
     }
 
-    /// <summary>Draws one vertical line across the mark's interior at <paramref name="percent"/> — the
-    /// guard line, and the threshold marks that sit on the same scale. A halo goes down first: at
-    /// 16 px the line itself is two pixels of a mid-tone, which on a light taskbar is nothing.</summary>
-    private static void DrawMarkLine(Graphics g, int size, int percent, Color color, IconContrast contrast)
+    /// <summary>Draws one threshold line across the mark's interior at <paramref name="percent"/>.
+    /// A halo goes down first: at 16 px the line itself is two pixels of a mid-tone, which on a
+    /// light taskbar is nothing. <paramref name="minor"/> draws the thinner start mark.</summary>
+    private static void DrawMarkLine(Graphics g, int size, int percent, IconContrast contrast, bool minor)
     {
         float s      = size / MarkCanvas;
         float x      = MarkInteriorX(percent) * s;
         float top    = MarkInkTop    * s;
         float bottom = MarkInkBottom * s;
-        // Flat caps and a ≥2 px floor, so the line survives the 16 px frame without overhanging.
-        float width  = Math.Max(9 * s, 2f);
+        // Flat caps and a ≥1.5 px floor, so the line survives the 16 px frame without overhanging.
+        float width  = minor ? Math.Max(6 * s, 1.5f) : Math.Max(9 * s, 2f);
+        Color color  = MarkTerracotta;
 
         using (var haloPen = new System.Drawing.Pen(contrast.Outline, width + contrast.ExtraWidth(size)))
         {
@@ -322,14 +343,20 @@ internal static class IconGenerator
     /// renderer as the live style, fed the charge level and guard position that land where
     /// brand\chargekeeper-icon.svg puts them, so the file and the style cannot drift.</summary>
     private static Bitmap RenderIconBitmap(int size) =>
-        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false);
+        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold);
+
+    /// <summary>The threshold state that puts the mark's guard line where the brand puts it. Start is
+    /// 0 — the brand has one line, and 0 is also what a mode-based vendor reports.</summary>
+    private static readonly ChargeThresholdState MarkCanonicalThreshold =
+        new(Capable: true, Enabled: true, Start: 0, Stop: MarkCanonicalGuard);
 
     /// <summary>
     /// Renders the battery arc icon: a 100-unit virtual canvas mapped to <paramref name="size"/> px,
     /// centre 50/50, radius 33, 135° start, 270° sweep — the same proportions as the dashboard gauge.
     /// The background is transparent, so the ring has to read on any taskbar colour by itself.
     /// </summary>
-    private static Bitmap RenderBatteryBitmap(int size, int percent, bool charging)
+    private static Bitmap RenderBatteryBitmap(int size, int percent, bool charging,
+                                              ChargeThresholdState? threshold)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -367,7 +394,35 @@ internal static class IconGenerator
             DrawArc(g, fillPen, cx, cy, r, 135f, 270f * percent / 100f);
         }
 
+        // Outside the fill branch: the marks say where the cap is, which is worth showing at a
+        // reading of 0 % too. Start first, so the stop mark stays readable where the two nearly meet.
+        var (stop, start) = ThresholdMarksFor(threshold);
+        if (start is { } startPct) DrawArcMark(g, size, cx, cy, r, stroke, startPct, contrast, minor: true);
+        if (stop  is { } stopPct)  DrawArcMark(g, size, cx, cy, r, stroke, stopPct,  contrast, minor: false);
+
         return bmp;
+    }
+
+    /// <summary>Draws one threshold tick radially across the ring at <paramref name="percent"/> on
+    /// the arc's sweep. <paramref name="minor"/> draws the thinner start mark.</summary>
+    private static void DrawArcMark(Graphics g, int size, float cx, float cy, float r, float stroke,
+                                    int percent, IconContrast contrast, bool minor)
+    {
+        // The ring runs 270° from 135° clock-face; DrawArc turns that into GDI's 0° = 3 o'clock.
+        double rad = (135f + 270f * Math.Clamp(percent, 0, 100) / 100f - 90f) * Math.PI / 180.0;
+        float  dx  = (float)Math.Cos(rad);
+        float  dy  = (float)Math.Sin(rad);
+        float  x1  = cx + dx * (r - stroke / 2f), y1 = cy + dy * (r - stroke / 2f);
+        float  x2  = cx + dx * (r + stroke / 2f), y2 = cy + dy * (r + stroke / 2f);
+
+        float width = minor ? Math.Max(1f, size * 0.07f) : Math.Max(1.5f, size * 0.10f);
+        // A narrower halo than the arc's own: this one crosses the ring rather than tracing it, and
+        // the arc's extra width would swallow a third of the ring at 16 px.
+        using (var haloPen = new System.Drawing.Pen(contrast.Outline, width + Math.Max(1f, size * 0.04f)))
+            g.DrawLine(haloPen, x1, y1, x2, y2);
+
+        using var pen = new System.Drawing.Pen(MarkTerracotta, width);
+        g.DrawLine(pen, x1, y1, x2, y2);
     }
 
     /// <summary>Draws a circular arc using GDI+ (clock-face angles: 0° = 12 o'clock).</summary>

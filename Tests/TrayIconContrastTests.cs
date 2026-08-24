@@ -1,6 +1,7 @@
 using System.Drawing;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -82,13 +83,27 @@ public class TrayIconContrastTests
     {
         // The narrow pixel assertion: the declared extent is worth nothing if the render clips it or
         // falls short of it. 64 px is the largest slot, where a stroke floor cannot distort the
-        // measurement.
-        using var bmp = IconGenerator.RenderStyleBitmap(64, 80, charging: false, TrayIconMode.BrandMark);
+        // measurement. The threshold line is included because the 48 % this replaces was measured
+        // with the mark's fixed guard line in place.
+        AssertFillsFrame(new ChargeThresholdState(true, true, 60, 80), atLeast: 0.75f);
+    }
+
+    [Fact]
+    public void TheRenderedMarkStillFillsTheFrameWithNoChargeCap()
+    {
+        // With Smart Charge off there is no threshold line, so the battery body carries the height
+        // on its own. Less than the capped mark, still well past the 48 % the letterbox managed.
+        AssertFillsFrame(threshold: null, atLeast: 0.62f);
+    }
+
+    private static void AssertFillsFrame(ChargeThresholdState? threshold, float atLeast)
+    {
+        using var bmp = IconGenerator.RenderStyleBitmap(64, 80, false, TrayIconMode.BrandMark, threshold);
         var (top, bottom) = InkRows(bmp);
 
         Assert.True(top >= 0, "the mark renders no ink at all.");
         float used = (bottom - top + 1) / 64f;
-        Assert.True(used >= 0.70f, $"ink spans rows {top}..{bottom} of 64 — {used:P0} of the frame.");
+        Assert.True(used >= atLeast, $"ink spans rows {top}..{bottom} of 64 — {used:P0} of the frame.");
         Assert.True(top > 0 && bottom < 63, $"ink runs to the frame edge (rows {top}..{bottom}) — clipped.");
     }
 

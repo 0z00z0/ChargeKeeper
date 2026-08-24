@@ -1,5 +1,6 @@
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -9,8 +10,9 @@ namespace ChargeKeeper.Tests;
 // that would trigger the next repaint does not change for hours.
 public class TrayIconLatchTests
 {
-    private static TrayIconRequest Arc(int pct, bool charging = false) =>
-        new(pct, charging, TrayIconMode.Arc);
+    private static TrayIconRequest Arc(int pct, bool charging = false,
+                                       ChargeThresholdState? threshold = null) =>
+        new(pct, charging, TrayIconMode.Arc, threshold);
 
     [Fact]
     public void BeforeAnythingIsPainted_EveryRequestNeedsARepaint()
@@ -50,8 +52,19 @@ public class TrayIconLatchTests
     public void AStyleChangeAloneRepaints_EvenWhenTheReadingHasNotMoved()
     {
         var latch = new TrayIconLatch();
-        latch.MarkPainted(new TrayIconRequest(80, false, TrayIconMode.Arc));
-        Assert.True(latch.NeedsRepaint(new TrayIconRequest(80, false, TrayIconMode.Numeric)));
+        latch.MarkPainted(new TrayIconRequest(80, false, TrayIconMode.Arc, null));
+        Assert.True(latch.NeedsRepaint(new TrayIconRequest(80, false, TrayIconMode.Numeric, null)));
+    }
+
+    [Fact]
+    public void AThresholdChangeAloneRepaints_BecauseTheIconCarriesTheMarks()
+    {
+        var latch = new TrayIconLatch();
+        latch.MarkPainted(Arc(80, threshold: new ChargeThresholdState(true, true, 60, 80)));
+        Assert.True(latch.NeedsRepaint(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90))));
+        // An equal-by-value state is the same picture, though.
+        latch.MarkPainted(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90)));
+        Assert.False(latch.NeedsRepaint(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90))));
     }
 
     [Fact]
