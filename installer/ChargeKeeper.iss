@@ -90,10 +90,17 @@ WizardSmallImageFile=wizard\wizsmall-165x174.bmp
 ; and the "ChargeKeeper" wordmark straight off. Nothing renders these BMPs in CI, so only a manual
 ; look at a signed installer would ever catch that.
 WizardImageStretch=yes
-; Let a silent (background) update close the running tray app and replace its files.
-; Do NOT auto-restart it afterwards — the app is requireAdministrator, so relaunching
-; would pop a UAC prompt out of nowhere. It returns at the next sign-in / manual launch.
-CloseApplications=yes
+; Restart Manager is NOT used to close the running app (issue #119). Setup runs unelevated
+; (PrivilegesRequired=lowest) while ChargeKeeper.exe is requireAdministrator, so Restart Manager
+; cannot terminate it: it logs "Can use RestartManager to avoid reboot? No (1: Permission Denied)"
+; and Setup gives up BEFORE the install phase — no program files and no uninstall key are written,
+; so an upgrade attempted while the app is running silently does nothing at all.
+; PrepareToInstall in [Code] stops the app itself, through an elevated taskkill, at the step that
+; runs just before Setup's own in-use check would have.
+CloseApplications=no
+; Immaterial while CloseApplications=no (Setup only restarts what it closed), but kept explicit:
+; the app is requireAdministrator, so Setup must never relaunch it — LaunchApp in [Code] owns the
+; relaunch and does it through the elevated logon task where one exists.
 RestartApplications=no
 
 [Messages]
@@ -167,7 +174,7 @@ const
   WatchdogTaskName = 'ChargeKeeper Watchdog';
 
 var
-  // True when ssInstall found (and killed) a running instance. Lets a SILENT upgrade
+  // True when PrepareToInstall found (and killed) a running instance. Lets a SILENT upgrade
   // (winget / the AutoUpdate task) restart the app it killed: without this, a background
   // upgrade leaves the tray app dead until the next sign-in.
   WasRunning: Boolean;
@@ -321,49 +328,72 @@ begin
   ShellExec('runas', ExpandConstant('{app}\{#AppExe}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ResultCode: Integer;
+  ResultCode, i: Integer;
   LegacyWasRunning, LegacyAutoStart: Boolean;
   Cmd: string;
 begin
-  if CurStep = ssInstall then
+  // Kill any running instance BEFORE files are replaced so nothing is locked.
+  // ChargeKeeper.exe is requireAdministrator (elevated), so a non-elevated taskkill is
+  // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
+  // succeeds and the install continues without locked-file errors.
+  //
+  // This runs from PrepareToInstall, not ssInstall. Order measured from a Setup log:
+  // PrepareToInstall -> Restart Manager in-use check -> ssInstall -> file copy. Both code steps
+  // precede the copy, but only PrepareToInstall precedes the in-use check that is refused on this
+  // elevated app and takes Setup down with it before anything installs (issue #119); it is also
+  // the only step that can stop Setup with a readable message, as the return below does.
+  //
+  // Upgrades from Lenovo Power Tray (<= 1.1.x): the old LenovoTray.exe would also hold
+  // file locks in the shared {app} folder, so it is killed in the SAME elevated cmd, and
+  // — since we are elevated anyway — the old elevated tasks are cleaned up for free.
+  // The legacy Watchdog goes FIRST (it would otherwise try to resurrect the old exe), and
+  // if the user had opted into autostart (legacy AutoStart task exists), that choice is
+  // MIGRATED: a "{#TaskName}" task pointing at the new exe is created in the same cmd
+  // (the app re-registers it with power-safe XML at first startup). An interactive install
+  // also elevates when only stale legacy tasks exist; a silent one never adds a prompt.
+  // {app} is already resolved here — the directory page runs well before this step.
+  Result           := '';
+  WasRunning       := AppIsRunning();
+  LegacyWasRunning := ProcessIsRunning('{#LegacyExe}');
+  LegacyAutoStart  := LegacyTaskExists();
+  if WasRunning or LegacyWasRunning or ((LegacyAutoStart or LegacyWatchdogExists()) and not WizardSilent()) then
   begin
-    // Kill any running instance BEFORE files are replaced so nothing is locked.
-    // ChargeKeeper.exe is requireAdministrator (elevated), so a non-elevated taskkill is
-    // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
-    // succeeds and the install continues without locked-file errors.
-    //
-    // Upgrades from Lenovo Power Tray (<= 1.1.x): the old LenovoTray.exe would also hold
-    // file locks in the shared {app} folder, so it is killed in the SAME elevated cmd, and
-    // — since we are elevated anyway — the old elevated tasks are cleaned up for free.
-    // The legacy Watchdog goes FIRST (it would otherwise try to resurrect the old exe), and
-    // if the user had opted into autostart (legacy AutoStart task exists), that choice is
-    // MIGRATED: a "{#TaskName}" task pointing at the new exe is created in the same cmd
-    // (the app re-registers it with power-safe XML at first startup). An interactive install
-    // also elevates when only stale legacy tasks exist; a silent one never adds a prompt.
-    WasRunning       := AppIsRunning();
-    LegacyWasRunning := ProcessIsRunning('{#LegacyExe}');
-    LegacyAutoStart  := LegacyTaskExists();
-    if WasRunning or LegacyWasRunning or ((LegacyAutoStart or LegacyWatchdogExists()) and not WizardSilent()) then
-    begin
-      Cmd := '/C schtasks /Delete /TN "{#LegacyWatchdogTask}" /F'
-           + ' & taskkill /F /IM "{#AppExe}" & taskkill /F /IM "{#LegacyExe}"'
-           + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F';
-      if LegacyAutoStart then
-        Cmd := Cmd + ' & schtasks /Create /TN "' + TaskName + '" /TR "\"'
-             + ExpandConstant('{app}\{#AppExe}') + '\"" /SC ONLOGON /RL HIGHEST /F';
-      ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    end;
-    // Either exe having been running qualifies the silent-upgrade restart in ssPostInstall.
-    WasRunning := WasRunning or LegacyWasRunning;
-
-    // The legacy "LenovoTray AutoUpdate" logon task is non-elevated, so it can always be
-    // removed without a prompt; harmless when it doesn't exist.
-    Exec('schtasks.exe', '/Delete /TN "{#LegacyUpdateTask}" /F', '',
-         SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Cmd := '/C schtasks /Delete /TN "{#LegacyWatchdogTask}" /F'
+         + ' & taskkill /F /IM "{#AppExe}" & taskkill /F /IM "{#LegacyExe}"'
+         + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F';
+    if LegacyAutoStart then
+      Cmd := Cmd + ' & schtasks /Create /TN "' + TaskName + '" /TR "\"'
+           + ExpandConstant('{app}\{#AppExe}') + '\"" /SC ONLOGON /RL HIGHEST /F';
+    ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
+  // Either exe having been running qualifies the silent-upgrade restart in ssPostInstall.
+  WasRunning := WasRunning or LegacyWasRunning;
 
+  // The legacy "LenovoTray AutoUpdate" logon task is non-elevated, so it can always be
+  // removed without a prompt; harmless when it doesn't exist.
+  Exec('schtasks.exe', '/Delete /TN "{#LegacyUpdateTask}" /F', '',
+       SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // taskkill returns once termination is requested, and the UAC prompt above can be declined
+  // outright. Confirm the process is actually gone: with nothing left to unlock the install can
+  // proceed, otherwise stop here with an instruction rather than failing mid-copy on a locked
+  // exe. ASCII only — see the note in [Messages].
+  for i := 1 to 10 do
+  begin
+    if not (AppIsRunning() or ProcessIsRunning('{#LegacyExe}')) then exit;
+    Sleep(200);
+  end;
+  Result := '{#AppName} is still running, so its files cannot be replaced. Exit it from its icon '
+          + 'in the notification area (the system tray, next to the clock), then run this '
+          + 'installer again.';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
   if CurStep = ssPostInstall then
   begin
     if WizardIsTaskSelected('runstartup') then RegisterStartupTask();
