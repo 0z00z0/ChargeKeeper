@@ -37,8 +37,13 @@ public partial class App : Application
     // vendor RPC or an MQTT publish.
     private readonly System.Threading.Lock _batteryReportLock = new();
 
-    // Cached tray icon state; Pct = -1 means not yet read.
+    // Cached tray icon state; Pct = -1 means not yet read. This is the last READING, which the MQTT
+    // snapshot and the tooltip also depend on — never the record of what the icon is showing.
     private (int Pct, bool Charging) _lastIconState = (-1, false);
+
+    // What the tray icon is actually showing. Kept apart from _lastIconState so a repaint that never
+    // landed cannot be recorded as applied and dedupe every later tick at the same reading away.
+    private readonly TrayIconLatch _iconLatch = new();
 
     // Fire-once latch, reset with 5 % hysteresis so a brief charge re-arms it.
     private bool _lowBatteryWarningFired;
@@ -276,6 +281,9 @@ public partial class App : Application
         // The settings payload has no battery tick of its own, so every source that can move one of
         // its values publishes it. Unchanged payloads are deduped, so a redundant signal costs nothing.
         SettingsService.Changed             += () => _ha?.PublishSurfaceNow();
+        // The tray style is one of those values, and an icon-mode command from Home Assistant has no
+        // battery tick of its own. The latch carries the style, so this repaints only when it moved.
+        SettingsService.Changed             += RepaintTrayIconFromLastReading;
         KeepAwakeService.StateChanged       += () => _ha?.PublishSurfaceNow();
         NetworkLocationService.LocationChanged += _ => _ha?.PublishSurfaceNow();
     }
@@ -328,14 +336,25 @@ public partial class App : Application
         // stay off the cold-start path.
         _ = Task.Run(() =>
         {
-            // Registration leads the seed: a toast raised before the notification platform is
-            // registered is silently dropped.
-            ToastService.Register();
-            // Exit is reachable from the tray menu while this runs, and Shutdown's -= would then
-            // precede the += below, seeding against a disposed tray icon and MQTT service.
-            if (_intentionalExit) return;
-            OnBatteryReportUpdated(Battery.AggregateBattery, null!);
-            Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+            // Nothing observes this Task, so without the catch a throw is completely silent: the
+            // Battery.AggregateBattery read and the += below both sit outside
+            // OnBatteryReportUpdated's own try, and either faulting means no seed, no subscription,
+            // no battery event ever, and the icon left on the startup mark.
+            try
+            {
+                // Registration leads the seed: a toast raised before the notification platform is
+                // registered is silently dropped.
+                ToastService.Register();
+                // Exit is reachable from the tray menu while this runs, and Shutdown's -= would then
+                // precede the += below, seeding against a disposed tray icon and MQTT service.
+                if (_intentionalExit) return;
+                OnBatteryReportUpdated(Battery.AggregateBattery, null!);
+                Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+            }
+            catch (Exception ex)
+            {
+                LogCrash("SubscribeBatteryEvents.Seed", ex);
+            }
         });
     }
 
@@ -483,12 +502,10 @@ public partial class App : Application
             bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
             using (_batteryReportLock.EnterScope())
             {
-                // Gated to avoid GDI churn on every tick.
-                if ((pct, charging) != _lastIconState)
-                {
-                    _lastIconState = (pct, charging);
-                    UpdateTrayIcon(pct, charging);
-                }
+                _lastIconState = (pct, charging);
+                // Still gated to avoid GDI churn on every tick, but inside UpdateTrayIcon and against
+                // what was last PAINTED — a repaint that never landed leaves the gate open.
+                UpdateTrayIcon(pct, charging);
 
                 // Refresh the open dashboard at once rather than waiting for its own 5 s timer.
                 if (_dashboard is not null)
@@ -616,51 +633,80 @@ public partial class App : Application
 
     private void UpdateTrayIcon(int pct, bool charging)
     {
+        // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
+        // style and the thresholds in force now rather than the ones set when it was posted. The
+        // threshold state is already cached from this tick's ChargeThresholdService.Read.
+        var request = new TrayIconRequest(pct, charging, SettingsService.Current.IconMode,
+                                          _lastThresholdState);
+        if (!_iconLatch.NeedsRepaint(request)) return;
+
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
         // off-thread faults the native tray/GDI handle, an access violation that bypasses managed
         // try/catch and kills the process.
         if (_dispatcher is { } dq && !dq.HasThreadAccess)
         {
-            dq.TryEnqueue(() => UpdateTrayIcon(pct, charging));
+            // A refused enqueue is a repaint that will never happen; the latch is untouched either
+            // way, so the next tick tries again rather than deduping against an icon that never moved.
+            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, charging)))
+                AppLog.Error("UpdateTrayIcon.Enqueue", new InvalidOperationException(
+                    "The dispatcher queue refused the tray-icon repaint; the icon still shows the previous state."));
             return;
         }
 
         try
         {
-            var mode    = SettingsService.Current.IconMode;
-            var newIcon = IconGenerator.RenderBatteryIcon(pct, charging, mode);
+            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.Charging, request.Mode,
+                                                          request.Threshold);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
             oldIcon?.Dispose();
+            // Only here: the latch records what the tray icon is showing, not what was asked for.
+            _iconLatch.MarkPainted(request);
         }
-        catch
+        catch (Exception ex)
         {
-            // Icon rendering failure is non-fatal.
+            // Non-fatal, but no longer silent — a swallowed failure used to leave the stale icon in
+            // place with nothing anywhere to say why.
+            AppLog.Error("UpdateTrayIcon", ex);
         }
+    }
+
+    /// <summary>Repaints from the last reading, for the sources that change the icon without a
+    /// battery event of their own. Deduped by the latch, so an unrelated change costs nothing.</summary>
+    private void RepaintTrayIconFromLastReading()
+    {
+        var (pct, charging) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
+        UpdateTrayIcon(pct, charging);
     }
 
     /// <summary>
     /// The tray slot size is DPI-dependent, so a display topology or DPI change drops the cached
-    /// slot size and repaints the icon at the new resolution.
+    /// slot size and repaints the icon at the new resolution. The taskbar's light/dark setting is
+    /// dropped on the same event: it decides the glyph's outline strength, and this is the display
+    /// notification the shell does raise.
     /// </summary>
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
         Helpers.IconGenerator.InvalidateSlotSizeCache();
+        Helpers.IconGenerator.InvalidateThemeCache();
         ForceIconRefresh();
     }
 
-    /// <summary>Forces an immediate tray icon re-render from the last known battery state.</summary>
+    /// <summary>Forces an immediate tray icon re-render from the last known battery state, or from
+    /// the unknown state when no battery report has arrived yet — the style change, the slot-size
+    /// change and the tray recreate that call this all have to show without waiting for a tick.</summary>
     internal void ForceIconRefresh()
     {
-        if (_lastIconState.Pct >= 0)
-            UpdateTrayIcon(_lastIconState.Pct, _lastIconState.Charging);
+        // The pixels changed without the request changing, so the latch has to be dropped first.
+        _iconLatch.Invalidate();
+        RepaintTrayIconFromLastReading();
     }
 
     /// <summary>
-    /// Rebuilds the tray tooltip from the last cached reading, for the changes that arrive without a
-    /// battery event (the travel-override activate/revert). Re-reads the charge threshold, so a
-    /// just-restored Smart Charge limit shows immediately.
+    /// Rebuilds the tray tooltip and the icon from the last cached reading, for the changes that
+    /// arrive without a battery event (the travel-override activate/revert). Re-reads the charge
+    /// threshold, so a just-restored Smart Charge limit shows in both immediately.
     /// </summary>
     internal void RefreshTooltip()
     {
@@ -678,6 +724,9 @@ public partial class App : Application
             full      = _lastFullMwh;
         }
         UpdateTooltip(pct, remaining, full);
+        // The icon carries the threshold marks too, and the threshold is what just moved. Deduped by
+        // the latch, so an unchanged one costs nothing.
+        RepaintTrayIconFromLastReading();
     }
 
     /// <summary>

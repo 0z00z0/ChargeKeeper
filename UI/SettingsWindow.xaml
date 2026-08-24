@@ -115,9 +115,12 @@
 
                     <controls:SettingsCard Header="Tray icon style"
                                             Description="How the battery level is drawn in the system tray.">
+                        <!-- Item order IS the TrayIconMode order: the load and save cast between the
+                             enum and SelectedIndex by position. Append, never insert. -->
                         <ComboBox x:Name="IconModeCombo" MinWidth="160" SelectionChanged="OnIconModeChanged">
                             <ComboBoxItem Content="Arc gauge"/>
                             <ComboBoxItem Content="Numeric %"/>
+                            <ComboBoxItem Content="Brand mark"/>
                         </ComboBox>
                     </controls:SettingsCard>
 
