@@ -25,7 +25,8 @@ public sealed partial class DashboardWindow : Window
     // travel-override button occupies, which is what the preset rows have to line up with.
     private const double PresetPanelWidth = WindowWidth - 40 - 20;
 
-    // Arc gauge geometry: 100×100 px canvas, 7-o'clock start (135°), 270° sweep.
+    // Arc gauge geometry: 100×100 px canvas, clock-face 135° start — 4:30, not 7 o'clock — and a
+    // 270° clockwise sweep ending at 1:30, so the 90° gap sits on the right-hand side.
     private const double GaugeCx         = 50;
     private const double GaugeCy         = 50;
     // The largest radius that keeps the tick tips inside the canvas: they add 6 beyond it.
