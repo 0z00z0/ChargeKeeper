@@ -1,11 +1,8 @@
 namespace ChargeKeeper.Vendors.Lenovo;
 
 /// <summary>
-/// Lenovo's power-management integration: charge thresholds via the Lenovo Power Manager
-/// local-RPC interface (through the native <c>LenPower.dll</c> bridge) and standby scheduling
-/// via the <c>LenovoSmartStandby</c> Windows service. Registered in the app's
-/// <c>VendorCatalog</c>; everything above the catalog talks only to the
-/// <see cref="IVendorPowerModule"/> contract.
+/// Lenovo's power-management integration: charge thresholds through the native
+/// <c>LenPower.dll</c> bridge, standby scheduling through the <c>LenovoSmartStandby</c> service.
 /// </summary>
 public sealed class LenovoPowerModule : IVendorPowerModule
 {

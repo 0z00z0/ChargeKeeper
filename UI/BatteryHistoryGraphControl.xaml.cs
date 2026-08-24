@@ -9,183 +9,95 @@ using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
-/// <summary>
-/// The battery-history sparkline graph (SoC / charge-limit / power series, compressed-gap time
-/// axis, min/max markers) plus its time-scale ("period") selector row — extracted from
-/// <see cref="DashboardWindow"/> into a standalone control so the exact same graph can be hosted
-/// both in the small tray popup (fixed <see cref="PlotAreaHeight"/>) and in a bigger, resizable
-/// pop-out window (<c>BatteryHistoryWindow</c>, canvas row left at its default "*" so it grows
-/// with the window) without duplicating the drawing code.
-/// <para>
-/// <see cref="Render"/> reads <see cref="SparklineCanvas"/>'s own <c>ActualWidth</c>/<c>ActualHeight</c>
-/// fresh on every call, so it already adapts to whatever size the host gives the control — the
-/// only thing a resizable host needs to add is calling <see cref="Render"/> again when the canvas
-/// is resized, which this control already does itself via <see cref="OnCanvasSizeChanged"/>.
-/// </para>
-/// <para>
-/// The time-scale selection (<see cref="SettingsService.AppSettings.GraphTimeScale"/>) and the
-/// loaded sample window (<see cref="BatteryHistoryService"/>) are both process-wide shared state
-/// by design — every instance of this control (small dashboard, pop-out) is a view onto the same
-/// graph, not an independently-scoped one, so changing the scale in either place updates both.
-/// </para>
-/// </summary>
+/// <summary>The battery-history sparkline (SoC / charge-limit / power, compressed-gap time axis,
+/// min/max markers) and its time-scale selector. The time-scale setting and the loaded sample window
+/// are process-wide, so the tray popup and the pop-out are views onto one graph.</summary>
 public sealed partial class BatteryHistoryGraphControl : UserControl
 {
-    // A hole in the timeline bigger than this is treated as downtime (app was closed/crashed) and
-    // gets a gap marker instead of a connecting line. This is the SHARED downtime primitive
-    // (BatteryHistoryService.DowntimeThreshold): the graph and the drain-anomaly gate both read it,
-    // so the user's "Downtime gap threshold" setting can't disagree between the two (see that
-    // property's remarks). Read fresh each access so a settings change takes effect without a restart.
+    // Shared with the drain-anomaly gate, and read fresh so a settings change needs no restart.
     private static TimeSpan GapThreshold => BatteryHistoryService.DowntimeThreshold;
 
-    // Stroke width for the primary series (SoC) — heavier than the secondary series so it reads
-    // as the "main" line at a glance.
     private const double PrimaryStrokeWidth   = 2.5;
     private const double SecondaryStrokeWidth = 2.0;
 
-    // Vertical band reserved at the top of the plot for the gap-break duration label, so the break
-    // strokes below start clear of it instead of crossing through the text.
+    // Reserved at the top of the plot for the gap-break label, so the break strokes start below it.
     private const double GapLabelBandHeight = 15;
 
-    // The two diagonal strokes' x-offsets from the break's centre — hoisted out of DrawGapBreak so
-    // this small array isn't reallocated once per gap on every render.
+    // Hoisted so this small array isn't reallocated once per gap on every render.
     private static readonly double[] GapStrokeOffsets = [-2.5, 1.5];
 
-    // Rough average glyph width for the SemiBold UI font at 1em, used to estimate a pill's width
-    // without a Measure() pass (see AddAnnotationPill) — labels are always short, fixed-format
-    // digit/letter/percent strings ("13h", "74%"), so pixel-perfect width isn't needed, only enough
-    // to centre and edge-clamp the pill reasonably.
+    // Rough glyph width for the SemiBold UI font at 1em — enough to centre a short pill without a Measure().
     private const double PillCharWidthEm = 0.62;
     private const double PillPaddingX    = 8; // matches Padding(4,_,4,_) below, both sides combined
 
-    // Debounces the live-resize repaint: SparklineCanvas.SizeChanged fires on every intermediate
-    // pixel while the user drags a resizable host's border, and a full canvas rebuild on every one
-    // of those would be wasted work — restart the timer on each event, repaint once it settles.
-    // Same start/stop idiom as DashboardWindow's threshold-slider debounce, just much shorter:
-    // a resize needs to feel live, not "committed once you pause".
+    // Debounces the live-resize repaint: SizeChanged fires on every intermediate pixel during a drag.
     private readonly DispatcherTimer _resizeRenderTimer;
 
-    // Set on Unloaded so a background LoadWindow callback that completes after the control (and
-    // its host window) is torn down doesn't touch dead XAML elements.
+    // Set on Unloaded so a background LoadWindow callback can't touch dead XAML elements.
     private bool _unloaded;
 
-    /// <summary>
-    /// Raised when the user asks to expand the graph — via the "⛶" corner glyph or by
-    /// double-clicking the plot. The control has no reference to the app or window-management —
-    /// it only signals intent; the host decides what "expand" means.
-    /// </summary>
+    /// <summary>Raised when the user asks to expand the graph. The host decides what that means.</summary>
     public event EventHandler? ExpandRequested;
 
-    /// <summary>
-    /// Plot canvas row height. The small embedded dashboard sets this to a fixed 126 (matching the
-    /// pre-extraction layout exactly) so its popup's content-measured size stays pixel-identical;
-    /// the resizable pop-out window leaves this at the control's own XAML default ("*") so the
-    /// canvas grows to fill whatever space the window gives it.
-    /// </summary>
+    /// <summary>Plot canvas row height: a fixed 126 in the dashboard, "*" in the pop-out.</summary>
     public GridLength PlotAreaHeight
     {
         get => CanvasRow.Height;
         set => CanvasRow.Height = value;
     }
 
-    /// <summary>
-    /// Shows/hides the "⛶" expand glyph AND gates the double-click-to-expand gesture. The pop-out
-    /// window hosts this same control to show the already-expanded graph, where an expand
-    /// affordance pointing at itself would be meaningless.
-    /// </summary>
+    /// <summary>Shows the "⛶" glyph and gates double-click-to-expand; false inside the pop-out itself.</summary>
     public bool ShowExpandButton
     {
         get => ExpandGlyph.Visibility == Visibility.Visible;
         set => ExpandGlyph.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>
-    /// Shows/hides the compressed-gap "time-split" break + duration pill (<see cref="DrawGapBreak"/>)
-    /// drawn at each detected downtime gap. Unlike <see cref="ShowExpandButton"/> there's no single
-    /// fixed XAML element to toggle — the breaks are drawn per-render, one per gap, inside
-    /// <see cref="Render"/> — so this is a plain settable property read at the top of that loop
-    /// instead. The small embedded dashboard sets this false (a compact popup has no room for the
-    /// break + pill without crowding the plot); the bigger pop-out window leaves it at the default
-    /// true, unchanged from today's behaviour.
-    /// </summary>
+    /// <summary>Shows the compressed-gap break and duration pill; false where it would crowd the plot.</summary>
     public bool ShowGapMarkers { get; set; } = true;
 
-    /// <summary>
-    /// Shows/hides the SoC "stress" heat strip below the plot (TODO #25) — a slim gradient bar
-    /// colour-coding time spent at high SoC (more stressful for long-term battery health per
-    /// common lithium-ion guidance) vs moderate SoC (gentler), across the visible window. Unlike
-    /// <see cref="ShowGapMarkers"/> this DOES have a single fixed XAML element (<c>StressHeatmapBar</c>),
-    /// so hiding it also collapses the Auto row it lives in — no separate flag needed to keep the
-    /// row from reserving space. The small embedded dashboard sets this false (no vertical room for
-    /// another row without crowding the plot, same reasoning as ShowGapMarkers); the bigger pop-out
-    /// window leaves it at the default true.
-    /// </summary>
+    /// <summary>Shows the SoC stress heat strip; collapsing the bar collapses its Auto row too.</summary>
     public bool ShowStressHeatmap
     {
         get => StressHeatmapBar.Visibility == Visibility.Visible;
         set => StressHeatmapBar.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>
-    /// Shows/hides the hover crosshair (TODO #27) — a thin vertical trace line + dot on the SoC
-    /// line + a "time · SoC% · rate" pill, following the cursor over the plot. Explicitly
-    /// crosshair-only, no pan/zoom (that idea was deliberately deferred to a separate future item —
-    /// see TODO.md). Small dashboard popup disables it: at 340px wide there's barely room for the
-    /// plot itself, let alone a readout pill without it constantly overlapping the lines it's
-    /// tracking; the bigger pop-out window leaves this at the default true.
-    /// </summary>
+    /// <summary>Shows the hover crosshair; false in the 340px dashboard, where the readout pill would
+    /// cover the lines it tracks.</summary>
     public bool ShowCrosshair { get; set; } = true;
 
-    // Cached from the most recent Render() so OnCanvasPointerMoved can look up the nearest sample
-    // without redoing the whole downsample/compressed-x/axis-projection pipeline on every mouse
-    // move — Render() only runs on a 5s timer or a resize, but pointer moves can fire dozens of
-    // times a second.
+    // Cached per Render() so a pointer move needn't redo the downsample/compressed-x/projection pipeline.
     private IReadOnlyList<BatterySample>? _hoverSamples;
     private IReadOnlyList<double>?        _hoverXs;
     private Func<double, double>?         _hoverProjectYPct;
 
-    // The crosshair's three elements (vertical trace line, dot on the SoC line, readout pill) are
-    // built ONCE and then repositioned/retexted on each pointer move rather than reallocated — at
-    // 60-120 moves/second the old rebuild-and-replace churned four UIElements plus a string format
-    // every move. They're plain fields (not a list) so a move can update each in place. Render()'s
-    // SparklineCanvas.Children.Clear() removes them from the tree along with the series, so
-    // _crosshairAttached tracks whether they currently need re-adding.
+    // Reused across pointer moves; Render()'s Children.Clear() detaches them, hence _crosshairAttached.
     private Microsoft.UI.Xaml.Shapes.Line?    _crosshairLine;
     private Microsoft.UI.Xaml.Shapes.Ellipse? _crosshairDot;
     private Border?                            _crosshairPill;
     private TextBlock?                         _crosshairPillText;
     private bool                              _crosshairAttached;
 
-    // Index of the sample the crosshair is currently tracing, so a pointer move that stays nearest
-    // to the same sample can short-circuit without touching the visual tree at all. -1 = none
-    // (also reset by Render(), since a fresh render invalidates the cached x-positions).
+    // Sample being traced, so a move within one sample touches nothing. -1 = none; reset by Render().
     private int _lastHoverIndex = -1;
 
     public BatteryHistoryGraphControl()
     {
         InitializeComponent();
 
-        // Legend swatch colours never change — assign once instead of every render. The SoC swatch
-        // uses the SAME brush as the SoC line itself, so the legend can never desync from the
-        // series it labels.
+        // The SoC swatch uses the same brush as the SoC line, so the legend can't desync from it.
         LegendSocSwatch.Background   = AppColors.HistorySocBrush;
         LegendLimitSwatch.Background = AppColors.HistoryLimitBrush;
         LegendPowerSwatch.Background = AppColors.HistoryPowerBrush;
 
-        // Expand affordance: the palette's muted orange (Terracotta), tinted background + glyph,
-        // so it reads as a deliberate, visible button rather than a bare corner glyph.
         ExpandGlyph.Foreground = AppColors.ExpandGlyphBrush;
         ExpandGlyph.Background = AppColors.ExpandGlyphBackgroundBrush;
 
-        // Reflect the persisted time-scale choice in the button row. The in-memory window was
-        // already loaded from disk at this span by App.StartHistorySampling, so no LoadWindow call
-        // is needed here — CurrentWindow() already holds the right slice for the first render.
+        // App.StartHistorySampling already loaded this span, so the first render needs no LoadWindow.
         SetSelectedScaleButton(SettingsService.Current.GraphTimeScale);
 
-        // Narrow race: if the very first graph render happens before StartHistorySampling's
-        // background disk load finishes, CurrentWindow() is momentarily empty even though history
-        // exists on disk. Only kick a reload when that's actually the case — the normal case
-        // (already loaded) does zero extra I/O.
+        // Narrow race: the first render can beat that background disk load, leaving the window empty.
         if (BatteryHistoryService.CurrentWindow().Count == 0)
         {
             Task.Run(() =>
@@ -205,18 +117,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         };
     }
 
-    /// <summary>
-    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch. An exception
-    /// thrown inside a raw DispatcherQueue.TryEnqueue callback is NOT surfaced to
-    /// Application.UnhandledException — it tears the whole process down as an opaque stowed
-    /// exception with nothing logged anywhere. This control has background Task.Run reads
-    /// (LoadWindow's disk scan) that complete and touch UI elements later, on the dispatcher — if
-    /// the host window closes while one of those is in flight, the delegate can hit a torn-down
-    /// XAML element. Catching here keeps the app alive; the failure is logged instead of fatal.
-    /// </summary>
+    /// <summary>Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch: an
+    /// exception inside a raw TryEnqueue callback bypasses Application.UnhandledException and tears
+    /// the process down with nothing logged.</summary>
     private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
     {
-        if (_unloaded) return;   // control already torn down — a stale callback has nothing to update
+        if (_unloaded) return;   // stale callback after teardown
         try { action(); }
         catch (Exception ex) { AppLog.Error("BatteryHistoryGraphControl.RunOnUi", ex); }
     });
@@ -224,31 +130,19 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private void OnExpandGlyphClick(object sender, RoutedEventArgs e) =>
         ExpandRequested?.Invoke(this, EventArgs.Empty);
 
-    // Double-click anywhere on the plot = expand, same as the corner glyph — but only where the
-    // expand affordance is enabled at all, so double-clicking inside the already-open pop-out
-    // (ShowExpandButton="False") does nothing instead of re-signalling itself.
+    // Gated so a double-click inside the already-open pop-out doesn't re-signal itself.
     private void OnCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         if (ShowExpandButton)
             ExpandRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    // Restarts the debounce on every intermediate resize event; Render() only runs once the size
-    // has settled for _resizeRenderTimer's interval.
     private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e)
     {
         _resizeRenderTimer.Stop();
         _resizeRenderTimer.Start();
     }
 
-    // ── Hover crosshair (TODO #27) ────────────────────────────────────────────
-
-    /// <summary>
-    /// Traces the nearest sample to the cursor's X position. Uses a binary search over the
-    /// monotonically non-decreasing <see cref="_hoverXs"/> (see <see cref="MonotoneSearch.NearestIndex"/>)
-    /// and short-circuits when the nearest sample hasn't changed since the last move, so the common
-    /// case (cursor drifting within one sample's horizontal cell) does no work at all.
-    /// </summary>
     private void OnCanvasPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (!ShowCrosshair) return;
@@ -258,9 +152,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         double x = e.GetCurrentPoint(SparklineCanvas).Position.X;
 
         int nearest = MonotoneSearch.NearestIndex(xs, x);
-        // Same sample AND still on-canvas from a prior move → nothing to redraw. (After a Render the
-        // elements were cleared, so _crosshairAttached is false and we fall through to re-add them
-        // even when the nearest index happens to match.)
+        // _crosshairAttached is false after a Render, so re-add even when the index matches.
         if (nearest == _lastHoverIndex && _crosshairAttached) return;
         _lastHoverIndex = nearest;
 
@@ -269,11 +161,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
     private void OnCanvasPointerExited(object sender, PointerRoutedEventArgs e) => ClearCrosshair();
 
-    /// <summary>
-    /// Detaches the crosshair's own elements (line, dot, pill) from the canvas — NOT a
-    /// <c>SparklineCanvas.Children.Clear()</c>, which would also wipe the real chart underneath. The
-    /// element instances are kept (in their fields) for reuse on the next hover.
-    /// </summary>
+    /// <summary>Detaches only the crosshair's own elements; a Children.Clear() would wipe the chart.</summary>
     private void ClearCrosshair()
     {
         if (_crosshairAttached)
@@ -286,10 +174,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         _lastHoverIndex = -1;
     }
 
-    /// <summary>
-    /// Lazily builds the crosshair's three reusable elements (once), so pointer moves only ever
-    /// reposition/retext them. Colours/opacity never change, so they're set here rather than per move.
-    /// </summary>
+    /// <summary>Builds the three reusable crosshair elements once; their colours never change.</summary>
     private void EnsureCrosshairElements()
     {
         _crosshairLine ??= new Microsoft.UI.Xaml.Shapes.Line
@@ -324,15 +209,6 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         }
     }
 
-    /// <summary>
-    /// Positions the hover crosshair at the given sample: a thin vertical trace line spanning the
-    /// plot height, a small dot marking that sample's actual point on the SoC line, and a
-    /// "time · SoC% · rate" readout pill. Reuses the three persistent elements built by
-    /// <see cref="EnsureCrosshairElements"/> — repositions via <see cref="Canvas"/> attached
-    /// properties and the <see cref="Microsoft.UI.Xaml.Shapes.Line"/>'s own coordinates, and only
-    /// (re-)adds them to the canvas when they aren't already attached (first hover, or after a
-    /// <see cref="Render"/> cleared the canvas).
-    /// </summary>
     private void DrawCrosshair(BatterySample sample, double x, double y)
     {
         EnsureCrosshairElements();
@@ -355,7 +231,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
         if (!_crosshairAttached)
         {
-            // Added after the series (which Render() drew first) so the crosshair sits on top.
+            // Added after the series, which Render() drew first, so the crosshair sits on top.
             SparklineCanvas.Children.Add(_crosshairLine);
             SparklineCanvas.Children.Add(_crosshairDot);
             SparklineCanvas.Children.Add(_crosshairPill);
@@ -363,46 +239,30 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         }
     }
 
-    // ── Time-scale selector ───────────────────────────────────────────────────
-
-    /// <summary>
-    /// Handles a click on one of the seven time-scale buttons (15m/1h/.../14d). The clicked
-    /// button's <c>Tag</c> holds the <see cref="GraphTimeScale"/> member name (set in XAML).
-    /// Persists the choice, does the (disk) window reload at the new span, and re-renders.
-    /// </summary>
+    /// <summary>Applies the clicked time-scale button, whose <c>Tag</c> names the <see cref="GraphTimeScale"/>.</summary>
     private void OnTimeScaleButtonClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tagName } ||
             !Enum.TryParse<GraphTimeScale>(tagName, out var scale))
             return;
 
-        SettingsService.Current.GraphTimeScale = scale;
-        SettingsService.Save();
+        SettingsService.Update(s => s.GraphTimeScale = scale);
         SetSelectedScaleButton(scale);   // highlight immediately; don't wait on the disk read below
 
-        // LoadWindow does a full CSV scan (up to 14 days of rows) — real disk I/O that must not run
-        // on the UI thread, or clicking a scale button could visibly freeze the host for a moment.
+        // LoadWindow does a full CSV scan — real disk I/O that must not run on the UI thread.
         Task.Run(() =>
         {
             BatteryHistoryService.LoadWindow(scale.ToTimeSpan());
             AppLog.Info($"Time-scale changed to {scale}.");
 
-            // With two independent hosts (small dashboard + pop-out) now able to trigger a scale
-            // change at any time, a slower earlier load can complete after a faster later one. Only
-            // repaint if this load is still the most recently requested span — an out-of-order
-            // completion otherwise briefly (or, if never re-triggered, permanently) shows stale data
-            // under a button that already highlights the newer, correct selection.
+            // Either host can change the scale, so a slower earlier load can finish after a faster
+            // later one and repaint stale data under a button already showing the newer selection.
             if (BatteryHistoryService.CurrentSpan == scale.ToTimeSpan())
                 RunOnUi(Render);
         });
     }
 
-    /// <summary>
-    /// Highlights the button matching <paramref name="scale"/> and restores the rest to their
-    /// themed resting look. Deselecting clears the local Background/Foreground value rather than
-    /// re-resolving a theme brush by string key, so the button falls back to whatever
-    /// <c>TimeScaleButtonStyle</c>'s setters provide (and stays correct if that style changes).
-    /// </summary>
+    /// <summary>Highlights the button for <paramref name="scale"/>; deselecting clears the local value so its style wins.</summary>
     private void SetSelectedScaleButton(GraphTimeScale scale)
     {
         foreach (var button in TimeScalePanel.Children.OfType<Button>())
@@ -423,28 +283,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         }
     }
 
-    // ── History sparkline ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Formats a history span as a left-edge axis label, e.g. "−42m", "−1h 05m", "−3d 07h", or
-    /// "−2w 00d" — a full-axis-edge label, not <see cref="FormatGap"/>'s compact single-unit
-    /// gap-pill style ("13h"/"2d"): this one keeps a "−" prefix and a space-separated two-unit
-    /// format for every tier once the span reaches an hour, matching that existing minutes/hours
-    /// style straight through the added days/weeks tiers (warranted since the 14-day max window —
-    /// <see cref="GraphTimeScale.FourteenDays"/> — spans exactly two weeks, same ceiling
-    /// <see cref="FormatGap"/> already tiers up to).
-    /// <para>
-    /// Rounds ONCE, to the nearest whole minute, then derives every coarser tier's two displayed
-    /// parts from that single rounded total via integer division/modulo — not by rounding each
-    /// tier's TotalXxx independently the way <see cref="FormatGap"/> does, since that pattern
-    /// only ever has to justify ONE displayed number per call. A two-part display (e.g. "Xh XXm")
-    /// has an extra failure mode a single-part one doesn't: rounding each part separately can let
-    /// the smaller part round up to its own modulus and land ON the boundary it should have
-    /// promoted past (e.g. "1h 60m" instead of "2h 00m"). Deriving both parts from one rounded
-    /// total makes that structurally impossible — the remainder of an integer modulo op can never
-    /// equal the modulus itself.
-    /// </para>
-    /// </summary>
+    /// <summary>Formats a history span as a left-edge axis label, e.g. "−42m", "−1h 05m", "−3d 07h".
+    /// Round the total, then split it: rounding each part separately can produce "1h 60m".</summary>
     private static string FormatAgo(TimeSpan span)
     {
         if (span.TotalMinutes < 1) return "−<1m";
@@ -465,19 +305,11 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return $"−{totalWeeks}w {daysPart:00}d";
     }
 
-    /// <summary>
-    /// Redraws the sparkline from the currently-loaded history window. Reads
-    /// <see cref="SparklineCanvas"/>'s own <c>ActualWidth</c>/<c>ActualHeight</c> fresh every call,
-    /// so it adapts automatically to whatever size the host control is — a bigger, resizable host
-    /// needs no changes to this method, only to call it again when the canvas resizes (see
-    /// <see cref="OnCanvasSizeChanged"/>).
-    /// </summary>
+    /// <summary>Redraws the sparkline, reading the canvas's own size fresh so it fits any host.</summary>
     public void Render()
     {
         SparklineCanvas.Children.Clear();
-        // The Clear() above detached the reused crosshair elements along with the series; mark them
-        // unattached (and drop the traced-sample cache) so the next pointer move re-adds and
-        // repositions them against this render's fresh geometry.
+        // The Clear() above detached the reused crosshair elements along with the series.
         _crosshairAttached = false;
         _lastHoverIndex    = -1;
 
@@ -489,9 +321,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             RightAxisTopLabel.Text    = "—";
             RightAxisMidLabel.Text    = "—";
             RightAxisBottomLabel.Text = "—";
-            // StressHeatmapBar lives outside SparklineCanvas.Children, so the Clear() above didn't
-            // touch it — without this it would keep showing a stale gradient, misaligned with the
-            // now-blank plot above it, from whatever the last successful render was.
+            // StressHeatmapBar is outside SparklineCanvas.Children, so the Clear() left it stale.
             StressHeatmapBar.Fill = null;
             // Drop the hover-crosshair cache too — a pointer move landing after this would
             // otherwise trace a now-stale sample set against a blank canvas.
@@ -504,47 +334,32 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         // Canvas size is known once the element has been measured; guard against first render.
         double w = SparklineCanvas.ActualWidth;
         double h = SparklineCanvas.ActualHeight;
-        if (w < 4 || h < 4) return;
+        if (w < 4 || h < 4) { _hoverSamples = null; _hoverXs = null; ClearCrosshair(); return; }
 
-        // Downsample to roughly one point per horizontal pixel (with headroom for fidelity) so a
-        // 14-day/1-week window — tens of thousands of raw samples — doesn't force full-resolution
-        // processing and element allocation on every render. Gap detection runs against the
-        // ORIGINAL full-resolution timestamps and is carried through as gapBefore — two adjacent
-        // points that survive reduction can legitimately be far apart in time purely from the
-        // stride, so re-deriving "is this a gap" from a Δt check on the reduced list would treat
-        // ordinary stride spacing as downtime and shatter every series into disconnected dots.
+        // Downsample to ~one point per horizontal pixel. Gap detection runs against the ORIGINAL
+        // timestamps: after reduction, ordinary stride spacing is indistinguishable from downtime.
         int maxPoints = Math.Max(200, (int)(w * 2));
         var reduced   = HistoryDownsampler.Reduce(samples, maxPoints, GapThreshold);
         samples = reduced.Samples;
         var gapBefore = reduced.GapBeforeIndices;
 
-        // Compressed x-axis: continuous data segments fill the plot width, while each downtime gap
-        // (app closed/crashed) collapses to a small FIXED-width break instead of occupying its full
-        // real duration. A linear absolute-time axis meant a long off-period (e.g. overnight)
-        // crushed the actual battery trace into a sliver; here the last active period before a
-        // shutdown stays large and readable, with a time-split symbol marking where time was cut.
+        // Compressed x-axis: continuous data fills the plot width, each downtime gap collapses to a
+        // fixed-width break. On a linear time axis one overnight off-period crushed the trace to a sliver.
         DateTime nowUtc = DateTime.UtcNow;
         const double pad = 4;
 
-        // Per-sample X for the compressed axis, index-based (a gap is defined by index — two reduced
-        // points can be far apart in ticks purely from stride, so a ticks→X function couldn't tell a
-        // real gap from ordinary spacing). Shared by every series, the gap breaks, and the min/max
-        // markers so they can't drift apart.
+        // Index-based: two reduced points can be far apart in ticks purely from stride, so a ticks→X
+        // function couldn't tell a gap from ordinary spacing. Shared by series, breaks and markers.
         double[] xs = BuildCompressedX(samples, gapBefore, w, pad);
 
-        // Honest edge labels for a compressed axis: the left edge is the OLDEST loaded sample's age
-        // (leading downtime is collapsed, so it can be more recent than the full selected span), and
-        // the right edge is the newest sample — "now" while sampling is live.
+        // Leading downtime is collapsed, so the oldest loaded sample can be newer than the selected span.
         SparklineStartLabel.Text = FormatAgo(nowUtc - samples[0].AtUtc);
         var sinceLast = nowUtc - samples[^1].AtUtc;
         SparklineEndLabel.Text   = sinceLast <= GapThreshold ? "now" : FormatAgo(sinceLast);
 
-        // Left % axis: 0% at bottom, 100% at top; invert because canvas Y grows downward. Shared
-        // by both the SoC and charge-limit series since they're the same 0-100% scale.
+        // Left % axis, shared by SoC and charge limit; inverted because canvas Y grows downward.
         double ProjectYPct(double pct) => (h - pad) - pct / 100.0 * (h - pad * 2);
 
-        // Cache this render's samples/xs/projection for the hover crosshair (TODO #27) — see the
-        // field doc comments for why this is cached rather than recomputed per pointer move.
         _hoverSamples     = samples;
         _hoverXs          = xs;
         _hoverProjectYPct = ProjectYPct;
@@ -564,39 +379,22 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         RightAxisBottomLabel.Text = FormatWatts(minW);
         RightAxisMidLabel.Text    = FormatWatts(minW + wRange / 2);
 
-        // Fixed accent for the whole line, not a level-based switch (Nordic mist) — the battery's
-        // current % no longer recolours history that may be days old.
+        // Fixed accent, so the battery's current % can't recolour history that may be days old.
         var socBrush     = AppColors.HistorySocBrush;
         var socFillBrush = AppColors.HistorySocFillBrush;
 
-        // SoC — the headline series: a subtle gradient shade (drawn first so it sits behind
-        // everything) plus the solid line on top of it, drawn heavier than the other two so it reads
-        // as primary. Both share ONE runs+tangents computation here — the fill and the line are the
-        // same monotone curve, so computing the runs (CollectRuns) and the Fritsch-Carlson tangents
-        // twice per 5s render (the old separate DrawGradientFill + DrawSeries calls) was pure
-        // duplication. Drawn before limit/power so those sit visually on top where they cross it.
+        // SoC — the headline series. Drawn before limit/power so those sit on top where they cross.
         var socRuns = CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct);
         DrawSocFillAndLine(socRuns, socBrush, socFillBrush, plotBottomY: h - pad);
 
-        // Charge limit (Smart Charge Stop threshold) — stepped line, left axis, in the SAME muted
-        // amber as the gauge's threshold tick marks so the concept has one colour everywhere.
-        // Null when Smart Charge is off; skip those points so no line is drawn across the off
-        // period. Stepped (rather than a straight line between samples) because the threshold only
-        // ever changes in discrete jumps when the user edits it — a linear ramp between two sampled
-        // values would misleadingly suggest it drifted gradually over the sample interval.
+        // Charge limit (Smart Charge Stop threshold), left axis; null while Smart Charge is off.
+        // Stepped because the threshold only jumps — a ramp would suggest it drifted between samples.
         DrawSeries(samples, gapBefore, s => s.LimitPct, xs, ProjectYPct, AppColors.HistoryLimitBrush, stepped: true);
 
-        // Charge power — dotted line, right axis, visually distinct both by dash pattern and by
-        // colour (muted lavender) as a different scale.
+        // Charge power — dotted, right axis: distinct by dash pattern and colour as a different scale.
         DrawSeries(samples, gapBefore, s => s.PowerMw / 1000.0, xs, ProjectYWatts, AppColors.HistoryPowerBrush, dashed: true);
 
-        // Time-split break symbol + skipped-duration label at each collapsed gap, drawn ON TOP of
-        // the series so both stay legible over the lines. The break x is the midpoint of the gap's
-        // fixed-width band; its duration is the real Δt between the two samples straddling the gap.
-        // Gated by ShowGapMarkers: the small embedded dashboard popup suppresses these (no room for
-        // the break + pill without crowding the plot); the bigger pop-out window keeps them. Note
-        // the gaps themselves are still respected everywhere else (BuildCompressedX still collapses
-        // them, CollectRuns still breaks the line there) — only the visual break marker is hidden.
+        // Only the marker is gated; the gaps are still collapsed and still break the line either way.
         if (ShowGapMarkers)
             for (int i = 1; i < samples.Count; i++)
                 if (gapBefore.Contains(i))
@@ -608,17 +406,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             DrawStressHeatmap(samples, xs, w);
     }
 
-    /// <summary>
-    /// Fills <see cref="StressHeatmapBar"/> with a <see cref="LinearGradientBrush"/> (TODO #25):
-    /// stops positioned at the SAME x (as a 0-1 fraction of plot width) as the samples' points on
-    /// the SoC line above, coloured by <see cref="StressColor"/>. Reuses <paramref name="xs"/> —
-    /// already monotonically non-decreasing by construction (<see cref="BuildCompressedX"/>) —
-    /// rather than a fresh per-pixel scan, so the strip can never visually drift out of alignment
-    /// with the series it sits under. Stops are STRIDED to a cap: the downsampler yields up to
-    /// 2×plot-width samples, and one stop per sample would allocate thousands of
-    /// <see cref="GradientStop"/>s per 5s render for a 7px-high strip where anything beyond ~one
-    /// stop per device pixel is invisible.
-    /// </summary>
+    /// <summary>Fills the stress strip with a gradient whose stops sit at the same x as the SoC line's
+    /// points, so it can't drift out of alignment. Stops are strided to a cap.</summary>
     private void DrawStressHeatmap(IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs, double w)
     {
         const int MaxStops = 200;
@@ -631,8 +420,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
                 Offset = Math.Clamp(xs[i] / w, 0, 1),
                 Color  = StressColor(samples[i].Soc),
             });
-        // Always close the strip at the final sample so striding can't leave the right edge
-        // painted with a stale colour extrapolated from an earlier stop.
+        // Close at the final sample so striding can't leave the right edge on an extrapolated colour.
         if (step > 1 && (samples.Count - 1) % step != 0)
             brush.GradientStops.Add(new GradientStop
             {
@@ -642,14 +430,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         StressHeatmapBar.Fill = brush;
     }
 
-    /// <summary>
-    /// Maps a SoC percentage to a stress colour: fully transparent at and below 40% (the low end
-    /// of this app's own Smart Charge defaults — a "gentle" level, not a stressful one), fading in
-    /// to a solid <see cref="AppColors.Terracotta"/> — the same muted orange already used for the
-    /// gauge's low-battery tier and the charge-limit line — by 100%. Reuses Terracotta rather than
-    /// introducing a new colour, matching this app's established "reuse the palette instead of
-    /// adding near-duplicate hues" convention (see the Arc-gauge-fills comment in AppColors.cs).
-    /// </summary>
+    /// <summary>Maps SoC to a stress colour: transparent at and below 40%, fading in to a solid
+    /// <see cref="AppColors.Terracotta"/> by 100% rather than adding a near-duplicate hue.</summary>
     private static Color StressColor(int soc)
     {
         double intensity = Math.Clamp((soc - 40) / 60.0, 0, 1);
@@ -657,24 +439,17 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return Color.FromArgb((byte)(20 + intensity * 210), hot.R, hot.G, hot.B);
     }
 
-    /// <summary>
-    /// Builds the per-sample X coordinate for the compressed timeline: continuous data maps
-    /// proportionally to its real duration, but every downtime gap (an index in
-    /// <paramref name="gapBefore"/>) collapses to a small fixed-width break instead of its full
-    /// span. Total break width is capped at 40% of the plot so many gaps can't starve the data of
-    /// horizontal room.
-    /// </summary>
+    /// <summary>Builds the per-sample X for the compressed timeline: continuous data maps
+    /// proportionally to its real duration, each downtime gap to a fixed-width break. Total break
+    /// width is capped at 40% so many gaps can't starve the data of horizontal room.</summary>
     private static double[] BuildCompressedX(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, double w, double pad)
     {
         const double GapPx = 16;              // fixed on-screen width of one collapsed gap
         double plotW = Math.Max(w - pad * 2, 1);
 
-        // Each non-gap step's clamped tick delta is computed ONCE here and reused below for both
-        // the width budget and the actual placement — computing it twice (as an earlier version of
-        // this method did) let the two copies disagree on a backward clock step (NTP correction,
-        // manual clock change): the budget pass clamped a negative delta to 0 but the placement
-        // pass didn't, so that sample could plot to the LEFT of its predecessor.
+        // One clamped delta per step, reused for both the width budget and the placement: two copies
+        // disagreed on a backward clock step, plotting a sample to the LEFT of its predecessor.
         var deltas = new long[samples.Count]; // deltas[i] = ticks since sample i-1; 0 for i=0 or a gap
         int gapCount = 0;
         double activeTicks = 0;
@@ -685,11 +460,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             activeTicks += deltas[i];
         }
 
-        // Degenerate case: every inter-sample step is a gap (e.g. exactly two samples straddling one
-        // restart, with nothing else loaded) — there's no active elapsed time to proportion by, so
-        // pxPerTick would fall back to 0 and every point would cluster at the left edge, wasting most
-        // of the canvas. Give the gap(s) the FULL width instead of capping them to 40 %; there's no
-        // real data competing for the rest of it anyway.
+        // Every step a gap: with no active elapsed time to proportion by, pxPerTick would be 0 and
+        // every point would cluster at the left edge, so give the gaps the full width instead.
         double totalGapPx = activeTicks > 0 ? Math.Min(gapCount * GapPx, plotW * 0.4) : plotW;
         double perGapPx   = gapCount > 0 ? totalGapPx / gapCount : 0;
         double pxPerTick  = activeTicks > 0 ? (plotW - gapCount * perGapPx) / activeTicks : 0;
@@ -709,14 +481,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private static string FormatWatts(double watts) =>
         $"{Math.Round(watts, MidpointRounding.AwayFromZero):0}W";
 
-    /// <summary>
-    /// Splits a series into continuous runs of already-projected (x, y) points, breaking at both
-    /// timeline gaps (per <paramref name="gapBefore"/> — indices preceded by a REAL gap in the
-    /// original, pre-downsampling data; a plain Δt check here would misfire on ordinary stride
-    /// spacing after reduction) and at null values (e.g. charge limit while Smart Charge is off).
-    /// Shared by <see cref="DrawSeries"/> and <see cref="DrawSocFillAndLine"/> so the line and its
-    /// fill can never disagree about where a run starts or ends.
-    /// </summary>
+    /// <summary>Splits a series into continuous runs of projected points, breaking at timeline gaps
+    /// (by index — a Δt check would misfire on ordinary stride spacing) and at null values. Shared by
+    /// the line and its fill so the two can't disagree about where a run starts or ends.</summary>
     private static List<List<Point>> CollectRuns(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
         IReadOnlyList<double> xs, Func<double, double> projectY)
@@ -735,20 +502,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return runs;
     }
 
-    /// <summary>
-    /// Draws one time-series as one or more shapes, one per continuous run from
-    /// <see cref="CollectRuns"/>. Rounded joins and end caps throughout give every series a soft,
-    /// modern look rather than sharp/square segment ends. When <paramref name="stepped"/> is set,
-    /// each transition is drawn as a right-angle step (hold the previous value horizontally, then
-    /// jump) instead of a curve — appropriate for a value that only changes in discrete jumps (the
-    /// Smart Charge threshold), where anything smoothed would misleadingly suggest it drifted
-    /// gradually between samples. Non-stepped series (SoC, power) are drawn as a monotone cubic
-    /// Hermite curve (see <see cref="BuildMonotoneFigure"/>) instead of straight segments — this
-    /// softens the "staircase" look from adjacent same/1%-apart integer samples without the
-    /// overshoot risk of a plain spline, so a genuine plateau still reads as flat. The primary SoC
-    /// series is drawn separately (with its fill) by <see cref="DrawSocFillAndLine"/>; this handles
-    /// the two secondary series (charge-limit, power), so every line drawn here is secondary-weight.
-    /// </summary>
+    /// <summary>Draws one secondary series as a shape per continuous run. <paramref name="stepped"/>
+    /// draws right-angle steps for a value that only changes in discrete jumps; otherwise the run is
+    /// a monotone curve, which rounds off the integer staircase without bulging a real plateau.</summary>
     private void DrawSeries(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
         IReadOnlyList<double> xs, Func<double, double> projectY, Brush brush,
@@ -791,19 +547,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         }
     }
 
-    /// <summary>
-    /// Builds a smooth interpolating figure through <paramref name="pts"/> using monotone cubic
-    /// Hermite tangents (see <see cref="MonotoneTangents"/>): the curve passes through every real
-    /// sample (unlike an approximating/least-squares smooth) and is guaranteed not to overshoot
-    /// past a flat run's own value the way a plain Catmull-Rom/natural spline can — the property
-    /// that keeps a genuine plateau (e.g. sitting at 100% for hours) reading as flat instead of a
-    /// gentle bump, while still rounding off the small staircases between adjacent integer-percent
-    /// samples. Takes the tangents <paramref name="m"/> precomputed (via <see cref="MonotoneTangentsFor"/>)
-    /// so the SoC fill and line can share ONE computation (see <see cref="DrawSocFillAndLine"/>).
-    /// When <paramref name="closeAtY"/> is set, the figure is closed down to that Y and back to the
-    /// start X (for the gradient-fill shape, so its edge matches the line above it exactly);
-    /// otherwise the figure is left open, for the line itself.
-    /// </summary>
+    /// <summary>Interpolating figure through <paramref name="pts"/> from precomputed tangents
+    /// <paramref name="m"/>. <paramref name="closeAtY"/> closes it for the gradient fill; left open,
+    /// it is the line itself.</summary>
     private static PathFigure BuildMonotoneFigure(IReadOnlyList<Point> pts, double[] m, double? closeAtY = null)
     {
         var figure = new PathFigure { StartPoint = pts[0], IsClosed = closeAtY.HasValue };
@@ -812,9 +558,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             double h = pts[i + 1].X - pts[i].X;
             figure.Segments.Add(new BezierSegment
             {
-                // Standard Hermite→Bezier conversion for a curve linear-in-x: the tangent VECTOR
-                // at each end is (h, slope*h), and the Bezier control points sit 1/3 of that
-                // vector in from each endpoint.
+                // Hermite→Bezier for a curve linear in x: the tangent vector at each end is
+                // (h, slope*h), and the control points sit a third of it in from each endpoint.
                 Point1 = new Point(pts[i].X     + h / 3, pts[i].Y     + m[i]     * h / 3),
                 Point2 = new Point(pts[i + 1].X - h / 3, pts[i + 1].Y - m[i + 1] * h / 3),
                 Point3 = pts[i + 1],
@@ -830,14 +575,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return figure;
     }
 
-    /// <summary>
-    /// Fritsch-Carlson monotone cubic Hermite tangents for the points (xs[i], ys[i]). Interior
-    /// tangents start at zero wherever the neighbouring secant slopes disagree in sign or either
-    /// is exactly flat (a local extremum or the edge of a plateau) — the rest average the two
-    /// neighbouring slopes. A clamping pass then caps every tangent so no segment's curve can rise
-    /// or fall past its own two endpoints, which is what makes the interpolation monotone
-    /// (overshoot-free) instead of a plain spline that can bulge past a flat run's edges.
-    /// </summary>
+    /// <summary>Fritsch-Carlson monotone cubic Hermite tangents for (xs[i], ys[i]). The final clamping
+    /// pass caps every tangent so no segment can rise or fall past its own two endpoints.</summary>
     private static double[] MonotoneTangents(IReadOnlyList<double> xs, IReadOnlyList<double> ys)
     {
         int n = xs.Count;
@@ -879,9 +618,6 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return m;
     }
 
-    /// <summary>Extracts (x, y) into parallel arrays and returns the monotone tangents for a run of
-    /// projected points — the per-run half of the old <c>BuildMonotoneFigure</c>, split out so the
-    /// SoC fill and line can compute it ONCE and pass it to both figures.</summary>
     private static double[] MonotoneTangentsFor(IReadOnlyList<Point> pts)
     {
         var xs = new double[pts.Count];
@@ -890,17 +626,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return MonotoneTangents(xs, ys);
     }
 
-    /// <summary>
-    /// Draws the SoC series as a gradient fill plus the line on top, both from ONE runs+tangents
-    /// computation (<paramref name="runs"/> from <see cref="CollectRuns"/>, tangents via
-    /// <see cref="MonotoneTangentsFor"/>). The fill and the line are the identical monotone curve
-    /// (<see cref="BuildMonotoneFigure"/>) — the fill just closes down to <paramref name="plotBottomY"/>
-    /// — so computing the runs and the Fritsch-Carlson tangents once here replaces the old
-    /// separate DrawGradientFill + DrawSeries pair that did it twice per render. Per run the fill is
-    /// added before the line so it layers underneath; runs are disjoint in x, so the resulting
-    /// z-order matches the old "all fills, then all lines" ordering exactly. A pre-built cached
-    /// <paramref name="fillBrush"/> (AppColors) is reused across renders, never allocated here.
-    /// </summary>
+    /// <summary>Draws the SoC series as a gradient fill plus the line on top, from one runs+tangents
+    /// computation so their edges match exactly.</summary>
     private void DrawSocFillAndLine(
         IReadOnlyList<List<Point>> runs, Brush lineBrush, LinearGradientBrush fillBrush, double plotBottomY)
     {
@@ -910,12 +637,10 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
             var m = MonotoneTangentsFor(pts);
 
-            // Fill first (sits underneath the line and, being drawn before limit/power, under those too).
             var fillGeo = new PathGeometry();
             fillGeo.Figures.Add(BuildMonotoneFigure(pts, m, closeAtY: plotBottomY));
             SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = fillGeo, Fill = fillBrush });
 
-            // Line: same tangents, so its edge matches the fill's upper boundary exactly.
             var lineGeo = new PathGeometry();
             lineGeo.Figures.Add(BuildMonotoneFigure(pts, m));
             SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
@@ -930,13 +655,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         }
     }
 
-    /// <summary>
-    /// Draws the time-split break for a collapsed downtime gap: two short parallel diagonal strokes
-    /// (the familiar "broken axis" mark) spanning the plot height below the reserved label band,
-    /// plus a high-contrast pill label of how much time the break stands in for (e.g. "13h", "2d").
-    /// Makes it obvious the timeline was cut here — and by roughly how much — rather than silently
-    /// skipping it or drawing it full-length.
-    /// </summary>
+    /// <summary>Draws a collapsed gap: two diagonal strokes below the reserved label band, plus a
+    /// pill saying how much time the break stands in for.</summary>
     private void DrawGapBreak(double x, TimeSpan skipped, double canvasWidth, double canvasHeight, double pad)
     {
         var stroke = SparklineStartLabel.Foreground;
@@ -954,22 +674,13 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
                 Opacity            = 0.75,
             });
 
-        // "How much time was skipped" pill, centred on the break inside its own reserved band —
-        // never overlapped by the strokes, which start below it.
+        // Inside its own reserved band, so the strokes — which start below it — never cross it.
         AddAnnotationPill(x, pad, FormatGap(skipped), canvasWidth, fontSize: 11);
     }
 
-    /// <summary>
-    /// Adds a small opaque "pill" (rounded solid-background + bold text) to the sparkline canvas,
-    /// horizontally centred on <paramref name="centerX"/> with its top edge at <paramref name="top"/>
-    /// and clamped to stay within the canvas. A plain themed-foreground TextBlock alone wasn't
-    /// enough contrast for annotations that sit on top of coloured lines and a gradient fill — a
-    /// genuinely opaque background (AnnotationPillBackgroundRef, NOT the card's own translucent
-    /// ControlFillColorDefaultBrush) guarantees legibility regardless of what's beneath. Returns the
-    /// created <see cref="Border"/> so transient callers (e.g. the hover crosshair, TODO #27, which
-    /// must remove its own pill on every pointer move without touching the rest of the canvas) can
-    /// track and remove it later; per-render callers (gap breaks, min/max markers) just ignore it.
-    /// </summary>
+    /// <summary>Adds a small pill centred on <paramref name="centerX"/> and clamped to the canvas. Its
+    /// background is deliberately opaque — not the card's translucent fill — so annotations stay
+    /// legible over whatever is beneath them.</summary>
     private Border AddAnnotationPill(double centerX, double top, string text, double canvasWidth, double fontSize)
     {
         var label = new TextBlock
@@ -988,33 +699,21 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         };
 
         Canvas.SetLeft(pill, PillLeft(centerX, text, fontSize, canvasWidth));
-        // Clamp vertically too: a min/max marker near 100% SoC places `top` just above the dot,
-        // which is already near the plot's own top edge — without this, the pill can compute a
-        // negative Top and render clipped above (or entirely outside) the canvas.
+        // Clamp vertically too: a marker near 100% SoC computes a `top` above the canvas.
         Canvas.SetTop(pill, Math.Max(0, top));
         SparklineCanvas.Children.Add(pill);
         return pill;
     }
 
-    /// <summary>
-    /// Estimated (not measured) left edge for a centred pill of <paramref name="text"/>, clamped to
-    /// stay within the canvas — see <see cref="AddAnnotationPill"/> for why the width is estimated
-    /// rather than measured. Shared by that per-render path and the reused hover-crosshair pill so
-    /// both clamp identically.
-    /// </summary>
+    /// <summary>Estimated (not measured) left edge for a centred pill, clamped to the canvas.</summary>
     private static double PillLeft(double centerX, string text, double fontSize, double canvasWidth)
     {
         double estimatedWidth = text.Length * fontSize * PillCharWidthEm + PillPaddingX;
         return Math.Clamp(centerX - estimatedWidth / 2, 0, Math.Max(0, canvasWidth - estimatedWidth));
     }
 
-    /// <summary>
-    /// Formats a skipped-time gap compactly for the break label, e.g. "45m", "13h", "2d", "1w".
-    /// Rounds each tier's OWN value before comparing it to that tier's boundary — checking the raw
-    /// (unrounded) value against 60/24/7 let a value just under a boundary round UP to the boundary
-    /// itself instead of promoting to the next unit (e.g. 59.6 minutes rounding to "60m" rather than
-    /// "1h", or 23.6 hours to "24h" rather than "1d").
-    /// </summary>
+    /// <summary>Formats a skipped-time gap compactly, e.g. "45m", "13h", "2d", "1w". Rounds each
+    /// tier's own value before comparing it, so 59.6 minutes promotes to "1h" rather than "60m".</summary>
     private static string FormatGap(TimeSpan gap)
     {
         int minutes = (int)Math.Round(gap.TotalMinutes, MidpointRounding.AwayFromZero);
@@ -1026,12 +725,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return $"{(int)Math.Round(gap.TotalDays / 7, MidpointRounding.AwayFromZero)}w";
     }
 
-    /// <summary>
-    /// Annotates the highest and lowest points of the sparkline with a neutral dot and a
-    /// percentage label — position and the label already say "extreme", so the dot no longer
-    /// needs red/green colour coding (that read as an alarm alongside the graph's own colours).
-    /// No-op when the visible range is flat (nothing meaningful to mark).
-    /// </summary>
+    /// <summary>Marks the highest and lowest points with a dot and a percentage pill; no-op when flat.</summary>
     private void DrawSparklineMarkers(
         IReadOnlyList<BatterySample> samples, double canvasWidth,
         IReadOnlyList<double> xs, Func<double, double> projectY)
@@ -1052,7 +746,6 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             const double dotR = 3;
             double cy = projectY(pct);
 
-            // Same neutral, theme-aware brush as the axis/time labels.
             var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
             {
                 Width = dotR * 2, Height = dotR * 2, Fill = SparklineStartLabel.Foreground,
@@ -1061,8 +754,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             Canvas.SetTop(dot,  cy - dotR);
             SparklineCanvas.Children.Add(dot);
 
-            // Pill (not a plain themed-foreground label) so the percentage stays legible over the
-            // gradient fill and lines it sits above — ~20px clears the dot plus the pill's own padding.
+            // A pill, not a plain label, keeps the percentage legible over the fill and lines.
             AddAnnotationPill(cx, cy - dotR - 20, $"{pct}%", canvasWidth, fontSize: 13);
         }
     }

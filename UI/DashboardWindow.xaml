@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="ChargeKeeper.UI.DashboardWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -13,40 +13,62 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- No fixed Width: the grid fills the window, which is sized in code per monitor DPI.
-         The window height is measured from this grid (PlaceWindow), so rows can appear/disappear
-         without any hard-coded height constants. -->
-    <Grid x:Name="RootGrid" Padding="20,16,20,20">
+    <!-- No fixed size: the window is measured from this grid, so rows can appear and disappear
+         without hard-coded height constants. -->
+    <Grid x:Name="RootGrid" Padding="20,16,20,12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- 0: Header -->
-            <RowDefinition Height="Auto"/>  <!-- 1: Gauge + stats -->
-            <RowDefinition Height="Auto"/>  <!-- 2: History graph (time-scale selector + sparkline) -->
-            <RowDefinition Height="Auto"/>  <!-- 3: Separator -->
-            <RowDefinition Height="Auto"/>  <!-- 4: Status badges -->
+            <RowDefinition Height="Auto"/>  <!-- header -->
+            <RowDefinition Height="Auto"/>  <!-- gauge and stats -->
+            <RowDefinition Height="Auto"/>  <!-- history graph -->
+            <RowDefinition Height="Auto"/>  <!-- separator -->
+            <RowDefinition Height="Auto"/>  <!-- status badges -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8"
-                    VerticalAlignment="Center" Margin="0,0,0,14">
-            <Image Source="ms-appx:///Assets/AppIcon.png"
-                   Width="18" Height="18" VerticalAlignment="Center"/>
-            <TextBlock Text="ChargeKeeper"
-                       FontSize="13"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-        </StackPanel>
+        <!-- A Grid, not a StackPanel: only a Grid can push the settings button to the far edge. -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-        <!-- Battery gauge section: gauge left, stats right filling remaining width -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Center">
+                <Image Source="ms-appx:///Assets/AppIcon.png"
+                       Width="18" Height="18" VerticalAlignment="Center"/>
+                <TextBlock Text="ChargeKeeper"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </StackPanel>
+
+            <!-- Set inline rather than through TimeScaleButtonStyle, which lives in
+                 BatteryHistoryGraphControl's resources and is not in scope here. -->
+            <Button Grid.Column="1"
+                    x:Name="SettingsButton"
+                    Width="28" Height="28"
+                    Padding="0"
+                    CornerRadius="4"
+                    BorderThickness="0"
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Settings"
+                    AutomationProperties.Name="Settings"
+                    Click="OnSettingsButton">
+                <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" FontSize="14"/>
+            </Button>
+        </Grid>
+
+        <!-- Gauge left, stats filling the remaining width. -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Circular arc gauge -->
             <Grid Grid.Column="0" Width="100" Height="100" Margin="0,0,16,0">
-                <!-- Background arc (track) -->
+                <!-- Track. -->
                 <Canvas Width="100" Height="100">
                     <Path x:Name="GaugeTrack"
                           Stroke="{ThemeResource ControlStrokeColorDefaultBrush}"
@@ -59,11 +81,9 @@
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
                           Canvas.Left="0" Canvas.Top="0"/>
-                    <!-- Charge threshold tick markers. Strokes (ticks AND the fill above) are
-                         assigned in code-behind from the shared palette — ticks get
-                         AppColors.HistoryLimitBrush (Terracotta) so the "charge limit" concept
-                         reads as one colour everywhere; hex literals here had to be hand-synced
-                         and once drifted. -->
+                    <!-- Charge-limit ticks. Strokes come from the shared palette in code-behind, so
+                         the charge-limit concept reads as one colour everywhere and no hex literal
+                         here can drift from it. -->
                     <Path x:Name="GaugeStartTick"
                           StrokeThickness="2.5"
                           StrokeStartLineCap="Round"
@@ -79,9 +99,8 @@
                           Visibility="Collapsed"
                           Opacity="0.9"/>
                 </Canvas>
-                <!-- Percentage + a compact status glyph in the centre. The glyph (▲ charging /
-                     ● idle / ▼ discharging) replaces the old status word, which was too wide and
-                     touched the arc. Colour conveys state and is set in code. -->
+                <!-- A glyph rather than a status word, which was wide enough to touch the arc.
+                     Colour carries the state and is set in code. -->
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="-3">
                     <TextBlock x:Name="BatteryPercentText"
                                Text="--"
@@ -97,7 +116,6 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Right side stats -->
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                 <StackPanel Spacing="2">
                     <TextBlock Text="POWER" Style="{StaticResource StatLabelStyle}"/>
@@ -114,46 +132,41 @@
             </StackPanel>
         </Grid>
 
-        <!-- Battery history graph + its time-scale ("period") controls — extracted into
-             BatteryHistoryGraphControl so the exact same graph can also be hosted in the bigger,
-             resizable BatteryHistoryWindow pop-out (opened via this control's "Expand" button)
-             without duplicating the drawing code. PlotAreaHeight pins the plot canvas to the same
-             126px it always had here, keeping this popup's measured size unchanged. -->
+        <!-- The graph is its own control so BatteryHistoryWindow can host the same drawing code at
+             a larger size. PlotAreaHeight pins the canvas so this popup's measured size is fixed. -->
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph"
                                            Grid.Row="2"
-                                           Margin="0,0,0,12"
+                                           Margin="0,0,0,8"
                                            PlotAreaHeight="126"/>
 
-        <!-- Separator -->
         <Border Grid.Row="3"
                 Height="1"
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                Margin="0,0,0,12"/>
+                Margin="0,0,0,8"/>
 
-        <!-- Status badges -->
+        <!-- Badge padding is 5 top and bottom rather than the 6 a card would take: the section
+             headings are a size larger here, and the popup is height-constrained. -->
         <StackPanel Grid.Row="4" Spacing="8">
 
-            <!-- Smart Charge badge -->
             <Border x:Name="SmartChargeBadge"
                     CornerRadius="6"
-                    Padding="10,8">
+                    Padding="10,5">
                 <StackPanel Spacing="0">
-                    <!-- Header row: title + indicator dot -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="1">
+                        <!-- A second hit target for the switch, so a click anywhere on the badge
+                             text works. The Background is required: a panel with no brush is not
+                             hit-testable, leaving only the glyphs clickable. -->
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
+                                    Tapped="OnSmartChargeLabelTapped">
                             <TextBlock Text="Smart Charge"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                                <!-- Rich tooltip: a bold one-line summary, then a longer plain-
-                                     language explanation — a plain-string ToolTip can't carry two
-                                     font weights, so this uses an explicit ToolTip/StackPanel
-                                     instead. MaxWidth keeps the paragraph from stretching edge to
-                                     edge before it wraps. -->
+                                       Style="{StaticResource DashboardHeaderStyle}">
+                                <!-- An explicit ToolTip rather than a plain string, which cannot
+                                     carry two font weights. -->
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="280" Spacing="6">
@@ -173,23 +186,23 @@
                                        FontSize="11"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
-                        <Border Grid.Column="1"
-                                x:Name="SmartChargeIndicator"
-                                Width="8" Height="8"
-                                CornerRadius="4"
-                                VerticalAlignment="Center"/>
+                        <!-- Empty On/OffContent and MinWidth 0 strip the default 154 px label
+                             track, so the switch takes only the space it needs. The badge
+                             background carries the active colour. -->
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="SmartChargeToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Smart Charge"
+                                      Toggled="OnSmartChargeToggled"/>
                     </Grid>
 
-                    <!-- Threshold range — visible when Smart Charge is capable and enabled.
-                         Changes auto-apply (debounced); there is no Apply button. A single
-                         dual-thumb RangeSelector (CommunityToolkit.WinUI.Controls, MIT license —
-                         see README external-libraries table) replaces the old two separate
-                         sliders: Start% on the left, Stop% on the right of the same track, so the
-                         relationship between them ("charge between X% and Y%") reads as one
-                         control instead of two independent ones. Minimum/Maximum/StepFrequency
-                         are set in code-behind (ConfigureThresholdRange) — assigning them via
-                         XAML throws a XamlParseException on this Windows App SDK build (same
-                         issue the old Slider.Minimum had). -->
+                    <!-- One dual-thumb selector rather than two sliders, so "charge between X and
+                         Y" reads as a single control. Changes auto-apply, debounced, with no Apply
+                         button. Minimum, Maximum and StepFrequency are set in code-behind: setting
+                         them in XAML throws a XamlParseException on this Windows App SDK build. -->
                     <StackPanel x:Name="ThresholdSliders"
                                 Spacing="0"
                                 Margin="0,6,0,0"
@@ -213,11 +226,9 @@
                         </Grid>
                     </StackPanel>
 
-                    <!-- Shown INSTEAD of the range picker on vendors that have no numeric
-                         threshold. HP exposes three coarse BIOS modes ("Battery Health Manager")
-                         and no percentage at all, so a draggable range would invite the user to
-                         pick a value the firmware silently ignores. Text is set in code-behind
-                         because the cap figure comes from the active vendor. -->
+                    <!-- Replaces the range picker on vendors with no numeric threshold, where a
+                         draggable range would offer values the firmware silently ignores. The text
+                         is set in code-behind because the cap figure comes from the vendor. -->
                     <TextBlock x:Name="ThresholdFixedNote"
                                FontSize="11"
                                Margin="0,6,0,0"
@@ -225,43 +236,49 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
-                    <!-- One-shot "charge to 100% once" (travel override). Visible whenever Smart
-                         Charge is capable so it can also be cancelled while active. -->
+                    <!-- Equal-width columns so every row ends flush with the button below, which a
+                         wrapping panel with fixed cells cannot do. Columns, rows and spans are set
+                         in code from the preset count and the measured width. -->
+                    <Grid x:Name="PresetButtonPanel"
+                          Margin="0,6,0,0"
+                          Visibility="Collapsed"/>
+
+                    <!-- Visible whenever Smart Charge is capable, so an active override can also be
+                         cancelled from here. -->
                     <Button x:Name="TravelOverrideButton"
                             Content="🔝  Charge to 100 % once"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
                             FontSize="11"
                             Padding="8,4"
-                            Margin="0,8,0,0"
+                            Margin="0,6,0,0"
                             Visibility="Collapsed"
                             Click="OnTravelOverrideButton"/>
                 </StackPanel>
             </Border>
 
-            <!-- Smart Standby badge -->
             <Border x:Name="SmartStandbyBadge"
                     CornerRadius="6"
-                    Padding="10,8">
+                    Padding="10,5">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Spacing="1">
+                    <StackPanel Grid.Column="0" Spacing="1"
+                                Background="Transparent"
+                                Tapped="OnSmartStandbyLabelTapped">
                         <TextBlock Text="Smart Standby"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                   Style="{StaticResource DashboardHeaderStyle}">
                             <ToolTipService.ToolTip>
                                 <ToolTip>
                                     <StackPanel MaxWidth="280" Spacing="6">
-                                        <TextBlock Text="Puts your laptop into a deeper sleep after a while of inactivity, instead of the shallow sleep Windows uses by default."
+                                        <TextBlock Text="Puts the computer into a deeper sleep after a period of inactivity, instead of the shallow sleep Windows uses by default."
                                                    FontWeight="SemiBold"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"/>
                                         <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                            Windows' default "Modern Standby" keeps parts of your laptop lightly active even with the lid closed, so it can check for notifications and updates in the background — convenient, but it slowly drains the battery the whole time, even in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the laptop has been idle for a while, so it loses much less charge overnight or in a bag. It only changes what happens during idle standby — sleeping manually, like closing the lid for a quick break, is unaffected.
+                                            Windows' default "Modern Standby" keeps parts of the computer lightly active with the lid closed, so it can check for notifications and updates in the background. That drains the battery slowly the whole time, including in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the computer has been idle for a while, so it loses much less charge overnight. Only idle standby changes; a manual sleep is unaffected.
                                         </TextBlock>
                                     </StackPanel>
                                 </ToolTip>
@@ -272,12 +289,124 @@
                                    FontSize="11"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
-                    <Border Grid.Column="1"
-                            x:Name="SmartStandbyIndicator"
-                            Width="8" Height="8"
-                            CornerRadius="4"
-                            VerticalAlignment="Center"/>
+                    <ToggleSwitch Grid.Column="1"
+                                  x:Name="SmartStandbyToggle"
+                                  OnContent=""
+                                  OffContent=""
+                                  MinWidth="0"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Smart Standby"
+                                  Toggled="OnSmartStandbyToggled"/>
                 </Grid>
+            </Border>
+
+            <!-- Smart Standby decides how the machine sleeps; this decides when. Only the switch and
+                 the delay live here — locking at lid close stays in Settings. -->
+            <Border x:Name="LidDelayBadge"
+                    CornerRadius="6"
+                    Padding="10,5">
+                <StackPanel Spacing="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
+                                    Tapped="OnLidDelayLabelTapped">
+                            <TextBlock Text="Lid close"
+                                       Style="{StaticResource DashboardHeaderStyle}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280" Spacing="6">
+                                            <TextBlock Text="Waits before sleeping when the lid closes, instead of sleeping at once."
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                                Turning this on sets the Windows lid-close action to "Do nothing" and runs a sleep timer instead; the Windows setting is put back when it is turned off. Opening the lid before the delay is up cancels it, and a running keep-awake session holds the sleep off entirely. Pick a delay from the row below — locking the computer at lid close, and delays other than these, are in Settings.
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
+                            <TextBlock x:Name="LidDelayDetailText"
+                                       Text="—"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="LidDelayToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Lid close delay"
+                                      Toggled="OnLidDelayToggled"/>
+                    </Grid>
+
+                    <!-- Delay chips. Built in code (BuildLidDelayChips) for the same reason the
+                         keep-awake row is: the set depends on the stored delay, and their look is
+                         set there rather than by a style out of scope here. -->
+                    <StackPanel x:Name="LidDelayPresetPanel"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Never collapsed, unlike the three above: the hold is vendor-independent, so there is
+                 no unsupported-hardware case to hide it for. -->
+            <Border x:Name="KeepAwakeBadge"
+                    CornerRadius="6"
+                    Padding="10,5">
+                <StackPanel Spacing="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="1"
+                                    Background="Transparent"
+                                    Tapped="OnKeepAwakeLabelTapped">
+                            <TextBlock Text="Keep Awake"
+                                       Style="{StaticResource DashboardHeaderStyle}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280" Spacing="6">
+                                            <TextBlock Text="Stops your laptop going to sleep for a while — for a long download, a presentation, or a build."
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                                Pick how long from the row below: a fixed span, a time of day, or "Net" — stay awake until you move to a different network, which is handy for keeping a machine up only while you are at a particular desk. It always ends by itself, so there is no way to forget it on overnight. Turning it off, or moving to another network on a "Net" session, releases the hold immediately.
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
+                            <TextBlock x:Name="KeepAwakeDetailText"
+                                       Text="—"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      x:Name="KeepAwakeToggle"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Keep Awake"
+                                      Toggled="OnKeepAwakeToggled"/>
+                    </Grid>
+
+                    <!-- Built in code because the spans come from settings, and styled inline there
+                         because TimeScaleButtonStyle is not in scope here. -->
+                    <StackPanel x:Name="KeepAwakePresetPanel"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Margin="0,6,0,0"/>
+                </StackPanel>
             </Border>
         </StackPanel>
 

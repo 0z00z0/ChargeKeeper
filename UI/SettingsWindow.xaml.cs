@@ -4,109 +4,63 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
 using Windows.System;
+using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
-/// <summary>
-/// The Settings window (TODO #19) — replaces the tray menu's old 4-level-deep
-/// Settings ▸ Network profiles ▸ Add configuration ▸ &lt;preset&gt; tree with a proper,
-/// titled, resizable NavigationView window (left sidebar + content pane — "Concept A" from the
-/// issue), using <see cref="SettingsCard"/>/<see cref="SettingsExpander"/> rows for the same
-/// visual language PowerToys Settings and Files use.
-///
-/// <para>
-/// Save model (smart commit, no global Save button):
-/// <list type="bullet">
-/// <item>Toggles/dropdowns apply immediately on change.</item>
-/// <item>Ordinary text/number fields commit on focus-loss or Enter (NumberBox already defers its
-/// own <c>Value</c> updates from raw typing until then — see <see cref="OnStartupDelayChanged"/>
-/// and friends; only a spin-button click or a Home-Assistant broker field needs anything hand-
-/// wired).</item>
-/// <item>The Home Assistant/MQTT broker fields (host/port/user/pass/TLS/prefix) are the ONE
-/// exception: they stage locally and commit as a batch behind the explicit "Apply" button (see
-/// <see cref="OnHaApplyClicked"/>), so <c>HomeAssistantService</c> reconnects at most once per
-/// edit session, never per keystroke.</item>
-/// </list>
-/// </para>
-///
-/// <para>
-/// Every commit funnels through <see cref="SettingsService.Update"/> and then
-/// <see cref="TrayMenu.ReconcileFromExternalChange"/> (bare — no toast; this IS the window the
-/// user is looking at). Device-affecting or network-affecting side effects
-/// (<c>ChargeThresholdService.SetThresholds</c>, the Home-Assistant reconnect callback) fire only
-/// for the specific commit that actually needs them, not unconditionally on every keystroke.
-/// </para>
-///
-/// <para>
-/// Single reusable instance owned by <c>App</c> (see <c>App.ShowSettingsWindow</c>), mirroring
-/// the existing <c>_dashboard</c>/<c>_historyWindow</c> singleton pattern. Deliberately does NOT
-/// use <see cref="ChargeKeeper.Helpers.WindowChrome.ApplyPopup"/> — that chrome auto-dismisses on
-/// focus loss, which would close this window mid-edit (e.g. while typing a broker password into
-/// another app's copy/paste flow, or just alt-tabbing away). Plain default WinUI3 chrome already
-/// gives a titled, resizable, taskbar/Alt-Tab-visible window with no extra code.
-/// </para>
-/// </summary>
+/// <summary>The app's Settings window: a NavigationView with one panel per section, built from
+/// <see cref="SettingsCard"/>/<see cref="SettingsExpander"/> rows. Every setting commits as it is
+/// edited except the Home Assistant broker fields, which stage locally and commit as a batch behind
+/// Apply so <c>HomeAssistantService</c> reconnects once per edit session, not per keystroke. Plain
+/// WinUI chrome, not <see cref="ChargeKeeper.Helpers.WindowChrome.ApplyPopup"/> — that
+/// auto-dismisses on focus loss, which would close the window mid-edit.</summary>
 internal sealed partial class SettingsWindow : Window
 {
     private const string AppName = AppInfo.Name;
-    // First-open default (DIPs, scaled to the monitor and capped to its work area). Sized as a
-    // sensible max so the window is never oversized on a large/ultrawide screen — the content
-    // otherwise lays out ~2580 px wide.
+    // First-open default in DIPs; the content otherwise lays out ~2580 px wide.
     private const int DefaultWidth  = 1200;
     private const int DefaultHeight = 750;
 
     private readonly TrayMenu _menu;
     private readonly Action   _onHomeAssistantChanged;
 
-    // Raised after the preset LIST changes (add/rename/delete). HA's "Charge preset" select carries
-    // its options inside the retained discovery config, published at connect time — without this the
-    // dropdown keeps offering the old names until the next reconnect.
-    private readonly Action   _onPresetsChanged;
+    // Raised when what is announced changes: a preset renamed, or a publishing group toggled. The
+    // select options and the announced entity set are both baked into the retained discovery configs,
+    // so without this the broker keeps the set captured at connect time.
+    private readonly Action   _onDiscoveryChanged;
 
-    // Guards LoadXxx()'s programmatic control assignments from re-entering their own
-    // changed/toggled/selection handlers and queuing a bogus commit — same pattern as
-    // DashboardWindow's _updatingSliders. One shared flag is safe here: every LoadXxx() call runs
-    // synchronously to completion (no awaited gap) before the next one starts.
+    // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
+    // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
     private bool _updating;
 
-    // Every preset row's 700ms commit-debounce DispatcherTimer, tracked so RebuildPresetRows()
-    // and OnClosed can Stop() them: a timer left running after its row is discarded (a DIFFERENT
-    // preset renamed/added/deleted meanwhile, or the whole window closing) would otherwise fire
-    // later against a detached row and either silently overwrite a fresh value with a stale one,
-    // or — if the window closed — touch a torn-down window. Same failure class DashboardWindow's
-    // own threshold-debounce timer is stopped in its Closed handler to avoid.
+    // Every preset row's commit-debounce timer, tracked so one left running after its row is
+    // discarded can be stopped before it fires against a detached row or a closed window.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onPresetsChanged)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onDiscoveryChanged)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
-        _onPresetsChanged       = onPresetsChanged;
+        _onDiscoveryChanged     = onDiscoveryChanged;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
 
-        // Pane-footer version line (issue #51). Same AppInfo.Version source the About box uses, so
-        // the two can't drift; a plain field read that can't throw, safe before the SafeInit steps.
         VersionText.Text = $"v{AppInfo.Version}";
 
-        // NOTHING below may throw out of the constructor. App.ShowSettingsWindow only assigns
-        // _settings and calls Activate() once `new SettingsWindow(...)` returns — so a throw here
-        // leaves an orphaned, never-shown window AND makes every later "Settings…" click leak
-        // another hidden one (the "Settings window never appears" symptom, reproduced on a
-        // multi-monitor setup where the window-placement API faulted). Each step is best-effort:
-        // one failing piece degrades on its own instead of hiding the whole window.
+        // Nothing below may throw out of the constructor: App.ShowSettingsWindow only stores the
+        // window and calls Activate() once the ctor returns, so a throw here leaves an orphaned,
+        // never-shown window and every later "Settings…" click leaks another.
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
         SafeInit(nameof(RefreshAllSections), RefreshAllSections);
         SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
         SafeInit(nameof(LoadAboutOnce), LoadAboutOnce);
-        // Must run BEFORE the first layout pass: MeasureTallestPageExtent sizes the window to the
-        // tallest page, and the Smart Charge page is much shorter once the preset and
-        // network-profile sections are hidden on fixed-mode hardware. Applying it only on tab
-        // switch would size the window for sections that never appear.
+        // Before the first layout pass: MeasureTallestPageExtent sizes the window to the tallest
+        // page, and Smart Charge is much shorter once its sections are hidden on fixed-mode hardware.
         SafeInit(nameof(ApplyThresholdCapabilityToSmartChargePage), ApplyThresholdCapabilityToSmartChargePage);
+        SafeInit(nameof(WireKeepAwakeHandlers), WireKeepAwakeHandlers);
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -114,92 +68,75 @@ internal sealed partial class SettingsWindow : Window
         });
 
         Closed += OnClosed;
+
+        // After Closed, which owns the detach. Without this the "Current network" lines only ever
+        // refresh on open, on a section switch and on a rule edit, so a dock, an undock or a carrier
+        // change leaves a network on screen that the service moved off long ago.
+        NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
     }
+
+    // Raised off the UI thread by NetworkLocationService — marshal before touching anything.
+    private void OnNetworkLocationChanged(NetworkLocation location) => RunOnUi(() =>
+    {
+        RefreshCurrentNetworkText();
+        RefreshKeepAwakeCurrentNetworkText();
+    });
 
     private bool _aboutLoaded;
 
-    /// <summary>
-    /// Populates the embedded About panel — payload and card width both from
-    /// <see cref="AboutContent"/>, so this surface cannot drift from the standalone
-    /// <see cref="AboutWindow"/>.
-    ///
-    /// <para>MUST run at most once per window, and self-enforces that rather than trusting its one
-    /// call site. <c>BrandAboutControl.SetInfo</c> is NOT idempotent: it APPENDS a line per external
-    /// library to its credits panel and ADDS a repo-button Click handler, with no clear or
-    /// unsubscribe. A second call therefore duplicates all six credit rows and makes one "GitHub"
-    /// click open two browser tabs. That matters because this sits next to
-    /// <see cref="RefreshAllSections"/>, which re-runs on every re-activation of an already-open
-    /// window and after a settings reload — moving the About line into it looks like the natural
-    /// tidy-up and would silently grow the credits list on each re-open. The guard makes that
-    /// refactor harmless instead of a bug; the payload is static for the process lifetime
-    /// (name/version/credits), so there is nothing to refresh anyway.</para>
-    ///
-    /// <para>Fixing <c>SetInfo</c> itself is the better repair, but <c>BrandAboutControl</c> lives in
-    /// the shared 0z0-shared repo and is consumed by the sibling tray apps; guard here, from the
-    /// side that knows its own call pattern.</para>
-    /// </summary>
+    /// <summary>Populates the embedded About panel, at most once per window:
+    /// <c>BrandAboutControl.SetInfo</c> appends credit rows and adds a repo-button handler with no
+    /// clear or unsubscribe, so a second call duplicates the credits and makes one "GitHub" click
+    /// open two tabs.</summary>
     private void LoadAboutOnce()
     {
         if (_aboutLoaded) return;
-        _aboutLoaded = true;   // set BEFORE the call: a SetInfo that threw half-way through appending
-                               // has already mutated the panel, so a retry would duplicate, not repair
+        _aboutLoaded = true;   // before the call: a SetInfo that threw part-way has already appended
 
         AboutCard.MaxWidth = AboutContent.ContentWidthDip;
         AboutInline.SetInfo(AboutContent.Build());
     }
 
-    /// <summary>
-    /// Runs one constructor step, swallowing + logging any failure so it cannot prevent the window
-    /// from being shown. See the constructor note for why a throw out of the ctor is fatal to the
-    /// whole window.
-    /// </summary>
+    /// <summary>Runs one constructor step, logging any failure rather than letting it escape the ctor.</summary>
     private static void SafeInit(string step, Action body)
     {
         try { body(); }
         catch (Exception ex) { AppLog.Error($"SettingsWindow ctor step '{step}'", ex); }
     }
 
-    /// <summary>
-    /// Re-reads every section's controls from live settings. Called once from the constructor,
-    /// and again by <c>App.ShowSettingsWindow</c> whenever the ALREADY-OPEN window is re-activated
-    /// (a fresh "Settings…" click while it's still open, not a raw Alt-Tab) — otherwise a change
-    /// made outside the window while it sat in the background (e.g. "Reload settings from file"
-    /// from the tray menu, or an out-of-band edit to settings.json) would keep showing stale
-    /// values here indefinitely. Any Home-Assistant broker field the user had typed but not yet
-    /// clicked Apply on is discarded by this re-sync, same as closing the window would do.
-    /// </summary>
+    /// <summary>Re-reads every section's controls from live settings. Also called when an
+    /// already-open window is re-activated, so a change made behind its back (a settings reload, an
+    /// out-of-band edit to settings.json) shows up. Any un-applied Home Assistant broker edit is
+    /// discarded by the re-sync.</summary>
     internal void RefreshAllSections()
     {
         LoadGeneral();
         LoadSmartCharge();
         LoadNotifications();
         LoadNetwork();
+        LoadKeepAwake();
         LoadHomeAssistant();
 
         // Re-read the firmware charge mode on every re-activation, so a mode changed OUTSIDE this
         // app (HP's own utility, another tool, the tray) is reflected rather than showing whatever
         // was read when the window was first built. Issue #84.
         //
-        // Only the SELECTION is refreshed, deliberately not the whole capability pass: which of the
-        // two Smart Charge layouts applies is decided when the window is built and cannot change
-        // under the user, and re-running it here would also re-do window-sizing work for no reason.
+        // Only the SELECTION is refreshed, deliberately not the whole capability pass: which Smart
+        // Charge layout applies is decided when the window is built and cannot change under the
+        // user, and re-running it here would also re-do window-sizing work for no reason.
         // Guarded on the mode list being non-empty so this costs a numeric vendor nothing — on
         // Lenovo it would otherwise be a pointless vendor round-trip on every re-activation.
         if (ChargeThresholdService.AvailableModes.Count > 0) BuildChargeModeRadios();
     }
 
-    // ── Window chrome / lifecycle ────────────────────────────────────────────────
-
     private void ConfigureWindowChrome()
     {
         var rect = ComputeInitialRect();
-        // AppWindow.MoveAndResize is the same call the History window uses successfully on this
-        // machine; guarded regardless so a placement failure can never stop the window from showing.
+        // Guarded: a placement failure must never stop the window from showing.
         try { AppWindow.MoveAndResize(rect); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); }
 
-        // Dark-theme the standard title bar so it matches the Mica BaseAlt backdrop.
-        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);   // match the Mica BaseAlt backdrop
 
         // The content cannot be measured yet — SettingsCard is templated, and a control outside a
         // live visual tree reports no useful size. Grow to fit once it has laid out.
@@ -213,20 +150,34 @@ internal sealed partial class SettingsWindow : Window
         ContentScroller.Loaded -= OnContentScrollerLoaded;
         if (_fittedToContent) return;
         _fittedToContent = true;
+        try { ApplyMinimumSize(); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.ApplyMinimumSize", ex); }
         try { FitWindowToContent(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.FitWindowToContent", ex); }
     }
 
-    /// <summary>
-    /// Grows the window so the tallest page fits without a vertical scrollbar, then re-clamps it to
-    /// the work area (issue: Settings opened scrolled, and with a rect saved while docked it opened
-    /// taller than the laptop panel).
-    ///
-    /// <para>The extra height is taken from the ScrollViewer's own overflow — extent minus viewport —
-    /// rather than by adding up padding, the NavigationView header and the title bar. Those are what
-    /// the two differ by, so measuring the difference gets all of them for free and cannot drift when
-    /// the chrome changes.</para>
-    /// </summary>
+    /// <summary>Stops the window being dragged below its navigation pane and its widest fixed
+    /// control. Set here rather than in <see cref="ConfigureWindowChrome"/>: the rasterisation scale
+    /// the DIP arithmetic has to be converted with is only readable once the tree has laid out.</summary>
+    private void ApplyMinimumSize()
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+
+        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
+        int width  = WindowFit.MinimumWidthDip(Nav.OpenPaneLength,
+                                               ContentScroller.Padding.Left + ContentScroller.Padding.Right);
+        int height = WindowFit.MinimumHeightDip(Nav.MenuItems.Count,
+                                                ContentScroller.Padding.Top + ContentScroller.Padding.Bottom);
+
+        presenter.PreferredMinimumWidth  = WindowFit.ToPhysicalPixels(width,  scale);
+        presenter.PreferredMinimumHeight = WindowFit.ToPhysicalPixels(height, scale);
+        AppLog.Info($"SettingsWindow minimum size: {width}x{height} DIP at scale {scale} -> "
+                  + $"{presenter.PreferredMinimumWidth}x{presenter.PreferredMinimumHeight} px.");
+    }
+
+    /// <summary>Grows the window so the tallest page fits without a scrollbar, then re-clamps it to
+    /// the work area. The extra height comes from the ScrollViewer's own overflow rather than a sum
+    /// of padding, header and title bar, so it cannot drift when the chrome changes.</summary>
     private void FitWindowToContent()
     {
         double viewport = ContentScroller.ViewportHeight;
@@ -252,20 +203,14 @@ internal sealed partial class SettingsWindow : Window
         catch (Exception ex) { AppLog.Error("SettingsWindow.FitMoveAndResize", ex); }
     }
 
-    /// <summary>
-    /// Height (DIPs) the scrollable content would take on its LONGEST page — currently Smart Charge,
-    /// which absorbed the network profiles.
-    ///
-    /// <para>All five panels are siblings in one Grid cell and every inactive one is Collapsed, so
-    /// measuring as-is only ever sizes the page that happens to be open. Making them all visible
-    /// makes the Grid report the tallest of them (they overlap, so it is a max, not a sum), which is
-    /// the number the window must fit. Visibility is restored before returning, so nothing the user
-    /// sees changes.</para>
-    /// </summary>
+    /// <summary>Height in DIPs the content would take on its longest page. The panels are
+    /// overlapping siblings with the inactive ones Collapsed, so measuring as-is only sizes
+    /// whichever page is open — making them all visible makes the Grid report their max. Visibility
+    /// is then restored.</summary>
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, SmartChargePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+            [GeneralPanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -287,15 +232,10 @@ internal sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>
-    /// The window's opening rect (physical px): the saved size+position when one exists (clamped
-    /// onto a currently-connected monitor), otherwise a default centred on the monitor under the
-    /// cursor and capped to its work area so it is never oversized on a large screen. Both paths
-    /// deliberately use the native MonitorFromPoint route, NOT DisplayArea.FindAll — the latter
-    /// faulted in the constructor on a multi-monitor setup and, because a throw there left the
-    /// window unactivated, made the Settings window never appear (the placement was lost and the
-    /// window fell back to its oversized content-default size).
-    /// </summary>
+    /// <summary>The opening rect in physical pixels: the saved size and position clamped onto a
+    /// connected monitor, else a default centred on the monitor under the cursor. Both paths use
+    /// the native MonitorFromPoint route, not DisplayArea.FindAll, which faults on some
+    /// multi-monitor setups.</summary>
     private static RectInt32 ComputeInitialRect()
     {
         var s = SettingsService.Current;
@@ -307,22 +247,21 @@ internal sealed partial class SettingsWindow : Window
             return new RectInt32(cx, cy, cw, ch);
         }
 
-        return NativeMethods.CenterRectOnCursorMonitor(DefaultWidth, DefaultHeight);
+        return NativeMethods.CentreRectOnCursorMonitor(DefaultWidth, DefaultHeight);
     }
 
-    /// <summary>
-    /// Persists the window's final on-screen rect (physical pixels) to
-    /// <see cref="SettingsService"/> — WinUIEx's own <c>PersistenceId</c> is NOT used here: it
-    /// stores through <c>Windows.Storage.ApplicationData</c>, unavailable to this unpackaged app.
-    /// </summary>
+    /// <summary>Persists the window's final rect. WinUIEx's <c>PersistenceId</c> is unusable here
+    /// — it stores through <c>Windows.Storage.ApplicationData</c>, which an unpackaged app does
+    /// not have.</summary>
     private void OnClosed(object sender, WindowEventArgs e)
     {
+        _closed = true;
+
         var pos  = AppWindow.Position;
         var size = AppWindow.Size;
 
         // Clamp before storing, never after reading: a rect saved on a monitor that is later gone
-        // (docked, then closed on the laptop panel) is what put the window off-screen and oversized
-        // in the first place. requiredHeight 0 — this must validate what the user chose, not resize it.
+        // is what puts the window off-screen on the next open.
         var (x, y, w, h) = NativeMethods.ClampRectToNearestMonitor(pos.X, pos.Y, size.Width, size.Height);
 
         SettingsService.Update(s =>
@@ -334,28 +273,44 @@ internal sealed partial class SettingsWindow : Window
         });
 
         StopAllPresetDebounceTimers();
+
+        // Static events, instance handlers: without these the closed window stays reachable from
+        // the services for the process's life and keeps touching a torn-down UI tree.
+        KeepAwakeService.StateChanged          -= OnKeepAwakeStateChanged;
+        NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
+        _keepAwakeTicker.Stop();
+
+        // An in-flight connection test or endpoint search outlives the window by up to its budget;
+        // cancelling makes each continuation bail before it touches a torn-down control.
+        _haProbeCts?.Cancel();
+        CancelAutodetect();
     }
 
-    /// <summary>
-    /// Marshals <paramref name="action"/> onto this window's UI thread — same guarded pattern as
-    /// <c>BatteryHistoryGraphControl.RunOnUi</c>: an unhandled exception thrown inside a raw
-    /// <see cref="DispatcherQueue"/> callback is a stowed exception that tears down the whole
-    /// process, not just this window, so every callback that can run off a background Task must
-    /// go through here rather than touching UI elements directly.
-    /// </summary>
-    private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
-    {
-        try { action(); }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.RunOnUi", ex); }
-    });
+    // Set in OnClosed. Background callbacks started before the close still marshal back, and
+    // touching a destroyed window's XAML members throws, so RunOnUi drops them instead.
+    private bool _closed;
 
-    /// <summary>
-    /// Runs <paramref name="apply"/> (a batch of programmatic control assignments) with the
-    /// <see cref="_updating"/> re-entrancy guard raised, always lowering it in a <c>finally</c>.
-    /// Every LoadXxx() must go through here: a bare <c>_updating = true; …; _updating = false;</c>
-    /// pair leaves the flag stuck true if any assignment throws, silently disabling every future
-    /// edit commit in the window.
-    /// </summary>
+    /// <summary>Marshals <paramref name="action"/> onto this window's UI thread. An unhandled
+    /// exception inside a raw <see cref="DispatcherQueue"/> callback is a stowed exception that
+    /// tears the whole process down, so every callback that can run off a background task goes
+    /// through here.</summary>
+    private void RunOnUi(Action action)
+    {
+        try
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_closed) return;   // window already destroyed — a stale callback has nothing to update
+                try { action(); }
+                catch (Exception ex) { AppLog.Error("SettingsWindow.RunOnUi", ex); }
+            });
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.RunOnUi enqueue", ex); }
+    }
+
+    /// <summary>Raises the <see cref="_updating"/> guard around a batch of programmatic control
+    /// assignments, lowering it in a <c>finally</c> — a hand-written pair leaves the flag stuck
+    /// true if an assignment throws, silently disabling every later commit in the window.</summary>
     private void WithUpdatingSuppressed(Action apply)
     {
         _updating = true;
@@ -363,19 +318,11 @@ internal sealed partial class SettingsWindow : Window
         finally { _updating = false; }
     }
 
-    /// <summary>
-    /// Stops and forgets every outstanding preset-row debounce timer — called both when the rows
-    /// are discarded (<see cref="RebuildPresetRows"/>) and when the window closes
-    /// (<see cref="OnClosed"/>), so a still-armed timer can't fire ~700 ms later against a
-    /// detached row or a torn-down window (see the <see cref="_presetDebounceTimers"/> comment).
-    /// </summary>
     private void StopAllPresetDebounceTimers()
     {
         foreach (var t in _presetDebounceTimers) t.Stop();
         _presetDebounceTimers.Clear();
     }
-
-    // ── Navigation ────────────────────────────────────────────────────────────────
 
     private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
@@ -387,57 +334,82 @@ internal sealed partial class SettingsWindow : Window
     {
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
+        KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
+        LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
-        // Cheap to refresh every time the tab is opened rather than on a timer — reflects a
-        // network change made while the window was on a different tab. The network profiles
-        // now live on the Smart Charge page.
+        // Refreshed on open rather than on a timer: cheap, and it picks up anything that changed
+        // while the window sat on a different tab.
         if (tag == "SmartCharge")
         {
             ApplyThresholdCapabilityToSmartChargePage();
             RefreshCurrentNetworkText();
         }
+
+        if (tag == "HomeAssistant")
+        {
+            RefreshHaActivityTexts();
+            // Opening the page is one of the two triggers for the endpoint search; the other is a
+            // field it depends on changing.
+            StartAutodetect();
+        }
+        else
+            CancelAutodetect();   // nothing left on screen for its answer to land on
+
+        // The remaining-time line counts down, so it needs a tick — but only while it is on screen.
+        if (tag == "KeepAwake")
+        {
+            RefreshKeepAwakeState();
+            RefreshKeepAwakeCurrentNetworkText();
+            _keepAwakeTicker.Start();
+        }
+        else _keepAwakeTicker.Stop();
     }
 
-    /// <summary>
-    /// Shows either the preset/network-profile machinery or a plain explanation, depending on
-    /// whether the active vendor takes arbitrary percentages.
-    ///
-    /// Presets and network profiles are both expressed ONLY as start/stop percentages. On HP
-    /// there is no numeric threshold at all — every preset snaps to the same on/off — so leaving
-    /// the editors visible invites the user to build profiles that cannot differ from each other.
-    /// That is worse than hiding them: it looks like a bug rather than a hardware limit.
-    /// </summary>
+    /// <summary>Shows the preset machinery, the vendor's fixed modes, or a plain explanation —
+    /// whichever <see cref="ThresholdCapabilityPolicy.Classify"/> says this hardware warrants.
+    /// Presets are only start/stop percentages, so hardware with no numeric threshold hides the
+    /// editors rather than offering profiles that cannot differ from each other.</summary>
     private void ApplyThresholdCapabilityToSmartChargePage()
     {
-        bool numeric = ChargeThresholdService.SupportsNumericThresholds;
+        // Read once: the state decides the surface and supplies the cap figure below.
+        var state   = ChargeThresholdService.Read();
+        var surface = ThresholdCapabilityPolicy.Classify(state, ChargeThresholdService.SupportsNumericThresholds);
 
-        NumericThresholdSettings.Visibility = numeric ? Visibility.Visible : Visibility.Collapsed;
-        FixedModeSettings.Visibility        = numeric ? Visibility.Collapsed : Visibility.Visible;
+        NumericThresholdSettings.Visibility = surface == SmartChargeSurface.Numeric    ? Visibility.Visible : Visibility.Collapsed;
+        FixedModeSettings.Visibility        = surface == SmartChargeSurface.FixedModes ? Visibility.Visible : Visibility.Collapsed;
+        NoThresholdInterfaceText.Visibility = surface == SmartChargeSurface.Hidden     ? Visibility.Visible : Visibility.Collapsed;
 
-        if (numeric) return;
+        // Reuses the read above rather than costing a second vendor RPC.
+        RefreshPresetActivationStates(state);
+
+        if (surface != SmartChargeSurface.FixedModes) return;
 
         BuildChargeModeRadios();
 
-        // Read the cap back from the device rather than hardcoding it, so the figure shown here
-        // always matches what the dashboard and the hardware report.
-        var state = ChargeThresholdService.Read();
+        // A read-only BIOS setting is readable but refuses writes, so the radios would fail
+        // silently on click.
+        ChargeModeRadios.IsEnabled = state!.Capable;
+
+        // Read the cap back from the device rather than hardcoding it, so this figure matches what
+        // the dashboard and the hardware report.
         string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
 
         FixedModeText.Text =
             $"This laptop's firmware offers fixed modes ({cap} of design capacity when limited) rather "
             + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
-            + "Windows will still report 100 % while a limit is active — this hardware lowers the "
+            + "Windows still reports 100 % while a limit is active — this hardware lowers the "
             + "battery's reported full-charge capacity instead of stopping the charge early. "
-            + "Changes take effect after a restart.";
+            + "Changes take effect after a restart."
+            + (state.Capable
+                ? string.Empty
+                : "\n\nThis setting is locked by the BIOS on this machine, so ChargeKeeper can show "
+                  + "the current mode but not change it.");
     }
 
-    /// <summary>
-    /// Populates the mode radio group from the active vendor and selects whatever the firmware
-    /// currently reports.
-    /// </summary>
+    /// <summary>Populates the mode radios from the active vendor and selects what the firmware reports.</summary>
     private void BuildChargeModeRadios()
     {
         var modes = ChargeThresholdService.AvailableModes;
@@ -467,8 +439,8 @@ internal sealed partial class SettingsWindow : Window
                 });
             }
 
-            // A null id — firmware reporting a mode this build doesn't list — deliberately leaves
-            // every button unselected rather than highlighting a wrong one.
+            // A null id — firmware reporting a mode this build doesn't list — leaves every button
+            // unselected rather than highlighting a wrong one.
             string? current = ChargeThresholdService.ReadMode();
             ChargeModeRadios.SelectedIndex = current is null
                 ? -1
@@ -484,11 +456,8 @@ internal sealed partial class SettingsWindow : Window
         return -1;
     }
 
-    /// <summary>
-    /// Guards the SelectionChanged handler against the programmatic selection made while
-    /// populating the list, which would otherwise write the mode straight back to the firmware
-    /// every time the Settings window opened.
-    /// </summary>
+    // Guards SelectionChanged against the programmatic selection made while populating the list,
+    // which would otherwise write the mode back to the firmware every time the window opened.
     private bool _suppressChargeModeEvent;
 
     private void OnChargeModeSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -498,23 +467,20 @@ internal sealed partial class SettingsWindow : Window
 
         if (!ChargeThresholdService.SetMode(id))
         {
-            // Write refused (firmware rejected it, or the setting is read-only). Snap the UI back
-            // to what the device actually reports rather than leaving a selection that lies.
+            // Write refused. Snap the UI back to what the device reports rather than leaving a
+            // selection that lies.
             AppLog.Info($"Charge mode write refused by firmware: {id}");
             BuildChargeModeRadios();
             return;
         }
 
-        // Re-read rather than trusting the write: the dashboard's cap figure is derived from the
-        // mode, and on this hardware a successful write can still be overridden by the firmware's
-        // own adaptive logic.
+        // Re-read rather than trusting the write: a successful write can still be overridden by the
+        // firmware's own adaptive logic.
         BuildChargeModeRadios();
     }
 
-    // ── Preset-picker plumbing (issue #22) ─────────────────────────────────────────
-    // Discrete settings are dropdowns, not spin controls (a NumberBox spinner is impractical for
-    // picking a fixed value). Presets are (label, value) pairs; the underlying int is stored in the
-    // ComboBoxItem's Tag so the display string is never parsed back.
+    // Discrete settings are dropdowns of (label, value) pairs; the int lives in the ComboBoxItem's
+    // Tag so the display string is never parsed back.
 
     private static readonly (string Label, int Value)[] StartupDelayPresets =
         [("None", 0), ("2 s", 2), ("5 s", 5), ("10 s", 10), ("20 s", 20), ("30 s", 30), ("60 s", 60)];
@@ -522,17 +488,19 @@ internal sealed partial class SettingsWindow : Window
         [("None", 0), ("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60)];
     private static readonly (string Label, int Value)[] LowBattPctPresets =
         [("5 %", 5), ("10 %", 10), ("15 %", 15), ("20 %", 20), ("25 %", 25), ("30 %", 30), ("40 %", 40), ("50 %", 50)];
+    private static readonly (string Label, int Value)[] HighBattPctPresets =
+        [("60 %", 60), ("70 %", 70), ("75 %", 75), ("80 %", 80), ("85 %", 85), ("90 %", 90), ("95 %", 95)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
+    // No "None": a zero lid delay would sleep the machine instantly through the very feature meant
+    // to delay that. LidDelayPolicy clamps a hand-edited file the same way.
+    private static readonly (string Label, int Value)[] LidDelayPresets =
+        [("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60), ("120 min", 120)];
 
-    /// <summary>
-    /// Populates a preset-picker <see cref="ComboBox"/> with its (label, value) items (each item's
-    /// <see cref="FrameworkElement.Tag"/> holds the int) and selects the one matching
-    /// <paramref name="current"/>. If the stored value is NOT one of the presets (a hand-edited
-    /// settings.json, or a value from an earlier build), it's inserted as a custom entry and
-    /// selected — so a user's stored value is shown, never silently overwritten. Call inside
-    /// <see cref="WithUpdatingSuppressed"/> so populating it doesn't fire the change-commit.
-    /// </summary>
+    /// <summary>Populates a preset-picker and selects the item matching <paramref name="current"/>.
+    /// A stored value that is not one of the presets becomes a custom entry rather than being
+    /// overwritten. Call inside <see cref="WithUpdatingSuppressed"/> so populating it doesn't fire
+    /// a commit.</summary>
     private static void LoadPresetCombo(ComboBox combo, (string Label, int Value)[] presets,
         int current, Func<int, string> formatCustom)
     {
@@ -550,8 +518,6 @@ internal sealed partial class SettingsWindow : Window
         if (_updating || combo.SelectedItem is not ComboBoxItem { Tag: int value }) return;
         SettingsService.Update(s => save(s, value));
     }
-
-    // ── General ───────────────────────────────────────────────────────────────────
 
     private void LoadGeneral()
     {
@@ -585,10 +551,9 @@ internal sealed partial class SettingsWindow : Window
         var scale = (GraphTimeScale)GraphScaleCombo.SelectedIndex;
         SettingsService.Update(s => s.GraphTimeScale = scale);
 
-        // Persisting alone never took effect: the in-memory window is only (re)loaded when a graph
-        // host finds it EMPTY, so every open graph kept drawing the old span. Reload it exactly as the
-        // graph's own scale buttons do (BatteryHistoryGraphControl.OnTimeScaleButtonClick) — a full CSV
-        // scan, so off the UI thread. Open graphs repaint from the new window on their refresh tick.
+        // Persisting alone is not enough: the in-memory window is only reloaded when a graph host
+        // finds it empty, so open graphs would keep drawing the old span. A full CSV scan, hence
+        // off the UI thread.
         Task.Run(() =>
         {
             BatteryHistoryService.LoadWindow(scale.ToTimeSpan());
@@ -596,25 +561,15 @@ internal sealed partial class SettingsWindow : Window
         });
     }
 
-    // ── Advanced (settings file) ─────────────────────────────────────────────────
-    // The two settings-file actions relocated from the tray menu (TODO #28).
-
     private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Reveal(SettingsService.FilePath);
 
-    /// <summary>
-    /// Re-reads settings.json from disk (a manual edit, or a file synced in from another machine),
-    /// then — since this window is the one showing those values — resyncs its own sections and the
-    /// tray toggles. Was the tray's "Reload settings from file" command; moved here (TODO #28) so the
-    /// entry point sits next to the settings it affects, and can call <see cref="RefreshAllSections"/>
-    /// directly rather than through the old <c>OnExternalReload</c> hook. A toast confirms either
-    /// outcome, matching the previous tray behaviour.
-    /// </summary>
+    /// <summary>Re-reads settings.json — a manual edit, or a file synced in from another machine.</summary>
     private void OnReloadSettings(object sender, RoutedEventArgs e)
     {
         if (SettingsService.Reload())
         {
-            RefreshAllSections();                 // reflect the reloaded values in this open window
+            RefreshAllSections();
             _menu.ReconcileFromExternalChange();  // resync the tray toggles + icon
             NativeMethods.Info("Settings reloaded from disk.", AppName);
         }
@@ -624,8 +579,6 @@ internal sealed partial class SettingsWindow : Window
         }
     }
 
-    // ── Notifications ─────────────────────────────────────────────────────────────
-
     private void LoadNotifications()
     {
         var s = SettingsService.Current;
@@ -634,6 +587,9 @@ internal sealed partial class SettingsWindow : Window
             LowBattEnabledToggle.IsOn      = s.LowBatteryWarningEnabled;
             LoadPresetCombo(LowBattPctCombo, LowBattPctPresets, s.LowBatteryWarningPct, v => $"{v} %");
             LowBattPctCombo.IsEnabled      = s.LowBatteryWarningEnabled;
+            HighBattEnabledToggle.IsOn     = s.HighBatteryWarningEnabled;
+            LoadPresetCombo(HighBattPctCombo, HighBattPctPresets, s.HighBatteryWarningPct, v => $"{v} %");
+            HighBattPctCombo.IsEnabled     = s.HighBatteryWarningEnabled;
             DrainEnabledToggle.IsOn        = s.DrainAnomalyWarningEnabled;
             LoadPresetCombo(DrainPctPerHourCombo, DrainPctPresets, s.DrainAnomalyPercentPerHour, v => $"{v} %/h");
             DrainPctPerHourCombo.IsEnabled = s.DrainAnomalyWarningEnabled;
@@ -651,6 +607,17 @@ internal sealed partial class SettingsWindow : Window
     private void OnLowBattPctChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(LowBattPctCombo, (s, v) => s.LowBatteryWarningPct = v);
 
+    private void OnHighBattEnabledToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = HighBattEnabledToggle.IsOn;
+        HighBattPctCombo.IsEnabled = on;
+        SettingsService.Update(s => s.HighBatteryWarningEnabled = on);
+    }
+
+    private void OnHighBattPctChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(HighBattPctCombo, (s, v) => s.HighBatteryWarningPct = v);
+
     private void OnDrainEnabledToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
@@ -662,42 +629,45 @@ internal sealed partial class SettingsWindow : Window
     private void OnDrainPctPerHourChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(DrainPctPerHourCombo, (s, v) => s.DrainAnomalyPercentPerHour = v);
 
-    // ── Smart Charge (presets) ───────────────────────────────────────────────────
-
     private void LoadSmartCharge() => RebuildPresetRows();   // also (re)populates UnknownPresetCombo
 
-    /// <summary>
-    /// The Fluent "critical" system brush for the preset editor's inline validation error text.
-    /// Looked up by key via <see cref="ResourceDictionary.TryGetValue"/> rather than the plain
-    /// indexer (which throws on a missing key) — this app's own palette (<c>AppColors</c>)
-    /// deliberately has no red, so this is the one place that needs a genuine error/critical
-    /// colour, and it's safer to degrade to the default text colour than to risk a
-    /// KeyNotFoundException while building a settings row.
-    /// </summary>
+    /// <summary>The Fluent "critical" brush for inline validation errors. Looked up via TryGetValue
+    /// rather than the throwing indexer: degrading to the default colour beats a
+    /// KeyNotFoundException.</summary>
     private static Microsoft.UI.Xaml.Media.Brush? CriticalBrush() =>
         Application.Current.Resources.TryGetValue("SystemFillColorCriticalBrush", out var brush)
             ? brush as Microsoft.UI.Xaml.Media.Brush
             : null;
 
+    /// <summary>Puts a TextBlock back after <see cref="CriticalBrush"/> was assigned to it.</summary>
+    private static Microsoft.UI.Xaml.Media.Brush? SecondaryBrush() =>
+        Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var brush)
+            ? brush as Microsoft.UI.Xaml.Media.Brush
+            : null;
+
+    /// <summary>The placeholder for an empty list. One builder, so the four cannot drift apart.</summary>
+    private static TextBlock EmptyListText(string text) => new()
+    {
+        Text         = text,
+        TextWrapping = TextWrapping.Wrap,
+        Opacity      = 0.7,
+        Margin       = new Thickness(0, 4, 0, 4),
+    };
+
     private void RebuildPresetRows()
     {
-        // Every existing row is about to be discarded — stop its debounce timer first so a drag
-        // that's still settling on one row can't fire after this method returns and commit a
-        // stale value on top of (or, if renamed away, silently fail to find) whatever the fresh
-        // rebuild shows.
+        // Every existing row is about to be discarded — stop its debounce timer first, or a drag
+        // still settling can fire afterwards and commit a stale value against a detached row.
         StopAllPresetDebounceTimers();
 
         PresetsListPanel.Children.Clear();
         var presets = SettingsService.Current.Presets;
 
+        PresetRows.ApplyActiveResources(PresetsListPanel);
+
         if (presets.Count == 0)
         {
-            PresetsListPanel.Children.Add(new TextBlock
-            {
-                Text = "No presets yet. Add one below.",
-                Opacity = 0.7,
-                Margin = new Thickness(0, 4, 0, 4),
-            });
+            PresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
         }
         else
         {
@@ -705,37 +675,61 @@ internal sealed partial class SettingsWindow : Window
                 PresetsListPanel.Children.Add(BuildPresetRow(preset));
         }
 
+        RefreshPresetActivationStates(ChargeThresholdService.Read());
         RefreshUnknownPresetCombo();
     }
 
-    /// <summary>
-    /// Builds one preset's editor row: a collapsible <see cref="SettingsExpander"/> with a Name
-    /// <see cref="TextBox"/> and a <see cref="RangeSelector"/> inside, plus a Delete button in the
-    /// footer. Built entirely in code (not an ItemsRepeater/DataTemplate) so the RangeSelector's
-    /// Minimum/Maximum can be set imperatively right after construction — required on this WinUI
-    /// build regardless of XAML vs. code (see the RangeSelector remarks below); building the whole
-    /// row this way just avoids a second, DataTemplate-specific place to remember that rule.
-    /// The row's commit closures key off the preset's NAME (captured as a string), not the passed
-    /// <see cref="ThresholdPreset"/> reference — the object supplies only the initial display values,
-    /// while a concurrent <see cref="SettingsService.Reload"/> swapping
-    /// <see cref="SettingsService.Current"/> out from under an open row can't leave a closure pointing
-    /// at an orphaned object, because every commit re-looks-up the live preset by name at commit time.
-    /// </summary>
+    /// <summary>The preset the firmware's thresholds are, or null when none matches. The vendor read
+    /// is taken first: it blocks, and the settings lock must not be held across it.</summary>
+    private static string? ActivePresetInUse()
+    {
+        var state = ChargeThresholdService.Read();
+        return SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
+    }
+
+    /// <summary>Marks the row whose thresholds the firmware is running and leaves the rest offering
+    /// activation. Hidden entirely where the vendor refuses threshold writes — an affordance that
+    /// cannot work is worse than none.</summary>
+    private void RefreshPresetActivationStates(ChargeThresholdState? state)
+    {
+        string? activeName = SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
+
+        PresetRows.RefreshActivation(
+            PresetsListPanel, activeName, state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed,
+            "These thresholds are the ones in use.",
+            "Applies these thresholds now.");
+    }
+
+    /// <summary>Applies a preset from its row, through the same composition every other trigger
+    /// uses. Runs off the UI thread — the vendor write blocks.</summary>
+    private void ActivatePreset(string name) => Task.Run(() =>
+    {
+        bool ok = false;
+        try { ok = ChargeControlService.ApplyPresetByName(name); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.ActivatePreset", ex); }
+
+        RunOnUi(() =>
+        {
+            if (!ok)
+                NativeMethods.Warn("The device didn't accept this preset's thresholds.", AppName);
+
+            RefreshPresetActivationStates(ChargeThresholdService.Read());
+            _menu.ReconcileFromExternalChange();
+        });
+    });
+
+    /// <summary>Builds one preset's editor row. The commit closures key off the preset's name
+    /// rather than the passed object, so a concurrent <see cref="SettingsService.Reload"/> cannot
+    /// leave them pointing at an orphaned instance — every commit re-looks-up by name.</summary>
     private SettingsExpander BuildPresetRow(ThresholdPreset preset)
     {
         string presetName = preset.Name;
-        var expander = new SettingsExpander { Header = presetName };
 
         var nameBox = new TextBox { Text = preset.Name, MinWidth = 220 };
 
-        // RangeSelector Minimum/Maximum MUST be set in code (not XAML markup) on this WinUI SDK
-        // build — assigning them via the XAML type-converter throws a XamlParseException (see
-        // DashboardWindow.ConfigureThresholdRange). Maximum before Minimum, same reasoning: it
-        // never lets Minimum transiently exceed Maximum during assignment.
-        // Stretch so the slider fills the full card width (issue #31) — the card itself uses
-        // ContentAlignment.Vertical below so its content region spans edge-to-edge rather than being
-        // squeezed into the right-hand column; without both, the RangeSelector renders too small to
-        // operate comfortably.
+        // RangeSelector Minimum/Maximum must be set in code on this WinUI SDK build — the XAML
+        // type-converter throws a XamlParseException. Maximum first, so Minimum never transiently
+        // exceeds it. Stretch pairs with the card's ContentAlignment.Vertical below.
         var range = new RangeSelector
         {
             Height              = 32,
@@ -762,59 +756,38 @@ internal sealed partial class SettingsWindow : Window
         rangeRow.Children.Add(range);
         rangeRow.Children.Add(stopText);
 
-        var errorText = new TextBlock
-        {
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed,
-            Foreground = CriticalBrush(),
-        };
-        var deleteBtn = new Button { Content = "Delete preset" };
-        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
-        footer.Children.Add(errorText);
-        footer.Children.Add(deleteBtn);
+        var row = PresetRows.Build(
+            ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop), "", presetName,
+            [
+                new SettingsCard { Header = "Name",                              Content = nameBox },
+                // ContentAlignment.Vertical drops the slider onto its own row, but a SettingsCard's
+                // HorizontalContentAlignment still defaults to Right — the star column then collapses
+                // and the slider shrinks to ~250 px. Stretch is what makes the Grid span the card.
+                new SettingsCard
+                {
+                    Header                     = "Range (5-point minimum gap)",
+                    ContentAlignment           = ContentAlignment.Vertical,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Content                    = rangeRow,
+                },
+            ],
+            CriticalBrush());
 
-        expander.Header = ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop);
-        expander.ItemsSource = new List<SettingsCard>
-        {
-            new SettingsCard { Header = "Name",                              Content = nameBox },
-            // ContentAlignment.Vertical drops the slider onto its own row beneath the header instead
-            // of the default right-aligned content column. That alone is NOT enough (issue #31): a
-            // SettingsCard's HorizontalContentAlignment defaults to Right, so even in Vertical mode
-            // the content presenter gives the Grid only its natural width and right-aligns it — the
-            // star column collapses and the RangeSelector shrinks to minimum, crammed to the right
-            // edge (~250px). HorizontalContentAlignment=Stretch is the actual root-cause fix: it lets
-            // the [Auto,*,Auto] Grid span the full card width so the slider fills it. (DashboardWindow's
-            // identical threshold Grid renders fine only because it sits directly in a full-width
-            // StackPanel with nothing constraining its width.)
-            new SettingsCard
-            {
-                Header                     = "Range (5-point minimum gap)",
-                ContentAlignment           = ContentAlignment.Vertical,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Content                    = rangeRow,
-            },
-        };
-        expander.ItemsFooter = footer;
+        row.Activate.Click += (_, _) => ActivatePreset(presetName);
 
-        // Ordinary text field: commit on focus-loss or Enter (tier 2 of the save model).
-        nameBox.LostFocus += (_, _) => CommitPresetRow(presetName, nameBox, range, errorText, expander);
-        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetName, nameBox, range, errorText, expander); };
+        nameBox.LostFocus += (_, _) => CommitPresetRow(presetName, nameBox, range, row);
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetName, nameBox, range, row); };
 
-        // RangeSelector: debounced auto-commit, same 700 ms figure and "settle before committing"
-        // reasoning as DashboardWindow's own threshold sliders — a drag fires ValueChanged many
-        // times per second, and validating/saving on every tick would be wasteful and could reject
-        // (and flash an error for) every INTERMEDIATE sub-5-point-gap position on the way to a
-        // valid final one.
+        // Debounced commit, same 700 ms as DashboardWindow's threshold sliders: validating on every
+        // ValueChanged would flash an error for each intermediate sub-gap position during a drag.
         var debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        // Stays tracked for the row's whole life: un-tracking here would let the next ValueChanged
+        // re-start a timer StopAllPresetDebounceTimers can no longer reach.
         _presetDebounceTimers.Add(debounce);
-        // Stays in _presetDebounceTimers for the row's whole life — un-tracking it here would let the
-        // NEXT ValueChanged re-Start an untracked timer that StopAllPresetDebounceTimers can no longer
-        // stop. The list is cleared when the rows are rebuilt or the window closes.
         debounce.Tick += (_, _) =>
         {
             debounce.Stop();
-            CommitPresetRow(presetName, nameBox, range, errorText, expander);
+            CommitPresetRow(presetName, nameBox, range, row);
         };
         range.ValueChanged += (_, _) =>
         {
@@ -824,20 +797,18 @@ internal sealed partial class SettingsWindow : Window
             debounce.Start();
         };
 
-        deleteBtn.Click += (_, _) => DeletePreset(presetName);
+        row.Delete.Click += (_, _) => DeletePreset(presetName);
 
-        return expander;
+        return row.Expander;
     }
 
-    /// <summary>
-    /// Validates and, if valid, saves a preset row's current name/thresholds — the "reject-on-
-    /// save" path (see <see cref="PresetEditValidator"/>): an invalid edit shows an inline error
-    /// and is NOT written, leaving the row exactly as the user left it rather than silently
-    /// correcting or discarding anything.
-    /// </summary>
+    /// <summary>Validates and, if valid, saves a preset row's name and thresholds. Reject-on-save:
+    /// an invalid edit shows an inline error and writes nothing, leaving the row as the user left
+    /// it.</summary>
     private void CommitPresetRow(string originalName, TextBox nameBox, RangeSelector range,
-        TextBlock errorText, SettingsExpander expander)
+        PresetRows.Parts row)
     {
+        var errorText = row.Error;
         string newName = nameBox.Text?.Trim() ?? "";
         int start = (int)range.RangeStart;
         int stop  = (int)range.RangeEnd;
@@ -854,13 +825,14 @@ internal sealed partial class SettingsWindow : Window
         errorText.Visibility = Visibility.Collapsed;
 
         bool renamed   = newName != originalName;
-        bool wasActive = cur.ActivePreset == originalName;
+        // Matched before the edit lands, while the stored preset still carries the values the device
+        // would be running if it were the active one.
+        bool wasActive = ActivePresetInUse() == originalName;
 
         SettingsService.Update(s =>
         {
-            // Always look up by originalName — the preset object still carries its old name at
-            // this point, so looking it up by newName (before anything renames it) would find
-            // nothing and silently drop both the rename AND the Start/Stop edit.
+            // Look up by originalName: the stored preset still carries its old name here, so
+            // matching on newName would find nothing and drop the rename and the range edit both.
             var preset = s.Presets.FirstOrDefault(p => p.Name == originalName);
             if (preset is null) return;
             if (renamed)
@@ -872,43 +844,29 @@ internal sealed partial class SettingsWindow : Window
             preset.Stop  = stop;
         });
 
-        // Push to the device immediately only when this preset is (still) the active one — editing
-        // a preset that ISN'T active must not touch the device (reconcile contract, section C).
+        // Only the active preset may touch the device — editing an inactive one must not
+        // (reconcile contract, section C).
         if (wasActive)
             PushThresholdsToDevice(start, stop);
 
         if (renamed)
         {
-            // This row's identity (the name every closure above keys off) is now stale — rebuild
-            // the whole list rather than trying to re-key a live row in place. Network rule rows
-            // show preset NAMES too (dropdown + summary text) — refresh them so a rule referencing
-            // the old name doesn't keep offering a now-dangling option.
+            // The name every closure on this row keys off is now stale, and the network rows show
+            // preset names too — rebuild both rather than re-keying a live row in place.
             RebuildPresetRows();
             RebuildNetworkRuleRows();
-            _onPresetsChanged();   // HA's preset select carries the old name until discovery is republished
+            _onDiscoveryChanged();   // HA's preset select carries the old name until discovery is republished
         }
         else
         {
-            expander.Header = ThresholdPreset.FormatLabel(newName, start, stop);
+            row.Header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
         }
 
         _menu.ReconcileFromExternalChange();
     }
 
-    /// <summary>
-    /// Pushes thresholds to the device off the UI thread via the shared
-    /// <see cref="ChargeControlService.SetExplicitThresholds"/> composition (which funnels
-    /// <see cref="TravelOverrideService.ApplyExplicitThresholds"/> — deactivating any in-flight
-    /// "charge to 100% once" override first — and fires StateChanged so the tray/tooltip/MQTT
-    /// reconcile immediately, issue #40). <c>clearActivePreset</c> is left at its default (false):
-    /// the ActivePreset here is managed by the callers (an edited preset stays active; the
-    /// delete-fallback path already promoted the fallback via PresetCascade), so this write must NOT
-    /// touch it. A write failure is surfaced with a TOAST, not the preset row's inline error text: by
-    /// the time this async write completes the row may already be gone (a rename triggers a full
-    /// rebuild, and the delete-fallback path has no row at all), so a row-bound error could silently
-    /// vanish exactly when it matters — the whole point of reporting the failure. Silently discarding
-    /// it would leave settings.json/tray/window all claiming a value the device never accepted.
-    /// </summary>
+    /// <summary>Pushes thresholds to the device off the UI thread. A failure is reported by toast rather
+    /// than a row's inline error, because by the time the write completes the row may be gone.</summary>
     private void PushThresholdsToDevice(int start, int stop) => Task.Run(() =>
     {
         try
@@ -924,22 +882,20 @@ internal sealed partial class SettingsWindow : Window
     private void DeletePreset(string name)
     {
         var s0 = SettingsService.Current;
-        bool wasActive = s0.ActivePreset == name;
+        bool wasActive = ActivePresetInUse() == name;
         var fallbackPreset = s0.Presets.FirstOrDefault(p => p.Name != name);
         string? fallback = fallbackPreset?.Name;
 
         SettingsService.Update(s => PresetCascade.Delete(s, name, fallback));
 
-        // Every UI surface will show the fallback selected (via ReconcileFromExternalChange
-        // below) the moment this returns — push its thresholds to the device too, or the physical
-        // battery keeps running the just-deleted preset's values while every UI surface claims the
-        // fallback is active. Same primitive (and same toast-on-failure) as an ordinary edit.
+        // Every surface shows the fallback selected the moment this returns, so push its thresholds
+        // too — otherwise the battery keeps running the deleted preset's values.
         if (wasActive && fallbackPreset is not null)
             PushThresholdsToDevice(fallbackPreset.Start, fallbackPreset.Stop);
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
-        _onPresetsChanged();   // the deleted name must stop being offered in HA's preset select
+        _onDiscoveryChanged();   // the deleted name must stop being offered in HA's preset select
         _menu.ReconcileFromExternalChange();
     }
 
@@ -953,8 +909,8 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.Presets.Add(new ThresholdPreset(name, 60, 80)));
 
         RebuildPresetRows();
-        RebuildNetworkRuleRows();   // the new preset should be selectable from Network rows immediately
-        _onPresetsChanged();        // …and from HA's preset select, which needs the option list republished
+        RebuildNetworkRuleRows();   // the new preset should be selectable from Network rows at once
+        _onDiscoveryChanged();        // …and from HA's preset select, once discovery is republished
         _menu.ReconcileFromExternalChange();
     }
 
@@ -984,8 +940,6 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.UnknownNetworkPresetName = presetName);
     }
 
-    // ── Network ───────────────────────────────────────────────────────────────────
-
     private void LoadNetwork()
     {
         WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = SettingsService.Current.NetworkProfilesEnabled);
@@ -1003,82 +957,116 @@ internal sealed partial class SettingsWindow : Window
     private void RefreshCurrentNetworkText() =>
         CurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
 
+    /// <summary>Rebuilds both pages' renderings of the one
+    /// <see cref="AppSettings.NetworkLocationRules"/> list, always together, so neither is left
+    /// showing a rule the other just deleted or renamed.</summary>
     private void RebuildNetworkRuleRows()
+    {
+        RebuildSmartChargeNetworkRows();
+        RebuildKeepAwakeNetworkRows();
+    }
+
+    /// <summary>One wording for both pages, so an empty list reads the same wherever it is met.</summary>
+    private const string NoNetworkRulesText =
+        "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected.";
+
+    private void RebuildSmartChargeNetworkRows()
     {
         NetworkRulesListPanel.Children.Clear();
         var rules = SettingsService.Current.NetworkLocationRules;
 
         if (rules.Count == 0)
         {
-            NetworkRulesListPanel.Children.Add(new TextBlock
-            {
-                Text = "No network profiles yet. Use “Add profile for this network…” below while connected to the network you want to configure.",
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.7,
-                Margin = new Thickness(0, 4, 0, 4),
-            });
+            NetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
             return;
         }
 
         var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        // Both resolved ONCE per rebuild, not per row.
+        var current  = CurrentLocation();
+        var adapters = NetworkLocationService.EnumerateAdapters();
         for (int i = 0; i < rules.Count; i++)
-            NetworkRulesListPanel.Children.Add(BuildNetworkRuleRow(i, rules[i], presetNames));
+        {
+            int index = i;
+            var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
+            foreach (var n in presetNames) presetCombo.Items.Add(n);
+            presetCombo.SelectedItem = presetNames.Contains(rules[i].PresetName) ? rules[i].PresetName : null;
+
+            var expander = BuildNetworkRuleRow(
+                index, rules[i], current, adapters, DescribeRulePresetSummary(rules[i]),
+                new SettingsCard { Header = "Preset", Content = presetCombo },
+                RebuildKeepAwakeNetworkRows);
+
+            presetCombo.SelectionChanged += (_, _) =>
+            {
+                if (presetCombo.SelectedItem is string preset) CommitNetworkRulePreset(index, preset, expander);
+            };
+            NetworkRulesListPanel.Children.Add(expander);
+        }
     }
 
-    private static string DescribeMatchKey(NetworkLocationRule rule)
+    /// <summary>The rule's match key, plus a hint when the key no longer fits: its MAC belongs to a
+    /// virtual adapter, or its subnet is the one we are on while its MAC is not. A stored subnet that
+    /// mobile ignores is shown as ignored, not as a subnet. Stated only: nothing here rewrites a
+    /// stored key.</summary>
+    private static string DescribeMatchKey(
+        NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters)
     {
-        var parts = new List<string>();
-        if (rule.AdapterMac is { } mac)  parts.Add($"MAC {mac}");
-        if (rule.IpCidr    is { } cidr) parts.Add($"Subnet {cidr}");
-        return parts.Count > 0 ? string.Join(" · ", parts) : "No match key — this profile will never apply.";
+        string key = NetworkLocationService.DescribeMatchKey(
+            rule.AdapterMac, rule.IpCidr, rule.SubnetIgnoredOn(current));
+        return NetworkLocationService.DescribeStaleKey(rule, current, adapters) is { } hint
+            ? $"{key}\n{hint}"
+            : key;
     }
 
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
         string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
 
-    /// <summary>
-    /// Builds one network profile's editor row. Keyed by LIST INDEX rather than name/reference:
-    /// unlike presets, <see cref="NetworkLocationRule"/> has no unique identity of its own and two
-    /// rules could in principle share a name — index is unambiguous as long as every mutation
-    /// rebuilds the whole list afterwards (which every commit path below does).
-    /// </summary>
-    private SettingsExpander BuildNetworkRuleRow(int index, NetworkLocationRule rule, List<string> presetNames)
-    {
-        var expander = new SettingsExpander();
+    private static string DescribeRuleKeepAwakeSummary(bool keepAwakeHere) =>
+        keepAwakeHere ? "Keeps this computer awake" : "No keep-awake here";
 
+    /// <summary>Builds one network rule's editor row for either page: both carry the name, the match
+    /// key and Delete, and differ only in <paramref name="pageCard"/> and the summary line, so a rule
+    /// reads the same on both. Keyed by list index — a rule has no identity of its own and two may
+    /// share a name, which is unambiguous only because every commit path below rebuilds the lists.
+    /// </summary>
+    /// <param name="rebuildOtherPage">The other page's rebuild, run after a rename: both pages show
+    /// the rule's name, and the row being edited keeps its focus rather than being rebuilt under it.</param>
+    private SettingsExpander BuildNetworkRuleRow(
+        int index, NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters,
+        string summary, SettingsCard pageCard, Action rebuildOtherPage)
+    {
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
-        var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
-        foreach (var n in presetNames) presetCombo.Items.Add(n);
-        presetCombo.SelectedItem = presetNames.Contains(rule.PresetName) ? rule.PresetName : null;
-
+        // Deleting is offered on both pages because there is one rule, not one per page — its
+        // keep-awake side and its preset side go together.
         var deleteBtn = new Button { Content = "Delete profile" };
         var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
         footer.Children.Add(deleteBtn);
 
-        expander.Header      = rule.Name;
-        expander.Description = DescribeRulePresetSummary(rule);
-        expander.ItemsSource = new List<SettingsCard>
+        var expander = new SettingsExpander
         {
-            new SettingsCard { Header = "Name",    Content = nameBox },
-            new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule) },
-            new SettingsCard { Header = "Preset",  Content = presetCombo },
+            Header      = rule.Name,
+            Description = summary,
+            ItemsSource = new List<SettingsCard>
+            {
+                new SettingsCard { Header = "Name",    Content = nameBox },
+                new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current, adapters) },
+                pageCard,
+            },
+            ItemsFooter = footer,
         };
-        expander.ItemsFooter = footer;
 
-        nameBox.LostFocus += (_, _) => CommitNetworkRuleName(index, nameBox.Text, expander);
-        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitNetworkRuleName(index, nameBox.Text, expander); };
-        presetCombo.SelectionChanged += (_, _) =>
-        {
-            if (presetCombo.SelectedItem is string preset)
-                CommitNetworkRulePreset(index, preset, expander);
-        };
-        deleteBtn.Click += (_, _) => DeleteNetworkRule(index);
+        void CommitName() => CommitNetworkRuleName(index, nameBox.Text, expander, rebuildOtherPage);
+        nameBox.LostFocus += (_, _) => CommitName();
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitName(); };
+        deleteBtn.Click   += (_, _) => DeleteNetworkRule(index);
 
         return expander;
     }
 
-    private void CommitNetworkRuleName(int index, string? newNameRaw, SettingsExpander expander)
+    private void CommitNetworkRuleName(int index, string? newNameRaw, SettingsExpander expander,
+        Action rebuildOtherPage)
     {
         var rules = SettingsService.Current.NetworkLocationRules;
         if (index < 0 || index >= rules.Count) return;
@@ -1089,6 +1077,7 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].Name = newName;
         });
         expander.Header = newName;
+        rebuildOtherPage();
     }
 
     private void CommitNetworkRulePreset(int index, string presetName, SettingsExpander expander)
@@ -1101,28 +1090,22 @@ internal sealed partial class SettingsWindow : Window
         if (index >= rules.Count) return;
         expander.Description = DescribeRulePresetSummary(rules[index]);
 
-        // Apply the profile that now wins for the network we're currently on so the edit to the
-        // active network's rule takes effect immediately (decided #19 follow-up). No-op if this
-        // rule is shadowed by an earlier one, or matches no current network.
+        // Apply whatever profile now wins for the network we are on, so an edit to the active
+        // network's rule takes effect immediately.
         ApplyWinningProfile(CurrentLocation());
     }
 
-    // Current network location for the immediate-apply checks — LastKnown is the cheap cached
-    // value; fall back to a live read only when it hasn't resolved yet.
+    // LastKnown is the cheap cached value; fall back to a live read only before it has resolved.
     private static NetworkLocation CurrentLocation()
     {
         var loc = NetworkLocationService.LastKnown;
         return loc.IsEmpty ? NetworkLocationService.DetectCurrent() : loc;
     }
 
-    /// <summary>
-    /// Applies the preset of whatever rule currently WINS for <paramref name="location"/> —
-    /// resolved via <see cref="AppSettings.FindNetworkRule"/> (FIRST match), exactly as the tray's
-    /// own network-profile auto-apply does. Using the same resolution as the reconcile is what keeps
-    /// an immediate apply from disagreeing with — and being reverted by — the next NetworkChange
-    /// (the bug an earlier "any rule that Matches" check would have caused with overlapping rules).
-    /// No-op when profiles are off or no rule matches.
-    /// </summary>
+    /// <summary>Applies the preset of whatever rule wins for <paramref name="location"/>, resolved
+    /// through <see cref="AppSettings.FindNetworkRule"/> exactly as the tray's auto-apply does —
+    /// the same resolution is what stops an immediate apply from being reverted by the next network
+    /// change.</summary>
     private void ApplyWinningProfile(NetworkLocation location)
     {
         var s = SettingsService.Current;
@@ -1137,132 +1120,619 @@ internal sealed partial class SettingsWindow : Window
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules.RemoveAt(index);
         });
         RebuildNetworkRuleRows();
-        RefreshCurrentNetworkText();   // the deleted rule may have been the one naming this network
+        // Both pages name the current network from the rule that matches it.
+        RefreshCurrentNetworkText();
+        RefreshKeepAwakeCurrentNetworkText();
 
-        // Deleting the winning rule hands the current network to a later (or no) rule — apply whatever
-        // wins now, same as editing a rule's preset does, so the device doesn't keep running the
-        // deleted rule's preset while the UI says otherwise.
+        // Deleting the winning rule hands the current network to a later (or no) rule — apply
+        // whatever wins now, so the device stops running the deleted rule's preset and any hold the
+        // rule was keeping is released.
         ApplyWinningProfile(CurrentLocation());
+        ReconcileKeepAwakeForCurrentNetwork();
     }
 
-    /// <summary>
-    /// "Add profile for this network…": fingerprints the CURRENT network, prompts for a friendly
-    /// name via the existing <see cref="NameLocationWindow"/> (reused rather than rebuilt — see
-    /// the issue's acceptance criteria), and appends a new rule defaulting to the currently active
-    /// preset (or the first preset, or none), and — since the rule is for the network you're on
-    /// right now — applies that preset to the device immediately, matching the old tray flow
-    /// (decided #19 follow-up).
-    /// </summary>
+    /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
+    /// Returns the detected location, or null when nothing was detected or the user cancelled.
+    /// Shared by both pages' "Add … for this network…" buttons, which differ only in their tail.</summary>
+    private async Task<NetworkLocation?> AddNetworkRuleAsync(bool keepAwakeHere)
+    {
+        var location = NetworkLocationService.DetectCurrent();
+        if (location.IsEmpty)
+        {
+            NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
+            return null;
+        }
+
+        string suggested = location.DisplayHint
+            ?? (location.IsMobile ? NetworkLocationService.MobileLabel
+                : location.IsWired ? NetworkLocationService.WiredLabel
+                                   : NetworkLocationService.WirelessLabel);
+        string? name = await new NameLocationWindow(
+            suggested,
+            NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr, location.IsMobile)).ShowAsync();
+        if (name is null) return null;   // cancelled
+
+        var s0 = SettingsService.Current;
+        // The preset in use is the obvious default for a new rule; the first one when none is.
+        string defaultPreset = ActivePresetInUse() ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+
+        SettingsService.Update(s =>
+        {
+            s.NetworkLocationRules.Add(new NetworkLocationRule
+            {
+                Name          = name,
+                AdapterMac    = location.AdapterMac,
+                IpCidr        = location.IpCidr,
+                PresetName    = defaultPreset,
+                KeepAwakeHere = keepAwakeHere,
+            });
+            // Rules are inert with profiles off, so configuring a location implies wanting them on.
+            s.NetworkProfilesEnabled = true;
+        });
+
+        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
+        RebuildNetworkRuleRows();   // rebuilds both pages' renderings of the rule list
+        return location;
+    }
+
     private async void OnAddNetworkRule(object sender, RoutedEventArgs e)
     {
-        // async void: an escaping exception tears the process down rather than surfacing. NameLocationWindow's
-        // ctor does the same monitor/placement work this window wraps in SafeInit because it faulted on
-        // multi-monitor — so guard the whole path, exactly as App.ShowSettingsWindow / TrayMenu.ShowAbout do.
+        // async void: an escaping exception tears the process down rather than surfacing, and
+        // NameLocationWindow's ctor does monitor work that faults on multi-monitor.
         try
         {
-            var location = NetworkLocationService.DetectCurrent();
-            if (location.IsEmpty)
-            {
-                NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
-                return;
-            }
-
-            string suggested = location.DisplayHint ?? (location.IsWired ? "Wired network" : "Wireless network");
-            string? name = await new NameLocationWindow(suggested).ShowAsync();
-            if (name is null) return;   // cancelled
-
-            var s0 = SettingsService.Current;
-            string defaultPreset = s0.ActivePreset ?? s0.Presets.FirstOrDefault()?.Name ?? "";
-
-            SettingsService.Update(s =>
-            {
-                s.NetworkLocationRules.Add(new NetworkLocationRule
-                {
-                    Name       = name,
-                    AdapterMac = location.AdapterMac,
-                    IpCidr     = location.IpCidr,
-                    PresetName = defaultPreset,
-                });
-                s.NetworkProfilesEnabled = true;   // configuring a location implies wanting the feature on
-            });
-
-            WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
-
-            RebuildNetworkRuleRows();
+            if (await AddNetworkRuleAsync(keepAwakeHere: false) is not { } location) return;
             RefreshCurrentNetworkText();
 
-            // Apply the profile that now wins for this network — usually the rule just added, unless an
-            // earlier rule already shadows it — using the SAME first-match resolution the tray
-            // auto-apply uses, so the immediate write agrees with the next reconcile instead of being
-            // reverted by it (decided #19 follow-up; matches the old tray "add configuration → preset"
-            // flow). Reuses the fresh `location` detected above.
+            // Usually the rule just added, unless an earlier one shadows it. Same first-match
+            // resolution the tray uses, so this write agrees with the next reconcile.
             ApplyWinningProfile(location);
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddNetworkRule", ex); }
     }
 
-    // ── Home Assistant ────────────────────────────────────────────────────────────
+    // Every span on the Keep Awake page is typed and read by KeepAwakeInputParser — no TimePicker,
+    // no spinner. Fast entry is the feature.
+
+    // Ticks the remaining-time line while the page is on screen. 30 s rather than 1 min: the line
+    // is minute-resolution, so a minute-length tick can show a value a whole minute stale.
+    private readonly DispatcherTimer _keepAwakeTicker =
+        new() { Interval = TimeSpan.FromSeconds(30) };
+
+    /// <summary>Subscribes the page to what changes keep-awake behind its back — an expiry, the
+    /// tray toggle, a network arrival. Unsubscribed in <see cref="OnClosed"/>.</summary>
+    private void WireKeepAwakeHandlers()
+    {
+        KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+        _keepAwakeTicker.Tick += (_, _) => RefreshKeepAwakeState();
+
+        // Echo the parser's reading as the user types, so "1h30" is confirmed as 1 h 30 m before
+        // Start is pressed rather than after the session is running.
+        KeepAwakeCustomBox.TextChanged += (_, _) => RefreshKeepAwakeCustomEcho();
+        KeepAwakeCustomBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Enter) StartKeepAwakeFromCustomBox();
+        };
+    }
+
+    // Raised off the UI thread by KeepAwakeService — marshal before touching anything.
+    private void OnKeepAwakeStateChanged() => RunOnUi(RefreshKeepAwakeState);
+
+    private void LoadKeepAwake()
+    {
+        var s = SettingsService.Current;
+        WithUpdatingSuppressed(() =>
+        {
+            KeepAwakeDisplayToggle.IsOn = s.KeepAwakeDisplayOn;
+            LidDelayToggle.IsOn         = s.LidDelayEnabled;
+            LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
+            LidLockToggle.IsOn          = s.LidDelayLockOnClose;
+            LidLockToggle.IsEnabled     = s.LidDelayEnabled;
+        });
+        RefreshKeepAwakeState();
+        RefreshKeepAwakeCustomEcho();
+        RebuildKeepAwakeChips();
+        RebuildKeepAwakePresetRows();
+        RefreshKeepAwakeCurrentNetworkText();
+        // The rule rows come from LoadNetwork() → RebuildNetworkRuleRows(), which rebuilds both
+        // pages' renderings of the shared list.
+    }
+
+    private void RefreshKeepAwakeState()
+    {
+        var session = KeepAwakeService.Current;
+        WithUpdatingSuppressed(() => KeepAwakeToggle.IsOn = session is not null);
+        KeepAwakeRemainingText.Text = session is null
+            ? "Not holding this computer awake."
+            : KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session);
+
+        // Covers every way a session can start or end, including expiry and the dashboard's chips.
+        RefreshKeepAwakeActivationStates();
+    }
+
+    private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        // Through KeepAwakeFeature, the same entry point the tray toggle uses, so "on with no span
+        // picked" cannot mean two different things on the two surfaces.
+        new KeepAwakeFeature().SetEnabled(KeepAwakeToggle.IsOn);
+        RefreshKeepAwakeState();
+    }
+
+    private void OnKeepAwakeDisplayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = KeepAwakeDisplayToggle.IsOn;
+        // Takes effect on the next Activate — KeepAwakeService re-applies the OS flags each time —
+        // which is why the card says so rather than silently not touching a running session.
+        SettingsService.Update(s => s.KeepAwakeDisplayOn = on);
+    }
+
+    private void OnLidDelayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        // LidDelayService owns the setting and the power-scheme write together, so the two cannot
+        // drift. Only enabling can fail visibly; the toggle then goes back rather than showing an
+        // on state the machine will not honour.
+        bool wanted = LidDelayToggle.IsOn;
+        if (!LidDelayService.SetEnabled(wanted) && wanted)
+            WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
+
+        // Read back from the toggle rather than from "wanted": an enable that was refused above has
+        // already put it back off, and the lock switch follows what the feature actually is.
+        LidLockToggle.IsEnabled = LidDelayToggle.IsOn;
+    }
+
+    private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(LidDelayMinutesCombo, (s, v) => s.LidDelayMinutes = v);
+
+    private void OnLidLockToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = LidLockToggle.IsOn;
+        SettingsService.Update(s => s.LidDelayLockOnClose = on);
+    }
+
+    // Three renderings of the same span, deliberately distinct: full words for display, the parser
+    // echo that confirms how typed text was read, and the editable form that must round-trip back
+    // through KeepAwakeInputParser. Remaining time is none of these — see DescribeRemaining.
+
+    /// <summary>A saved preset as it reads on this page — its name when it has one, else its span.</summary>
+    private static string DescribePreset(KeepAwakeRequest r) =>
+        string.IsNullOrWhiteSpace(r.Name) ? DescribeSpan(r) : r.Name!;
+
+    /// <summary>The row's subtitle: the span, but only when the header isn't already showing it.</summary>
+    private static string DescribePresetSubtitle(KeepAwakeRequest r) =>
+        string.IsNullOrWhiteSpace(r.Name) ? "" : DescribeSpan(r);
+
+    /// <summary>The span in full words — "30 minutes", "3 hours", "1 h 30 m", "Until 17:00".</summary>
+    private static string DescribeSpan(KeepAwakeRequest r)
+    {
+        switch (r.Kind)
+        {
+            case KeepAwakeKind.UntilNetworkChange: return "Until the network changes";
+            case KeepAwakeKind.UntilTime when r.Until is { } t:
+                return $"Until {t.ToString("HH\\:mm", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+
+        // Indefinite — and any malformed request, which ExpiryFor also reads as "no expiry".
+        if (r.Kind != KeepAwakeKind.Duration || r.Duration is not { } d || d <= TimeSpan.Zero)
+            return "Until turned off";
+
+        int total = (int)Math.Ceiling(d.TotalMinutes);
+        return total switch
+        {
+            < 60                   => $"{total} minutes",
+            _ when total % 60 == 0 => total == 60 ? "1 hour" : $"{total / 60} hours",
+            _                      => $"{total / 60} h {total % 60} m",
+        };
+    }
+
+    /// <summary>How the parser read what was typed, echoed under the box.</summary>
+    private static string DescribeParsed(KeepAwakeRequest r) => r switch
+    {
+        { Kind: KeepAwakeKind.UntilTime, Until: { } t } =>
+            $"Clock time: {t.ToString("HH\\:mm", System.Globalization.CultureInfo.InvariantCulture)}",
+        { Kind: KeepAwakeKind.Duration, Duration: { } d } =>
+            $"Duration: {(int)d.TotalHours} h {d.Minutes} m",
+        _ => "",
+    };
+
+    /// <summary>The span as text KeepAwakeInputParser can read back — what an editable "Expires"
+    /// box is seeded with. The other kinds return empty, so the box invites a value rather than
+    /// showing an uneditable one.</summary>
+    private static string ToEditableSpan(KeepAwakeRequest r) => r switch
+    {
+        { Kind: KeepAwakeKind.UntilTime, Until: not null }                       => KeepAwakePolicy.SpanLabel(r),
+        { Kind: KeepAwakeKind.Duration, Duration: { } d } when d > TimeSpan.Zero => KeepAwakePolicy.SpanLabel(r),
+        _                                                                       => "",
+    };
+
+    private void RebuildKeepAwakeChips()
+    {
+        KeepAwakeChipsPanel.Children.Clear();
+        foreach (var preset in SettingsService.Current.KeepAwakePresets)
+        {
+            var captured = preset;
+            var chip = new Button { Content = DescribePreset(captured) };
+            chip.Click += (_, _) => ActivateKeepAwakePreset(captured);
+            KeepAwakeChipsPanel.Children.Add(chip);
+        }
+    }
+
+    private void RefreshKeepAwakeCustomEcho()
+    {
+        // Typing is not an error — a half-typed "1h3" must not flash red. Only Start/Enter raises
+        // the inline error, which is the point the input has to be usable.
+        KeepAwakeCustomErrorText.Visibility = Visibility.Collapsed;
+        KeepAwakeCustomEchoText.Text =
+            KeepAwakeInputParser.TryParse(KeepAwakeCustomBox.Text, out var request) ? DescribeParsed(request) : "";
+    }
+
+    private void OnKeepAwakeCustomStart(object sender, RoutedEventArgs e) => StartKeepAwakeFromCustomBox();
+
+    private void StartKeepAwakeFromCustomBox()
+    {
+        if (!KeepAwakeInputParser.TryParse(KeepAwakeCustomBox.Text, out var request))
+        {
+            ShowInlineError(KeepAwakeCustomErrorText,
+                "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+            return;
+        }
+
+        KeepAwakeCustomErrorText.Visibility = Visibility.Collapsed;
+        KeepAwakeService.Activate(request);
+        RefreshKeepAwakeState();
+    }
+
+    private static void ShowInlineError(TextBlock target, string message)
+    {
+        target.Text       = message;
+        target.Foreground = CriticalBrush();
+        target.Visibility = Visibility.Visible;
+    }
+
+    // Keep-awake preset rows are keyed by list index, same reasoning as the network rule rows: a
+    // KeepAwakeRequest is a value with no identity of its own and two presets may be identical.
+
+    private void RebuildKeepAwakePresetRows()
+    {
+        KeepAwakePresetsListPanel.Children.Clear();
+        var presets = SettingsService.Current.KeepAwakePresets;
+
+        PresetRows.ApplyActiveResources(KeepAwakePresetsListPanel);
+
+        if (presets.Count == 0)
+        {
+            KeepAwakePresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
+            return;
+        }
+
+        for (int i = 0; i < presets.Count; i++)
+            KeepAwakePresetsListPanel.Children.Add(BuildKeepAwakePresetRow(i, presets[i]));
+
+        RefreshKeepAwakeActivationStates();
+    }
+
+    /// <summary>Marks the row whose preset started the running session. Always visible: no hardware
+    /// can refuse a keep-awake hold the way fixed-mode firmware refuses thresholds.</summary>
+    private void RefreshKeepAwakeActivationStates()
+    {
+        int active = ActiveKeepAwakePresetPolicy.MatchIndex(
+            SettingsService.Current.KeepAwakePresets, KeepAwakeService.Current);
+
+        PresetRows.RefreshActivation(
+            KeepAwakePresetsListPanel, active >= 0 ? active : null, Visibility.Visible,
+            "A session from this preset is running.",
+            "Starts a session from this preset now.");
+    }
+
+    /// <summary>Starts a session from a saved preset, re-read by position so an edit committed since
+    /// the row was built is the span that starts. Goes through
+    /// <see cref="KeepAwakeService.Activate"/>, the one start path every surface uses.</summary>
+    private void ActivateKeepAwakePresetAt(int index)
+    {
+        var presets = SettingsService.Current.KeepAwakePresets;
+        if (index < 0 || index >= presets.Count) return;
+        ActivateKeepAwakePreset(presets[index]);
+    }
+
+    private void ActivateKeepAwakePreset(KeepAwakeRequest preset)
+    {
+        KeepAwakeService.Activate(preset);
+        RefreshKeepAwakeState();
+    }
+
+    /// <summary>One keep-awake preset's editor row — a name and a single "Expires" box, because
+    /// typing <c>3h</c> or <c>17:00</c> defines the kind and the value together, and a separate
+    /// kind picker would only let the two disagree.</summary>
+    private SettingsExpander BuildKeepAwakePresetRow(int index, KeepAwakeRequest preset)
+    {
+        var nameBox    = new TextBox { Text = preset.Name ?? "", MinWidth = 220, PlaceholderText = DescribeSpan(preset) };
+        var expiresBox = new TextBox { Text = ToEditableSpan(preset), MinWidth = 220, PlaceholderText = "3h, 90m or 17:00" };
+
+        // Tagged by position, not by name: a keep-awake preset need not have one.
+        var row = PresetRows.Build(
+            DescribePreset(preset), DescribePresetSubtitle(preset), index,
+            [
+                new SettingsCard { Header = "Name",    Description = "Optional — the span is shown when this is blank.", Content = nameBox },
+                new SettingsCard { Header = "Expires", Description = "A duration (3h, 90m, 1h30) or a clock time (17:00).", Content = expiresBox },
+            ],
+            CriticalBrush());
+
+        row.Activate.Click += (_, _) => ActivateKeepAwakePresetAt(index);
+
+        void Commit() => CommitKeepAwakePresetRow(index, nameBox, expiresBox, row);
+        nameBox.LostFocus    += (_, _) => Commit();
+        nameBox.KeyDown      += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+        expiresBox.LostFocus += (_, _) => Commit();
+        expiresBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+
+        row.Delete.Click += (_, _) => DeleteKeepAwakePreset(index);
+
+        return row.Expander;
+    }
+
+    /// <summary>Validates and saves one preset row, same reject-on-save contract as the threshold
+    /// presets. A blank "Expires" keeps the stored span, so clearing the field cannot destroy a
+    /// preset.</summary>
+    private void CommitKeepAwakePresetRow(int index, TextBox nameBox, TextBox expiresBox,
+        PresetRows.Parts row)
+    {
+        var presets = SettingsService.Current.KeepAwakePresets;
+        if (index < 0 || index >= presets.Count) return;
+
+        string expires = expiresBox.Text?.Trim() ?? "";
+        KeepAwakeRequest span = presets[index];
+        if (expires.Length > 0)
+        {
+            if (!KeepAwakeInputParser.TryParse(expires, out var parsed))
+            {
+                ShowInlineError(row.Error, "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+                return;
+            }
+            span = parsed;
+        }
+        row.Error.Visibility = Visibility.Collapsed;
+
+        string? name = nameBox.Text?.Trim() is { Length: > 0 } n ? n : null;
+        var updated = span with { Name = name };
+
+        SettingsService.Update(s =>
+        {
+            if (index < s.KeepAwakePresets.Count) s.KeepAwakePresets[index] = updated;
+        });
+
+        row.Header.Text          = DescribePreset(updated);
+        row.Expander.Description = DescribePresetSubtitle(updated);
+        expiresBox.Text          = ToEditableSpan(updated);   // normalises "1h30m" to "1h30"
+        nameBox.PlaceholderText  = DescribeSpan(updated);
+        RebuildKeepAwakeChips();   // the chip row shows these same presets
+
+        // An edited preset no longer matches the session it started, so the marker moves off it.
+        RefreshKeepAwakeActivationStates();
+    }
+
+    private void DeleteKeepAwakePreset(int index)
+    {
+        SettingsService.Update(s =>
+        {
+            if (index < s.KeepAwakePresets.Count) s.KeepAwakePresets.RemoveAt(index);
+        });
+        RebuildKeepAwakePresetRows();
+        RebuildKeepAwakeChips();
+    }
+
+    private void OnAddKeepAwakePreset(object sender, RoutedEventArgs e)
+    {
+        // An hour is the least surprising starting figure; the point is that the row exists and is
+        // editable.
+        SettingsService.Update(s => s.KeepAwakePresets.Add(
+            new KeepAwakeRequest(KeepAwakeKind.Duration, TimeSpan.FromHours(1), null)));
+        RebuildKeepAwakePresetRows();
+        RebuildKeepAwakeChips();
+    }
+
+    // The keep-awake facet of the shared NetworkLocationRules list. The Smart Charge page edits the
+    // preset facet of the same rules; neither page owns the list.
+
+    private void RefreshKeepAwakeCurrentNetworkText() =>
+        KeepAwakeCurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
+
+    private void RebuildKeepAwakeNetworkRows()
+    {
+        KeepAwakeNetworkRulesListPanel.Children.Clear();
+        var rules = SettingsService.Current.NetworkLocationRules;
+
+        if (rules.Count == 0)
+        {
+            KeepAwakeNetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
+            return;
+        }
+
+        // Both resolved ONCE per rebuild, not per row.
+        var current  = CurrentLocation();
+        var adapters = NetworkLocationService.EnumerateAdapters();
+        for (int i = 0; i < rules.Count; i++)
+        {
+            int index = i;
+            var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rules[i].KeepAwakeHere };
+
+            var expander = BuildNetworkRuleRow(
+                index, rules[i], current, adapters, DescribeRuleKeepAwakeSummary(rules[i].KeepAwakeHere),
+                new SettingsCard { Header = "Keep awake here", Content = toggle },
+                RebuildSmartChargeNetworkRows);
+
+            // Attached after the initial IsOn, so seeding the switch cannot commit anything.
+            toggle.Toggled += (_, _) =>
+            {
+                if (_updating) return;
+                CommitKeepAwakeHere(index, toggle.IsOn);
+                expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
+            };
+            KeepAwakeNetworkRulesListPanel.Children.Add(expander);
+        }
+    }
+
+    private void CommitKeepAwakeHere(int index, bool on)
+    {
+        if (_updating) return;
+        SettingsService.Update(s =>
+        {
+            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].KeepAwakeHere = on;
+        });
+        ReconcileKeepAwakeForCurrentNetwork();
+    }
+
+    /// <summary>Applies the keep-awake facet of the rule that wins for the network we are on now.
+    /// Without it, ticking "keep awake here" does nothing until you leave and come back, since the
+    /// service only reacts to a location change. Never overrides a hand-started session.</summary>
+    private static void ReconcileKeepAwakeForCurrentNetwork()
+    {
+        var s = SettingsService.Current;
+        bool wantsHold = s.NetworkProfilesEnabled &&
+                         s.FindNetworkRule(CurrentLocation()) is { KeepAwakeHere: true };
+
+        var current = KeepAwakeService.Current;
+        if (wantsHold && current is null)
+            KeepAwakeService.Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null));
+        else if (!wantsHold && current?.Request.Kind == KeepAwakeKind.UntilNetworkChange)
+            KeepAwakeService.Deactivate();
+    }
+
+    /// <summary>The Smart Charge page's add flow with the keep-awake facet filled in instead. No
+    /// <c>ApplyWinningProfile</c>: the charge preset is the other page's facet, and fixed-mode
+    /// hardware may have no presets to apply at all.</summary>
+    private async void OnAddKeepAwakeNetworkRule(object sender, RoutedEventArgs e)
+    {
+        // async void — guarded whole, see OnAddNetworkRule.
+        try
+        {
+            if (await AddNetworkRuleAsync(keepAwakeHere: true) is null) return;
+            RefreshKeepAwakeCurrentNetworkText();
+            RefreshCurrentNetworkText();
+            ReconcileKeepAwakeForCurrentNetwork();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddKeepAwakeNetworkRule", ex); }
+    }
 
     private void LoadHomeAssistant()
     {
         var s = SettingsService.Current;
         WithUpdatingSuppressed(() =>
         {
+            BuildPortCombo();   // before the first read-back: an empty combo has nothing to select
             HaEnabledToggle.IsOn   = s.HomeAssistantEnabled;
             HaHostBox.Text         = s.MqttBrokerHost;
-            HaPortBox.Value        = s.MqttBrokerPort;
             HaUsernameBox.Text     = s.MqttUsername;
             HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
             HaTlsToggle.IsOn       = s.MqttUseTls;
             HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
+            HaTransportCombo.SelectedIndex = (int)s.MqttTransportMode;
+            SelectStagedPort(s.MqttBrokerPort);
+            // Blank means "use the machine-derived default", so show it as a placeholder rather
+            // than pre-filling it — an untouched field must keep meaning "default".
+            HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
+            HaDeviceNameBox.Text            = s.MqttDeviceName;
+
+            MqttBatteryStatusToggle.IsOn  = s.MqttPublishBatteryStatus;
+            MqttSmartChargeToggle.IsOn    = s.MqttPublishSmartCharge;
+            MqttKeepAwakeToggle.IsOn      = s.MqttPublishKeepAwake;
+            MqttLidCloseToggle.IsOn       = s.MqttPublishLidClose;
+            MqttNotificationsToggle.IsOn  = s.MqttPublishNotifications;
+            MqttNetworkToggle.IsOn        = s.MqttPublishNetwork;
+            MqttAppDiagnosticsToggle.IsOn = s.MqttPublishAppDiagnostics;
         });
-        // A re-sync (reopen / tray Reload) discards any un-applied broker edit, so a leftover
-        // "Applied." from a previous session must not linger asserting stale values are live.
+        RefreshHaNodeIdText();
+        RefreshMqttDetailVisibility();
+        RefreshPortEntry();
+        // This re-sync discards any un-applied broker edit, so a leftover "Applied." must not
+        // linger claiming stale values are live.
         HaAppliedText.Visibility = Visibility.Collapsed;
+        HaTestResultText.Visibility = Visibility.Collapsed;   // the tested values are gone with it
         RefreshHaBrokerStatusText();
+        RefreshHaActivityTexts();
+        RefreshHaDetectText();
     }
 
-    /// <summary>
-    /// Hides the "Applied." confirmation the moment any broker field is edited — under the batch
-    /// save model those edits are NOT live until the next Apply click, so the label would
-    /// otherwise keep (falsely) asserting the shown values are the ones in effect. Wired once from
-    /// the constructor; the six broker controls have no other change handlers by design.
-    /// </summary>
+    /// <summary>Hides the four detail sections while publishing is off. Hidden, not disabled: a
+    /// greyed page still invites reading, and none of it has an answer until the feature is on.</summary>
+    private void RefreshMqttDetailVisibility() =>
+        MqttDetailPanel.Visibility = HaEnabledToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Commits every group toggle at once and re-announces. Unlike the broker fields these
+    /// apply immediately: the change is a publish, not a reconnect, so there is nothing to batch.</summary>
+    private void OnMqttCategoryToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        SettingsService.Update(s =>
+        {
+            s.MqttPublishBatteryStatus  = MqttBatteryStatusToggle.IsOn;
+            s.MqttPublishSmartCharge    = MqttSmartChargeToggle.IsOn;
+            s.MqttPublishKeepAwake      = MqttKeepAwakeToggle.IsOn;
+            s.MqttPublishLidClose       = MqttLidCloseToggle.IsOn;
+            s.MqttPublishNotifications  = MqttNotificationsToggle.IsOn;
+            s.MqttPublishNetwork        = MqttNetworkToggle.IsOn;
+            s.MqttPublishAppDiagnostics = MqttAppDiagnosticsToggle.IsOn;
+        });
+        _onDiscoveryChanged();
+    }
+
+    /// <summary>Hides "Applied." and the test result the moment any broker field is edited — those
+    /// edits are not live until the next Apply, so either label would vouch for values since
+    /// retyped — and restarts the endpoint search, because the answer belongs to the old values.</summary>
     private void WireHaBrokerFieldEditHandlers()
     {
-        void Hide() => HaAppliedText.Visibility = Visibility.Collapsed;
-        HaHostBox.TextChanged         += (_, _) => Hide();
-        HaUsernameBox.TextChanged     += (_, _) => Hide();
-        HaPrefixBox.TextChanged       += (_, _) => Hide();
-        HaPortBox.ValueChanged        += (_, _) => Hide();
-        HaPasswordBox.PasswordChanged += (_, _) => Hide();
-        HaTlsToggle.Toggled           += (_, _) => Hide();
+        void Hide()
+        {
+            HaAppliedText.Visibility    = Visibility.Collapsed;
+            HaTestResultText.Visibility = Visibility.Collapsed;
+        }
+        void Restage() { Hide(); ScheduleAutodetect(); }
+
+        HaDeviceNameBox.TextChanged       += (_, _) => Hide();
+        HaPrefixBox.TextChanged           += (_, _) => Hide();
+        // Every field the endpoint search depends on. The password is not one of them: it decides
+        // whether the broker accepts the session, never which door the session knocks on.
+        HaHostBox.TextChanged             += (_, _) => Restage();
+        HaUsernameBox.TextChanged         += (_, _) => Restage();
+        HaPasswordBox.PasswordChanged     += (_, _) => Hide();
+        HaTlsToggle.Toggled               += (_, _) => Restage();
+        HaTransportCombo.SelectionChanged += (_, _) => Restage();
+        HaPortCustomBox.TextChanged       += (_, _) => { RefreshPortEntry(); Restage(); };
+
+        _haDetectDebounce.Tick += (_, _) => { _haDetectDebounce.Stop(); StartAutodetect(); };
     }
 
-    // HomeAssistantEnabled is NOT one of the batched broker fields (see the save-model doc comment
-    // above) — it's an ordinary toggle and applies immediately, same as every other toggle here.
+    // HomeAssistantEnabled is not one of the batched broker fields — it applies immediately, same
+    // as every other toggle here.
     private void OnHaEnabledToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
         bool on = HaEnabledToggle.IsOn;
         SettingsService.Update(s => s.HomeAssistantEnabled = on);
+        RefreshMqttDetailVisibility();
+        // Switching on is the first moment a search is allowed to run; switching off must abandon
+        // one already in flight.
+        if (on) StartAutodetect(); else CancelAutodetect();
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this toggle flip
     }
 
-    /// <summary>
-    /// Commits all six broker fields as a single batch — the ONE exception to "commit on change"
-    /// in this window's save model, so <c>HomeAssistantService</c> reconnects at most once per
-    /// Apply click rather than per keystroke. <see cref="AppSettings.MqttPassword"/> is read here
-    /// (not on every keystroke) and is never logged or shown in any toast — see
-    /// <c>HomeAssistantService.Sanitize</c>.
-    /// </summary>
+    /// <summary>Commits all the batched broker fields at once, so <c>HomeAssistantService</c>
+    /// reconnects per Apply click rather than per keystroke. The device ID is not in the batch —
+    /// renaming every entity must not be a side effect of editing a host
+    /// (<see cref="OnChangeNodeIdClicked"/>).</summary>
     private void OnHaApplyClicked(object sender, RoutedEventArgs e)
     {
+        if (!RefreshPortEntry()) return;   // an out-of-range port is refused, never rounded into range
+
+        string device = HaDeviceNameBox.Text?.Trim() ?? "";
         string host   = HaHostBox.Text?.Trim() ?? "";
-        int    port   = double.IsNaN(HaPortBox.Value) ? 1883 : Math.Clamp((int)HaPortBox.Value, 1, 65535);
+        int?   port   = StagedPort();
         string user   = HaUsernameBox.Text?.Trim() ?? "";
         string pass   = HaPasswordBox.Password ?? "";
         bool   tls    = HaTlsToggle.IsOn;
+        var    trans  = StagedTransport();
         string prefix = string.IsNullOrWhiteSpace(HaPrefixBox.Text) ? "homeassistant" : HaPrefixBox.Text.Trim();
 
         SettingsService.Update(s =>
@@ -1272,28 +1742,412 @@ internal sealed partial class SettingsWindow : Window
             s.MqttUsername         = user;
             s.MqttPassword         = pass;
             s.MqttUseTls           = tls;
+            s.MqttTransportMode    = trans;
             s.MqttDiscoveryPrefix  = prefix;
+            s.MqttDeviceName       = device;
         });
 
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
         RefreshHaBrokerStatusText();
+        RefreshHaActivityTexts();
+        RefreshHaDetectText();
 
         HaAppliedText.Visibility = Visibility.Visible;
     }
 
-    private void RefreshHaBrokerStatusText()
+    // The dropdown's fixed head and tail. Everything between them is MqttTransportPlan.OfferedPorts,
+    // so what can be chosen and what the sweep probes are the same list.
+    private const string PortAutomaticLabel = "Automatic";
+    private const string PortCustomLabel    = "Other…";
+
+    /// <summary>Fills the port dropdown once. Rebuilding it on every read-back would drop the
+    /// selection the caller is about to set.</summary>
+    private void BuildPortCombo()
     {
-        var s = SettingsService.Current;
-        HaBrokerStatusText.Text = string.IsNullOrWhiteSpace(s.MqttBrokerHost)
-            ? "Broker: not set"
-            : $"Broker: {s.MqttBrokerHost}:{s.MqttBrokerPort}";
+        if (HaPortCombo.Items.Count > 0) return;
+
+        HaPortCombo.Items.Add(new ComboBoxItem { Content = PortAutomaticLabel });
+        foreach (int port in MqttTransportPlan.OfferedPorts)
+            HaPortCombo.Items.Add(new ComboBoxItem { Content = PortText(port) });
+        HaPortCombo.Items.Add(new ComboBoxItem { Content = PortCustomLabel });
     }
 
-    // ── Appearance ──────────────────────────────────────────────────────────────
-    // The Appearance section (a single dead "Use new styling" toggle that did nothing) was removed;
-    // TODO #45 can restore an Appearance nav item + panel here when there's a real styling setting.
+    private static string PortText(int port) =>
+        port.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    // ── About ───────────────────────────────────────────────────────────────────
-    // No handler needed: the About section hosts BrandAboutControl inline (populated in the ctor)
-    // instead of a button that opened AboutWindow. The control owns its own link buttons.
+    private int PortCustomIndex => HaPortCombo.Items.Count - 1;
+
+    /// <summary>Puts the saved port on the dropdown: Automatic for none, the matching entry for one
+    /// the list offers, and the typed box for anything else.</summary>
+    private void SelectStagedPort(int? port)
+    {
+        if (port is not { } value) { HaPortCombo.SelectedIndex = 0; HaPortCustomBox.Text = ""; return; }
+
+        int offered = IndexOfOfferedPort(value);
+        if (offered >= 0) { HaPortCombo.SelectedIndex = offered + 1; HaPortCustomBox.Text = ""; return; }
+
+        HaPortCombo.SelectedIndex = PortCustomIndex;
+        HaPortCustomBox.Text      = PortText(value);
+    }
+
+    private static int IndexOfOfferedPort(int port)
+    {
+        var offered = MqttTransportPlan.OfferedPorts;
+        for (int i = 0; i < offered.Count; i++) if (offered[i] == port) return i;
+        return -1;
+    }
+
+    private void OnHaPortSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating) return;
+        RefreshPortEntry();
+        HaAppliedText.Visibility    = Visibility.Collapsed;
+        HaTestResultText.Visibility = Visibility.Collapsed;
+        ScheduleAutodetect();
+    }
+
+    /// <summary>Shows the typed-port box only for the last entry, and validates what is in it through
+    /// the same range check every other numeric setting uses. False means Apply must not run.</summary>
+    private bool RefreshPortEntry()
+    {
+        bool custom = HaPortCombo.SelectedIndex == PortCustomIndex;
+        HaPortCustomBox.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+
+        // An empty box before the first keystroke is not yet a mistake, so it is not yet an error.
+        string? error = custom && !string.IsNullOrWhiteSpace(HaPortCustomBox.Text)
+            ? SettingRanges.ValidatePort(HaPortCustomBox.Text, out _)
+            : null;
+
+        HaPortErrorText.Text       = error ?? "";
+        HaPortErrorText.Foreground = CriticalBrush();
+        HaPortErrorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // A half-typed port must not reach settings; blocking Apply refuses it outright rather than
+        // quietly saving some other value.
+        bool usable = error is null && (!custom || StagedPort() is not null);
+        HaApplyBtn.IsEnabled = usable;
+        return usable;
+    }
+
+    /// <summary>The staged port, or null for Automatic — read identically by Apply, by the test and
+    /// by the endpoint search. Null too for a typed value that does not validate, so nothing
+    /// downstream ever sees an out-of-range port.</summary>
+    private int? StagedPort()
+    {
+        int index = HaPortCombo.SelectedIndex;
+        if (index <= 0) return null;
+        if (index <= MqttTransportPlan.OfferedPorts.Count) return MqttTransportPlan.OfferedPorts[index - 1];
+        return SettingRanges.ValidatePort(HaPortCustomBox.Text, out int typed) is null ? typed : null;
+    }
+
+    /// <summary>The staged transport choice — the combo's order is the enum's, so no lookup table.</summary>
+    private MqttTransportSetting StagedTransport() => HaTransportCombo.SelectedIndex < 0
+        ? MqttTransportSetting.Auto
+        : (MqttTransportSetting)HaTransportCombo.SelectedIndex;
+
+    /// <summary>The staged fields as the pure plan reads them. The password is deliberately absent:
+    /// nothing the plan decides depends on it.</summary>
+    private MqttEndpointRequest StagedRequest() => new(
+        HaHostBox.Text?.Trim() ?? "", HaUsernameBox.Text?.Trim() ?? "", StagedPort(), StagedTransport());
+
+    private void RefreshHaBrokerStatusText() => HaBrokerStatusText.Text =
+        MqttStatusFormatter.DescribeBroker(
+            new MqttEndpointRequest(
+                SettingsService.Current.MqttBrokerHost,
+                SettingsService.Current.MqttUsername,
+                SettingsService.Current.MqttBrokerPort,
+                SettingsService.Current.MqttTransportMode),
+            SettingsService.Current.MqttLastGoodEndpoint);
+
+    // The in-flight connection test, or null when none is running — both the re-entrancy guard and
+    // the handle OnClosed cancels through.
+    private CancellationTokenSource? _haProbeCts;
+
+    /// <summary>Tests the staged broker values — whatever is in the fields, applied or not, since
+    /// the point of the button is to check before committing. Awaited directly rather than pushed
+    /// to <c>Task.Run</c>: the probe is I/O all the way down.</summary>
+    private async void OnHaTestConnectionClicked(object sender, RoutedEventArgs e)
+    {
+        if (_haProbeCts is not null) return;   // a second click while one runs is dropped, not queued
+
+        var cts = new CancellationTokenSource();
+        _haProbeCts = cts;
+        try
+        {
+            var request = StagedRequest();
+            var target  = ProbeTarget(request);
+
+            SetHaTestRunning(true);
+            var report = await MqttConnectionProbe.RunAsync(target, cts.Token);
+
+            if (cts.IsCancellationRequested) return;   // window closed mid-probe — touch nothing
+            RememberProbedEndpoint(request, report);
+            HaTestResultText.Text       = MqttConnectionProbe.Describe(report);
+            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(report) ? CriticalBrush() : SecondaryBrush();
+            HaTestResultText.Visibility = Visibility.Visible;
+            RefreshHaDetectText();
+            RefreshHaBrokerStatusText();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaTestConnectionClicked", ex); }
+        finally
+        {
+            bool cancelled = cts.IsCancellationRequested;   // read BEFORE disposing the source
+            _haProbeCts = null;
+            cts.Dispose();
+            if (!cancelled) SetHaTestRunning(false);
+        }
+    }
+
+    /// <summary>The staged values as a probe target. One builder for the test button and the endpoint
+    /// search, so a green test is about the connection the search would make.</summary>
+    private MqttProbeTarget ProbeTarget(MqttEndpointRequest request) => new(
+        Host:     request.Host,
+        Port:     request.Port,
+        Username: request.Username,
+        Password: HaPasswordBox.Password ?? "",
+        UseTls:   HaTlsToggle.IsOn,
+        ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()),
+        // The cache too, so the search starts where the broker answered last rather than sweeping
+        // from scratch on every visit to this page.
+        Transport: request.Transport,
+        Memory:    SettingsService.Current.MqttLastGoodEndpoint);
+
+    /// <summary>Records where the broker answered, against the host and user name it answered for.
+    /// The password is never part of the entry.</summary>
+    private static void RememberProbedEndpoint(MqttEndpointRequest request, MqttProbeReport report)
+    {
+        if (!report.Succeeded) return;
+        var found = new MqttEndpointMemory(
+            request.Host.Trim(), request.Username.Trim(), report.Candidate.Port, report.Candidate.Transport);
+        SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
+    }
+
+    private void SetHaTestRunning(bool running)
+    {
+        HaTestBtn.IsEnabled          = !running;
+        HaTestProgress.IsActive      = running;
+        HaTestProgress.Visibility    = running ? Visibility.Visible : Visibility.Collapsed;
+        if (!running) return;
+
+        HaTestResultText.Text       = "Testing…";
+        HaTestResultText.Foreground = SecondaryBrush();
+        HaTestResultText.Visibility = Visibility.Visible;
+    }
+
+    // The in-flight endpoint search, and the settle timer that keeps a typed host from starting one
+    // per keystroke. 700 ms is the same settle the preset rows use.
+    private CancellationTokenSource? _haDetectCts;
+    private readonly DispatcherTimer _haDetectDebounce = new() { Interval = TimeSpan.FromMilliseconds(700) };
+
+    /// <summary>Restarts the settle timer. Every edit to a field the endpoint depends on lands here,
+    /// so a host typed a character at a time costs one search rather than one per keystroke.</summary>
+    private void ScheduleAutodetect()
+    {
+        if (_updating) return;
+        CancelAutodetect();
+        _haDetectDebounce.Start();
+    }
+
+    /// <summary>Abandons any search in flight. Called when the values it was asked about change,
+    /// and when the window closes — a cancelled search never touches a control again, because the
+    /// continuation checks that the source it started with is still the current one.</summary>
+    private void CancelAutodetect()
+    {
+        _haDetectDebounce.Stop();
+        _haDetectCts?.Cancel();
+        _haDetectCts = null;
+    }
+
+    /// <summary>Searches for the broker's port and transport, but only when nothing is remembered for
+    /// this host and user name. A remembered answer is shown rather than re-proved: the sweep costs
+    /// real seconds, and the live connection re-proves it anyway on its next connect.</summary>
+    private void StartAutodetect()
+    {
+        CancelAutodetect();
+
+        // Nothing is probed while publishing is off: in that state the app touches no network at all,
+        // and a search would be the one exception.
+        if (!HaEnabledToggle.IsOn) return;
+
+        var request = StagedRequest();
+        var memory  = SettingsService.Current.MqttLastGoodEndpoint;
+        if (!MqttTransportPlan.ShouldDetect(request, memory)) { RefreshHaDetectText(); return; }
+
+        RunAutodetect(request, memory);
+    }
+
+    /// <summary>async void, and guarded whole: nothing may escape into the dispatcher. Never blocks
+    /// the UI thread — every stage of the sweep is a socket wait, and the only work back here is the
+    /// progress line and the result.</summary>
+    private async void RunAutodetect(MqttEndpointRequest request, MqttEndpointMemory? memory)
+    {
+        var cts = new CancellationTokenSource();
+        _haDetectCts = cts;
+        try
+        {
+            // Reported from whichever thread the probe resumed on, so it is bounced through RunOnUi
+            // rather than trusted to land on this one. The identity check drops a report from a
+            // search that has already been superseded.
+            var progress = new Progress<MqttDetectProgress>(p => RunOnUi(() =>
+            {
+                if (_haDetectCts == cts) HaDetectText.Text = MqttConnectionProbe.Describe(p);
+            }));
+
+            var report = await MqttConnectionProbe.RunAsync(ProbeTarget(request), cts.Token, progress);
+            if (cts.IsCancellationRequested || _haDetectCts != cts) return;
+
+            RememberProbedEndpoint(request, report);
+            RefreshHaDetectText(report);
+            RefreshHaBrokerStatusText();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.RunAutodetect", ex); }
+        finally
+        {
+            if (_haDetectCts == cts) _haDetectCts = null;
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>The Connection line: where the settings in force came from, or why the search found
+    /// nothing. Called with a report only straight after a search.</summary>
+    private void RefreshHaDetectText(MqttProbeReport? report = null)
+    {
+        var request = StagedRequest();
+        HaDetectText.Foreground = SecondaryBrush();
+
+        if (string.IsNullOrWhiteSpace(request.Host)) { HaDetectText.Text = "No broker host set"; return; }
+
+        if (report is { Succeeded: false } failed)
+        {
+            HaDetectText.Text       = MqttConnectionProbe.Describe(failed);
+            HaDetectText.Foreground = CriticalBrush();
+            return;
+        }
+
+        HaDetectText.Text = MqttTransportPlan.DescribeProvenance(request);
+    }
+
+    /// <summary>Re-reads the two live-connection facts on page-show and after an Apply, not on a timer.</summary>
+    private void RefreshHaActivityTexts()
+    {
+        var now = DateTime.UtcNow;
+        HaLastPublishText.Text = MqttStatusFormatter.DescribeLastPublish(MqttActivity.LastPublishUtc, now);
+        HaLastCommandText.Text = MqttStatusFormatter.DescribeLastCommand(MqttActivity.LastCommand, now);
+    }
+
+    /// <summary>The device name used when <see cref="AppSettings.MqttDeviceName"/> is blank — the same
+    /// expression <c>HomeAssistantService.ApplyAsync</c> falls back to.</summary>
+    private static string DefaultDeviceName() => $"ChargeKeeper ({Environment.MachineName})";
+
+    /// <summary>The id actually published under, override or machine-derived default.</summary>
+    private static string EffectiveNodeId() =>
+        HaDiscovery.EffectiveNodeId(SettingsService.Current.MqttNodeId, Environment.MachineName);
+
+    private void RefreshHaNodeIdText() => HaNodeIdText.Text = EffectiveNodeId();
+
+    /// <summary>The device ID's own confirmation dialog. The id is the <c>unique_id</c> stem, the
+    /// device identifier and every topic segment, so changing it renames every entity in Home
+    /// Assistant — hence the separate dialog, gated on a valid different id and an acknowledgement
+    /// tick.</summary>
+    private async void OnChangeNodeIdClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string current = EffectiveNodeId();
+
+            var idBox = new TextBox
+            {
+                Text            = SettingsService.Current.MqttNodeId,
+                PlaceholderText = HaDiscovery.NodeId(Environment.MachineName),
+            };
+            var errorText = new TextBlock
+            {
+                FontSize     = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility   = Visibility.Collapsed,
+                Foreground   = CriticalBrush(),
+            };
+            // The id is sanitised to [a-z0-9_] before it reaches a topic, so echo what will be
+            // published — otherwise "Office ThinkPad" silently becomes something else.
+            var previewText = new TextBlock
+            {
+                FontSize     = 11,
+                Opacity      = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            var ack = new CheckBox { Content = "I understand my automations will break" };
+
+            var body = new StackPanel { Spacing = 8, Width = 420 };
+            body.Children.Add(new TextBlock
+            {
+                Text         = $"Current ID: {current}",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            body.Children.Add(new TextBlock { Text = "New ID", Opacity = 0.7, FontSize = 12 });
+            body.Children.Add(idBox);
+            body.Children.Add(previewText);
+            body.Children.Add(errorText);
+            body.Children.Add(new TextBlock
+            {
+                Text = "Changing the ID renames every ChargeKeeper entity on the broker. "
+                     + "Automations, dashboards and history that point at the old entities will stop "
+                     + "working — they will not report an error, the entities simply will not be there "
+                     + "any more.\n\n"
+                     + "ChargeKeeper removes the old entities from the broker on confirmation. "
+                     + "Their recorded history is not carried over to the new ones.\n\n"
+                     + "An empty box restores the name derived from this machine.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 4, 0, 0),
+            });
+            body.Children.Add(ack);
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot          = Content.XamlRoot,
+                Title             = "Change device ID",
+                Content           = body,
+                PrimaryButtonText = "Change ID",
+                CloseButtonText   = "Cancel",
+                DefaultButton     = ContentDialogButton.Close,
+                IsPrimaryButtonEnabled = false,
+            };
+
+            // The primary button is the only gate, so re-derive it from scratch on every edit
+            // rather than tracking a "was valid" flag that can go stale.
+            void Revalidate()
+            {
+                string raw      = idBox.Text ?? "";
+                string? error   = HaDiscovery.ValidateNodeId(raw);
+                string candidate = HaDiscovery.EffectiveNodeId(raw, Environment.MachineName);
+
+                errorText.Text       = error ?? "";
+                errorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+                previewText.Text     = error is null ? $"Publishes as: {candidate}" : "";
+
+                dialog.IsPrimaryButtonEnabled = error is null && candidate != current && ack.IsChecked == true;
+            }
+
+            idBox.TextChanged += (_, _) => Revalidate();
+            ack.Checked       += (_, _) => Revalidate();
+            ack.Unchecked     += (_, _) => Revalidate();
+            Revalidate();
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            // Store the sanitised form: the card above shows the effective id and the two must not
+            // disagree. Blank stays blank — that is the "use the machine default" sentinel.
+            string entered = (idBox.Text ?? "").Trim();
+            string newId   = entered.Length == 0 ? "" : HaDiscovery.NormalizeNodeId(entered);
+
+            SettingsService.Update(s => s.MqttNodeId = newId);
+            // Same callback the broker Apply uses: HomeAssistantService evicts the old id's retained
+            // topics before republishing discovery under the new one.
+            _onHomeAssistantChanged();
+            RefreshHaNodeIdText();
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnChangeNodeIdClicked", ex); }
+    }
+
+    // The About section hosts BrandAboutControl inline, populated in the ctor, so it needs no
+    // handler of its own.
 }

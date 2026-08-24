@@ -1,17 +1,28 @@
-namespace ChargeKeeper.Vendors;
+﻿namespace ChargeKeeper.Vendors;
 
 /// <summary>
 /// Current battery charge-threshold configuration, as reported by the vendor's power manager.
 /// <see cref="Enabled"/> is false when the battery charges to 100% (no threshold).
 /// </summary>
-public sealed record ChargeThresholdState(bool Capable, bool Enabled, int Start, int Stop);
+public sealed record ChargeThresholdState(bool Capable, bool Enabled, int Start, int Stop)
+{
+    /// <summary>
+    /// Firmware is capping the charge. <see cref="Start"/> is deliberately not tested: HP and
+    /// Surface have no charge-start threshold and report it as 0 by contract.
+    /// </summary>
+    public bool IsLimiting => Capable && Enabled && Stop > 0;
 
-/// <summary>
-/// One discrete charge mode offered by a vendor that has no numeric threshold.
-/// </summary>
+    /// <summary>
+    /// <see cref="Start"/> is a real firmware figure rather than the 0 a mode-based vendor
+    /// reports — the only condition under which a "Start-Stop" range may be shown or published.
+    /// </summary>
+    public bool HasStartThreshold => IsLimiting && Start > 0;
+}
+
+/// <summary>One discrete charge mode offered by a vendor that has no numeric threshold.</summary>
 /// <param name="Id">
-/// The firmware's own name for the mode, passed straight back to the device on write. Opaque to
-/// everything above the vendor module — never parse it, never display it.
+/// The firmware's own name for the mode, written back to the device verbatim. Opaque above the
+/// vendor module — never parse it, never display it.
 /// </param>
 /// <param name="Label">Short display name for the UI.</param>
 /// <param name="Description">One line explaining what the mode does, shown under the label.</param>
@@ -19,23 +30,15 @@ public sealed record ChargeMode(string Id, string Label, string Description);
 
 /// <summary>
 /// Reads and writes the battery charge start/stop thresholds through a vendor-specific
-/// mechanism. Availability is signalled by <see cref="Read"/> returning <c>null</c> (driver
-/// missing, unsupported hardware, transport error) rather than by a separate probe, so callers
-/// have exactly one "is this working" code path.
+/// mechanism. <see cref="Read"/> returning <c>null</c> is how a module signals "not this
+/// machine"; there is no separate availability probe.
 /// </summary>
 public interface IChargeThresholdProvider
 {
     /// <summary>
-    /// Whether the vendor can honour arbitrary start/stop percentages.
-    ///
-    /// Lenovo can: its firmware takes a real numeric pair. HP cannot — it exposes three coarse
-    /// named modes and no numeric threshold at all, so <see cref="SetThresholds"/> there snaps
-    /// to the nearest mode and the <see cref="ChargeThresholdState.Start"/>/
-    /// <see cref="ChargeThresholdState.Stop"/> it reports back are nominal labels rather than
-    /// firmware-reported values.
-    ///
-    /// The UI must consult this before offering a percentage picker; otherwise the user drags a
-    /// slider to 60% and the device quietly settles somewhere else.
+    /// Whether the vendor can honour arbitrary start/stop percentages. A mode-based vendor snaps
+    /// to its nearest mode and reports nominal labels rather than firmware figures, so the UI
+    /// must consult this before offering a percentage picker.
     /// </summary>
     bool SupportsNumericThresholds { get; }
 
@@ -55,23 +58,16 @@ public interface IChargeThresholdProvider
     bool SetThresholds(int start, int stop);
 
     /// <summary>
-    /// The discrete modes this vendor offers, in the order they should be presented, or an empty
-    /// list when it uses numeric thresholds instead.
-    ///
-    /// This exists because <see cref="SetEnabled"/> is a bool and some vendors have more than two
-    /// states. HP has three — a full cap, an adaptive middle setting where the firmware decides,
-    /// and off — so an on/off toggle silently hides one of them and cannot report which is
-    /// selected when the user picked the middle one outside ChargeKeeper.
-    ///
-    /// A vendor exposes EITHER numeric thresholds OR modes, never both:
-    /// <see cref="SupportsNumericThresholds"/> and a non-empty list here are mutually exclusive.
+    /// The discrete modes this vendor offers, in presentation order, or an empty list when it uses
+    /// numeric thresholds instead. A vendor exposes either numeric thresholds or modes, never
+    /// both, so this and <see cref="SupportsNumericThresholds"/> are mutually exclusive.
     /// </summary>
     IReadOnlyList<ChargeMode> AvailableModes { get; }
 
     /// <summary>
-    /// The <see cref="ChargeMode.Id"/> currently selected, or <c>null</c> when unavailable or
-    /// when the vendor is not mode-based. May also be null if the firmware reports a mode this
-    /// build does not know about, which is why callers must handle "no selection".
+    /// The <see cref="ChargeMode.Id"/> currently selected, or <c>null</c> when unavailable, when
+    /// the vendor is not mode-based, or when the firmware reports a mode this build does not
+    /// list — so callers must handle "no selection".
     /// </summary>
     string? ReadMode();
 

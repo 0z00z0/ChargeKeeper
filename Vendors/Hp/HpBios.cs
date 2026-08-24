@@ -7,8 +7,8 @@ namespace ChargeKeeper.Vendors.Hp;
 /// <param name="CurrentValue">The currently selected option.</param>
 /// <param name="PossibleValues">Every option the firmware accepts for this setting.</param>
 /// <param name="IsReadOnly">
-/// True when the firmware refuses writes. HP marks several battery settings read-only even
-/// though they are visible — notably "Adaptive Battery Optimizer" on the EliteBook 840 G8.
+/// True when the firmware refuses writes. HP marks several battery settings read-only even though
+/// they are visible.
 /// </param>
 internal sealed record HpEnumSetting(
     string Name,
@@ -18,21 +18,10 @@ internal sealed record HpEnumSetting(
 
 /// <summary>
 /// Thin wrapper over HP's BIOS management surface, the WMI namespace
-/// <c>root\HP\InstrumentedBIOS</c>.
-///
-/// Availability: HP ships this namespace on its COMMERCIAL lines (EliteBook, ProBook, ZBook)
-/// and not on consumer SKUs (Pavilion, Envy), so its absence is an ordinary, expected outcome
-/// rather than an error — every method here degrades to null/false instead of throwing, which
-/// is what <see cref="IChargeThresholdProvider.Read"/>'s "null means unavailable" contract
-/// requires of its callers.
-///
-/// Privileges: reads succeed from a NON-elevated token. Writes through
-/// <see cref="SetSetting"/> require elevation, and additionally require the BIOS Setup
-/// password when one is set (passed as <c>Password</c>; empty string when unset).
-///
-/// Unlike Lenovo — whose charge threshold is NOT reachable over WMI and needs the native
-/// <c>LenPower.dll</c> RPC bridge — everything HP exposes here is plain managed WMI, so this
-/// module ships no native component.
+/// <c>root\HP\InstrumentedBIOS</c>. HP ships it on its commercial lines and not on consumer SKUs,
+/// so its absence is an expected outcome and every method here degrades to null/false rather than
+/// throwing. Reads succeed from a non-elevated token; writes need elevation, plus the BIOS Setup
+/// password when one is set.
 /// </summary>
 internal static class HpBios
 {
@@ -43,9 +32,8 @@ internal static class HpBios
     private const uint Success = 0;
 
     /// <summary>
-    /// Reads one enumeration setting, or <c>null</c> when the namespace, the class or the
-    /// setting is absent — i.e. "this is not an HP commercial machine, or this firmware does
-    /// not have that setting". Never throws.
+    /// Reads one enumeration setting, or <c>null</c> when the namespace, the class or the setting
+    /// is absent. Never throws.
     /// </summary>
     internal static HpEnumSetting? ReadEnumSetting(string name)
     {
@@ -54,8 +42,7 @@ internal static class HpBios
             var scope = new ManagementScope(Namespace);
             scope.Connect();
 
-            // Name is caller-supplied; escape it rather than trusting it, so a quote can never
-            // change the shape of the query.
+            // Caller-supplied, so escape it: a quote must not reshape the query.
             var query = new ObjectQuery(
                 $"SELECT * FROM HP_BIOSEnumeration WHERE Name='{EscapeWql(name)}'");
 
@@ -76,25 +63,21 @@ internal static class HpBios
         }
         catch
         {
-            // ManagementException (namespace/class absent), UnauthorizedAccessException,
-            // COMException on a machine with a broken WMI repository. All mean "unavailable".
+            // Absent namespace or class, access denied, broken WMI repository — all "unavailable".
             return null;
         }
     }
 
     /// <summary>
-    /// Writes a BIOS setting through <c>HP_BIOSSettingInterface.SetBIOSSetting</c>. Returns
-    /// false on any failure rather than throwing.
-    ///
-    /// CAUTION: this changes firmware configuration. HP applies most battery settings only
-    /// after a reboot, so a successful return does NOT mean the new value is in effect yet.
+    /// Writes a BIOS setting through <c>HP_BIOSSettingInterface.SetBIOSSetting</c>, false on any
+    /// failure. HP applies most battery settings only after a reboot, so a successful return does
+    /// not mean the new value is in effect yet.
     /// </summary>
     /// <param name="name">The BIOS setting name, exactly as the firmware spells it.</param>
     /// <param name="value">One of the setting's <see cref="HpEnumSetting.PossibleValues"/>.</param>
     /// <param name="password">
-    /// The BIOS Setup password, or empty when none is set. HP expects the bare string when no
-    /// password exists; when one is set it must be given in the <c>&lt;utf-16/&gt;</c> prefixed
-    /// form, which this method does not currently construct.
+    /// The BIOS Setup password, or empty when none is set. A set password must be given in the
+    /// <c>&lt;utf-16/&gt;</c> prefixed form, which this method does not construct.
     /// </param>
     internal static bool SetSetting(string name, string value, string password = "")
     {
@@ -124,8 +107,7 @@ internal static class HpBios
         }
         catch
         {
-            // Most commonly UnauthorizedAccessException when not elevated, or a
-            // ManagementException when the namespace is absent.
+            // Usually access denied when not elevated, or an absent namespace.
             return false;
         }
     }
@@ -149,9 +131,8 @@ internal static class HpBios
     }
 
     /// <summary>
-    /// HP reports IsReadOnly inconsistently across firmware revisions — sometimes a numeric
-    /// 0/1, sometimes the string "0"/"1". Treat anything unrecognised as read-only, so an
-    /// unexpected shape fails closed rather than letting a write be attempted blind.
+    /// HP reports IsReadOnly as a bool, a number or a "0"/"1" string depending on the firmware
+    /// revision. Anything unrecognised counts as read-only, so an unexpected shape fails closed.
     /// </summary>
     private static bool AsBool(ManagementObject mo, string property)
     {

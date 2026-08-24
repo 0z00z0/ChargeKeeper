@@ -8,70 +8,41 @@ using ChargeKeeper.Services;
 
 namespace ChargeKeeper.UI;
 
-/// <summary>
-/// Bigger, resizable "pop-out" view of the battery-history graph — opened from
-/// <see cref="DashboardWindow"/>'s embedded <see cref="BatteryHistoryGraphControl"/>.
-/// Hosts the identical control (same drawing code, same shared <c>GraphTimeScale</c> setting and
-/// <c>BatteryHistoryService</c> in-memory window as the small dashboard — this is a bigger view of
-/// the same graph, not an independently-scoped second one), just given room to grow. Frameless
-/// (border, no title bar — same chrome as DashboardWindow, applied via
-/// <see cref="Helpers.WindowChrome.ApplyPopup"/>) but still resizable, and
-/// dismissed the same way as the tray popup: it closes itself on focus loss. With no title-bar X,
-/// clicking away is the ONLY way to dismiss it — App's singleton recreates it cheaply next time.
-/// When opened from the visible dashboard it animates open, growing from the dashboard's on-screen
-/// rect to its final centred rect; when dismissed via focus loss it plays the same animation in
-/// reverse, shrinking from wherever it currently is back down into that origin rect before the
-/// window actually closes (see <see cref="AnimateRect"/>). If there was no origin rect to begin
-/// with (dashboard already hidden when opened), there's nothing sensible to retract into, so
-/// dismissal is an instant <see cref="Close"/> as before.
-/// </summary>
+/// <summary>Bigger, resizable pop-out of the battery-history graph, hosting the same
+/// <see cref="BatteryHistoryGraphControl"/> as the dashboard. Frameless, and dismissed like the tray
+/// popup: it closes itself on focus loss. Opened from a visible dashboard it grows out of that rect
+/// and shrinks back into it on dismissal; with no origin rect it opens and closes flat.</summary>
 public sealed partial class BatteryHistoryWindow : Window
 {
-    // Default/minimum window size in DIPs. The minimum keeps the 28px/36px axis-label columns plus
-    // a usable plot from being squeezed to nothing on a tiny work area.
+    // Minimum keeps the 28px/36px axis-label columns plus a usable plot from being squeezed to nothing.
     private const int MinWidth  = 640;
     private const int MinHeight = 420;
 
-    // Open/retract animation: ~10 ms ticks over ~340 ms — long enough to actually see the
-    // dashboard's graph grow into (or shrink back out of) the window, short enough to never feel
-    // like it's lagging the click or delaying the user getting to the pop-out.
+    // Long enough to see the graph grow out of the dashboard, short enough not to lag the click.
     private const int AnimDurationMs = 340;
     private const int AnimTickMs     = 10;
 
     private readonly DispatcherTimer _refreshTimer;
     private DispatcherTimer? _animTimer;
 
-    // Open-animation geometry, captured in the ctor and consumed once on the FIRST Activated event.
-    // The animation clock must start when the window is actually on screen: starting it in the ctor
-    // (before Activate) ran the whole duration out during window realization, so the motion finished
-    // before the first frame was ever composed and looked like an instant pop.
-    // _originRect is null when the window was opened with no origin (dashboard already hidden) —
-    // that's also the signal at close time that there's nothing to retract into.
+    // Consumed on the FIRST Activated event: a clock started in the ctor runs its whole duration out
+    // during realisation. A null _originRect also means there is nothing to retract into at close.
     private readonly RectInt32 _finalRect;
     private readonly RectInt32? _originRect;
     private bool _animStarted;
 
-    // Set the moment the Closed event fires (final teardown). Stops a stray animation tick from
-    // touching a dead AppWindow after Closed.
+    // Set on Closed, so a stray animation tick can't touch a dead AppWindow.
     private bool _closing;
 
-    // Set the moment a focus-loss dismissal begins — either the instant Close() (no origin rect) or
-    // the retract-then-close animation. Guards against a second Deactivated event arriving mid-
-    // retract (the window is still "active enough" to activate/deactivate again during its own
-    // ~340 ms close animation) from starting a second animation or double-calling Close().
+    // Set when a focus-loss dismissal begins: the window can deactivate again during its own retract.
     private bool _dismissing;
 
-    // Set on the FIRST non-Deactivated Activated event this window ever receives. A Deactivated
-    // arriving before that point is spurious, not a real "user clicked away" — it can only mean
-    // the window hasn't actually finished taking focus yet (e.g. Activate() was called but the OS
-    // hasn't delivered the corresponding activation yet). Treating it as a real dismissal was
-    // observed as the pop-out opening and then immediately closing again on a fast double-click.
+    // A Deactivated before the first real Activated is spurious — the window hasn't finished taking
+    // focus. Treating it as a dismissal made a fast double-click open the pop-out and close it again.
     private bool _everActivated;
 
-    /// <param name="originRect">
-    /// The tray dashboard's current on-screen rect (physical px) to animate open from, or null to
-    /// place the window at its final rect directly (e.g. dashboard already hidden).
-    /// </param>
+    /// <param name="originRect">The tray dashboard's on-screen rect (physical px) to animate open
+    /// from, or null to place the window at its final rect directly.</param>
     public BatteryHistoryWindow(RectInt32? originRect = null)
     {
         InitializeComponent();
@@ -81,8 +52,7 @@ public sealed partial class BatteryHistoryWindow : Window
         _finalRect = ComputeFinalRect();
         if (originRect is { } origin)
         {
-            // Place the window at the origin NOW so its first painted frame is the small dashboard
-            // rect; the grow-to-final animation is kicked off once the window is shown (OnActivated).
+            // Place at the origin now, so the first painted frame is the small dashboard rect.
             _originRect = origin;
             AppWindow.MoveAndResize(origin);
         }
@@ -92,11 +62,17 @@ public sealed partial class BatteryHistoryWindow : Window
         }
 
         // Render immediately so the window doesn't show a blank canvas before the first tick.
-        HistoryGraph.Render();
+        try { HistoryGraph.Render(); }
+        catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
         RefreshStats();
 
         _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
-        _refreshTimer.Tick += (_, _) => { HistoryGraph.Render(); RefreshStats(); };
+        _refreshTimer.Tick += (_, _) =>
+        {
+            try { HistoryGraph.Render(); }
+            catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
+            RefreshStats();
+        };
         _refreshTimer.Start();
 
         Activated += OnActivated;
@@ -108,18 +84,6 @@ public sealed partial class BatteryHistoryWindow : Window
         };
     }
 
-    /// <summary>
-    /// Two jobs, keyed on activation state:
-    /// <list type="bullet">
-    /// <item><b>Deactivated</b> → popup-style dismissal mirroring <see cref="DashboardWindow"/>:
-    /// clicking away dismisses the window. Close, not Hide — App's singleton nulls its reference on
-    /// Closed and recreates it cheaply, and with no title bar there is no other way to dismiss it.
-    /// If an origin rect exists, shrinks the window back into it first (<see cref="AnimateRect"/>)
-    /// and closes once that finishes; otherwise closes instantly, same as before.</item>
-    /// <item><b>Activated</b> (first time) → start the open animation, now that the window is
-    /// actually on screen at its origin rect.</item>
-    /// </list>
-    /// </summary>
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
         if (e.WindowActivationState == WindowActivationState.Deactivated)
@@ -128,10 +92,11 @@ public sealed partial class BatteryHistoryWindow : Window
             if (_closing || _dismissing) return;
             _dismissing = true;
 
+            // Close, not Hide: App's singleton recreates it cheaply, and with no title bar clicking
+            // away is the only dismissal.
             if (_originRect is { } origin)
             {
-                // Retract from wherever the window CURRENTLY is — it's resizable, so this may not
-                // be _finalRect — back down into the dashboard's rect, then close.
+                // Retract from wherever the window currently is — it's resizable, so not _finalRect.
                 var current = new RectInt32(
                     AppWindow.Position.X, AppWindow.Position.Y,
                     AppWindow.Size.Width, AppWindow.Size.Height);
@@ -139,7 +104,6 @@ public sealed partial class BatteryHistoryWindow : Window
             }
             else
             {
-                // Nothing sensible to retract into — dismiss instantly, as before.
                 Close();
             }
             return;
@@ -155,15 +119,8 @@ public sealed partial class BatteryHistoryWindow : Window
         }
     }
 
-    /// <summary>
-    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch — same pattern
-    /// as <see cref="DashboardWindow"/>/<see cref="BatteryHistoryGraphControl"/>'s own RunOnUi. An
-    /// exception thrown inside a raw DispatcherQueue.TryEnqueue callback is NOT surfaced to
-    /// Application.UnhandledException — it tears the whole process down as an opaque stowed
-    /// exception with nothing logged anywhere. The wattage read below completes on a background
-    /// thread and touches UI elements afterward; if the window closed in the meantime, catching
-    /// here keeps the app alive instead of crashing it.
-    /// </summary>
+    /// <summary>Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch: an
+    /// exception inside a raw TryEnqueue callback bypasses Application.UnhandledException.</summary>
     private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
     {
         if (_closing) return;
@@ -171,13 +128,7 @@ public sealed partial class BatteryHistoryWindow : Window
         catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.RunOnUi", ex); }
     });
 
-    /// <summary>
-    /// Refreshes the POWER/REMAINING stats from a fresh <see cref="BatteryReport"/>, same formatting
-    /// as <see cref="DashboardWindow"/> via <see cref="BatteryStatsFormatter"/>. The adapter wattage
-    /// (TODO #41) is memoized in <see cref="ChargerInfoService"/>: the warm path is a plain cached
-    /// read painted immediately; only a cold cache (first AC read of a session) does the RPC, off
-    /// the UI thread, then repaints.
-    /// </summary>
+    /// <summary>Refreshes POWER/REMAINING; only a cold adapter-wattage cache RPCs, off the UI thread.</summary>
     private void RefreshStats()
     {
         try
@@ -194,9 +145,8 @@ public sealed partial class BatteryHistoryWindow : Window
             if (onAC && watts is null)
                 Task.Run(() =>
                 {
-                    // Warm the cache off-thread; on success re-enter RefreshStats (now the no-RPC
-                    // warm path) so the repaint reads a FRESH report rather than the onAC/rateMw
-                    // captured before the RPC — which could be seconds stale if AC changed meanwhile.
+                    // Re-enter so the repaint reads a FRESH report, not the onAC/rateMw captured
+                    // before the RPC.
                     if (ChargerInfoService.GetRatedWattage() is not null)
                         RunOnUi(RefreshStats);
                 });
@@ -210,25 +160,14 @@ public sealed partial class BatteryHistoryWindow : Window
     private void ConfigureWindowChrome()
     {
         WindowChrome.ApplyPopup(this, resizable: true, alwaysOnTop: false);
-        // Dark-theme the title bar for consistency with the other windows (a no-op on this
-        // frameless popup, but harmless and keeps the call site uniform).
+        // A no-op on this frameless popup, but keeps the call site uniform with the other windows.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
     }
 
-    /// <summary>
-    /// Final placement: ~70% width × 65% height of the monitor under the cursor (clamped to a sane
-    /// minimum) and centred there. Uses the same <see cref="NativeMethods.GetCursorMonitorMetrics"/>
-    /// helper as DashboardWindow, but centres rather than tray-anchors. Returns the
-    /// OUTER rect rather than applying a client size — the open animation needs one rect it can
-    /// interpolate towards with MoveAndResize, and on a frameless window the non-client area is
-    /// only the thin resize border, so outer ≈ client for the 70%/65% target.
-    /// <para/>
-    /// Deliberately NOT <see cref="NativeMethods.CenterRectOnCursorMonitor"/>: that sizes from a fixed
-    /// DIP target capped to the work area, whereas this window wants a proportion of the work area
-    /// with a DIP floor — the floor is allowed to WIN on a small screen (Max, not Min), keeping the
-    /// axis-label columns readable even if that overhangs the work area. Only the shared centring
-    /// step is reused.
-    /// </summary>
+    /// <summary>Final placement: ~70% × 65% of the monitor under the cursor with a DIP floor, centred
+    /// there. Returns the OUTER rect, which the open animation interpolates. Not
+    /// <see cref="NativeMethods.CentreRectOnCursorMonitor"/>: that caps a DIP target to the work area,
+    /// whereas here the floor may win on a small screen.</summary>
     private RectInt32 ComputeFinalRect()
     {
         var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
@@ -236,26 +175,13 @@ public sealed partial class BatteryHistoryWindow : Window
         int w = Math.Max((int)(MinWidth  * scale), (int)((work.Right  - work.Left) * 0.70));
         int h = Math.Max((int)(MinHeight * scale), (int)((work.Bottom - work.Top)  * 0.65));
 
-        return NativeMethods.CenterInWorkArea(work, w, h);
+        return NativeMethods.CentreInWorkArea(work, w, h);
     }
 
-    /// <summary>
-    /// Animates the window's <see cref="AppWindow"/> rect from <paramref name="from"/> to
-    /// <paramref name="to"/> on an ease-out curve, then invokes <paramref name="onComplete"/>.
-    /// Shared by both directions: the open-grow animation (dashboard rect → final centred rect,
-    /// started from the first Activated event, NOT the ctor — see the class remarks on why) and the
-    /// close-retract animation (the window's current rect → dashboard rect). The same ease-out
-    /// curve reads well in reverse too: a fast initial shrink that settles gently into the target
-    /// rect, rather than a jarring snap right at the dashboard's edge.
-    /// <para/>
-    /// Any animation already in flight is stopped before starting a new one — e.g. a click-away
-    /// landing mid-open (fast enough to still be growing) must not leave that timer ticking
-    /// alongside a newly-started retract timer, fighting over the same AppWindow.
-    /// <para/>
-    /// No per-tick graph redraws — the control's own SizeChanged debounce absorbs the burst of
-    /// intermediate sizes; callers that care (only the open path) pass a Render() as
-    /// <paramref name="onComplete"/> to land the final frame explicitly.
-    /// </summary>
+    /// <summary>Animates the <see cref="AppWindow"/> rect on an ease-out curve, then invokes
+    /// <paramref name="onComplete"/>. Any animation in flight is stopped first, so a click-away
+    /// landing mid-open can't leave two timers fighting over the same AppWindow. Ticks deliberately
+    /// don't redraw the graph — the control's own SizeChanged debounce absorbs them.</summary>
     private void AnimateRect(RectInt32 from, RectInt32 to, Action onComplete)
     {
         _animTimer?.Stop();
@@ -268,8 +194,7 @@ public sealed partial class BatteryHistoryWindow : Window
         {
             if (_closing) { timer.Stop(); return; }   // window torn down mid-animation
 
-            // Wall-clock progress, not per-tick increments — DispatcherTimer ticks can be late
-            // under load, and elapsed-time-based t keeps the total duration honest regardless.
+            // Wall-clock progress, not per-tick increments: DispatcherTimer ticks can be late.
             double t = Math.Min(1.0, (Environment.TickCount64 - startMs) / (double)AnimDurationMs);
             if (t >= 1.0)
             {
@@ -289,6 +214,5 @@ public sealed partial class BatteryHistoryWindow : Window
         timer.Start();
     }
 
-    /// <summary>Integer lerp for the animation rect's components.</summary>
     private static int Lerp(int from, int to, double t) => from + (int)Math.Round((to - from) * t);
 }

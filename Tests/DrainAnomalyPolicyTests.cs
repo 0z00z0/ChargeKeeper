@@ -21,8 +21,8 @@ public class DrainAnomalyPolicyTests
     [Fact]
     public void ShouldWarn_SmallDropOverShortGap_False_NoFalsePositive()
     {
-        // The bug this policy fixes: a 1-point tick across a ~90s scheduler stall extrapolates to
-        // ~40%/h and would otherwise fire. Fails the min-drop floor (and the min-gap floor).
+        // A 1-point tick across a ~90 s scheduler stall extrapolates to ~40 %/h, so the min-drop and
+        // min-gap floors are what stop it firing.
         Assert.False(DrainAnomalyPolicy.ShouldWarn(enabled: true, socDropPercent: 1, gapDuration: TimeSpan.FromSeconds(90), thresholdPercentPerHour: 3));
     }
 

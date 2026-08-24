@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>A named charging-threshold profile.</summary>
 internal sealed class ThresholdPreset
 {
     public string Name  { get; set; } = "";
@@ -15,22 +14,15 @@ internal sealed class ThresholdPreset
     public ThresholdPreset(string name, int start, int stop)
         { Name = name; Start = start; Stop = stop; }
 
-    /// <summary>
-    /// How a preset renders as a one-line label — the single source shared by the tray Presets
-    /// submenu (<c>TrayMenu.PresetLabel</c>) and the Settings window's preset rows so the two can't
-    /// drift. Static overload for callers holding not-yet-committed name/start/stop values.
-    /// </summary>
+    /// <summary>Static so a caller holding uncommitted values renders exactly like a saved preset.</summary>
     public static string FormatLabel(string name, int start, int stop) => $"{name}  ({start}–{stop} %)";
-
-    /// <summary>This preset rendered via <see cref="FormatLabel(string,int,int)"/>.</summary>
-    public string Label => FormatLabel(Name, Start, Stop);
 }
 
-/// <summary>Tray icon rendering mode.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-internal enum TrayIconMode { Arc, Numeric }
+// APPEND new members, never insert: SettingsWindow casts between the ComboBox's SelectedIndex and
+// this enum by position, so the two orders have to stay in lockstep.
+internal enum TrayIconMode { Arc, Numeric, BrandMark }
 
-/// <summary>Selected time span for the dashboard history graph.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum GraphTimeScale { FifteenMinutes, OneHour, SixHours, TwelveHours, OneDay, OneWeek, FourteenDays }
 
@@ -52,143 +44,167 @@ internal static class GraphTimeScaleExtensions
 /// <summary>Persisted application settings.</summary>
 internal sealed class AppSettings
 {
-    // ── Threshold presets ────────────────────────────────────────────────────
-    /// <summary>Named presets shown in the Presets submenu.</summary>
     public List<ThresholdPreset> Presets { get; set; } =
     [
         new("Daily",  60, 80),
         new("Travel", 80, 100),
     ];
 
-    /// <summary>Name of the active preset, or null when a custom threshold is in use.</summary>
-    public string? ActivePreset { get; set; }
-
-    // ── Travel override ──────────────────────────────────────────────────────
-    /// <summary>True while a one-shot "charge to 100 % once" override is in progress.</summary>
+    /// <summary>The one-shot "charge to 100 % once" override, and what to restore when it completes.</summary>
     public bool TravelOverrideActive      { get; set; }
-    /// <summary>Threshold to restore when the override completes (null = leave disabled).</summary>
     public int? TravelOverrideRevertStart { get; set; }
     public int? TravelOverrideRevertStop  { get; set; }
 
-    // ── Notifications ────────────────────────────────────────────────────────
     public bool LowBatteryWarningEnabled { get; set; } = true;
     public int  LowBatteryWarningPct     { get; set; } = 15;
 
-    /// <summary>
-    /// Overnight-drain anomaly warning (TODO #26): toast when the battery loses charge faster than
-    /// this rate across a detected downtime gap (app closed, crashed, or the system suspended) —
-    /// e.g. Modern Standby failing to actually suspend can drain several percent an hour even with
-    /// the lid closed. Default 3%/hour is a deliberately loose bar: normal Modern Standby drain is
-    /// usually well under 1%/hour, so 3 leaves headroom before flagging genuinely abnormal drain.
-    /// </summary>
+    /// <summary>Off by default: on a machine with no charge cap the level reaches 100 % every time
+    /// it is left plugged in, and a warning for that is noise rather than news.</summary>
+    public bool HighBatteryWarningEnabled { get; set; } = false;
+    public int  HighBatteryWarningPct     { get; set; } = 80;
+
+    /// <summary>Normal Modern Standby drain is well under 1 %/hour, so 3 leaves headroom.</summary>
     public bool DrainAnomalyWarningEnabled  { get; set; } = true;
     public int  DrainAnomalyPercentPerHour  { get; set; } = 3;
 
-    // ── App behaviour ────────────────────────────────────────────────────────
-    /// <summary>Seconds to pause at startup before initialising (0 = no delay).</summary>
     public int StartupDelaySeconds { get; set; } = 0;
 
-    /// <summary>Arc gauge (default) or numeric % in the tray icon.</summary>
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;
 
-    // ── History graph ────────────────────────────────────────────────────────
-    /// <summary>Selected time span shown in the dashboard history graph.</summary>
     public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
 
-    /// <summary>
-    /// How long a hole in the sample timeline must be before it's registered as a downtime gap
-    /// (app closed/crashed) and drawn as a compressed-axis break instead of a connecting line.
-    /// Default of 1 matches the previous hardcoded ~1-minute threshold
-    /// (<c>BatteryHistoryService.SampleIntervalSeconds * 3</c>), so existing users see no change in
-    /// behaviour until they pick a different value. 0 = "None" — disable gap detection entirely
-    /// (never show a gap marker, treated as an effectively infinite threshold, NOT a literal
-    /// zero-minute one).
-    /// </summary>
+    /// <summary>Gap before a hole in the samples is drawn as an axis break. 0 = never, not zero minutes.</summary>
     public int DowntimeGapMinutes { get; set; } = 1;
 
-    // ── Network / dock-based profiles (TODO #31) ────────────────────────────────
+    /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
+    public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
+    [
+        new(KeepAwakeKind.Duration,  TimeSpan.FromMinutes(30), null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(1),    null),
+        new(KeepAwakeKind.Duration,  TimeSpan.FromHours(3),    null),
+        new(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0)),
+    ];
+
+    public bool KeepAwakeDisplayOn { get; set; } = false;
+
+    /// <summary>Never defaulted on: it parks a Windows power setting outside the app for as long as it runs.</summary>
+    public bool LidDelayEnabled { get; set; } = false;
+
+    public int LidDelayMinutes { get; set; } = 10;
+
+    /// <summary>On by default, unlike the feature itself: with the lid action parked on "do nothing"
+    /// the machine sits awake and unlocked with the lid shut, so the delay removes the sign-in prompt
+    /// a lid close normally leads to.</summary>
+    public bool LidDelayLockOnClose { get; set; } = true;
+
+    /// <summary>Saved so a restore works even after a crash. Nullable because "do nothing" is index 0
+    /// and a legitimate choice, so only null can mean "untouched".</summary>
+    public int? LidDelaySavedAcAction { get; set; }
+    public int? LidDelaySavedDcAction { get; set; }
+
+    /// <summary>Lid actions are per-scheme, so restoring the indices into a later plan would overwrite
+    /// that plan and strand the captured one. Null falls back to the active scheme.</summary>
+    public string? LidDelaySavedScheme { get; set; }
+
+    /// <summary>True if either side is stored — a half-written pair still means the scheme was touched.</summary>
+    [JsonIgnore]
+    public bool HasSavedLidAction => LidDelaySavedAcAction is not null || LidDelaySavedDcAction is not null;
+
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
 
-    /// <summary>User-configured location → preset mappings ("office dock" → "Daily", etc.).</summary>
     public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
 
     /// <summary>
-    /// Preset to apply when the current location matches none of <see cref="NetworkLocationRules"/>
-    /// — the "unknown network → travel preset" case from the original idea. Null = do nothing (stay
-    /// on whatever threshold was already active) rather than force a change on every unrecognised
-    /// network, which would be surprising on a network the user simply hasn't gotten round to
-    /// naming yet.
+    /// Three-valued on purpose. True once the rules keyed on the routed adapter have been dropped —
+    /// persisted, because clearing on every start would also drop the rules saved since. Null means
+    /// the key was absent from settings.json, which is a file older than the key or one synced in
+    /// from another machine, and reads as "nothing to migrate": absent configuration must never
+    /// select the branch that destroys rules. Only an explicit false asks for the migration, and
+    /// <see cref="SettingsService.Save"/> stamps null to true so it can be asked for at most once.
     /// </summary>
+    public bool? NetworkRulesKeyedOnPhysicalAdapter { get; set; }
+
+    /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
+    /// on a network the user simply hasn't named yet.</summary>
     public string? UnknownNetworkPresetName { get; set; }
 
-    /// <summary>
-    /// First rule matching <paramref name="location"/>, or null. The single lookup both the tray
-    /// menu's "Current: …" status row and the location-change auto-apply use, so "which rule wins"
-    /// (list order) stays defined in exactly one place.
-    /// </summary>
+    /// <summary>The single lookup for both the tray status row and the auto-apply, so list order
+    /// decides which rule wins in exactly one place.</summary>
     public NetworkLocationRule? FindNetworkRule(NetworkLocation location) =>
         NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
 
-    // ── Home Assistant / MQTT (TODO #28) ────────────────────────────────────────
-    /// <summary>
-    /// Master on/off for the MQTT publisher. Off by default and inert until the user both enables it
-    /// AND fills in a broker host — ChargeKeeper never touches the network otherwise.
-    /// </summary>
+    /// <summary>Inert until this is on AND a broker host is set — ChargeKeeper never touches the network otherwise.</summary>
     public bool HomeAssistantEnabled { get; set; } = false;
 
-    /// <summary>MQTT broker hostname/IP (e.g. the Home Assistant host). Empty = feature inactive.</summary>
     public string MqttBrokerHost { get; set; } = "";
 
-    /// <summary>MQTT broker port. 1883 plaintext / 8883 TLS by convention.</summary>
-    public int MqttBrokerPort { get; set; } = 1883;
+    /// <summary>The broker port, or null to find it. Null by default: the port a broker answers on
+    /// depends on the transport and on what fronts it, so assuming 1883 is wrong everywhere except
+    /// the plain internal case.</summary>
+    public int? MqttBrokerPort { get; set; }
 
-    /// <summary>MQTT username (blank for an anonymous broker).</summary>
+    /// <summary>Set once the port inherited from the days when 1883 was the default has been turned
+    /// back into Automatic. Persisted, because a 1883 chosen after that is a choice, not a leftover.</summary>
+    public bool MqttPortDefaultRetiredForAutomatic { get; set; }
+
     public string MqttUsername { get; set; } = "";
-
-    /// <summary>
-    /// MQTT password (blank for an anonymous broker). Stored in the user's own local settings.json,
-    /// same as any MQTT client's config — it is the user's broker credential, entered by the user.
-    /// </summary>
     public string MqttPassword { get; set; } = "";
+    public bool   MqttUseTls   { get; set; } = false;
 
-    /// <summary>Use TLS for the broker connection (port is usually 8883 then).</summary>
-    public bool MqttUseTls { get; set; } = false;
+    /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
+    /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
+    /// The port applies to both transports — see <see cref="MqttTransportEndpoint"/>.</summary>
+    public MqttTransportSetting MqttTransportMode { get; set; } = MqttTransportSetting.Auto;
 
-    /// <summary>
-    /// Home Assistant MQTT-discovery topic prefix — must match HA's configured prefix (default
-    /// "homeassistant"). Discovery config topics are published under this; entity state under
-    /// "chargekeeper/&lt;node&gt;/…".
-    /// </summary>
+    /// <summary>Where the broker answered last. State rather than a setting: it records where the
+    /// machine turned out to be, so a reconnect starts with what worked, and it never changes what
+    /// the user chose. Null until something connects, and never a password.</summary>
+    public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
+
+    /// <summary>Must match HA's own prefix, or discovery configs land where nothing reads them.</summary>
     public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
 
-    // ── Settings window (TODO #19) ──────────────────────────────────────────────
-    /// <summary>
-    /// Last on-screen position/size of the Settings window, in physical pixels — restored on next
-    /// open, ignored/clamped if it would land off every current monitor (e.g. a monitor was
-    /// unplugged). Null until the window has been closed at least once. WinUIEx's own
-    /// PersistenceId is NOT used here: it stores through Windows.Storage.ApplicationData, which is
-    /// unavailable to this unpackaged app — persisting through settings.json instead keeps it
-    /// consistent with every other piece of app state.
-    /// </summary>
+    /// <summary>Empty = "ChargeKeeper (&lt;machine name&gt;)".</summary>
+    public string MqttDeviceName { get; set; } = "";
+
+    /// <summary>The MQTT client id, the <c>unique_id</c> stem, the device identifier and every topic
+    /// segment. Empty = derived from the machine name; changing it evicts the old id's retained topics
+    /// so HA deletes the previous device instead of ghosting it.</summary>
+    public string MqttNodeId { get; set; } = "";
+
+    /// <summary>Which groups of entities are announced. The feature groups are on by default — the
+    /// surface is the point of the feature, and a group is switched off to reduce it, never to opt
+    /// into it. Turning one off removes its entities from the consumer rather than leaving them
+    /// unavailable; see <see cref="HaDiscovery.RemovalTopics"/>.</summary>
+    public bool MqttPublishBatteryStatus  { get; set; } = true;
+    public bool MqttPublishSmartCharge    { get; set; } = true;
+    public bool MqttPublishKeepAwake      { get; set; } = true;
+    public bool MqttPublishLidClose       { get; set; } = true;
+    public bool MqttPublishNotifications  { get; set; } = true;
+    public bool MqttPublishNetwork        { get; set; } = true;
+
+    /// <summary>Off, unlike the feature groups above: diagnostics describe ChargeKeeper rather than
+    /// the battery, so they are what an operator opts into rather than what a new install starts
+    /// announcing. Existing installs keep whatever they were saved with.</summary>
+    public bool MqttPublishAppDiagnostics { get; set; } = false;
+
+    /// <summary>The group toggles as the publisher's pure input.</summary>
+    [JsonIgnore]
+    public HaCategorySet MqttCategories => new(
+        MqttPublishBatteryStatus, MqttPublishSmartCharge, MqttPublishKeepAwake,
+        MqttPublishLidClose, MqttPublishNotifications, MqttPublishNetwork, MqttPublishAppDiagnostics);
+
+    /// <summary>Placement in physical pixels, null until the window has been closed once. Not WinUIEx's
+    /// PersistenceId, which needs the ApplicationData this unpackaged app lacks.</summary>
     public int? SettingsWindowX      { get; set; }
     public int? SettingsWindowY      { get; set; }
     public int? SettingsWindowWidth  { get; set; }
     public int? SettingsWindowHeight { get; set; }
-
-    // TODO #45: a future Appearance/styling setting would live here (the earlier no-op
-    // `UseNewStyling` toggle and its dead Settings section were removed).
 }
 
-/// <summary>
-/// Loads and saves <see cref="AppSettings"/> to
-/// <c>%AppData%\ChargeKeeper\settings.json</c>.
-/// <para>
-/// Roaming AppData syncs automatically via Windows roaming profiles and OneDrive
-/// Known Folder Move — the file follows the user between machines on the same profile.
-/// It is plain human-readable JSON, so it can also be copied or backed up manually.
-/// </para>
-/// </summary>
+/// <summary>Loads and saves <see cref="AppSettings"/> to <c>%AppData%\ChargeKeeper\settings.json</c> —
+/// roaming AppData, so the file follows the user between machines on one profile.</summary>
 internal static class SettingsService
 {
     private static readonly string _path = AppPaths.DataFile("settings.json");
@@ -202,14 +218,20 @@ internal static class SettingsService
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     };
 
-    /// <summary>The loaded (and potentially modified) settings instance.</summary>
     public static AppSettings Current
     {
         get { lock (_lock) { return _current ??= ReadFile(_path) ?? new AppSettings(); } }
     }
 
-    /// <summary>Path to the settings file — surfaced in UI as "Open settings file".</summary>
     public static string FilePath => _path;
+
+    /// <summary>Projects a value out of <see cref="Current"/> under the lock. Needed for anything that
+    /// enumerates a collection: <see cref="Update"/> mutates those lists in place, so an unsynchronised
+    /// reader can throw "collection was modified".</summary>
+    public static T Read<T>(Func<AppSettings, T> project)
+    {
+        lock (_lock) { return project(_current ??= ReadFile(_path) ?? new AppSettings()); }
+    }
 
     /// <summary>Serialises <see cref="Current"/> to disk. Safe to call from any thread.</summary>
     public static void Save()
@@ -218,46 +240,49 @@ internal static class SettingsService
         {
             try
             {
+                var settings = _current ?? new AppSettings();
+                // Stamps the migration marker on the way out, so a file written before the key
+                // existed is recorded as needing nothing rather than being read as "not yet
+                // migrated" on every later start. Never overwrites an explicit false: that is a
+                // pending migration, and the stamp must not pre-empt it.
+                settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
+
                 Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                // Atomic write: serialise to a temp file, then replace the target. A crash
-                // mid-write can't truncate or corrupt the existing settings.json this way.
+                // Atomic write: serialise to a temp file, then replace the target, so a crash
+                // mid-write cannot truncate the existing settings.json.
                 var tmp = _path + ".tmp";
-                File.WriteAllText(tmp,
-                    JsonSerializer.Serialize(_current ?? new AppSettings(), _opts));
+                File.WriteAllText(tmp, JsonSerializer.Serialize(settings, _opts));
                 File.Move(tmp, _path, overwrite: true);
             }
-            catch { /* Save failure must not crash the app. */ }
+            catch (Exception ex)
+            {
+                // Never throws — callers have no return value to check, so this log is the only
+                // trace of a setting that did not reach disk.
+                AppLog.Error("SettingsService.Save", ex);
+            }
         }
     }
 
-    /// <summary>
-    /// Atomically reads, mutates, and saves <see cref="Current"/> under one lock acquisition.
-    /// Use this — never the older "var s = Current; ... s.Prop = x; Save();" pattern — for any
-    /// mutation that spans an async gap (a background Task, an await, an RPC round-trip): the older
-    /// pattern captures a REFERENCE to the settings object, and if <see cref="Reload"/> swaps
-    /// <see cref="Current"/> out from under it during that gap, the mutation lands on an orphaned
-    /// object while <see cref="Save"/> (which always serialises the live <c>_current</c>, not the
-    /// stale capture) persists the reloaded object unchanged — silently dropping the write. Nesting
-    /// under the same <see cref="Lock"/> instance is safe: <c>System.Threading.Lock</c> (like the
-    /// classic <c>lock</c> keyword) is re-entrant for the thread already holding it, so calling
-    /// <see cref="Save"/> from inside this method's own lock does not deadlock.
-    /// </summary>
+    /// <summary>Reads, mutates and saves under one lock acquisition. Prefer this over mutating
+    /// <see cref="Current"/> and calling <see cref="Save"/> separately — a <see cref="Reload"/> between
+    /// the two silently drops the write.</summary>
     public static void Update(Action<AppSettings> mutate)
     {
         lock (_lock)
         {
             mutate(_current ??= ReadFile(_path) ?? new AppSettings());
-            Save();
+            Save();   // re-entrant on the same Lock, so nesting does not deadlock
         }
+        Changed?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT publish)
     }
 
-    /// <summary>
-    /// Deserialises settings JSON from <paramref name="path"/>, or null when there is nothing usable
-    /// to load. "Missing" (first run — defaults are correct) and "present but unreadable" are handled
-    /// separately: for the second, the file is COPIED aside and the failure logged before defaults are
-    /// returned. Without that, the next <see cref="Save"/> overwrites the user's presets, network rules
-    /// and MQTT credentials with defaults, and the only record of them is gone.
-    /// </summary>
+    /// <summary>Raised after any committed change. Services that mirror a setting outwards subscribe
+    /// here rather than to each caller, so a new Settings control needs no new notification.</summary>
+    public static event Action? Changed;
+
+    /// <summary>Deserialises settings JSON, or null when there is nothing usable. A present-but-unreadable
+    /// file is copied aside first, or the next <see cref="Save"/> overwrites the user's presets, network
+    /// rules and MQTT credentials with defaults.</summary>
     private static AppSettings? ReadFile(string path)
     {
         if (!File.Exists(path)) return null;
@@ -275,38 +300,143 @@ internal static class SettingsService
         return null;
     }
 
-    /// <summary>
-    /// Copies an unreadable settings file aside so the defaults-then-Save path cannot destroy it, and
-    /// logs both the reason and where the copy went. Best-effort: a failed copy is logged, never thrown
-    /// (this runs under the load path, which must not take the app down).
-    /// </summary>
-    private static void PreserveUnreadable(string path, string reason)
+    private static void PreserveUnreadable(string path, string reason) =>
+        PreserveCopy(path, "unreadable", $"could not be read ({reason}), defaults loaded");
+
+    /// <summary>Copies settings.json aside as <c>settings.json.&lt;tag&gt;-&lt;timestamp&gt;</c>.
+    /// Best-effort: callers have nothing to do about a failed copy, so it is logged, never thrown.</summary>
+    private static void PreserveCopy(string path, string tag, string reason)
     {
+        if (!File.Exists(path)) return;
         string stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
-        string copy  = $"{path}.unreadable-{stamp}";
+        string copy  = $"{path}.{tag}-{stamp}";
         try
         {
             File.Copy(path, copy, overwrite: true);
-            AppLog.Info($"settings.json could not be read ({reason}); defaults loaded, original kept as '{Path.GetFileName(copy)}'.");
+            AppLog.Info($"settings.json {reason}; original kept as '{Path.GetFileName(copy)}'.");
         }
         catch (Exception ex)
         {
-            AppLog.Error($"SettingsService: settings.json unreadable ({reason}) and the aside copy failed", ex);
+            AppLog.Error($"SettingsService: settings.json {reason}, and copying it aside as '{tag}' failed", ex);
         }
     }
 
     /// <summary>
-    /// Re-reads settings.json from disk into <see cref="Current"/>, discarding any in-memory
-    /// changes that were never saved — the "Reload settings from file" menu command, for picking
-    /// up an out-of-band edit (e.g. a manually-edited file, or one synced in from another machine
-    /// via roaming/OneDrive) without restarting the app. Never writes back to <see cref="FilePath"/> —
-    /// it's a read-only refresh of the canonical file. Leaves <see cref="Current"/> untouched and
-    /// returns false on a missing or invalid file.
+    /// Drops network location rules written before locations were keyed on the physical adapter: those
+    /// carry whatever the routing table pointed at, so a VPN's or a virtual switch's MAC and subnet can
+    /// stand for several places at once and cannot be mapped back to a NIC. Runs at most once, only
+    /// when <see cref="AppSettings.NetworkRulesKeyedOnPhysicalAdapter"/> is explicitly false, and
+    /// touches nothing else in settings; settings.json is copied aside first when a rule is going.
     /// </summary>
+    public static void ClearRulesKeyedOnTheRoutedAdapter()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (settings.NetworkRulesKeyedOnPhysicalAdapter is not false)
+            {
+                // Absent key: stamp it rather than migrate, so the question is settled for good.
+                if (settings.NetworkRulesKeyedOnPhysicalAdapter is null) Save();
+                return;
+            }
+
+            var adapters = NetworkLocationService.EnumerateAdapters();
+
+            // Copies the file as it still stands on disk, and only when a rule is actually going:
+            // ClearRoutedAdapterRules mutates memory alone, and nothing reaches settings.json until
+            // Save below. Skipping the empty case is what keeps an earlier copy from being joined by
+            // a useless one — the copies are per-second-stamped, never a single overwritten slot.
+            if (FindRoutedAdapterRules(settings, adapters).Count > 0)
+                PreserveCopy(_path, "backup", "network location rules keyed on a virtual adapter removed");
+
+            int dropped = ClearRoutedAdapterRules(settings, adapters) ?? 0;
+            Save();
+            AppLog.Info($"Network location rules keyed on the routed adapter removed ({dropped} dropped); "
+                      + $"{settings.NetworkLocationRules.Count} kept.");
+        }
+    }
+
+    /// <summary>
+    /// The rules the migration removes: those whose stored MAC belongs to a virtual adapter on this
+    /// machine. That is the only positive evidence a key was written against the routed adapter rather
+    /// than the NIC behind it, and a rule that cannot be shown to be one is left alone — a rule the
+    /// user still wants is worth more than a stale one they can delete.
+    /// </summary>
+    internal static List<NetworkLocationRule> FindRoutedAdapterRules(
+        AppSettings settings, IReadOnlyList<BridgePeer> adapters) =>
+        settings.NetworkLocationRules
+            .Where(r => NetworkLocationService.IsVirtualAdapterMac(r.AdapterMac, adapters))
+            .ToList();
+
+    /// <summary>The decision behind <see cref="ClearRulesKeyedOnTheRoutedAdapter"/>, separated so the
+    /// once-only guard is testable: how many rules were removed, or null when the migration is not
+    /// being asked for — the marker is true, or absent and therefore not a request.</summary>
+    internal static int? ClearRoutedAdapterRules(AppSettings settings, IReadOnlyList<BridgePeer> adapters)
+    {
+        if (settings.NetworkRulesKeyedOnPhysicalAdapter is not false) return null;
+        var doomed = FindRoutedAdapterRules(settings, adapters);
+        foreach (var rule in doomed) settings.NetworkLocationRules.Remove(rule);
+        settings.NetworkRulesKeyedOnPhysicalAdapter = true;
+        return doomed.Count;
+    }
+
+    /// <summary>The port the broker setting defaulted to before Automatic existed. A settings.json
+    /// written by an older build carries it forward, where it reads as a pinned port.</summary>
+    internal const int RetiredDefaultMqttPort = 1883;
+
+    /// <summary>
+    /// Turns the inherited 1883 back into Automatic, so an upgraded install gets the detection the
+    /// setting was added for instead of staying pinned to the old default. Runs once, and touches
+    /// nothing else in settings.
+    /// </summary>
+    /// <remarks>
+    /// settings.json is deliberately not copied aside first. The rule clear above destroys data; this
+    /// changes one value that Automatic tries first anyway, so being wrong costs a connect attempt.
+    /// </remarks>
+    public static void RetireTheDefaultMqttPort()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (RetireDefaultMqttPort(settings) is not { } retired) return;
+
+            Save();
+            if (retired)
+                AppLog.Info($"MQTT broker port {RetiredDefaultMqttPort} was the old default and is now Automatic, "
+                          + $"which tries TCP {RetiredDefaultMqttPort} first.");
+        }
+    }
+
+    /// <summary>The decision behind <see cref="RetireTheDefaultMqttPort"/>, separated so the once-only
+    /// guard is testable: true when the port was cleared, false when there was nothing to clear, null
+    /// when the migration has already run and must not run again.</summary>
+    /// <remarks>
+    /// A deliberately pinned 1883 is indistinguishable from the inherited default, so both are cleared.
+    /// Safe because Automatic sweeps TCP <see cref="RetiredDefaultMqttPort"/> as its first candidate —
+    /// a broker genuinely there still answers on the first attempt.
+    /// </remarks>
+    internal static bool? RetireDefaultMqttPort(AppSettings settings)
+    {
+        if (settings.MqttPortDefaultRetiredForAutomatic) return null;
+        settings.MqttPortDefaultRetiredForAutomatic = true;
+
+        if (settings.MqttBrokerPort != RetiredDefaultMqttPort) return false;
+        settings.MqttBrokerPort = null;
+        return true;
+    }
+
+    /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an
+    /// out-of-band edit is picked up without a restart. Returns false and leaves <see cref="Current"/>
+    /// untouched on a missing or invalid file; never writes back.</summary>
     public static bool Reload()
     {
         if (ReadFile(_path) is not { } loaded) return false;
         lock (_lock) { _current = loaded; }
+        Reloaded?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT reconnect)
         return true;
     }
+
+    /// <summary>Services holding their own copy of a setting must reconcile here, or they keep running
+    /// on the pre-reload value.</summary>
+    public static event Action? Reloaded;
 }

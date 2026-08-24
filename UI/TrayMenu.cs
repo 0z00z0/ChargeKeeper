@@ -7,43 +7,10 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.UI;
 
 /// <summary>
-/// Owns the tray icon's right-click context menu.
-///
-/// H.NotifyIcon builds a native Win32 popup menu from this <see cref="Flyout"/> on every
-/// right-click and invokes each item's <c>Command</c> (the XAML <c>Click</c> and
-/// <c>Opening</c> events do NOT fire for the native menu).  Items are therefore created once
-/// with command bindings; <see cref="RefreshState"/> resyncs the check marks before the menu
-/// is shown.  Each toggle is generated from an <see cref="IToggleFeature"/>, so adding a new
-/// feature is a one-line change at the call site.
-///
-/// <para>
-/// State model: the menu has ONE read path and ONE apply path. <see cref="ReadState"/>
-/// captures every input the menu reflects (the feature toggle states) into a single immutable
-/// <see cref="MenuState"/> snapshot; <see cref="ApplyState"/> derives EVERY item's
-/// IsChecked/IsEnabled from that snapshot. No command handler updates its own item — each
-/// mutates the underlying service/settings and funnels through <see cref="QueueRefresh"/>
-/// (directly, or via <see cref="TravelOverrideService.StateChanged"/>), so two items can never
-/// disagree about the current state.
-/// </para>
-///
-/// <para>
-/// Visual language: every STATEFUL item is a <see cref="ToggleMenuFlyoutItem"/> whose check
-/// mark reflects the snapshot (the three feature toggles — Smart Charge, Smart Standby, Launch
-/// at startup); every ACTION is a plain text item (Settings…, Check for updates, About…, Exit).
-/// No regular item carries an icon — the only emoji is the transient "⬆ Update available" alert
-/// badge.
-/// </para>
-///
-/// <para>
-/// TODO #19 / #28: this menu used to also carry a 4-level-deep Settings ▸ Network profiles ▸ Add
-/// configuration ▸ &lt;preset&gt; tree, plus a Presets submenu, a "Charge to 100 % once" travel
-/// override, a "Numeric % icon" toggle, and Open-settings-folder / Reload-settings actions. All
-/// of the configuration moved into <c>UI.SettingsWindow</c> (opened via the "Settings…" item),
-/// including the Open-folder / Reload entry points (now an Advanced footer there); the travel
-/// override lives on the Dashboard. The menu is now flat — quick toggles + a handful of actions,
-/// no submenus. Network-location auto-apply (<see cref="OnNetworkLocationChanged"/>) is NOT a
-/// menu item and stays wired here regardless — it is a background reaction, not UI.
-/// </para>
+/// Owns the tray icon's right-click context menu — a flat list of quick toggles and actions.
+/// H.NotifyIcon rebuilds a native Win32 popup from the flyout on every right-click and invokes only
+/// each item's <c>Command</c>; the XAML <c>Click</c> and <c>Opening</c> events never fire. Items are
+/// built once with command bindings, and every mutation funnels through <see cref="QueueRefresh"/>.
 /// </summary>
 internal sealed class TrayMenu
 {
@@ -56,10 +23,7 @@ internal sealed class TrayMenu
     private readonly Action _onExit;
     private readonly Action _onOpenSettings;
 
-    // App's window-creation gate (issue #76). The menu is now live before the display subsystem has
-    // settled, so About — the one window this class creates itself — has to respect it exactly as
-    // App's own window entry points do. Everything else on the menu (the toggles, Exit) touches no
-    // window and stays immediate.
+    // App's window-creation gate. About is the one window this class creates, so it must wait on it.
     private readonly Task _windowsReady;
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
@@ -74,94 +38,41 @@ internal sealed class TrayMenu
         _windowsReady      = windowsReady;
         Flyout = new MenuFlyout();
 
-        // Builds a toggle for one feature and registers it for the state refresh. The item is added
-        // to the flyout at the position its GROUP belongs (power toggles at the top, Launch at
-        // startup down in the updates group) rather than all in one top run.
         ToggleMenuFlyoutItem MakeToggle(IToggleFeature feature)
         {
             var item = new ToggleMenuFlyoutItem { Text = feature.Name };
-            // Capture current IsChecked at click time to avoid TOCTOU: the target state comes
-            // from the item the user just interacted with rather than a fresh OS read.
+            // Target state comes from the item the user just clicked, not a fresh OS read (TOCTOU).
             item.Command = new RelayCommand(() => Toggle(feature, !item.IsChecked));
             _toggles.Add((item, feature));
             return item;
         }
 
-        // ── Power toggles: Smart Charge + Smart Standby ─────────────────────────
-        // Launch-at-startup is a feature too, but it reads as an app-management action rather than a
-        // power control, so it lives in the updates group below (TODO #28) — built there, not here.
-        IToggleFeature? autoStart = null;
-        foreach (var feature in features)
-        {
-            if (feature is AutoStartFeature)
-            {
-                autoStart = feature;
-                continue;
-            }
-            Flyout.Items.Add(MakeToggle(feature));
-        }
-
-        // ── Settings entry point (TODO #19) ─────────────────────────────────────
-        Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
 
-        // ── Updates + Launch at startup (TODO #28) ──────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem
         {
             Text    = "Check for updates",
             Command = new RelayCommand(() => _ = CheckForUpdatesAsync()),
         });
-        if (autoStart is not null)
-            Flyout.Items.Add(MakeToggle(autoStart));
+        foreach (var feature in features)
+            Flyout.Items.Add(MakeToggle(feature));
 
-        // ── About ───────────────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
 
-        // ── Exit ────────────────────────────────────────────────────────────────
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(onExit) });
 
-        // Resync when the override auto-reverts (battery reached full) or is toggled from the
-        // dashboard — otherwise the menu wouldn't learn about it until the next right-click.
-        // Fires on a background thread; QueueRefresh marshals the apply back to the UI thread.
-        // Never unsubscribed: TrayMenu lives for the whole process.
-        TravelOverrideService.StateChanged += QueueRefresh;
-
-        // Resync after ANY shared charge-control change — including one driven by an inbound MQTT
-        // command (issue #40 item 4). Before this the MQTT path mutated Smart Charge / thresholds /
-        // preset without telling the tray, so the menu (and tooltip/dashboard) stayed stale until the
-        // next right-click/tick. ChargeControlService now funnels the tray AND MQTT paths, and fires
-        // StateChanged after each, so both reconcile identically. Same background-thread + never-
-        // unsubscribed reasoning as the TravelOverrideService subscription above.
-        ChargeControlService.StateChanged += QueueRefresh;
-
-        // Network-location auto-apply (TODO #31) — fires on a background thread (same as
-        // TravelOverrideService.StateChanged above); OnNetworkLocationChanged marshals via
-        // ApplyPreset/QueueRefresh, both of which already handle that. Never unsubscribed, same
-        // "lives for the whole process" reasoning. Not a menu item (TODO #19 moved the Network
-        // profiles submenu into SettingsWindow) — this is a background reaction that stays wired
-        // here regardless of what the menu itself shows.
+        // Never unsubscribed — the subscription lives for the whole process.
         NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
 
-        // QueueRefresh, not a synchronous read: the initial state read (ReadState) does a Lenovo RPC
-        // + Task Scheduler COM connect + SCM query + NIC enumeration, and this constructor runs on
-        // the UI thread inside InitTrayIcon — BEFORE the tray icon is created. Doing that work
-        // synchronously here delayed the icon appearing. QueueRefresh does the read off-thread and
-        // marshals ApplyState back.
-        //
-        // This seed is load-bearing, not just an optimisation: it produces the first snapshot
-        // RefreshState has to apply, so a right-click landing before it completes is the one open
-        // with nothing to show. It is also the only such open — every later one has the previous
-        // snapshot to fall back on.
+        // Off-thread: ReadState blocks on a vendor RPC and this runs on the UI thread before the
+        // tray icon exists. Seeds the first snapshot RefreshState re-applies.
         QueueRefresh();
     }
 
-    /// <summary>
-    /// Inserts (or updates) an "Update available" item at the top of the menu.
-    /// Safe to call more than once — subsequent calls update the existing item.
-    /// </summary>
+    /// <summary>Inserts or updates an "Update available" item at the top of the menu.</summary>
     public void SetUpdateBadge(string version)
     {
         if (_updateItem is not null)
@@ -176,30 +87,13 @@ internal sealed class TrayMenu
             Command = new RelayCommand(() => _ = CheckForUpdatesAsync()),
         };
 
-        // Insert before the first toggle item so it's always at the top.
         Flyout.Items.Insert(0, _updateItem);
         Flyout.Items.Insert(1, new MenuFlyoutSeparator());
     }
 
     /// <summary>
-    /// Readies the menu for an imminent open, then kicks a refresh for the next one. Call right
-    /// before the menu opens: H.NotifyIcon builds the native popup from the flyout at right-click
-    /// time, so whatever the items say by the time this returns is what the user sees.
-    ///
-    /// <para>It applies the LAST KNOWN snapshot and returns immediately; the fresh read happens off
-    /// the UI thread via <see cref="QueueRefresh"/>. It used to do <c>ApplyState(ReadState())</c>
-    /// inline — three synchronous out-of-process reads (a Lenovo EC RPC that the vendor bridge warns
-    /// can block for SECONDS, an SCM query, and a Task Scheduler lookup) on the UI thread, on every
-    /// single right-click, with the menu unable to appear until all three came back. That was the
-    /// menu's whole perceived latency, and it was self-inflicted: every OTHER caller already went
-    /// through QueueRefresh precisely because the read is too expensive to hold the UI thread for.
-    /// </para>
-    ///
-    /// <para>The cost is that an open can show check marks one refresh old. The popup is a snapshot
-    /// by design either way (QueueRefresh's own comment: an already-open native menu never
-    /// repaints), the state it reflects only changes via paths that all funnel through QueueRefresh
-    /// anyway, and the next open is correct. A stale check mark for one open beats a menu that takes
-    /// a second to appear on every one.</para>
+    /// Readies the menu for an imminent open, then kicks a refresh for the next one. Applies the last
+    /// snapshot and returns — reading inline would block the UI thread on a vendor RPC per right-click.
     /// </summary>
     public void RefreshState()
     {
@@ -207,33 +101,17 @@ internal sealed class TrayMenu
         QueueRefresh();
     }
 
-    /// <summary>
-    /// Silent resync for a settings change made OUTSIDE the tray menu itself — i.e. from
-    /// <c>UI.SettingsWindow</c> (TODO #19). Extracted from the old settings-load path
-    /// (Reload keeps its own toast; the Settings window calls this bare — showing a toast on top
-    /// of the very window the user is looking at would be noise). Refreshes exactly what a
-    /// settings edit can invalidate: the icon-mode callback (in case IconMode changed) and every
-    /// item's check marks/availability via <see cref="QueueRefresh"/>. The tray menu no longer
-    /// carries a Presets submenu (TODO #28 moved it fully into the Settings window), so there is
-    /// nothing here to rebuild from the edited preset list — only the toggles resync.
-    /// </summary>
+    /// <summary>Silent resync after a settings change made outside the tray menu.</summary>
     public void ReconcileFromExternalChange()
     {
         _onIconModeChanged();
-        // Bare QueueRefresh rather than RefreshState: no menu is about to be shown here, so there is
-        // nothing to re-apply a cached snapshot FOR — just take the fresh read off-thread (a Lenovo
-        // RPC + SCM query + Task Scheduler COM connect; see the constructor's own reasoning above).
-        // This runs on every Settings-window preset edit/add/delete, not just the rare Reload path.
+        // Bare QueueRefresh: no menu is about to open, so there is no cached snapshot to re-apply.
         QueueRefresh();
     }
 
     /// <summary>
-    /// The funnel every state mutation ends in: captures a fresh <see cref="MenuState"/> OFF the
-    /// UI thread (the feature reads go through the Lenovo RPC bridge — same off-thread-read
-    /// pattern as <c>DashboardWindow.Refresh</c>) and marshals one <see cref="ApplyState"/> back
-    /// to the UI thread. Safe to call from any thread. If the native menu is already open the
-    /// visible popup won't repaint (it's a snapshot by design), but the flyout is consistent for
-    /// the next open even if that open skips <see cref="RefreshState"/>.
+    /// The funnel every state mutation ends in: reads a fresh <see cref="MenuState"/> off the UI thread
+    /// and marshals one <see cref="ApplyState"/> back. Any thread. An open popup will not repaint.
     /// </summary>
     private void QueueRefresh() => Task.Run(() =>
     {
@@ -242,8 +120,7 @@ internal sealed class TrayMenu
             var state = ReadState();
             Flyout.DispatcherQueue?.TryEnqueue(() =>
             {
-                // A throw inside a raw dispatcher callback tears the process down as an opaque
-                // stowed exception (see App.RunOnUi) — catch and log instead.
+                // A throw in a raw dispatcher callback tears the process down (see App.RunOnUi).
                 try { ApplyState(state); }
                 catch (Exception ex) { AppLog.Error("TrayMenu.QueueRefresh", ex); }
             });
@@ -255,11 +132,8 @@ internal sealed class TrayMenu
     });
 
     /// <summary>
-    /// One immutable snapshot of every input the menu reflects — the single internal state all
-    /// items are derived from. <see cref="ReadState"/> is the only producer (may perform RPC —
-    /// callable from any thread); <see cref="ApplyState"/> is the only consumer (UI thread only).
-    /// Since TODO #28 the menu's only stateful items are the feature toggles, so the snapshot is
-    /// just their (available, enabled) reads.
+    /// One immutable snapshot of every input the menu reflects. <see cref="ReadState"/> is the only
+    /// producer (may perform RPC, any thread); <see cref="ApplyState"/> the only consumer (UI thread).
     /// </summary>
     private sealed record MenuState(
         IReadOnlyList<(bool Available, bool Enabled)> Features);   // aligned with _toggles
@@ -270,8 +144,7 @@ internal sealed class TrayMenu
         for (int i = 0; i < _toggles.Count; i++)
         {
             var feature = _toggles[i].Feature;
-            // One combined read (Smart Charge answers both flags from a single RPC — see
-            // SmartChargeFeature.ReadState); "enabled" is meaningful only when available.
+            // One combined read — "enabled" is meaningful only when available.
             var (available, enabled) = SafeCall(() => feature.ReadState(),
                                                 fallback: (Available: true, Enabled: false));
             features[i] = (available, available && enabled);
@@ -279,10 +152,7 @@ internal sealed class TrayMenu
         return new MenuState(features);
     }
 
-    // The most recent snapshot ApplyState was given — what RefreshState re-applies to have the menu
-    // ready instantly on right-click. UI thread only, like ApplyState itself (the sole writer) and
-    // RefreshState (the sole reader), so it needs no synchronisation. Null until the constructor's
-    // QueueRefresh lands, which is the one open that can find nothing to apply.
+    // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
     private MenuState? _lastApplied;
 
     private void ApplyState(MenuState state)
@@ -296,39 +166,25 @@ internal sealed class TrayMenu
         }
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
-
     private void ApplyPreset(ThresholdPreset preset) => RunApplyPreset(preset.Name);
 
-    /// <summary>
-    /// Applies the preset with the given name — the Settings window's network-profile editor calls
-    /// this so a profile added/edited for the network you're currently on takes effect immediately
-    /// (TODO #19/#22). Delegates to <see cref="RunApplyPreset"/> so the device write + ActivePreset +
-    /// reconcile stay in one place; no-op when the name is blank or matches no preset.
-    /// </summary>
+    /// <summary>Applies the named preset; a no-op when the name is blank or matches no preset.</summary>
     public void ApplyPresetByName(string presetName)
     {
         if (string.IsNullOrWhiteSpace(presetName)) return;
-        // Resolve here first so an unknown name is a no-op WITHOUT spinning up a Task (preserves the
-        // old contract). The device write + persist + reconcile happen inside RunApplyPreset.
+        // Resolve first, so an unknown name is a no-op without spinning up a Task.
         if (SettingsService.Current.Presets.Any(p => p.Name == presetName))
             RunApplyPreset(presetName);
     }
 
     /// <summary>
     /// Applies the named preset off the UI thread (the vendor RPC blocks) via the shared
-    /// <see cref="ChargeControlService"/> — the SAME composition the MQTT preset command uses (issue
-    /// #40 item 4), so the "supersede any in-flight override, write, then persist ActivePreset"
-    /// ordering lives in exactly one place. ApplyPresetByName fires StateChanged → QueueRefresh on any
-    /// resolved preset, so there is NO finally-refresh here (that fired the full ReadState — Lenovo
-    /// RPC + SCM + Task Scheduler COM — a second time per apply). Only an exception (thrown before
-    /// StateChanged fired) needs an explicit reconcile.
+    /// <see cref="ChargeControlService"/>, which fires StateChanged → QueueRefresh itself.
     /// </summary>
     private void RunApplyPreset(string name)
         => Task.Run(() =>
         {
-            // A device-rejected preset returns false; log it, or the apply is completely silent while
-            // the tray check mark and settings still show the preset the device never took.
+            // A device-rejected preset returns false; without this the apply is completely silent.
             try
             {
                 if (!ChargeControlService.ApplyPresetByName(name))
@@ -337,26 +193,16 @@ internal sealed class TrayMenu
             catch { QueueRefresh(); }
         });
 
-    // ── Network-location auto-apply (TODO #31) ──────────────────────────────────
-    // Not a menu item — see the class doc comment and the constructor's subscription. Configuring
-    // WHICH rule maps to which preset now happens entirely in UI.SettingsWindow (TODO #19); this
-    // stays here because it is the live reaction to NetworkLocationService.LocationChanged, which
-    // TrayMenu already owns the lifetime/subscription of.
-
     /// <summary>
-    /// Auto-apply on detected location change (TODO #31). Fires on whatever thread
-    /// <see cref="NetworkLocationService.LocationChanged"/> raised on (a debounce-timer thread, not
-    /// the UI thread) — <see cref="ApplyPreset"/> already marshals its own UI-thread work via
-    /// QueueRefresh, so this method itself needs no explicit marshalling.
+    /// Auto-apply on a detected location change. Runs on the debounce timer's thread, not the UI one —
+    /// <see cref="ApplyPreset"/> marshals its own UI work, so nothing is needed here.
     /// </summary>
     private void OnNetworkLocationChanged(NetworkLocation location)
     {
         var s = SettingsService.Current;
         if (s.NetworkProfilesEnabled)
         {
-            // A matched rule wins outright; otherwise fall back to the "unknown network" preset —
-            // but only when a real (non-empty) location was detected. An empty location (no
-            // network at all) isn't "unknown", it's "nothing to react to".
+            // No network at all is not an "unknown network" — it is nothing to react to.
             string? presetName = s.FindNetworkRule(location)?.PresetName
                 ?? (!location.IsEmpty ? s.UnknownNetworkPresetName : null);
             var preset = presetName is not null
@@ -371,22 +217,9 @@ internal sealed class TrayMenu
         QueueRefresh(); // still resync check marks even when nothing was applied
     }
 
-    // ── About / updates ─────────────────────────────────────────────────────
-
     private const string AppName = AppInfo.Name;
 
-    /// <summary>
-    /// Opens (or re-activates) the single About window. #59: this is now ChargeKeeper's own
-    /// <see cref="AboutWindow"/> hosting the shared <c>BrandAboutControl</c> content, not the
-    /// shared <c>BrandAboutWindow</c> popup. The payload comes from
-    /// <see cref="Helpers.AboutContent.Build"/>; the "Check for updates" flow stays a separate tray
-    /// menu item (see <see cref="CheckForUpdatesAsync"/>), so no update/exit plumbing is passed here.
-    ///
-    /// <para>The TRAY is this window's only entry point. The Settings window embeds the same
-    /// <c>BrandAboutControl</c> inline instead of calling this — a settings window opening a second
-    /// dialog on top of itself is a pointless hop — so there is no longer an <c>onShowAbout</c>
-    /// callback from App.</para>
-    /// </summary>
+    /// <summary>Opens, or re-activates, the single About window.</summary>
     internal async void ShowAbout()
     {
         try
@@ -406,32 +239,24 @@ internal sealed class TrayMenu
         }
         catch (Exception ex)
         {
-            // async void: an escaping exception would tear the process down rather than surface. The
-            // tray app must survive a failed About window — drop the half-built one so a second
-            // attempt starts clean, exactly as App does for the dashboard/settings windows.
+            // async void: an escaping exception tears the process down. Drop the half-built window.
             AppLog.Error("TrayMenu.ShowAbout", ex);
             _aboutWindow = null;
         }
     }
 
-    // Returns true only if the caller (the shared About window) should now drive an app exit for an
-    // installer relaunch. ChargeKeeper always returns false: it runs the installer download on a
-    // background task and terminates itself via _onExit() when that finishes, so it never needs the
-    // window to co-ordinate the exit. See the ShowAbout wiring comment.
-    private async Task<bool> CheckForUpdatesAsync()
+    /// <summary>Runs the update check. An accepted update downloads in the background and exits the app itself.</summary>
+    private async Task CheckForUpdatesAsync()
     {
-        // Capture the foreground HWND now (tray flyout is open) so ShowUpdateDialog has a
-        // parent even if the flyout is dismissed by the time the HTTP check completes.
-        // Do NOT use ConfigureAwait(false) here: TaskDialogIndirect requires comctl32 v6
-        // (activated via the app manifest's SxS context), and thread-pool threads do not
-        // inherit that context — the dialog shows nothing if called from a thread-pool thread.
+        // Capture the HWND while the flyout is open, and no ConfigureAwait(false) below:
+        // TaskDialogIndirect needs the manifest's comctl32 v6 context, which pool threads lack.
         var hwnd    = NativeMethods.CaptureHwnd();
-        var outcome = await UpdateCheckService.CheckNowAsync();
+        var outcome = await UpdateCheckService.Shared.CheckNowAsync();
         var running = AppInfo.Version;
 
         switch (outcome.Status)
         {
-            case UpdateCheckService.UpdateStatus.Available:
+            case UpdateStatus.Available:
                 bool canDownload = outcome.InstallerUrl is not null;
                 var action = NativeMethods.ShowUpdateDialog(
                     outcome.LatestVersion!, running,
@@ -448,13 +273,31 @@ internal sealed class TrayMenu
                         {
                             try
                             {
-                                var path = await UpdateCheckService
+                                // Before the new directory exists, so each run clears the last one.
+                                InstallerSignature.SweepPreviousDownloads();
+
+                                var path = await UpdateCheckService.Shared
                                     .DownloadInstallerAsync(outcome.InstallerUrl!)
                                     .ConfigureAwait(false);
-                                // Launch installer, then exit so no elevated process remains for
-                                // the installer to kill (which would need its own UAC prompt).
+
+                                // Fail closed: CI signs the installer, so anything else is not it.
+                                var verdict = InstallerSignature.Verify(path);
+                                if (!InstallerSignaturePolicy.MayLaunch(verdict))
+                                {
+                                    AppLog.Info($"Update: refusing to launch {path} — {verdict}.");
+                                    InstallerSignature.Discard(path);
+                                    NativeMethods.Warn(InstallerSignaturePolicy.MessageFor(verdict), AppName);
+                                    Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
+                                    return;
+                                }
+
+                                // Exit right after: a process the installer has to kill needs UAC.
                                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                                Flyout.DispatcherQueue?.TryEnqueue(() => _onExit());
+                                Flyout.DispatcherQueue?.TryEnqueue(() =>
+                                {
+                                    try { _onExit(); }
+                                    catch (Exception ex) { AppLog.Error("TrayMenu.exit", ex); }
+                                });
                             }
                             catch (Exception ex)
                             {
@@ -472,59 +315,34 @@ internal sealed class TrayMenu
                 }
                 break;
 
-            case UpdateCheckService.UpdateStatus.UpToDate:
-                NativeMethods.Info($"You're on the latest version (v{running}).", AppName);
-                break;
-
-            case UpdateCheckService.UpdateStatus.NoReleases:
-                NativeMethods.Info("No releases have been published yet.", AppName);
-                break;
-
+            // Every other status is worded by UpdateMessage — a pure helper the tests drive.
             default:
-                NativeMethods.Warn("Could not check for updates.\nCheck your internet connection.", AppName);
+                if (UpdateMessage.For(outcome, running, DateTimeOffset.Now) is { } notice)
+                {
+                    if (notice.IsError) NativeMethods.Warn(notice.Text, AppName);
+                    else                NativeMethods.Info(notice.Text, AppName);
+                }
                 break;
         }
-
-        // ChargeKeeper self-drives any update-triggered exit (background download → _onExit), so the
-        // window is never asked to close the app on our behalf.
-        return false;
     }
 
     // Apply target state off the UI thread — RPC/service writes can block for seconds.
     private void Toggle(IToggleFeature feature, bool enable)
         => Task.Run(() =>
         {
-            // Smart Charge funnels through the shared ChargeControlService — the SAME composition
-            // the MQTT smart_charge switch uses (issue #40 item 4), so the load-bearing
-            // "re-enable mid-override → cancel the override (restore saved thresholds + disarm
-            // the auto-revert), not a bare SetEnabled(true) that would apply firmware's 0/0
-            // defaults and leave the revert armed" rule lives in exactly one place. It fires
-            // StateChanged → QueueRefresh itself, so there is NO finally-refresh on this path (a
-            // shared one fired the full ReadState — Lenovo RPC + SCM + Task Scheduler COM — TWICE
-            // per toggle). Only a throw before StateChanged fired needs an explicit reconcile.
-            if (feature is SmartChargeFeature)
-            {
-                try { ChargeControlService.SetSmartChargeEnabled(enable); }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' failed: {ex.Message}");
-                    QueueRefresh();   // StateChanged did not fire on the throw — reconcile anyway
-                }
-                return;
-            }
-
-            // Other features (Smart Standby, Launch at startup) are a plain enable/disable with no
-            // StateChanged, so the finally IS the sole refresh here.
+            // No StateChanged here, so the finally re-reads the OS — an unreported failure would
+            // silently un-tick the item.
             try
             {
                 bool ok = feature.SetEnabled(enable);
                 if (!ok)
-                    System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' → {enable} returned false");
+                    AppLog.Info($"Toggle '{feature.Name}' → {enable} was refused — the write returned false.");
             }
             catch (Exception ex)
             {
-                // AutoStartFeature can throw InvalidOperationException when exe path can't be resolved.
-                System.Diagnostics.Debug.WriteLine($"[TrayMenu] Toggle '{feature.Name}' failed: {ex.Message}");
+                // AutoStartFeature throws when the exe path cannot be resolved.
+                AppLog.Error($"TrayMenu.Toggle '{feature.Name}'", ex);
+                NativeMethods.Warn($"Could not change '{feature.Name}'.\n\n{ex.Message}", AppName);
             }
             finally
             {

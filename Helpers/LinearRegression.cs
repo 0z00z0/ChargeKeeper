@@ -1,20 +1,10 @@
 namespace ChargeKeeper.Helpers;
 
-/// <summary>
-/// Ordinary least-squares fit over (x, y) points — used by <see cref="ChargeKeeper.UI.BatteryHealthPanel"/>
-/// for its capacity-degradation trend projection (TODO #24). Deliberately a plain, non-WinUI-typed
-/// helper (unlike the UserControl that calls it) so it's directly unit-testable: the Tests project
-/// targets a Windows TFM but does NOT set UseWinUI, so a type that (even transitively) requires the
-/// WinAppSDK runtime — like a UserControl subclass — isn't safely callable from there.
-/// </summary>
+/// <summary>Ordinary least-squares fit over (x, y) points.</summary>
 internal static class LinearRegression
 {
-    /// <summary>
-    /// Fits y = slope*x + intercept. A rough visual trend, not a scientific projection — the
-    /// caller's data is sparse and noisy enough that anything fancier wouldn't be more honest, just
-    /// more complicated. Degenerate input (all points share one X, so there's no meaningful slope)
-    /// returns a flat line at the first point's Y rather than dividing by zero.
-    /// </summary>
+    /// <summary>Fits y = slope*x + intercept. Degenerate input — every point sharing one X — returns
+    /// a flat line at the first point's Y rather than dividing by zero.</summary>
     public static (double Slope, double Intercept) Fit(IReadOnlyList<(double X, double Y)> points)
     {
         int n = points.Count;

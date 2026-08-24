@@ -3,9 +3,8 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Same isolation pattern as BatteryHistoryServiceTests: UseTestPath points the static service at a
-// throwaway file and resets its in-memory "already recorded today" cache, so tests never touch the
-// real user's battery-capacity-history.csv and can't see each other's data.
+// UseTestPath points the static service at a throwaway file and resets its in-memory "already
+// recorded today" cache, so tests never touch the real capacity history or each other's data.
 public class BatteryCapacityHistoryServiceTests : IDisposable
 {
     private readonly string _testFile =
@@ -34,8 +33,7 @@ public class BatteryCapacityHistoryServiceTests : IDisposable
     [Fact]
     public void FormatThenParse_RoundTrips_WithNullDesignCapacity()
     {
-        // Some battery controllers don't report design capacity at all — must round-trip as null,
-        // never a fabricated 0.
+        // Some controllers do not report design capacity, which must round-trip as null, never 0.
         var sample = new CapacitySample(DateTime.UtcNow, 45000, null);
 
         var line = BatteryCapacityHistoryService.Format(sample);
@@ -57,8 +55,8 @@ public class BatteryCapacityHistoryServiceTests : IDisposable
     [Fact]
     public void FormatThenParse_RoundTripsInstantToTheSecond_AcrossLocalOffset()
     {
-        // A whole-second UTC instant must survive Format (written in local time with the machine's
-        // UTC offset) → TryParse (converted back to UTC) unchanged, regardless of the dev timezone.
+        // Format writes local time with the machine's UTC offset and TryParse converts back, so the
+        // instant must survive whatever timezone the test runs in.
         var sample = new CapacitySample(new DateTime(2026, 7, 15, 9, 5, 30, DateTimeKind.Utc), 48000, 52000);
 
         var line = BatteryCapacityHistoryService.Format(sample);
@@ -79,8 +77,7 @@ public class BatteryCapacityHistoryServiceTests : IDisposable
     [Fact]
     public void RecordIfNewDay_OnFreshFile_WritesHeaderBlock_AndReadSkipsIt()
     {
-        // The first RecordIfNewDay on a non-existent file writes the descriptive header block, then
-        // the sample. LoadAll skips the header and returns only the data row.
+        // The first RecordIfNewDay on a non-existent file writes the header block, then the sample.
         BatteryCapacityHistoryService.RecordIfNewDay(48000, 52000);
 
         var lines = File.ReadAllLines(_testFile);
@@ -117,9 +114,8 @@ public class BatteryCapacityHistoryServiceTests : IDisposable
     [Fact]
     public void RecordIfNewDay_SameDayAcrossRestart_DoesNotDuplicate()
     {
-        // Simulate an earlier process run today by writing a row directly, then resetting only the
-        // in-memory cache (UseTestPath) the way a real app restart would — RecordIfNewDay's file
-        // check (not just the memory cache) must still catch it.
+        // An earlier process run today: the row is on disk but the in-memory cache is empty, as
+        // after a restart, so RecordIfNewDay's file check has to catch it.
         var today = new CapacitySample(DateTime.UtcNow, 48000, 52000);
         File.WriteAllText(_testFile, BatteryCapacityHistoryService.Format(today) + "\n");
         BatteryCapacityHistoryService.UseTestPath(_testFile); // reset in-memory cache, keep the file

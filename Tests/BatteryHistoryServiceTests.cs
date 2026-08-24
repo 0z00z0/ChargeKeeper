@@ -3,9 +3,8 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// BatteryHistoryService is a static class writing to a fixed AppData path in production; each
-// test points it at an isolated temp file via UseTestPath (which also resets all in-memory state),
-// so tests never touch the real user's battery-level-history.csv and can't see each other's data.
+// BatteryHistoryService is static and writes to a fixed AppData path, so each test points it at an
+// isolated temp file via UseTestPath, which also resets the in-memory state.
 public class BatteryHistoryServiceTests : IDisposable
 {
     private readonly string _testFile =
@@ -14,9 +13,8 @@ public class BatteryHistoryServiceTests : IDisposable
     public BatteryHistoryServiceTests()
     {
         BatteryHistoryService.UseTestPath(_testFile);
-        // Gap detection now reads the SHARED BatteryHistoryService.DowntimeThreshold (the user's
-        // graph "Downtime gap threshold" setting), so pin it to the 1-minute default here — otherwise
-        // these tests would depend on the dev machine's real settings.json.
+        // Gap detection reads the graph's "Downtime gap threshold" setting, so pin it here rather
+        // than depend on the dev machine's settings.json.
         SettingsService.Current.DowntimeGapMinutes = 1;
     }
 
@@ -65,9 +63,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void FormatThenParse_RoundTripsInstantToTheSecond_AcrossLocalOffset()
     {
-        // A whole-second UTC instant must survive Format (which writes it in local time with the
-        // machine's UTC offset) → TryParse (which converts back to UTC) unchanged, independent of the
-        // dev machine's timezone — the offset in the file is human-readable sugar, not a new instant.
+        // Format writes local time with the machine's UTC offset and TryParse converts back, so the
+        // instant must survive whatever timezone the test runs in: the offset is sugar, not data.
         var sample = new BatterySample(new DateTime(2026, 7, 15, 12, 30, 45, DateTimeKind.Utc), 63, 80, 2200);
 
         var line = BatteryHistoryService.Format(sample);
@@ -75,15 +72,14 @@ public class BatteryHistoryServiceTests : IDisposable
 
         Assert.Equal(sample.AtUtc, parsed.AtUtc);              // same instant, to the second
         Assert.Equal(DateTimeKind.Utc, parsed.AtUtc.Kind);    // stored representation stays UTC
-        // Serialized as ISO 8601 with a local offset, NOT a Unix-millis integer.
+        // ISO 8601 with a local offset, not a Unix-millis integer.
         Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2},", line);
     }
 
     [Fact]
     public void TryParse_SkipsHeaderLines()
     {
-        // Both header lines (the '#' comment and the column-name row) must fail TryParse so the
-        // existing skip-on-unparseable read loops drop them for free.
+        // Both header lines must fail TryParse, so the skip-on-unparseable read loops drop them.
         Assert.False(BatteryHistoryService.TryParse(BatteryHistoryService.HeaderComment, out _));
         Assert.False(BatteryHistoryService.TryParse(BatteryHistoryService.HeaderColumns, out _));
     }
@@ -91,8 +87,7 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_OnFreshFile_WritesHeaderBlock_AndReadSkipsIt()
     {
-        // The very first Record on a non-existent file writes the descriptive header block, then the
-        // sample. On read, the header lines are skipped and only the real sample comes back.
+        // The first Record on a non-existent file writes the header block, then the sample.
         BatteryHistoryService.Record(60, 80, 3000);
 
         var lines = File.ReadAllLines(_testFile);
@@ -109,8 +104,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void LoadWindow_Prune_PreservesHeaderBlock()
     {
-        // A realistic file (header + one too-old + one kept row): the first LoadWindow prunes the
-        // 20-day-old row and rewrites the file, and that rewrite must keep the header at the top.
+        // The first LoadWindow prunes the 20-day-old row and rewrites the file; the rewrite must
+        // keep the header at the top.
         var tooOld = new BatterySample(DateTime.UtcNow.AddDays(-20), 10, null, 0);
         var kept   = new BatterySample(DateTime.UtcNow.AddDays(-1),  20, null, 0);
         File.WriteAllLines(_testFile,
@@ -147,8 +142,7 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void LoadWindow_ExcludesSamplesOutsideRequestedSpan()
     {
-        // Write an "old" sample directly (bypassing Record, which always timestamps "now") so its
-        // age is under our control.
+        // Written directly rather than through Record, which always timestamps "now".
         var old = new BatterySample(DateTime.UtcNow.AddHours(-2), 50, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
 
@@ -195,13 +189,12 @@ public class BatteryHistoryServiceTests : IDisposable
         Assert.Equal(20, remaining.Soc);
     }
 
-    // ── Downtime-gap detection (TODO #26) ───────────────────────────────────────
+    // Downtime-gap detection
 
     [Fact]
     public void Record_FirstEverSample_ReportsNoGap()
     {
-        // Nothing to compare against yet — must not report a spurious gap against a non-existent
-        // "previous" sample.
+        // Nothing to compare against, so no gap may be reported against a non-existent predecessor.
         var gap = BatteryHistoryService.Record(80, null, 0);
         Assert.Null(gap);
     }
@@ -236,9 +229,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_AfterGapWithRise_ReportsNegativeDrop()
     {
-        // The battery kept charging (or was topped off) while the app wasn't running — a real,
-        // legitimate reading the caller is expected to filter out as "not an anomaly", not
-        // something this layer should hide or clamp away.
+        // The battery charged while the app was not running: a legitimate reading the caller filters
+        // out as "not an anomaly", rather than something this layer hides or clamps.
         var old = new BatterySample(DateTime.UtcNow.AddHours(-6), 60, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
         BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
@@ -252,9 +244,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_GapBelowUserDowntimeThreshold_ReportsNoGap()
     {
-        // Unification guard: the anomaly gate now shares the graph's downtime threshold. Raising the
-        // "Downtime gap threshold" so the graph would NOT draw a 6-minute hole as downtime must also
-        // stop that hole producing gap info (hence no drain toast) — the disagreement #18 called out.
+        // The anomaly gate shares the graph's downtime threshold: a hole the graph would not draw as
+        // downtime must not produce gap info either, or the two would disagree.
         SettingsService.Current.DowntimeGapMinutes = 30;   // graph collapses only gaps > 30 min
         var old = new BatterySample(DateTime.UtcNow.AddMinutes(-6), 80, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
@@ -268,18 +259,14 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_GapDetectionNone_StillReportsOvernightGap()
     {
-        // Issue #40 decoupling: "None" (0) means "graph draws no breaks", NOT "stop watching for an
-        // overnight battery drain". Across a genuine multi-hour hole the anomaly path must STILL
-        // report the gap (it falls back to its own floor, DrainAnomalyPolicy.MinGap), so the safety
-        // toast can still fire even though the graph has stopped drawing breaks.
+        // "None" (0) means the graph draws no breaks, not that overnight drain stops being watched:
+        // the anomaly path falls back to its own floor so the safety toast can still fire.
         SettingsService.Current.DowntimeGapMinutes = 0;
         var old = new BatterySample(DateTime.UtcNow.AddHours(-8), 90, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
         BatteryHistoryService.LoadWindow(TimeSpan.FromDays(1));
 
-        // Sanity: the graph gate really is disabled ("None" → MaxValue → no breaks drawn)…
         Assert.Equal(TimeSpan.MaxValue, BatteryHistoryService.DowntimeThreshold);
-        // …but the anomaly gate falls back to the floor, so it keeps detecting.
         Assert.Equal(DrainAnomalyPolicy.MinGap, BatteryHistoryService.AnomalyGapThreshold);
 
         var gap = BatteryHistoryService.Record(60, null, 0);
@@ -292,9 +279,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_GapDetectionNone_ReportsNoGapForShortHole()
     {
-        // The "None" fallback is the anomaly floor (15 min), not zero — a brief hole shorter than the
-        // floor is still not treated as downtime by the anomaly path (it could never clear
-        // DrainAnomalyPolicy.ShouldWarn's own MinGap check anyway).
+        // The "None" fallback is the anomaly floor, not zero, so a hole shorter than the floor is
+        // still not downtime.
         SettingsService.Current.DowntimeGapMinutes = 0;
         var old = new BatterySample(DateTime.UtcNow.AddMinutes(-5), 80, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(old) + "\n");
@@ -308,8 +294,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_BeforeAnyLoadWindow_SeedsGapFromFileTail()
     {
-        // No LoadWindow call → Record must lazily seed _lastPersisted by tail-reading the file, so a
-        // gap against the last persisted sample is still detected on the very first Record.
+        // With no LoadWindow call, Record has to seed _lastPersisted by tail-reading the file, or the
+        // first Record after a restart sees no gap.
         var beforeGap = new BatterySample(DateTime.UtcNow.AddHours(-7), 88, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(beforeGap) + "\n");
 
@@ -323,9 +309,8 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_BeforeAnyLoadWindow_TailReadPicksTrueLastRow_InLargeFile()
     {
-        // A file larger than the 8 KB tail window, so ReadLastSampleFromFile actually seeks the tail
-        // (start > 0) and must drop its truncated first line yet still return the TRUE last row —
-        // proving it reads the tail, not just the small-file whole-buffer path.
+        // Larger than the 8 KB tail window, so ReadLastSampleFromFile seeks rather than reading the
+        // whole file, and must drop its truncated first line while still returning the true last row.
         var sb       = new System.Text.StringBuilder();
         var baseTime = DateTime.UtcNow.AddHours(-10);
         for (int i = 0; i < 600; i++)   // ~600 rows × ~30 bytes ≈ 18 KB > 8 KB window
@@ -344,10 +329,9 @@ public class BatteryHistoryServiceTests : IDisposable
     [Fact]
     public void Record_AfterGapLongerThanLoadedWindow_StillReportsGap()
     {
-        // Regression guard for the overnight-drain no-op: with only a 1h window loaded, a sample
-        // from BEFORE an overnight (>1h) downtime falls OUTSIDE _window entirely. Gap detection must
-        // compare against the last PERSISTED sample (from the file), not _window[^1], or the
-        // overnight drain — the exact case the feature exists for — is never seen.
+        // With only a 1h window loaded, the sample from before an overnight downtime falls outside
+        // _window. Comparing against _window[^1] rather than the last persisted sample would miss
+        // the overnight drain, which is the case the feature exists for.
         var beforeGap = new BatterySample(DateTime.UtcNow.AddHours(-8), 90, null, 0);
         File.WriteAllText(_testFile, BatteryHistoryService.Format(beforeGap) + "\n");
         BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));   // the 8h-old sample is outside this window

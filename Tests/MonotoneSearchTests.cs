@@ -3,13 +3,13 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// MonotoneSearch.NearestIndex backs the hover crosshair's "which sample is under the cursor" lookup.
-// It replaced an O(n) linear scan with a binary search over the graph's monotone compressed-X
-// coordinates, so these pin the equivalence (same answer as the old first-wins scan) plus the edge
-// cases a binary search can get wrong: empty/single lists, targets outside the range, and ties.
+// MonotoneSearch.NearestIndex backs the hover crosshair's "which sample is under the cursor" lookup:
+// a binary search over the graph's monotone compressed-X coordinates. These pin it against a linear
+// scan plus the edge cases a binary search gets wrong: empty and single lists, out-of-range targets,
+// and ties.
 public class MonotoneSearchTests
 {
-    // Reference implementation matching the old linear scan (first-wins on a tie).
+    // Reference implementation: a linear scan, first-wins on a tie.
     private static int LinearNearest(IReadOnlyList<double> xs, double x)
     {
         int nearest = 0;

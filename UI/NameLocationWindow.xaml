@@ -8,9 +8,7 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- "Name location" step (TODO #31) when adding a network-profile configuration for the
-         currently-detected network. Same small always-on-top bordered-no-titlebar chrome as
-         AboutWindow, just with a text-input step instead of static content. -->
+    <!-- Names the detected network when a profile is added for it. -->
     <Grid x:Name="Root" Padding="16,14,16,14" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -23,7 +21,13 @@
                    FontSize="13" FontWeight="SemiBold"
                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
 
-        <TextBox x:Name="NameBox" Grid.Row="1" FontSize="13"/>
+        <StackPanel Grid.Row="1" Spacing="4">
+            <TextBox x:Name="NameBox" FontSize="13"/>
+            <!-- The MAC and subnet the rule actually matches on; the name above is only a label. -->
+            <TextBlock x:Name="MatchKeyText"
+                       FontSize="11" TextWrapping="Wrap"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
 
         <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions>

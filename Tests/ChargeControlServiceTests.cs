@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Composition tests for the shared ChargeControlService (issue #40 item 4) — the single place the
-// tray menu AND the MQTT command path funnel through. The static-service primitives are faked so the
-// branches (override-cancel vs SetEnabled; apply-preset found/not-found/failed) are exercised without
-// a live vendor RPC or settings file. Runs sequentially within the class (xUnit does not parallelise
-// tests in one class), and each test restores the global Primitives + StateChanged in a finally.
+// ChargeControlService is the single place the tray menu and the MQTT command path funnel through.
+// The static-service primitives are faked so every branch runs without a live vendor RPC or settings
+// file, and each test restores the global Primitives and StateChanged in a finally.
 public class ChargeControlServiceTests
 {
     private sealed class FakePrimitives : IChargeControlPrimitives
@@ -20,9 +20,15 @@ public class ChargeControlServiceTests
         public bool? SetEnabledArg;
         public (int Start, int Stop)? ApplyThresholdsArg;
         public bool ApplyThresholdsResult = true;
-        public string? SetActivePresetArg;
-        public int  SetActivePresetCalls;   // distinguishes "cleared to null" from "never called"
         public readonly Dictionary<string, ThresholdPreset> Presets = new();
+
+        // What the device would report back. Only a successful write moves it, so a test can ask
+        // which preset the thresholds derive to after a failed one.
+        public (int Start, int Stop) DeviceRange = (60, 80);
+        public ChargeThresholdState DeviceState =>
+            new(Capable: true, Enabled: true, Start: DeviceRange.Start, Stop: DeviceRange.Stop);
+        public string? DerivedPreset =>
+            ActivePresetPolicy.Match(Presets.Values.ToList(), DeviceState)?.Name;
 
         public bool IsOverrideActive => OverrideActive;
         public bool HasSavedRevertThresholds => SavedRevertThresholds;
@@ -31,10 +37,10 @@ public class ChargeControlServiceTests
         public bool ApplyExplicitThresholds(int start, int stop)
         {
             ApplyThresholdsArg = (start, stop);
+            if (ApplyThresholdsResult) DeviceRange = (start, stop);
             return ApplyThresholdsResult;
         }
         public ThresholdPreset? FindPreset(string name) => Presets.GetValueOrDefault(name);
-        public void SetActivePreset(string? name) { SetActivePresetArg = name; SetActivePresetCalls++; }
     }
 
     // Swaps in the fake + a StateChanged counter, runs `body`, and always restores global state.
@@ -53,7 +59,7 @@ public class ChargeControlServiceTests
         }
     }
 
-    // ── Smart Charge enable/disable ────────────────────────────────────────────────
+    // Smart Charge enable/disable
 
     [Fact]
     public void SetSmartChargeEnabled_EnableWhileOverrideActive_WithSavedThresholds_CancelsOverride_NotSetEnabled()
@@ -106,7 +112,7 @@ public class ChargeControlServiceTests
         });
     }
 
-    // ── Explicit thresholds (MQTT number commands) ─────────────────────────────────
+    // Explicit thresholds (MQTT number commands)
 
     [Fact]
     public void SetExplicitThresholds_WritesThroughAndReturnsResult()
@@ -121,68 +127,72 @@ public class ChargeControlServiceTests
     }
 
     [Fact]
-    public void SetExplicitThresholds_WithoutClearFlag_LeavesActivePresetUntouched()
+    public void SetExplicitThresholds_RangeEqualToAPreset_DerivesToThatPreset()
     {
-        // The Settings preset-edit / delete-fallback callers manage ActivePreset themselves — the
-        // write must NOT touch it (default clearActivePreset:false).
-        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        // Nothing is stored, so a hand-picked range that happens to equal a preset is that preset.
+        var fake = new FakePrimitives();
+        fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
+        WithFake(fake, (f, fired) =>
         {
-            ChargeControlService.SetExplicitThresholds(55, 75);
-            Assert.Equal(0, fake.SetActivePresetCalls);
+            Assert.True(ChargeControlService.SetExplicitThresholds(80, 100));
+            Assert.Equal((80, 100), f.ApplyThresholdsArg);
+            Assert.Equal("Travel", f.DerivedPreset);
             Assert.Equal(1, fired());
         });
     }
 
     [Fact]
-    public void SetExplicitThresholds_ClearActivePreset_OnSuccess_ClearsToNull()
+    public void SetExplicitThresholds_CustomRange_DerivesToNoPreset()
     {
-        // The dashboard slider drag makes the value "custom" — the persisted ActivePreset is cleared.
-        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        // The dashboard slider drag makes the range "custom": no preset carries these values.
+        var fake = new FakePrimitives();
+        fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
+        WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, clearActivePreset: true);
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80);
             Assert.True(ok);
-            Assert.Equal((50, 80), fake.ApplyThresholdsArg);
-            Assert.Equal(1, fake.SetActivePresetCalls);
-            Assert.Null(fake.SetActivePresetArg);   // cleared, not set to a name
+            Assert.Equal((50, 80), f.ApplyThresholdsArg);
+            Assert.Null(f.DerivedPreset);
             Assert.Equal(1, fired());
         });
     }
 
     [Fact]
-    public void SetExplicitThresholds_ClearActivePreset_OnFailedWrite_DoesNotClear()
+    public void SetExplicitThresholds_FailedWrite_LeavesTheDerivedPresetOnTheUnmovedRange()
     {
-        // A failed device write must not leave the UI claiming "no preset" when the device never moved.
-        WithFake(new FakePrimitives { ApplyThresholdsResult = false }, (fake, fired) =>
+        // A failed write must not leave the UI claiming "no preset" while the device never moved.
+        var fake = new FakePrimitives { ApplyThresholdsResult = false, DeviceRange = (80, 100) };
+        fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
+        WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, clearActivePreset: true);
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80);
             Assert.False(ok);
-            Assert.Equal((50, 80), fake.ApplyThresholdsArg);   // write attempted
-            Assert.Equal(0, fake.SetActivePresetCalls);        // but ActivePreset left intact
-            Assert.Equal(1, fired());                          // still an attempt → reconcile
+            Assert.Equal((50, 80), f.ApplyThresholdsArg);   // write attempted
+            Assert.Equal("Travel", f.DerivedPreset);        // device still on Travel's range
+            Assert.Equal(1, fired());                       // still an attempt → reconcile
         });
     }
 
     [Fact]
-    public void MqttApplyThresholds_ClearsActivePreset_LikeTheDashboardSlider()
+    public void MqttApplyThresholds_DerivesToNoPreset_LikeTheDashboardSlider()
     {
-        // The HA charge_start/charge_stop numbers are the MQTT twin of the dashboard slider — the range
-        // becomes hand-picked, so the preset name must not survive it. It used to: the live actions
-        // took the clearActivePreset:false default, and the HA select, the tray check mark and the
-        // dashboard label all went on naming a preset the device had already moved off.
-        WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
+        // The HA charge_start/charge_stop numbers are the MQTT twin of the dashboard slider, so a
+        // hand-picked range must resolve the same way on both surfaces: no preset.
+        var fake = new FakePrimitives();
+        fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
+        WithFake(fake, (f, fired) =>
         {
             new ChargeControlActions().ApplyThresholds(45, 70);
-            Assert.Equal((45, 70), fake.ApplyThresholdsArg);
-            Assert.Equal(1, fake.SetActivePresetCalls);
-            Assert.Null(fake.SetActivePresetArg);   // cleared, not renamed
+            Assert.Equal((45, 70), f.ApplyThresholdsArg);
+            Assert.Null(f.DerivedPreset);
             Assert.Equal(1, fired());
         });
     }
 
-    // ── Apply preset ───────────────────────────────────────────────────────────────
+    // Apply preset
 
     [Fact]
-    public void ApplyPresetByName_Known_WritesThresholds_ThenPersistsActivePreset()
+    public void ApplyPresetByName_Known_WritesThresholds_WhichThenDeriveToThatPreset()
     {
         var fake = new FakePrimitives();
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 40, 60);
@@ -191,22 +201,23 @@ public class ChargeControlServiceTests
             bool ok = ChargeControlService.ApplyPresetByName("Travel");
             Assert.True(ok);
             Assert.Equal((40, 60), f.ApplyThresholdsArg);
-            Assert.Equal("Travel", f.SetActivePresetArg);
+            Assert.Equal("Travel", f.DerivedPreset);   // the write alone makes it the active preset
             Assert.Equal(1, fired());
         });
     }
 
     [Fact]
-    public void ApplyPresetByName_WriteFails_DoesNotPersistActivePreset()
+    public void ApplyPresetByName_WriteFails_DoesNotBecomeTheDerivedPreset()
     {
-        var fake = new FakePrimitives { ApplyThresholdsResult = false };
+        var fake = new FakePrimitives { ApplyThresholdsResult = false, DeviceRange = (60, 80) };
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 40, 60);
+        fake.Presets["Daily"]  = new ThresholdPreset("Daily",  60, 80);
         WithFake(fake, (f, fired) =>
         {
             bool ok = ChargeControlService.ApplyPresetByName("Travel");
             Assert.False(ok);
             Assert.Equal((40, 60), f.ApplyThresholdsArg);   // write attempted
-            Assert.Null(f.SetActivePresetArg);              // but NOT persisted
+            Assert.Equal("Daily", f.DerivedPreset);         // device never left the old range
             Assert.Equal(1, fired());                       // still an attempt → reconcile
         });
     }
@@ -219,7 +230,6 @@ public class ChargeControlServiceTests
             bool ok = ChargeControlService.ApplyPresetByName("does-not-exist");
             Assert.False(ok);
             Assert.Null(fake.ApplyThresholdsArg);
-            Assert.Null(fake.SetActivePresetArg);
             Assert.Equal(0, fired());
         });
     }

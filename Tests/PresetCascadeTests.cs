@@ -1,15 +1,18 @@
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure rename/delete cascade tests for threshold presets (TODO #19) — the highest-regression-risk
-// piece of the Settings window's preset editor per the issue's own review. Constructs a plain
-// AppSettings directly (no SettingsService file I/O involved) so these exercise exactly the
-// cross-reference bookkeeping (ActivePreset / NetworkLocationRule.PresetName /
-// UnknownNetworkPresetName) in isolation.
+// Rename and delete cascades for threshold presets, over a plain AppSettings rather than
+// SettingsService, so only the cross-reference bookkeeping is exercised. Which preset is active is
+// not one of those references — it derives from the device thresholds — so the cascades are also
+// checked against ActivePresetPolicy over a device sitting on Daily's range.
 public class PresetCascadeTests
 {
+    private static readonly ChargeThresholdState OnDailysRange =
+        new(Capable: true, Enabled: true, Start: 60, Stop: 80);
+
     private static AppSettings MakeSettings() => new()
     {
         Presets =
@@ -17,7 +20,6 @@ public class PresetCascadeTests
             new ThresholdPreset("Daily", 60, 80),
             new ThresholdPreset("Travel", 80, 100),
         ],
-        ActivePreset             = "Daily",
         UnknownNetworkPresetName = "Daily",
         NetworkLocationRules =
         [
@@ -27,11 +29,15 @@ public class PresetCascadeTests
     };
 
     [Fact]
-    public void Rename_UpdatesActivePreset()
+    public void Rename_LeavesThresholdsAlone_SoTheDerivedActivePresetFollowsTheNewName()
     {
+        // Nothing re-points an active-preset field any more: the renamed preset still carries the
+        // range the device is running, so it is still the one the policy resolves to.
         var s = MakeSettings();
         PresetCascade.Rename(s, "Daily", "Weekday");
-        Assert.Equal("Weekday", s.ActivePreset);
+        s.Presets[0].Name = "Weekday";   // the caller renames the preset itself
+
+        Assert.Equal("Weekday", ActivePresetPolicy.Match(s.Presets, OnDailysRange)?.Name);
     }
 
     [Fact]
@@ -58,7 +64,6 @@ public class PresetCascadeTests
         var s = MakeSettings();
         PresetCascade.Rename(s, "Daily", "Daily");
 
-        Assert.Equal("Daily", s.ActivePreset);
         Assert.Equal("Daily", s.UnknownNetworkPresetName);
         Assert.Equal("Daily", s.NetworkLocationRules[0].PresetName);
     }
@@ -69,7 +74,6 @@ public class PresetCascadeTests
         var s = MakeSettings();
         PresetCascade.Rename(s, "NoSuchPreset", "Renamed");
 
-        Assert.Equal("Daily", s.ActivePreset);
         Assert.Equal("Daily", s.UnknownNetworkPresetName);
         Assert.Equal("Daily",  s.NetworkLocationRules[0].PresetName);
         Assert.Equal("Travel", s.NetworkLocationRules[1].PresetName);
@@ -85,19 +89,23 @@ public class PresetCascadeTests
     }
 
     [Fact]
-    public void Delete_ReassignsActivePresetToFallback()
+    public void Delete_OfThePresetInUse_LeavesNoMatchUntilTheFallbackIsPushed()
     {
+        // Deleting is bookkeeping only — the device keeps running the deleted range, which now
+        // belongs to no preset. The Settings caller pushes the fallback's thresholds separately.
         var s = MakeSettings();
         PresetCascade.Delete(s, "Daily", fallbackName: "Travel");
-        Assert.Equal("Travel", s.ActivePreset);
+
+        Assert.Null(ActivePresetPolicy.Match(s.Presets, OnDailysRange));
+        Assert.Contains(s.Presets, p => p.Name == "Travel");
     }
 
     [Fact]
-    public void Delete_WithNoFallback_ClearsActivePresetToNull()
+    public void Delete_WithNoFallback_StillLeavesNoMatch()
     {
         var s = MakeSettings();
         PresetCascade.Delete(s, "Daily", fallbackName: null);
-        Assert.Null(s.ActivePreset);
+        Assert.Null(ActivePresetPolicy.Match(s.Presets, OnDailysRange));
     }
 
     [Fact]
@@ -137,9 +145,8 @@ public class PresetCascadeTests
     [Fact]
     public void Delete_DuplicateName_RemovesOnlyOneInstance()
     {
-        // PresetEditValidator blocks creating a duplicate name going forward, but settings.json
-        // can still arrive with one (a hand edit, or a sync/merge conflict) — a single "Delete
-        // preset" click must not destroy both.
+        // PresetEditValidator blocks creating a duplicate name, but settings.json can still arrive
+        // with one from a hand edit or a sync conflict, and one Delete click must not destroy both.
         var s = MakeSettings();
         s.Presets.Add(new ThresholdPreset("Daily", 65, 85));
         Assert.Equal(3, s.Presets.Count);

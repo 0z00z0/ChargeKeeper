@@ -21,6 +21,14 @@ jobs:
   release:
     runs-on: windows-latest
 
+    # Same hard cap as ci.yml's build job, sized for this job's longer work: healthy
+    # releases ran 4m13s-6m18s (v1.6.3 through v1.8.0) and the test gate below adds
+    # ~2 min on top, so 30 minutes is ~4x headroom. Without it a tagged release
+    # inherits GitHub's 6-hour default — and the gate it now runs is the very step
+    # that hung for six hours four times in CI, so the one path that publishes to
+    # users is exposed to the same defect.
+    timeout-minutes: 30
+
     # Secrets surfaced as job-level env so step `if:` conditions can test them
     # (a step's own `env:` block is NOT visible to that step's `if:`).
     env:
@@ -85,9 +93,93 @@ jobs:
       # users, so red tests must stop the release. Placed before the installer is
       # built or signed — nothing downstream can then ship on a failed suite.
       # Restores on its own; no other step in this job restores the test project.
+      # Split into three timed steps for the same reason as ci.yml: an unbounded test
+      # step ran 5h57m38s there (run 31613727149), and a tagged release must not hang the
+      # same way. No -r: a command-line RID is global and would override the empty
+      # <RuntimeIdentifier> pinned in ChargeKeeper.Tests.csproj. The runtime pack comes from
+      # the app restore below instead.
+      # Same fix, and the same pin, as ci.yml — see the long comment there for the mechanism
+      # (#91). Kept here because this job runs the identical gate: without the runtime the
+      # tagged release, the one path that publishes to users, hangs exactly like CI did.
+      #
+      # This is also WHY the fix is a runner install rather than
+      # -p:WindowsAppSdkBootstrapInitialize=false: a build property would rewrite
+      # bin\...\ChargeKeeper.dll without the bootstrap initializer, and the installer publish
+      # further down this job could then ship an exe that cannot start on a machine lacking the
+      # Windows App Runtime. Installing the runtime changes no build input at all.
+      - name: Install Windows App Runtime 2.2.0 (x64)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $url    = 'https://aka.ms/windowsappsdk/2.2/2.2.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = 'E14ABFEEDD61CCF1E1B9618A9D4E8E5CAD6B6A0BECBACF159A50718D047EB927'
+          $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
+
+          Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToUpper()
+          if ($actual -ne $sha256) {
+            throw "WindowsAppRuntimeInstall-x64.exe SHA256 is $actual, expected $sha256. Refusing to run an unexpected binary."
+          }
+
+          function Show-Runtime([string]$when) {
+            Write-Host "Windows App Runtime packages $when :"
+            $all = Get-AppxPackage | Where-Object { $_.Name -like '*WindowsAppRuntime*' -or $_.Name -like '*WinAppRuntime*' }
+            if (-not $all) { Write-Host '  (none)' }
+            else { $all | Sort-Object Name, Architecture | ForEach-Object { Write-Host "  $($_.Name) $($_.Version) $($_.Architecture)" } }
+          }
+          Show-Runtime 'BEFORE'
+
+          & $exe --quiet
+          if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed (exit 0x$('{0:X}' -f $LASTEXITCODE))." }
+
+          Show-Runtime 'AFTER'
+
+          # Asserts the bootstrapper's own requirement (framework family
+          # Microsoft.WindowsAppRuntime.2, >= 2.2.0.0, x64) rather than mere presence — the
+          # runner image already carries a framework package, so presence proves nothing.
+          $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.2.0.0' }
+          if (-not $fw) {
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
+          }
+          Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
+
+      # Primes the win-x64 runtime pack in the NuGet cache. Restoring only the test
+      # project does not fetch it, even though the app project carries its own RID, and
+      # the Release build of the test project then fails with NETSDK1112. Mirrors ci.yml,
+      # whose app Restore/Build happen to prime the same cache before its test gate runs.
+      - name: Restore app (primes the win-x64 runtime pack)
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet restore ChargeKeeper.csproj -r win-x64
+
+      - name: Restore tests
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet restore Tests\ChargeKeeper.Tests.csproj
+
+      - name: Build tests (Release)
+        shell: pwsh
+        timeout-minutes: 10
+        run: dotnet build Tests\ChargeKeeper.Tests.csproj -c Release --no-restore --nologo
+
+      # Kept byte-for-byte in step with ci.yml's Test step: this was the hanging command (CI
+      # runs 31604846111, 31613727149, 31681038697, 31681726552 all went silent here), and the
+      # release path must not diverge from the path we diagnose on. The --blame flags stay
+      # after the fix — they are the bound, not the diagnosis.
       - name: Test
         shell: pwsh
-        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --nologo
+        timeout-minutes: 10
+        run: dotnet test Tests\ChargeKeeper.Tests.csproj -c Release --no-build --nologo --blame-hang --blame-hang-timeout 3m --blame-crash
+
+      - name: Upload blame dumps
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-blame-dumps
+          path: Tests/TestResults/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       # ── 4. Install Inno Setup 6 via Chocolatey ───────────────────────────────
       - name: Install Inno Setup 6
@@ -205,7 +297,7 @@ jobs:
 
           $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
           $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
-          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-GB.yaml'
 
           # Helper: replace a YAML scalar in-place, preserving indentation.
           #
@@ -293,7 +385,7 @@ jobs:
 
           $installerYaml = 'installer\winget\0z00z0.ChargeKeeper.installer.yaml'
           $versionYaml   = 'installer\winget\0z00z0.ChargeKeeper.yaml'
-          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-US.yaml'
+          $localeYaml    = 'installer\winget\0z00z0.ChargeKeeper.locale.en-GB.yaml'
 
           $errors = @()
 
@@ -374,6 +466,87 @@ jobs:
             Write-Host 'Manifests are valid.'
           }
 
+      # ── 11b. Release notes ───────────────────────────────────────────────────
+      # Built from the Conventional Commit subjects between the previous tag and this
+      # one, so the notes cannot drift from what actually shipped. The update dialog
+      # renders this body with markdown stripped: headings lose their marker and
+      # bullets survive, so the shape here is what a user sees.
+      - name: Build release notes
+        id: notes
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $sha256  = '${{ steps.sha256.outputs.sha256 }}'
+          $tag     = '${{ github.ref_type == 'tag' && github.ref_name || 'HEAD' }}'
+
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }
+          Write-Host "Collecting subjects over $range"
+
+          $subjects = @(git log --no-merges --pretty=format:%s $range | Where-Object { $_ })
+
+          # chore/style/test say nothing a user acts on, so they fold into Internal
+          # rather than getting their own heading. Nothing is dropped.
+          $headings = [ordered]@{
+            'feat'     = 'New'
+            'fix'      = 'Fixed'
+            'perf'     = 'Performance'
+            'revert'   = 'Reverted'
+            'refactor' = 'Internal'
+            'chore'    = 'Internal'
+            'style'    = 'Internal'
+            'test'     = 'Internal'
+            'ci'       = 'Build and CI'
+            'build'    = 'Build and CI'
+            'docs'     = 'Documentation'
+          }
+
+          $grouped = [ordered]@{}
+          foreach ($name in @('New','Fixed','Performance','Reverted','Build and CI','Documentation','Internal','Other')) {
+            $grouped[$name] = [System.Collections.Generic.List[string]]::new()
+          }
+
+          foreach ($subject in $subjects) {
+            $m = [regex]::Match($subject, '^(?<type>[a-z]+)(?:\((?<scope>[^)]*)\))?(?<breaking>!)?:\s*(?<text>.+)$')
+            if (-not $m.Success) { $grouped['Other'].Add($subject); continue }
+
+            $type = $m.Groups['type'].Value
+            $head = if ($headings.Contains($type)) { $headings[$type] } else { 'Other' }
+
+            $text = $m.Groups['text'].Value
+            if ($m.Groups['scope'].Success -and $m.Groups['scope'].Value) {
+              $text = "$($m.Groups['scope'].Value): $text"
+            }
+            if ($m.Groups['breaking'].Success) { $text = "BREAKING - $text" }
+            $grouped[$head].Add($text)
+          }
+
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("## ChargeKeeper v$version")
+          $lines.Add('')
+
+          $any = $false
+          foreach ($head in $grouped.Keys) {
+            if ($grouped[$head].Count -eq 0) { continue }
+            $any = $true
+            $lines.Add("### $head")
+            foreach ($entry in $grouped[$head]) { $lines.Add("- $entry") }
+            $lines.Add('')
+          }
+          if (-not $any) { $lines.Add('No recorded changes since the previous release.'); $lines.Add('') }
+
+          $lines.Add("Download ``ChargeKeeper-Setup-$version.exe`` below. Per-user installer, no administrator rights required.")
+          $lines.Add('')
+          $lines.Add("**SHA256 (installer):** ``$sha256``")
+
+          $path = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $lines -join "`n" | Set-Content -Path $path -Encoding utf8 -NoNewline
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          Write-Host '--- release notes ---'
+          Get-Content $path | Write-Host
+
       # ── 12. Create GitHub Release (tag pushes only) ──────────────────────────
       # A manual workflow_dispatch is a dry-run: it builds, signs, and validates
       # the manifests but does NOT publish a release.
@@ -389,19 +562,8 @@ jobs:
             installer/Output/ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe
             installer/winget/0z00z0.ChargeKeeper.installer.yaml
             installer/winget/0z00z0.ChargeKeeper.yaml
-            installer/winget/0z00z0.ChargeKeeper.locale.en-US.yaml
-          body: |
-            ## ChargeKeeper v${{ steps.version.outputs.version }}
-
-            **Install / upgrade via winget:**
-            ```
-            winget install 0z00z0.ChargeKeeper
-            winget upgrade 0z00z0.ChargeKeeper
-            ```
-
-            Or download `ChargeKeeper-Setup-${{ steps.version.outputs.version }}.exe` below — per-user installer, no admin required.
-
-            **SHA256 (installer):** `${{ steps.sha256.outputs.sha256 }}`
+            installer/winget/0z00z0.ChargeKeeper.locale.en-GB.yaml
+          body_path: ${{ steps.notes.outputs.path }}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Post-release: download the manifest assets from the release and re-validate
@@ -409,6 +571,10 @@ jobs:
   validate-manifests:
     runs-on: windows-latest
     needs: release
+    # Downloads three small YAML files and an installer, so 15 minutes is ample. Capped
+    # for the same reason as the release job: no job in this repo should be able to
+    # reach GitHub's 6-hour default.
+    timeout-minutes: 15
     # Only runs for real (tag) releases — a dispatch dry-run publishes no assets.
     if: ${{ github.ref_type == 'tag' }}
 
@@ -426,7 +592,7 @@ jobs:
           $assets = @(
             '0z00z0.ChargeKeeper.installer.yaml',
             '0z00z0.ChargeKeeper.yaml',
-            '0z00z0.ChargeKeeper.locale.en-US.yaml'
+            '0z00z0.ChargeKeeper.locale.en-GB.yaml'
           )
           foreach ($a in $assets) {
             gh release download $tag --repo ${{ github.repository }} --pattern $a --dir $outDir

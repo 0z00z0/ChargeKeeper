@@ -1,92 +1,22 @@
 using System.Text.Json;
 using ChargeKeeper.Services;
+using ChargeKeeper.Vendors;
+using Windows.System.Power;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure-contract tests for the Home Assistant MQTT discovery layer (TODO #28/#29/#30) — no broker.
+// Pure-contract tests for the Home Assistant MQTT discovery layer. No broker.
 public class HaDiscoveryTests
 {
     private static readonly string[] Presets = ["Daily", "Travel"];
 
+    /// <summary>The full surface: every group on, every vendor gate open.</summary>
+    private static IReadOnlyList<HaEntity> FullSurface =>
+        HaEntityCatalog.Announce(HaCategorySet.All, HaCapabilities.Full);
+
     private static List<(string Topic, string Json)> Configs(string node) =>
-        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets).ToList();
-
-    private static List<(string Topic, string Json)> Configs(string node, bool numeric) =>
-        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets, numeric).ToList();
-
-    // ── Vendor gating (issue #83) ─────────────────────────────────────────────────
-
-    [Theory]
-    [InlineData("number", HaDiscovery.CmdChargeStart)]
-    [InlineData("number", HaDiscovery.CmdChargeStop)]
-    [InlineData("select", HaDiscovery.CmdPreset)]
-    public void DiscoveryConfigs_FixedModeVendor_SuppressesEntitiesItCannotHonour(string component, string objectId)
-    {
-        // An entity that ACCEPTS a write the firmware then silently snaps to something else is
-        // worse than an absent one: HA would display 50% while the machine does something else,
-        // with nothing to signal the divergence. Absent is at least visible.
-        string node = HaDiscovery.NodeId("PC");
-
-        var topics = Configs(node, numeric: false).Select(c => c.Topic);
-
-        Assert.DoesNotContain(HaDiscovery.ConfigTopic("homeassistant", component, node, objectId), topics);
-    }
-
-    [Theory]
-    [InlineData("switch", HaDiscovery.CmdSmartCharge)]
-    [InlineData("button", HaDiscovery.CmdChargeToFull)]
-    public void DiscoveryConfigs_FixedModeVendor_StillPublishesWhatItCanHonour(string component, string objectId)
-    {
-        // On/off and charge-to-full both map cleanly onto a coarse mode, so suppressing them would
-        // strip real functionality from HP machines.
-        string node = HaDiscovery.NodeId("PC");
-
-        var topics = Configs(node, numeric: false).Select(c => c.Topic);
-
-        Assert.Contains(HaDiscovery.ConfigTopic("homeassistant", component, node, objectId), topics);
-    }
-
-    [Fact]
-    public void DiscoveryConfigs_FixedModeVendor_KeepsEveryReadOnlySensor()
-    {
-        // Gating is about COMMAND entities. The battery sensors are vendor-independent and must
-        // survive, or an HP machine would lose its whole HA presence rather than just the
-        // controls it cannot honour.
-        string node = HaDiscovery.NodeId("PC");
-        var topics = Configs(node, numeric: false).Select(c => c.Topic).ToList();
-
-        foreach (var id in new[] { "battery_level", "battery_state", "battery_power", "on_ac" })
-            Assert.Contains(topics, t => t.Contains($"/{id}/config", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void DiscoveryConfigs_NumericVendor_PublishesEverything()
-    {
-        string node = HaDiscovery.NodeId("PC");
-
-        int all   = Configs(node, numeric: true).Count;
-        int fixedMode = Configs(node, numeric: false).Count;
-
-        Assert.Equal(all - HaDiscovery.NumericThresholdEntities.Length, fixedMode);
-    }
-
-    [Fact]
-    public void DiscoveryConfigs_DefaultsToNumeric_SoExistingCallersAreUnchanged()
-    {
-        string node = HaDiscovery.NodeId("PC");
-
-        Assert.Equal(Configs(node, numeric: true).Count, Configs(node).Count);
-    }
-
-    [Fact]
-    public void NumericThresholdEntities_AreAllRealEntities()
-    {
-        // Guards against a typo in the gate list silently failing to suppress anything — and
-        // against an entity being renamed without updating the gate.
-        foreach (var gated in HaDiscovery.NumericThresholdEntities)
-            Assert.Contains(HaDiscovery.Entities, e => e.Component == gated.Component && e.ObjectId == gated.ObjectId);
-    }
+        HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", Presets, FullSurface).ToList();
 
     [Theory]
     [InlineData("ESPEN-X1", "chargekeeper_espen_x1")]
@@ -96,6 +26,94 @@ public class HaDiscoveryTests
     public void NodeId_SanitisesToTopicSafeLowercase(string machine, string expected)
     {
         Assert.Equal(expected, HaDiscovery.NodeId(machine));
+    }
+
+    // Configurable node id
+
+    [Theory]
+    [InlineData("Office ThinkPad", "office_thinkpad")]
+    [InlineData("  Padded  ", "padded")]                 // trimmed, so the padding isn't baked in
+    [InlineData("Böx.2", "b_x_2")]                       // same alphabet NodeId reduces to
+    [InlineData("ALREADY_ok_9", "already_ok_9")]
+    public void NormalizeNodeId_MirrorsNodeIdSanitation_WithoutForcingThePrefix(string raw, string expected)
+    {
+        // The chargekeeper_ prefix belongs to the default only; a typed id is stored as typed.
+        Assert.Equal(expected, HaDiscovery.NormalizeNodeId(raw));
+    }
+
+    [Fact]
+    public void NormalizeNodeId_TruncatesToTheMaximum()
+    {
+        string id = HaDiscovery.NormalizeNodeId(new string('a', HaDiscovery.MaxNodeIdLength + 10));
+        Assert.Equal(HaDiscovery.MaxNodeIdLength, id.Length);
+    }
+
+    [Theory]
+    [InlineData("")]                     // blank = "use the machine-name default", not an error
+    [InlineData("   ")]
+    [InlineData("office_thinkpad")]
+    [InlineData("Office ThinkPad")]      // sanitised on the way in, so it's accepted as typed
+    public void ValidateNodeId_AcceptsBlankAndAnythingWithAnAlphanumeric(string raw)
+    {
+        Assert.Null(HaDiscovery.ValidateNodeId(raw));
+    }
+
+    [Theory]
+    [InlineData("!!!")]                  // sanitises to all underscores — no usable id
+    [InlineData("---")]
+    public void ValidateNodeId_NoAlphanumeric_ReturnsError(string raw)
+    {
+        Assert.NotNull(HaDiscovery.ValidateNodeId(raw));
+    }
+
+    [Fact]
+    public void ValidateNodeId_LongerThanTheMaximum_ReturnsError()
+    {
+        Assert.Null(HaDiscovery.ValidateNodeId(new string('a', HaDiscovery.MaxNodeIdLength)));
+        Assert.NotNull(HaDiscovery.ValidateNodeId(new string('a', HaDiscovery.MaxNodeIdLength + 1)));
+    }
+
+    [Theory]
+    [InlineData("", "ESPEN-X1", "chargekeeper_espen_x1")]      // unset → machine-name default
+    [InlineData("   ", "ESPEN-X1", "chargekeeper_espen_x1")]
+    [InlineData("!!!", "ESPEN-X1", "chargekeeper_espen_x1")]   // unusable custom → default, never "___"
+    [InlineData("Office ThinkPad", "ESPEN-X1", "office_thinkpad")]
+    [InlineData("kitchen_pc", "ESPEN-X1", "kitchen_pc")]
+    public void EffectiveNodeId_PrefersACustomId_AndFallsBackToTheMachineName(
+        string custom, string machine, string expected)
+    {
+        Assert.Equal(expected, HaDiscovery.EffectiveNodeId(custom, machine));
+    }
+
+    [Fact]
+    public void TopicsToClear_CoversEveryRetainedTopicTheOldIdOwns()
+    {
+        var topics = HaDiscovery.TopicsToClear("old_id", "homeassistant").ToList();
+
+        // Every current entity's discovery config…
+        foreach (var (component, objectId) in HaDiscovery.Entities)
+            Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
+        // …every legacy one, so an id change leaves no renamed ghosts behind…
+        foreach (var (component, objectId) in HaDiscovery.LegacyEntities)
+            Assert.Contains($"homeassistant/{component}/old_id/{objectId}/config", topics);
+        // …availability, and state. State is published retained and no other clear path covers it,
+        // so an id change would strand a retained payload under the old id forever.
+        Assert.Contains(HaDiscovery.AvailabilityTopic("old_id"), topics);
+        Assert.Contains(HaDiscovery.StateTopic("old_id"), topics);
+        Assert.Contains(HaDiscovery.StatusTopic("old_id"), topics);
+
+        Assert.Equal(HaDiscovery.Entities.Count() + HaDiscovery.LegacyEntities.Length + 3, topics.Count);
+        Assert.Equal(topics.Count, topics.Distinct().Count());   // nothing cleared twice
+    }
+
+    [Fact]
+    public void TopicsToClear_UsesTheGivenDiscoveryPrefix()
+    {
+        // The old id's configs live under the prefix they were published with, which may itself have
+        // changed in the same settings apply.
+        var topics = HaDiscovery.TopicsToClear("old_id", "ha").ToList();
+        Assert.Contains("ha/sensor/old_id/battery_level/config", topics);
+        Assert.DoesNotContain(topics, t => t.StartsWith("homeassistant/"));
     }
 
     [Fact]
@@ -120,13 +138,13 @@ public class HaDiscoveryTests
     }
 
     [Fact]
-    public void DiscoveryConfigs_CoverEveryEntity_AllShareDeviceAndAvailability()
+    public void DiscoveryConfigs_CoverEveryAnnouncedEntity_AllShareDeviceAndAvailability()
     {
         string node = HaDiscovery.NodeId("PC");
         var configs = Configs(node);
 
-        // 8 read-only sensors + 5 command entities.
-        Assert.Equal(13, configs.Count);
+        // With every group on and every gate open, the announced set is the whole catalogue.
+        Assert.Equal(FullSurface.Count, configs.Count);
         Assert.Equal(configs.Count, HaDiscovery.Entities.Count());
 
         foreach (var (_, json) in configs)
@@ -230,10 +248,10 @@ public class HaDiscoveryTests
     [Fact]
     public void DiscoveryConfigs_Issue30_PresetSelect_EmptyPresets_FallsBackToNonEmptyOptions()
     {
-        // HA rejects a select with an empty options list — with no presets configured we must still
-        // publish a single safe placeholder (issue #30 review).
+        // HA rejects a select with an empty options list, so with no presets configured a single
+        // placeholder is published instead.
         string node = HaDiscovery.NodeId("PC");
-        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [])
+        var (_, json) = HaDiscovery.DiscoveryConfigs(node, "homeassistant", "ChargeKeeper (PC)", "1.4.0", [], FullSurface)
             .Single(c => c.Topic == $"homeassistant/select/{node}/preset/config");
 
         using var doc = JsonDocument.Parse(json);
@@ -245,18 +263,18 @@ public class HaDiscoveryTests
     [Fact]
     public void LegacyEntities_CoverThePre29RenamedIds_ForRetainedClear()
     {
-        // The #29 renames whose retained discovery must be evicted (old component/id → new).
+        // Renamed entities whose retained discovery must be evicted.
         var legacy = HaDiscovery.LegacyEntities;
         Assert.Contains(("sensor", "soc"), legacy);
         Assert.Contains(("sensor", "power"), legacy);
         Assert.Contains(("binary_sensor", "smart_charge"), legacy);
         Assert.Contains(("sensor", "charge_start"), legacy);
         Assert.Contains(("sensor", "charge_stop"), legacy);
-        // The current entity set must NOT overlap the legacy set (else we'd clear a live entity).
+        // An overlap between the current and legacy sets would clear a live entity.
         Assert.Empty(HaDiscovery.Entities.Intersect(legacy));
     }
 
-    // ── State payload ────────────────────────────────────────────────────────────
+    // State payload
 
     private static HaState State(
         int soc = 73, string batteryState = HaDiscovery.StateCharging, bool lowPower = false,
@@ -290,10 +308,9 @@ public class HaDiscoveryTests
     [Fact]
     public void StatePayload_NoActivePreset_PublishesNone_RatherThanOmittingTheField()
     {
-        // active_preset is deliberately NOT omit-when-unknown like the other optionals: HA's MQTT
-        // select ignores an empty payload and keeps the last option it saw, so omitting it left the
-        // select claiming a preset that a custom-threshold write had already cleared. "None" is HA's
-        // documented reset-to-unknown payload for a select.
+        // Unlike the other optionals, active_preset is not omitted when unknown: HA's MQTT select
+        // ignores an empty payload and keeps the last option it saw, so it would go on claiming a
+        // preset the device has moved off. "None" is HA's documented reset payload for a select.
         var json = HaDiscovery.StatePayload(State(preset: null));
 
         using var doc = JsonDocument.Parse(json);
@@ -313,6 +330,54 @@ public class HaDiscoveryTests
         Assert.Equal(80, root.GetProperty("charge_stop").GetInt32());
         Assert.Equal(65, root.GetProperty("adapter_watts").GetInt32());
         Assert.Equal("Daily", root.GetProperty("active_preset").GetString());
+    }
+
+    // active_preset end to end: the thresholds decide it, so these go through HaStateBuilder rather
+    // than handing StatePayload a name.
+
+    private static List<ThresholdPreset> PresetList() =>
+    [
+        new ThresholdPreset("Daily",  60, 80),
+        new ThresholdPreset("Travel", 80, 100),
+    ];
+
+    private static string PayloadFor(ChargeThresholdState threshold) =>
+        HaDiscovery.StatePayload(HaStateBuilder.Build(
+            soc: 72, chargeRateMw: 45000, onAc: true, status: BatteryStatus.Charging,
+            threshold: threshold, adapterWatts: 65, remainingMwh: 40000, fullMwh: 60000,
+            designMwh: 60000, lowPowerMode: false, presets: PresetList()));
+
+    private static string? ActivePresetIn(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("active_preset").GetString();
+    }
+
+    [Fact]
+    public void StatePayload_ThresholdsEqualAPreset_PublishesThatPresetsName()
+    {
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: true, Start: 80, Stop: 100));
+        Assert.Equal("Travel", ActivePresetIn(json));
+    }
+
+    [Fact]
+    public void StatePayload_ThresholdsEqualNoPreset_PublishesNone()
+    {
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: true, Start: 55, Stop: 75));
+        Assert.Equal(HaDiscovery.PresetNone, ActivePresetIn(json));
+    }
+
+    [Fact]
+    public void StatePayload_DuringTravelOverride_PublishesNone_WithSmartChargeOff()
+    {
+        // The override switches Smart Charge off and leaves the saved pair readable, so the values
+        // can still equal a preset while the battery is deliberately charging past it. No preset is
+        // in force; a consumer that needs to tell this apart from "custom range" reads smart_charge.
+        var json = PayloadFor(new ChargeThresholdState(Capable: true, Enabled: false, Start: 80, Stop: 100));
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(HaDiscovery.PresetNone, doc.RootElement.GetProperty("active_preset").GetString());
+        Assert.False(doc.RootElement.GetProperty("smart_charge").GetBoolean());
     }
 
     [Fact]

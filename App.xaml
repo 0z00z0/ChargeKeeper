@@ -11,24 +11,15 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- ─────────────────────────────────────────────────────────────────────────────
-                 ZeroZero Software studio CHROME palette + typeface (issue #23 rebrand).
+            <!-- The studio chrome palette, overriding the WinUI theme brushes every window already
+                 references so no window needs its own edit. Values come from
+                 0z0-design/design-language.md.
 
-                 These override the small set of WinUI theme brushes the app's chrome already
-                 references ({ThemeResource TextFillColor…}, dividers/strokes, card surfaces and
-                 the accent), so the Dashboard/Settings/History windows adopt the studio look with
-                 no per-window edits. Values come verbatim from 0z0-design/design-language.md.
+                 Chrome only: the product colours in Helpers/AppColors.cs and GaugePalette.cs are
+                 ChargeKeeper's own identity and are not touched here.
 
-                 IMPORTANT — this is CHROME only. The product-functional colours (the battery
-                 gauge tiers, tray icon and history series in Helpers/AppColors.cs +
-                 GaugePalette.cs — SteelBlue/SageGreen/Terracotta/Amber) are ChargeKeeper's own
-                 product identity and are deliberately NOT touched here.
-
-                 The studio palette is DARK by design, and the Application forces RequestedTheme="Dark"
-                 (above), so only the "Default" (dark) theme dictionary is ever selected. The old
-                 "Light" dictionary carried an identical copy of these overrides (a workaround for a
-                 user on the OS Light theme getting near-white studio text over light WinUI surfaces);
-                 with the app pinned to Dark it is redundant and has been removed. -->
+                 Only the Default (dark) dictionary exists, because the Application pins
+                 RequestedTheme to Dark and the studio palette is dark by design. -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Default">
                     <!-- Text -->
@@ -43,22 +34,16 @@
                     <!-- Card / panel surfaces (SettingsCard, BatteryHealthPanel) -->
                     <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
                     <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
-                    <!-- Primary accent → studio teal (toggles, nav selection, focus, primary buttons).
-                         The paired *Color* keys and SystemAccentColor* below MUST agree with these
-                         brushes: some control visual-states (ToggleSwitch "on" fill, the RangeSelector
-                         thumb/track, Button hover/pressed/checked) resolve the OS system accent COLOR
-                         rather than the AccentFill brush, so overriding only the brushes left those
-                         states painting the OS accent instead of studio teal. -->
+                    <!-- The paired *Color* keys and the SystemAccentColor ramp below must agree with
+                         these brushes: several control visual-states resolve the accent COLOR rather
+                         than the AccentFill brush, and would otherwise paint the OS accent. -->
                     <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#7FA8B8"/>
                     <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E67FA8B8"/>
                     <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC7FA8B8"/>
-                    <!-- Paired accent *Color* keys (brush forms above) -->
                     <Color x:Key="AccentFillColorDefaultColor">#7FA8B8</Color>
                     <Color x:Key="AccentFillColorSecondaryColor">#E67FA8B8</Color>
                     <Color x:Key="AccentFillColorTertiaryColor">#CC7FA8B8</Color>
                     <Color x:Key="AccentTextFillColorPrimaryColor">#7FA8B8</Color>
-                    <!-- System accent ramp → muted SteelBlue (127,168,184) with lighter/darker steps.
-                         Drives accent visual-states that read SystemAccentColor* directly. -->
                     <Color x:Key="SystemAccentColor">#7FA8B8</Color>
                     <Color x:Key="SystemAccentColorLight1">#9BBBC8</Color>
                     <Color x:Key="SystemAccentColorLight2">#B7CED7</Color>
@@ -69,8 +54,7 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
-            <!-- Studio palette exposed as named brushes for explicit use in chrome XAML.
-                 (design-language.md colour table). -->
+            <!-- The studio palette as named brushes, for chrome XAML that names a colour directly. -->
             <SolidColorBrush x:Key="BrandBgBrush"     Color="#0a0f17"/>
             <SolidColorBrush x:Key="BrandBg2Brush"    Color="#0e1620"/>
             <SolidColorBrush x:Key="BrandBg3Brush"    Color="#101a26"/>
@@ -82,35 +66,23 @@
             <SolidColorBrush x:Key="BrandPurpleBrush" Color="#7b8cff"/>
             <SolidColorBrush x:Key="BrandIndigoBrush" Color="#3f5be0"/>
 
-            <!-- Brand typeface: Cascadia Mono. Reused from the shared ZeroZero.Brand.WinUI library,
-                 which ships the .ttf as Content into this app's output under Assets\Fonts\ (same
-                 file the shared About window references) — so it is NOT re-bundled here. Per
-                 0z0-design: Cascadia Mono is the studio's UI/body/heading face; monospace is used
-                 throughout the brand, not just for code. -->
+            <!-- Cascadia Mono is the studio's UI face throughout, not only for code. The .ttf comes
+                 from ZeroZero.Brand.WinUI's output under Assets\Fonts\, so it is not re-bundled. -->
             <FontFamily x:Key="BrandFont">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
-            <!-- Override WinUI's two default content font-family theme resources so EVERY templated
-                 control (CommunityToolkit SettingsCard/SettingsExpander Header + Description,
-                 ComboBox, ToggleSwitch On/Off text, Button, NumberBox, TextBox) inherits Cascadia
-                 Mono, not just bare TextBlocks. Content strings in those controls resolve
-                 {ThemeResource ContentControlThemeFontFamily} / ControlContentThemeFontFamily rather
-                 than the implicit TextBlock style, which is why some text still rendered in the
-                 default sans before this. Literal URI (not {StaticResource BrandFont}) because a
-                 FontFamily resource can't take another resource as its value. -->
+            <!-- Templated controls resolve these two theme resources rather than the implicit
+                 TextBlock style, so both are needed for the font to reach every control. A literal
+                 URI, because a FontFamily resource cannot take another resource as its value. -->
             <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
             <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
-            <!-- Cascadia Mono renders visually larger than WinUI's default sans at the same point
-                 size, so once every control switched to it the Settings text (SettingsCard headers,
-                 combos, toggles) felt oversized. Trim the control-content size a notch (14 -> 12.5)
-                 to compensate. Dashboard text is unaffected — those TextBlocks set explicit FontSize. -->
+            <!-- Cascadia Mono renders larger than WinUI's default sans at the same point size, so
+                 the control-content size drops a notch to compensate. -->
             <x:Double x:Key="ControlContentThemeFontSize">12.5</x:Double>
 
-            <!-- Default chrome typeface: applied to every TextBlock that has no explicit Style.
-                 TextBlock has no control template, so an implicit style here is safe (it only sets
-                 the font). Content strings in Buttons/ComboBoxes render through TextBlocks too, so
-                 they pick this up as well. The keyed TextBlock styles below repeat the FontFamily
-                 setter since a keyed style opts out of the implicit one. -->
+            <!-- Applies to every TextBlock without an explicit Style. An implicit style is safe here
+                 because TextBlock has no control template. The keyed styles below repeat the
+                 FontFamily setter, since a keyed style opts out of the implicit one. -->
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
             </Style>
@@ -120,13 +92,9 @@
                 ToolTipText="ChargeKeeper"
                 NoLeftClickDelay="True"/>
 
-            <!-- Shared stat-label / stat-value text styles (TODO #17 sub-item #3). The uppercase
-                 caption LABEL (POWER / REMAINING / BATTERY HEALTH) and its VALUE below it were the
-                 same inline TextBlock property sets pasted ~5 times across DashboardWindow,
-                 BatteryHistoryWindow and BatteryHealthPanel. Centralised here so a tweak to the stat
-                 typography happens once; per-instance bits (x:Name, Text/binding, Grid placement,
-                 the health summary's TextWrapping) stay inline at each call site. Application-level
-                 so every window and UserControl resolves them via StaticResource. -->
+            <!-- The uppercase stat caption and the value beneath it, shared by DashboardWindow,
+                 BatteryHistoryWindow and BatteryHealthPanel so the stat typography is tuned once.
+                 Application-level, so every window and UserControl resolves them. -->
             <Style x:Key="StatLabelStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="10"/>
@@ -140,21 +108,47 @@
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             </Style>
 
-            <!-- SettingsWindow (TODO #19) section + sub-section headers. Same extraction rationale
-                 as the stat styles above: these TextBlock property sets were pasted per-section.
-                 SectionHeaderStyle carries the uniform bottom margin; SubHeaderStyle leaves Margin
-                 inline since it varies between the first sub-header and the later ones. -->
-            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <!-- One heading treatment for both surfaces: colour, weight and tracking are shared and
+                 only the size differs, so the dashboard popup and the Settings window carry the same
+                 hierarchy at their own scales. Each heading sits about 1.2x its surface's body size.
+
+                 Teal, not the steel accent: AppColors.AccentBrush marks the preset in force, and a
+                 heading in that colour would compete with the one thing on the page that means
+                 "running right now". Headings are chrome, so they take a chrome colour. -->
+            <StaticResource x:Key="SectionHeadingBrush" ResourceKey="BrandTealBrush"/>
+
+            <Style x:Key="HeadingBaseStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="14"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Margin" Value="0,0,0,4"/>
+                <Setter Property="CharacterSpacing" Value="40"/>
+                <Setter Property="Foreground" Value="{StaticResource SectionHeadingBrush}"/>
             </Style>
-            <Style x:Key="SubHeaderStyle" TargetType="TextBlock">
-                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Opacity" Value="0.85"/>
+
+            <!-- The Settings page title, a level above a section heading and present on that surface
+                 only. Size and weight both step up, because one axis alone reads as a rendering
+                 accident rather than a hierarchy. -->
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
+                <Setter Property="FontSize" Value="19"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Margin" Value="0,0,0,12"/>
+            </Style>
+
+            <!-- Section headings: 15 over the 12.5 control-content size in Settings, 13 over the 11 px
+                 detail lines on the dashboard. -->
+            <Style x:Key="SubHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
+                <Setter Property="FontSize" Value="15"/>
+            </Style>
+            <Style x:Key="DashboardHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
+                <Setter Property="FontSize" Value="13"/>
+            </Style>
+
+            <!-- Marks where one sub-section ends and the next begins. The whole gap between groups
+                 sits above the rule and the heading, so a heading binds downwards to its own cards
+                 rather than floating between two groups. -->
+            <Style x:Key="SectionDividerStyle" TargetType="Border">
+                <Setter Property="Height" Value="1"/>
+                <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                <Setter Property="Margin" Value="0,24,0,12"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

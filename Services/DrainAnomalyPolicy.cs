@@ -1,36 +1,18 @@
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// Pure decision for the overnight-drain anomaly warning (TODO #26): given a detected downtime
-/// gap's SoC drop + duration and the user's settings, decide whether a toast should fire. Extracted
-/// from <c>App.CheckDrainAnomaly</c> so the thresholds are unit-testable without a live battery or a
-/// real toast, and so the noise-floor logic lives in one named place.
-/// </summary>
+/// <summary>Pure decision for the overnight-drain anomaly warning: given a downtime gap's SoC drop and
+/// duration plus the user's settings, decide whether a toast should fire.</summary>
 internal static class DrainAnomalyPolicy
 {
-    // A %/hour rate is only meaningful over a real drop across a real span. Without these floors a
-    // 1-point SoC tick across a ~90s scheduler stall extrapolates to ~40%/hour and fires a false
-    // "Modern Standby misbehaving?" alarm. They're independent of the user's %/hour threshold — that
-    // sets HOW fast counts as abnormal; these set the minimum evidence before the rate is trusted at
-    // all, which is what makes the feature's "overnight" framing honest.
-    //
-    // MinGap is a RATE-TRUST floor. It is ALSO the fallback gate BatteryHistoryService.
-    // AnomalyGapThreshold uses when the user sets the graph gap to "None": "None" stops the graph
-    // drawing breaks but must NOT disable overnight-drain detection (issue #40), so the anomaly path
-    // falls back to this floor and keeps watching. When the user's graph-gap setting is a positive
-    // value it governs whether Record reports a gap at all (graph + anomaly agree); MinGap then still
-    // requires the reported gap to span long enough that a %/hour extrapolation is credible (and
-    // guards the division below). So the effective anomaly gate is max(user threshold, 15 min), with
-    // 15 min alone in force when the user chose "None" — two genuinely different concerns, not three
-    // parallel copies of one "was this downtime?" number.
+    // Noise floors, independent of the user's %/hour threshold: without them a 1-point tick across a
+    // ~90s scheduler stall extrapolates to ~40%/hour and fires a false alarm. MinGap doubles as the
+    // fallback gate BatteryHistoryService.AnomalyGapThreshold uses when the graph gap is "None" — that
+    // suppresses graph breaks but must not disable detection, so the gate is max(user threshold, 15 min).
     internal const int MinDropPercent = 5;
     internal static readonly TimeSpan MinGap = TimeSpan.FromMinutes(15);
 
-    /// <summary>
-    /// True when the gap represents a genuine, trustworthy over-threshold drain. A rise or flat
-    /// reading (SoC went up / unchanged while the app was off) is not an anomaly and is filtered by
-    /// the <see cref="MinDropPercent"/> floor along with too-small drops.
-    /// </summary>
+    /// <summary>Rises and flat readings fall out through the <see cref="MinDropPercent"/> floor along
+    /// with too-small drops.</summary>
     public static bool ShouldWarn(bool enabled, int socDropPercent, TimeSpan gapDuration, int thresholdPercentPerHour)
     {
         if (!enabled) return false;

@@ -8,15 +8,11 @@ using ScheduledTask = Microsoft.Win32.TaskScheduler.Task;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Keeps the tray app alive via Task Scheduler, and keeps Task Scheduler from being the thing
-/// that kills it. <see cref="TaskDefinitions"/> owns what the tasks look like; this class owns
-/// when they get written and what gets logged.
-///
-/// Two tasks are maintained at startup (best-effort, elevated app so no UAC):
-///  1. "ChargeKeeper AutoStart" — repaired in place (power-safe settings) when it exists and
-///     points at THIS exe; never created here (running at startup stays the user's choice —
-///     <see cref="TaskSchedulerHelper.SetAutoStart"/> is the only creator).
-///  2. "ChargeKeeper Watchdog"  — created/refreshed unconditionally: it is entirely ours.
+/// Keeps the tray app alive via Task Scheduler, and keeps Task Scheduler from being the thing that
+/// kills it. <see cref="TaskDefinitions"/> owns what the tasks look like; this class owns when they
+/// get written and what gets logged. AutoStart is only ever repaired here, never created — that
+/// stays the user's choice via <see cref="TaskSchedulerHelper.SetAutoStart"/> — while the Watchdog
+/// task is entirely ours and is refreshed unconditionally.
 /// </summary>
 internal static class WatchdogTask
 {
@@ -42,19 +38,16 @@ internal static class WatchdogTask
         catch { /* best-effort */ }
     }
 
-    /// <summary>
-    /// Registers the watchdog task and repairs the AutoStart task. Never throws. Skipped
-    /// entirely for non-installed runs (dev builds under bin\...) — a watchdog or startup task
-    /// pointing at a build-output exe would resurrect stale dev binaries for weeks.
-    /// </summary>
+    /// <summary>Registers the watchdog task and repairs the AutoStart task. Never throws. Skipped for
+    /// non-installed runs: a task pointing at a build-output exe would resurrect stale dev binaries
+    /// for weeks.</summary>
     internal static void TryEnsureTasks()
     {
         try
         {
             if (Environment.ProcessPath is not { } exe) return;
-            // Two accepted install locations: fresh installs live in "...\ChargeKeeper";
-            // installs upgraded across the Lenovo Power Tray -> ChargeKeeper rename keep the
-            // old folder name (the installer reuses the AppId-recorded {app} directory).
+            // Two accepted install locations: upgrades across the rename keep the old folder name,
+            // because the installer reuses the AppId-recorded {app} directory.
             if (!exe.EndsWith(@"\ChargeKeeper\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase) &&
                 !exe.EndsWith(@"\Lenovo Power Tray\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase))
             {
@@ -89,8 +82,7 @@ internal static class WatchdogTask
         using ScheduledTask? existing = ts.GetTask(TaskDefinitions.TaskPath(TaskDefinitions.AutoStartTaskName));
         if (existing is null) return;                                     // no task — user opted out of autostart
 
-        // Not disposed: Task caches this instance and hands back the same one on every read, so it
-        // belongs to `existing` and dies with it.
+        // Not disposed: Task caches this instance, so it belongs to `existing` and dies with it.
         TaskDefinition current = existing.Definition;
         if (TaskDefinitions.Matches(current, exe)) return;                // already correct
         if (!TaskDefinitions.TargetsExe(current, exe))
@@ -109,11 +101,9 @@ internal static class WatchdogTask
             : "Watchdog: FAILED to repair the AutoStart task — undock may still kill task-started instances.");
     }
 
-    /// <summary>
-    /// This class's error policy around the shared <see cref="TaskDefinitions.Register"/>: best-effort,
-    /// because a failure here costs the safety net and must never cost the app its startup. The tray
-    /// toggle takes the opposite stance on the very same call — see TaskSchedulerHelper.SetAutoStart.
-    /// </summary>
+    /// <summary>Best-effort wrapper around <see cref="TaskDefinitions.Register"/>: a failure here
+    /// costs the safety net, and must never cost the app its startup. The tray toggle takes the
+    /// opposite stance on the same call.</summary>
     private static bool Register(TaskService ts, string name, TaskDefinition definition)
     {
         try

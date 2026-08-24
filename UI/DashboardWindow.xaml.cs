@@ -1,6 +1,8 @@
 using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Devices.Power;
 using Windows.Foundation;
@@ -11,24 +13,22 @@ using ChargeKeeper.Services;
 namespace ChargeKeeper.UI;
 
 /// <summary>
-/// Borderless popup that shows battery status and the current state of both Lenovo
-/// power features.  Appears bottom-right above the taskbar; auto-dismisses when it
-/// loses focus.  Data refreshes every 5 seconds while the window is active.
+/// Borderless popup above the tray showing battery status and the vendor power features. It
+/// auto-dismisses on focus loss and refreshes every 5 seconds while active.
 /// </summary>
 public sealed partial class DashboardWindow : Window
 {
-    // Fixed logical width; the height is measured from the content each time the window is
-    // placed, so rows appearing/disappearing (sliders, travel button) need no height constants.
-    // Widened from 280 (Chunk 3) to fit the right-hand power axis plus the Chunk-4 scale buttons.
     private const int WindowWidth = 340;
+
+    // What PresetButtonPanel is allowed before its first arrange: WindowWidth less RootGrid's 20 px
+    // padding either side and the Smart Charge badge's 10 px either side. The same width the
+    // travel-override button occupies, which is what the preset rows have to line up with.
+    private const double PresetPanelWidth = WindowWidth - 40 - 20;
 
     // Arc gauge geometry: 100×100 px canvas, 7-o'clock start (135°), 270° sweep.
     private const double GaugeCx         = 50;
     private const double GaugeCy         = 50;
-    // 42 (up from 38): fills more of the 100x100 canvas — the ceiling here is set by the tick
-    // marks, not the arc itself (arc StrokeThickness=10 alone would allow up to 45; ticks add
-    // 6 beyond GaugeRadius at their own 2.5 stroke, so outerR=48 is the largest radius that
-    // still keeps the tick tips a safe ~1px inside the 100px canvas edge).
+    // The largest radius that keeps the tick tips inside the canvas: they add 6 beyond it.
     private const double GaugeRadius     = 42;
     private const double GaugeStartAngle = 135;
     private const double GaugeSweep      = 270;
@@ -42,31 +42,43 @@ public sealed partial class DashboardWindow : Window
     // When the popup was last hidden — lets the tray click that auto-dismissed it avoid re-showing.
     private DateTime _hiddenAtUtc = DateTime.MinValue;
 
-    // Guards OnThresholdRangeChanged from reacting to its own programmatic writes — both the
-    // periodic device-value sync (ApplyStatusBadges) and the handler's own min-gap enforcement
-    // set RangeStart/RangeEnd, which would otherwise re-enter the handler and queue a bogus apply.
+    // Guards OnThresholdRangeChanged against its own writes: the device sync and the min-gap
+    // enforcement both set RangeStart/RangeEnd, which would re-enter it.
     private bool _updatingSliders = false;
 
-    // True from the first user slider move until the debounced apply completes. While set, the
-    // periodic Refresh must NOT overwrite the slider values with the device's current thresholds
-    // (otherwise an in-progress edit snaps back before it's applied).
+    // Same for the badge switches and chips: a programmatic write raises the click's own event.
+    private bool _updatingBadges = false;
+
+    // The last span the user ran, so the switch resumes that one; the service keeps no history.
+    private KeepAwakeRequest? _lastKeepAwake;
+
+    // What KeepAwakePresetPanel is built from; rebuilding only on a change keeps the reconcile cheap.
+    private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
+
+    // Same purpose for the lid-delay chips: the set only changes when the stored delay leaves the
+    // quick list, so the 5 s reconcile must not rebuild the row underneath a pointer.
+    private IReadOnlyList<int> _lidDelayChips = [];
+
+    // Same for PresetButtonPanel: rebuilding on every 5 s tick would drop the button under the pointer.
+    private IReadOnlyList<string> _presetButtonLabels = [];
+
+    // The column/row shape PresetButtonPanel is currently arranged in, so a SizeChanged that does not
+    // change it re-places nothing. Reset whenever the buttons are rebuilt: the new ones carry no
+    // Grid.Row/Column and would otherwise all pile into the first cell.
+    private (int Columns, int Rows) _presetGridShape;
+
+    // Set from the first slider move until the debounced apply lands; freezes Refresh's slider sync.
     private bool _thresholdEditPending = false;
 
-    // Monotonic edit counter: bumped on every slider change so a debounced apply that completes
-    // AFTER a newer edit has started can tell it's stale and must NOT clear the edit-pending freeze
-    // (which would let Refresh() snap the sliders back and the newer edit then commit the reverted
-    // values — a silently-lost adjustment).
+    // Bumped per slider change, so an apply completing after a newer edit knows not to clear the freeze.
     private int _thresholdEditGeneration;
 
     // Debounces auto-apply: each slider move restarts it; it fires once the user pauses.
     private readonly DispatcherTimer _thresholdApplyTimer;
 
-    // Destroys the window once it has sat hidden long enough (issue #76 / DashboardIdlePolicy).
-    // Runs while HIDDEN — the inverse of _refreshTimer, which runs only while shown — so the two
-    // are never armed at the same time.
+    // Destroys the window once it has sat hidden long enough; never armed with _refreshTimer.
     private readonly DispatcherTimer _idleCloseTimer;
 
-    /// <summary>Time elapsed since the window was last hidden.</summary>
     public TimeSpan SinceHidden => DateTime.UtcNow - _hiddenAtUtc;
 
     public DashboardWindow(App app)
@@ -79,20 +91,14 @@ public sealed partial class DashboardWindow : Window
         // Track arc never changes — build it once here instead of every refresh tick.
         GaugeTrack.Data = BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
 
-        // Threshold-tick strokes come from the shared palette rather than XAML hex literals (which
-        // had to be hand-synced with Terracotta and once drifted): HistoryLimitBrush, so the
-        // "charge limit" concept is the same brush here and in the history graph. GaugeFill's own
-        // stroke is set per-refresh by UpdateGaugeArc before the window is ever shown.
+        // From the shared palette, so "charge limit" is the same brush here and in the history graph.
         GaugeStartTick.Stroke = AppColors.HistoryLimitBrush;
         GaugeStopTick.Stroke  = AppColors.HistoryLimitBrush;
 
         // The graph control has no reference to App/window-management — it only signals intent.
         HistoryGraph.ExpandRequested += (_, _) => _app.ShowHistoryWindow();
 
-        // A compact 340px popup has no room for the gap-break diagonal strokes + duration pill,
-        // the SoC stress heat strip (TODO #25), or the hover-crosshair readout pill (TODO #27),
-        // without crowding the plot — the bigger pop-out window (which leaves all three at their
-        // default true) is where that detail belongs.
+        // No room for these at 340px without crowding the plot; the pop-out window keeps them on.
         HistoryGraph.ShowGapMarkers    = false;
         HistoryGraph.ShowStressHeatmap = false;
         HistoryGraph.ShowCrosshair     = false;
@@ -106,15 +112,17 @@ public sealed partial class DashboardWindow : Window
         _idleCloseTimer       = new() { Interval = DashboardIdlePolicy.IdleCloseAfter };
         _idleCloseTimer.Tick += (_, _) => CloseIfIdle();
 
-        // A charge-control change made ANYWHERE else — an inbound MQTT command, the tray menu, a
-        // network-location auto-apply, the Settings preset editor, or the travel override's own
-        // auto-revert — must reach an already-open dashboard immediately. Without this the popup
-        // only converged on its next 5 s poll, and never at all for state that isn't derivable from
-        // a device read (the active preset name lives in settings, not in the EC). These are the
-        // same two events the tray and HomeAssistantService already reconcile from; both fire on a
-        // background thread, so the handler marshals via RunOnUi.
+        // A charge-control change made anywhere else must reach an open dashboard at once: the 5 s
+        // poll cannot see state that isn't in the EC. Both fire off-thread, hence RunOnUi.
         ChargeControlService.StateChanged  += OnExternalStateChanged;
         TravelOverrideService.StateChanged += OnExternalStateChanged;
+
+        // Keep Awake has its own RPC-free reconcile; neither event above covers it.
+        KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+
+        // The panel's width is unknown when the buttons are built, and changes with the monitor's
+        // DPI; the column count is recomputed from whatever it turns out to be.
+        PresetButtonPanel.SizeChanged += (_, _) => LayoutPresetButtons();
 
         Activated += OnActivated;
         Closed    += (_, _) =>
@@ -122,58 +130,44 @@ public sealed partial class DashboardWindow : Window
             _closed = true;   // gates RunOnUi: in-flight background reads must not touch a dead window
             _refreshTimer.Stop();
             _thresholdApplyTimer.Stop();
-            // Also covers the window being destroyed from BELOW (a GPU/compositor reset), which is
-            // the one way _idleCloseTimer can still be armed on a dead window: stopping it here means
-            // its tick can never reach Close() on something already gone.
+            // Also covers a destroy from below (a compositor reset), which can leave this armed.
             _idleCloseTimer.Stop();
-            // Static events outlive this window, and App rebuilds a fresh DashboardWindow after every
-            // close (idle reclaim, issue #76) — leaving these attached would pin every dead instance
-            // and make the reclaim pointless.
+            // Static events outlive this window, and App rebuilds a fresh one after every close.
             ChargeControlService.StateChanged  -= OnExternalStateChanged;
             TravelOverrideService.StateChanged -= OnExternalStateChanged;
+            KeepAwakeService.StateChanged      -= OnKeepAwakeStateChanged;
         };
     }
 
     /// <summary>
-    /// A charge-control change settled elsewhere. Refreshes only while the popup is actually on
-    /// screen: a hidden window re-reads everything in <see cref="ShowNearTray"/> anyway, and
-    /// <see cref="Refresh"/> costs a blocking vendor RPC. Skipped while a slider edit is in flight:
-    /// <see cref="CommitThresholds"/> fires this event synchronously from its own write and then
-    /// refreshes itself, so refreshing here too would double the blocking EC read — and read the EC
-    /// while that write is still landing. <see cref="_thresholdEditPending"/> is set for exactly that
-    /// window; an external change arriving during it is picked up by the commit's own trailing Refresh.
+    /// A charge-control change settled elsewhere. Refreshes only while on screen (it costs a blocking
+    /// vendor RPC) and never during a slider edit, which <see cref="CommitThresholds"/> refreshes.
     /// </summary>
     private void OnExternalStateChanged() => RunOnUi(() =>
     {
         if (AppWindow.IsVisible && !_thresholdEditPending) Refresh();
     });
 
+    /// <summary>A keep-awake session started, ended or expired. Reconciles unconditionally — no vendor RPC.</summary>
+    private void OnKeepAwakeStateChanged() => RunOnUi(ApplyKeepAwakeBadge);
+
     /// <summary>
-    /// Destroys the window after a long idle spell rather than holding its XAML tree, graph control
-    /// and composition surface for a re-show that may never come. App's Closed handler nulls its
-    /// reference, so the next tray click lazily rebuilds it — the same path a compositor reset
-    /// already forces today.
+    /// Destroys the window after a long idle spell rather than holding its XAML tree and composition
+    /// surface. App nulls its reference on Closed, so the next tray click rebuilds it.
     /// </summary>
     private void CloseIfIdle()
     {
         // One-shot: stop first, so nothing re-enters here whichever branch we take below.
         _idleCloseTimer.Stop();
 
-        // This is the ONE timer whose job is to touch a window that may have died in the meantime,
-        // so it carries the same guaranteed catch RunOnUi does: reclaiming idle memory is a nicety
-        // and must never be able to take the tray app down with it.
+        // Reclaiming idle memory must never be able to take the tray app down with it.
         try
         {
             if (_closed) return;   // destroyed from below already — Close() would throw on a dead window
 
             if (!DashboardIdlePolicy.ShouldClose(AppWindow.IsVisible, SinceHidden))
             {
-                // Not closable yet, and the timer is already stopped — so re-arm rather than return
-                // bare, which would silently retire the reclaim until the next hide. Two ways to get
-                // here: the window is visible again (a stale tick raced ShowNearTray — the next
-                // HideWindow re-arms us anyway, and this tick is spent), or the hidden window is a
-                // hair short of the period (DispatcherTimer promises no lower bound on its interval).
-                // Re-arming makes both self-correcting instead of one-shot.
+                // Re-arm: DispatcherTimer promises no lower bound, so a tick can land early.
                 if (!AppWindow.IsVisible) _idleCloseTimer.Start();
                 return;
             }
@@ -187,51 +181,39 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
-    // Set when the window closes (user action or the framework destroying windows during a GPU/
-    // compositor reset). Background reads started before the close complete afterwards and marshal
-    // back via RunOnUi — touching XAML members of a closed window then throws (e.g. AppWindow is
-    // null), so RunOnUi drops the callback instead.
+    // Set when the window closes (user action, or the framework destroying windows on a compositor
+    // reset). Background reads marshalling back afterwards would throw, so RunOnUi drops them.
     private bool _closed;
 
     /// <summary>
-    /// Sets the RangeSelector's Minimum/Maximum/StepFrequency from code instead of XAML. Assigning
-    /// them through the XAML type-converter throws a XamlParseException ("Failed to assign to
-    /// property...") at LoadComponent on this Windows App SDK build — the same issue the old
-    /// Slider.Minimum had. Bounds cover the union of the old two sliders' separate ranges
-    /// (Start was 5-95, Stop was 10-100); the min-gap enforcement in OnThresholdRangeChanged keeps
-    /// Start effectively capped at 95 and Stop at a minimum of 10 in practice. Guarded so the
-    /// value-changed handler doesn't queue a bogus apply during initialisation.
+    /// Sets the RangeSelector's bounds from code: assigning them in XAML throws a XamlParseException
+    /// at LoadComponent on this Windows App SDK build. Guarded against a bogus apply on init.
     /// </summary>
-    private void ConfigureThresholdRange()
+    private void ConfigureThresholdRange() => WithSlidersSuppressed(() =>
     {
-        _updatingSliders = true;
         ThresholdRange.Maximum       = 100;   // set Maximum first so Minimum never transiently exceeds it
         ThresholdRange.Minimum       = 5;
         ThresholdRange.StepFrequency = 5;
-        _updatingSliders = false;
+    });
+
+    /// <summary>Raises <see cref="_updatingSliders"/> around a batch of programmatic RangeSelector
+    /// writes, lowering it in a <c>finally</c> — the same shape <see cref="ApplyStatusBadges"/> uses,
+    /// and for the same reason: a throw part-way through a hand-written pair latches the guard for
+    /// the window's life, after which <see cref="OnThresholdRangeChanged"/> returns at its first line
+    /// and no drag ever reaches the device.</summary>
+    private void WithSlidersSuppressed(Action apply)
+    {
+        _updatingSliders = true;
+        try { apply(); }
+        finally { _updatingSliders = false; }
     }
 
-    // ── Public surface ────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Triggers an immediate full refresh. Called by <c>App</c> when a battery event fires (e.g.
-    /// AC connected / disconnected, or a travel-override auto-revert that re-enables Smart Charge)
-    /// so both the battery gauge AND the feature badges update in real time rather than waiting
-    /// for the next 5-second timer tick. The badge read (Lenovo RPC + service query) is cheap
-    /// relative to how briefly this popup stays open, so refreshing it per event is fine.
-    /// Must be called on the UI thread.
-    /// </summary>
+    /// <summary>Immediate full refresh on a battery event, rather than waiting for the 5 s tick. UI thread only.</summary>
     internal void RefreshFromEvent() => Refresh();
 
     /// <summary>
-    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch. Mirrors
-    /// App.RunOnUi: an exception thrown inside a raw DispatcherQueue.TryEnqueue callback is NOT
-    /// surfaced to Application.UnhandledException — it tears the whole process down as an opaque
-    /// stowed exception with nothing logged anywhere. This window has several Task.Run(...)
-    /// background reads (LoadWindow's disk scan, ChargeThresholdService RPC calls) that complete
-    /// and touch UI elements later, on the dispatcher — if the user closes the popup while one of
-    /// those is in flight, the delegate can hit a torn-down XAML element. Catching here keeps the
-    /// tray alive; the failure is logged instead of fatal.
+    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch: a throw inside a
+    /// raw TryEnqueue callback tears the process down as an opaque stowed exception.
     /// </summary>
     private void RunOnUi(Action action) => DispatcherQueue.TryEnqueue(() =>
     {
@@ -240,19 +222,15 @@ public sealed partial class DashboardWindow : Window
         catch (Exception ex) { AppLog.Error("DashboardWindow.RunOnUi", ex); }
     });
 
-    /// <summary>Positions the window above the system tray and shows it with fresh data.</summary>
     public void ShowNearTray()
     {
-        // The window is wanted again — disarm the idle close before any of the work below. A tick
-        // already queued on the dispatcher can still arrive after this, which is what CloseIfIdle's
-        // visibility check is for.
+        // A tick already queued can still arrive — CloseIfIdle's visibility check covers that.
         _idleCloseTimer.Stop();
 
         // Load data before making the window visible to avoid a "Loading…" flash.
         Refresh();
 
-        // Size and position to the current content; ApplyStatusBadges re-places once the
-        // background read decides whether the threshold sliders / travel button are shown.
+        // Size to the current content; ApplyStatusBadges re-places once the background read lands.
         PlaceWindow();
 
         AppWindow.Show();
@@ -261,14 +239,9 @@ public sealed partial class DashboardWindow : Window
         Activate();
     }
 
-    /// <summary>
-    /// Resizes and repositions the window above the tray (bottom-right corner). The height is
-    /// measured from the content, so it always fits exactly whatever rows are currently visible.
-    /// </summary>
     private void PlaceWindow()
     {
-        // AppWindow works in physical pixels, but the XAML content is in effective pixels (DIPs).
-        // Measure the root grid at the fixed width to get the natural content height.
+        // AppWindow works in physical pixels; the XAML content is in DIPs.
         RootGrid.Measure(new Size(WindowWidth, double.PositiveInfinity));
         int logicalHeight = Math.Clamp((int)Math.Ceiling(RootGrid.DesiredSize.Height), 200, 900);
 
@@ -283,32 +256,23 @@ public sealed partial class DashboardWindow : Window
             work.Bottom - h - margin));
     }
 
-    /// <summary>
-    /// Hides the window without destroying it so it can be shown again cheaply — but only for a
-    /// while: <see cref="_idleCloseTimer"/> reclaims it if the user never comes back (issue #76).
-    /// </summary>
+    /// <summary>Hides the window so a re-show is cheap; <see cref="_idleCloseTimer"/> reclaims it eventually.</summary>
     public void HideWindow()
     {
         _refreshTimer.Stop();
         _hiddenAtUtc = DateTime.UtcNow;
-        // Restart (not just start) so each hide gets a full idle period measured from ITSELF: a
-        // show/hide cycle must not inherit the countdown of the previous one and close early.
+        // Restart, so each hide gets a full idle period measured from itself.
         _idleCloseTimer.Stop();
         _idleCloseTimer.Start();
         AppWindow.Hide();
     }
 
-    // ── Window chrome ─────────────────────────────────────────────────────────
-
     private void ConfigureWindowChrome()
     {
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);
-        // Sets the taskbar/Alt-Tab window icon to the current steel battery (title-bar colouring is
-        // a no-op on this frameless popup, but SetIcon still applies).
+        // Sets the taskbar/Alt-Tab icon; title-bar colouring is a no-op on this frameless popup.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
     }
-
-    // ── Focus / activation ────────────────────────────────────────────────────
 
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
@@ -323,22 +287,24 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
-    // ── Data refresh ──────────────────────────────────────────────────────────
-
     private void Refresh()
     {
         // Battery info uses WinRT APIs that must stay on the UI thread.
         RefreshBatteryInfo();
 
-        // Badge updates read from RPC/service — do that work off-thread so a slow Lenovo
-        // Power Manager response doesn't freeze the window, then marshal back to apply.
+        // In-process state only, and the remaining-time line needs this tick to count down.
+        ApplyKeepAwakeBadge();
+
+        // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
+        ApplyLidBadge();
+
+        // The badge reads go through the vendor RPC — off-thread, then marshal back to apply.
         Task.Run(() =>
         {
-            var chargeState = ChargeThresholdService.Read();
-            bool standbyOn  = StandbyService.IsRunning();
-            // RunOnUi guards the window-may-have-closed-in-the-meantime race: an unhandled throw
-            // in a raw dispatcher callback crashes the whole process (stowed exception).
-            RunOnUi(() => ApplyStatusBadges(chargeState, standbyOn));
+            var chargeState      = ChargeThresholdService.Read();
+            bool standbySupported = StandbyService.IsSupported;
+            bool standbyOn        = StandbyService.IsRunning();
+            RunOnUi(() => ApplyStatusBadges(chargeState, standbySupported, standbyOn));
         });
     }
 
@@ -348,7 +314,6 @@ public sealed partial class DashboardWindow : Window
         {
             var report = Battery.AggregateBattery.GetReport();
 
-            // Compute percentage from raw mWh values reported by the battery driver.
             int? pct = null;
             if (report.FullChargeCapacityInMilliwattHours is > 0 and { } full &&
                 report.RemainingCapacityInMilliwattHours  is { } remaining)
@@ -358,25 +323,20 @@ public sealed partial class DashboardWindow : Window
 
             BatteryPercentText.Text = pct.HasValue ? $"{pct}%" : "--";
 
-            // Shared "on AC" definition (IsOnAC) — the same call the tray icon path uses, so the
-            // gauge and the tray icon structurally agree on when to show blue (TODO #34).
+            // The same call the tray icon path uses, so the two agree on when to show blue.
             bool onAC = BatteryStatsFormatter.IsOnAC(report.Status);
             UpdateGaugeArc(pct ?? 0, onAC);
 
-            // Adapter wattage (TODO #41) lives in the pop-out window only now — the small popup's
-            // fixed 340px width can't fit "AC Power (60W charger) · +45 W" without overflowing its
-            // own card. Plain source + rate here; BatteryHistoryWindow shows the wattage.
+            // Wattage is pop-out only: "AC Power (60W charger) · +45 W" overflows the 340px card.
             PowerSourceText.Text = BatteryStatsFormatter.FormatPowerSource(
                 onAC, report.ChargeRateInMilliwatts ?? 0, adapterWattage: null);
 
             SetStatusGlyph(report.Status);
 
-            // Time remaining / time to full — label stays "REMAINING"; the value itself carries the
-            // direction ("~2h 14m to full" vs "~3h remaining") so it's never ambiguous.
+            // The label stays "REMAINING"; the value carries the direction, so it is never ambiguous.
             TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
                 report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
 
-            // History sparkline.
             HistoryGraph.Render();
         }
         catch
@@ -387,10 +347,7 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
-    /// <summary>
-    /// Sets the compact gauge-centre glyph + colour for the battery state. Replaces the old
-    /// status word, which was too wide and overlapped the arc. ToolTip carries the full word.
-    /// </summary>
+    /// <summary>Gauge-centre glyph and colour for the battery state; the tooltip carries the full word.</summary>
     private void SetStatusGlyph(BatteryStatus status)
     {
         (string glyph, var brush, string tip) = status switch
@@ -406,34 +363,44 @@ public sealed partial class DashboardWindow : Window
         ToolTipService.SetToolTip(StatusGlyph, tip);
     }
 
-    // Called on the UI thread after the background read completes.
-    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbyOn)
+    /// <summary>
+    /// Called on the UI thread after the background read. Guards the whole apply, since every switch
+    /// write raises <c>Toggled</c>; try/finally so a throw part-way cannot latch the guard.
+    /// </summary>
+    private void ApplyStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
     {
-        // ── Smart Charge ──────────────────────────────────────────────────────
-        if (chargeState is { Capable: true })
+        _updatingBadges = true;
+        try { WriteStatusBadges(chargeState, standbySupported, standbyOn); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
+    {
+        // The same classifier the Settings page uses, so the two cannot drift. Hidden means no vendor
+        // answered; Capable:false with a readable state keeps the badge and disables the switch.
+        var surface = ThresholdCapabilityPolicy.Classify(chargeState, ChargeThresholdService.SupportsNumericThresholds);
+        bool chargeVisible = surface != SmartChargeSurface.Hidden;
+        SmartChargeBadge.Visibility = chargeVisible ? Visibility.Visible : Visibility.Collapsed;
+
+        if (chargeVisible)
         {
-            SetFeatureBadge(SmartChargeBadge, SmartChargeIndicator, chargeState.Enabled);
-            SmartChargeDetailText.Text = chargeState.Enabled switch
+            SetFeatureBadge(SmartChargeBadge, SmartChargeToggle, chargeState!.Enabled);
+            SmartChargeToggle.IsEnabled = chargeState.Capable;
+            SmartChargeDetailText.Text = (chargeState.Capable, chargeState.Enabled) switch
             {
-                true when chargeState.Start > 0 && chargeState.Stop > 0
+                // Read-only BIOS setting: readable, but every write is refused.
+                (false, _) => "Not supported",
+                (true, true) when chargeState.HasStartThreshold
                     => $"{PresetLabel(chargeState)} · {chargeState.Start}% → {chargeState.Stop}%",
-                true  => "On — reading thresholds…",
-                false => "Off — charges to 100%"
+                // A mode-based vendor reports no start threshold, so a preset label means nothing here.
+                (true, true) when chargeState.Stop > 0 => $"On — capped at about {chargeState.Stop} %",
+                (true, true)  => "On — reading thresholds…",
+                (true, false) => "Off — charges to 100%"
             };
         }
-        else
-        {
-            // Read failed (driver/DLL missing or RPC error) or firmware reports not capable.
-            SmartChargeBadge.Background     = AppColors.BadgeInactiveBrush;
-            SmartChargeIndicator.Background = AppColors.IndicatorOrangeBrush;
-            SmartChargeDetailText.Text      = chargeState is null ? "Unavailable" : "Not supported";
-        }
 
-        // ── Gauge threshold tick markers ──────────────────────────────────────
-        // Each tick is decided independently. They used to share one condition requiring BOTH
-        // Start and Stop to be > 0, which hid the stop tick entirely on HP — HP has no charge
-        // *start* threshold and reports Start as 0, so the one figure it does have (the cap)
-        // would have been the only thing not drawn.
+        // Each tick is decided independently: HP has no charge-start threshold and reports Start as 0,
+        // so a shared condition would hide the stop tick — the one figure it does have.
         if (chargeState is { Capable: true, Enabled: true, Start: > 0 })
         {
             double startAngle = GaugeStartAngle + GaugeSweep * chargeState.Start / 100.0;
@@ -456,33 +423,27 @@ public sealed partial class DashboardWindow : Window
             GaugeStopTick.Visibility = Visibility.Collapsed;
         }
 
-        // ── Threshold sliders ─────────────────────────────────────────────────
-        // Sync the sliders to the device value ONLY when the user isn't mid-edit; otherwise the
-        // 5 s refresh would clobber an in-progress change before the debounced apply runs.
-        // The picker only makes sense where the vendor takes arbitrary percentages. HP has three
-        // coarse BIOS modes and no numeric threshold, so a draggable range would invite the user
-        // to choose a value the firmware silently ignores — show a note stating the fixed cap
-        // instead.
+        // Sync to the device only when the user isn't mid-edit, and only offer the picker where the
+        // vendor takes arbitrary percentages — HP's coarse BIOS modes would ignore a dragged value.
         bool limitActive = chargeState is { Capable: true, Enabled: true };
         bool showSliders = limitActive && ChargeThresholdService.SupportsNumericThresholds;
 
         if (showSliders && !_thresholdEditPending && chargeState!.Start > 0 && chargeState.Stop > 0)
         {
-            _updatingSliders = true;
-            ThresholdRange.RangeStart = chargeState.Start;
-            ThresholdRange.RangeEnd   = chargeState.Stop;
-            StartValueText.Text = $"{chargeState.Start}%";
-            StopValueText.Text  = $"{chargeState.Stop}%";
-            _updatingSliders = false;
+            WithSlidersSuppressed(() =>
+            {
+                ThresholdRange.RangeStart = chargeState.Start;
+                ThresholdRange.RangeEnd   = chargeState.Stop;
+                StartValueText.Text = $"{chargeState.Start}%";
+                StopValueText.Text  = $"{chargeState.Stop}%";
+            });
         }
         ThresholdSliders.Visibility = showSliders ? Visibility.Visible : Visibility.Collapsed;
 
         if (limitActive && !ChargeThresholdService.SupportsNumericThresholds)
         {
-            // Windows will keep reporting 100% while this cap is active, because HP lowers the
-            // battery's reported full-charge capacity rather than stopping the charge early.
-            // Saying only "capped at 80%" reads as a bug to anyone looking at the tray showing
-            // 100%, so the note has to explain the redefinition, not just the number.
+            // Windows keeps reporting 100 % because HP lowers the reported full-charge capacity rather
+            // than stopping the charge early — the note has to explain that, not just the number.
             ThresholdFixedNote.Text =
                 $"Capped at about {chargeState!.Stop} % of design capacity. Windows still shows "
                 + "100 % — this hardware lowers the reported full-charge capacity instead of "
@@ -494,9 +455,31 @@ public sealed partial class DashboardWindow : Window
             ThresholdFixedNote.Visibility = Visibility.Collapsed;
         }
 
-        // ── Travel override ("charge to 100 % once") ──────────────────────────
-        // Shown whenever Smart Charge is capable, so it stays available to cancel even while
-        // active (when the threshold is temporarily lifted and the sliders are hidden).
+        // Presets are start/stop percentages, so they need the same numeric surface the Settings
+        // page gates on, and a vendor that refuses writes gets no activation button at all.
+        bool showPresets = surface == SmartChargeSurface.Numeric && chargeState is { Capable: true };
+        if (showPresets)
+        {
+            var presets = SettingsService.Current.Presets;
+            BuildPresetButtons(presets);
+
+            // Nothing is highlighted while the thresholds are no preset's — a travel override or
+            // Smart Charge off included.
+            string? activeName = ActivePresetPolicy.Match(presets, chargeState)?.Name;
+            foreach (var button in PresetButtonPanel.Children.OfType<Button>())
+            {
+                bool isActive    = (string?)button.Tag == activeName;
+                button.IsEnabled = !isActive;
+                // Weight as well as colour: the filled chip must not be the only thing separating
+                // the preset in use from the rest.
+                button.FontWeight = isActive
+                    ? Microsoft.UI.Text.FontWeights.SemiBold
+                    : Microsoft.UI.Text.FontWeights.Normal;
+            }
+        }
+        PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;
+
+        // Shown whenever Smart Charge is capable, so it stays available to cancel while active.
         if (chargeState is { Capable: true })
         {
             TravelOverrideButton.Visibility = Visibility.Visible;
@@ -507,58 +490,421 @@ public sealed partial class DashboardWindow : Window
             TravelOverrideButton.Visibility = Visibility.Collapsed;
         }
 
-        // Resize the window to fit whatever is now visible.
+        // A vendor with no standby scheduling hides the control rather than offering a dead switch.
+        SmartStandbyBadge.Visibility = standbySupported ? Visibility.Visible : Visibility.Collapsed;
+        if (standbySupported)
+        {
+            SetFeatureBadge(SmartStandbyBadge, SmartStandbyToggle, standbyOn);
+            SmartStandbyDetailText.Text = standbyOn
+                ? "Active — scheduling idle sleep"
+                : "Off — always Modern Standby";
+        }
+
+        // Last: measuring earlier would size the window to a row that is about to disappear.
         if (AppWindow.IsVisible)
             PlaceWindow();
+    }
 
-        // ── Smart Standby ─────────────────────────────────────────────────────
-        SetFeatureBadge(SmartStandbyBadge, SmartStandbyIndicator, standbyOn);
-        SmartStandbyDetailText.Text = standbyOn
-            ? "Active — scheduling idle sleep"
-            : "Off — always Modern Standby";
+    /// <summary>Which preset the device's current thresholds are, or "Custom" when none matches.</summary>
+    private static string PresetLabel(ChargeThresholdState state) =>
+        SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name ?? "Custom";
+
+    /// <summary>(Re)builds the preset buttons. Returns untouched when the set hasn't changed, so the
+    /// 5 s reconcile only repaints the highlight.</summary>
+    private void BuildPresetButtons(IReadOnlyList<ThresholdPreset> presets)
+    {
+        var wanted = presets.Select(p => ThresholdPreset.FormatLabel(p.Name, p.Start, p.Stop)).ToList();
+        if (wanted.SequenceEqual(_presetButtonLabels)) return;
+
+        _presetButtonLabels = wanted;
+        _presetGridShape    = default;
+        PresetButtonPanel.Children.Clear();
+        PresetButtonPanel.ColumnSpacing = PresetButtonLayout.Spacing;
+        PresetButtonPanel.RowSpacing    = PresetButtonLayout.Spacing;
+
+        // The button of the preset in use is disabled, so the DISABLED visual state is what paints
+        // the marker — it overrides any Background/Foreground set on the button itself, which is why
+        // the accent goes on these three template resources instead. Same brushes as the Settings
+        // preset rows, so the two surfaces read alike. Set before the buttons are parented, so their
+        // templates resolve them.
+        PresetButtonPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.AccentBrush;
+        PresetButtonPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.AccentBrush;
+        PresetButtonPanel.Resources["ButtonForegroundDisabled"]  = AppColors.OnAccentBrush;
+
+        foreach (var preset in presets)
+        {
+            var button = new Button
+            {
+                Tag                        = preset.Name,
+                FontSize                   = 11,
+                Padding                    = new Thickness(6, 2, 6, 2),
+                MinWidth                   = 0,   // the default would spend width this popup hasn't got
+                Height                     = 28,
+                CornerRadius               = new CornerRadius(4),
+                BorderThickness            = new Thickness(0),
+                HorizontalAlignment        = HorizontalAlignment.Stretch,
+                VerticalAlignment          = VerticalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Content = new TextBlock { Text = preset.Name, TextTrimming = TextTrimming.CharacterEllipsis },
+            };
+            ToolTipService.SetToolTip(button, ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop));
+            button.Click += OnPresetButtonClick;
+            PresetButtonPanel.Children.Add(button);
+        }
+
+        LayoutPresetButtons();
     }
 
     /// <summary>
-    /// Which preset the device's CURRENT thresholds came from, or "Custom" when none does — the
-    /// dashboard had no place showing this at all, so a preset applied over MQTT (or from the tray,
-    /// or by a network rule) was invisible whenever its range happened to match what was already on
-    /// screen. <see cref="AppSettings.ActivePreset"/> alone isn't enough to answer it: the Settings
-    /// preset-edit / delete-fallback writes keep the persisted name (<c>clearActivePreset:false</c>),
-    /// and any threshold write that fails at the device leaves the name behind while the hardware
-    /// never moved — so the persisted name can outlive the range it named. Matching it against the
-    /// live Start/Stop keeps the label honest — a drifted preset reads as "Custom", which is exactly
-    /// what it has become.
+    /// Places the buttons in equal-width columns spanning the whole panel, so every row — the last
+    /// one included — ends flush with the travel-override button beneath. A last row holding fewer
+    /// buttons than there are columns spreads them over the spare columns rather than leaving a gap.
     /// </summary>
-    private static string PresetLabel(ChargeThresholdState state)
+    private void LayoutPresetButtons()
+    {
+        var buttons = PresetButtonPanel.Children.OfType<Button>().ToList();
+        if (buttons.Count == 0) return;
+
+        // ActualWidth is 0 until the first arrange, and the buttons are built before it; the fallback
+        // is the same width the travel-override button gets, so the initial pass is already right.
+        double available = PresetButtonPanel.ActualWidth > 0 ? PresetButtonPanel.ActualWidth : PresetPanelWidth;
+        var shape = PresetButtonLayout.Choose(buttons.Count, available);
+        if (shape == _presetGridShape) return;
+        _presetGridShape = shape;
+
+        PresetButtonPanel.ColumnDefinitions.Clear();
+        PresetButtonPanel.RowDefinitions.Clear();
+        for (int c = 0; c < shape.Columns; c++)
+            PresetButtonPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int r = 0; r < shape.Rows; r++)
+            PresetButtonPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        int index = 0;
+        for (int row = 0; row < shape.Rows; row++)
+        {
+            int inRow    = Math.Min(shape.Columns, buttons.Count - index);
+            int baseSpan = shape.Columns / inRow;
+            int extra    = shape.Columns % inRow;
+            int column   = 0;
+            for (int k = 0; k < inRow; k++, index++)
+            {
+                int span = baseSpan + (k < extra ? 1 : 0);
+                Grid.SetRow(buttons[index], row);
+                Grid.SetColumn(buttons[index], column);
+                Grid.SetColumnSpan(buttons[index], span);
+                column += span;
+            }
+        }
+    }
+
+    /// <summary>Applies a preset through the shared composition the tray and MQTT paths use, so every
+    /// surface reflects it. Off the UI thread — the vendor write blocks.</summary>
+    private void OnPresetButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name }) return;
+
+        Task.Run(() =>
+        {
+            bool ok = false;
+            try { ok = ChargeControlService.ApplyPresetByName(name); }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.OnPresetButtonClick", ex); }
+
+            RunOnUi(() =>
+            {
+                if (!ok) SmartChargeDetailText.Text = "Error — check driver";
+                Refresh();
+            });
+        });
+    }
+
+    /// <summary>Applies the badge colour and syncs its switch; the caller must hold <see cref="_updatingBadges"/>.</summary>
+    private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on)
+    {
+        badge.Background = on ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
+        toggle.IsOn      = on;
+    }
+
+    /// <summary>
+    /// Smart Charge on/off. Routes through the shared <see cref="ChargeControlService"/>, which fires
+    /// StateChanged and so refreshes this window; only the throw path needs its own reconcile.
+    /// </summary>
+    private void OnSmartChargeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own device sync, not a user action
+
+        bool on = SmartChargeToggle.IsOn;
+        Task.Run(() =>
+        {
+            try { ChargeControlService.SetSmartChargeEnabled(on); }
+            catch (Exception ex)
+            {
+                AppLog.Error("DashboardWindow.OnSmartChargeToggled", ex);
+                RunOnUi(Refresh);   // StateChanged never fired — put the switch back where the device is
+            }
+        });
+    }
+
+    /// <summary>
+    /// Smart Standby on/off. There is no StateChanged for standby, so the trailing
+    /// <see cref="Refresh"/> is what puts the switch back if the service control refused.
+    /// </summary>
+    private void OnSmartStandbyToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        bool on = SmartStandbyToggle.IsOn;
+        Task.Run(() =>
+        {
+            try
+            {
+                // The bool is the only signal a refused service-control write gives.
+                if (StandbyService.SetEnabled(on))
+                    PowerLog.Event($"Smart Standby scheduling {(on ? "enabled" : "disabled")}", "dashboard toggle");
+                else
+                    PowerLog.Event($"Smart Standby scheduling was NOT {(on ? "enabled" : "disabled")} — the vendor write was refused",
+                                   "dashboard toggle");
+            }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.OnSmartStandbyToggled", ex); }
+            finally { RunOnUi(Refresh); }
+        });
+    }
+
+    // Second hit target for the switch beside it; inert when the vendor refuses writes.
+    private void OnSmartChargeLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartChargeToggle.IsEnabled) SmartChargeToggle.IsOn = !SmartChargeToggle.IsOn;
+    }
+
+    private void OnSmartStandbyLabelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (SmartStandbyToggle.IsEnabled) SmartStandbyToggle.IsOn = !SmartStandbyToggle.IsOn;
+    }
+
+    private void OnKeepAwakeLabelTapped(object sender, TappedRoutedEventArgs e) =>
+        KeepAwakeToggle.IsOn = !KeepAwakeToggle.IsOn;   // never disabled: no vendor to refuse it
+
+    /// <summary>Reconciles the whole Keep Awake badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
+    private void ApplyKeepAwakeBadge()
+    {
+        _updatingBadges = true;
+        try { WriteKeepAwakeBadge(); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteKeepAwakeBadge()
+    {
+        var session = KeepAwakeService.Current;
+        // Remember what is running, wherever it started, so the switch can resume it after an off.
+        if (session is not null) _lastKeepAwake = session.Request;
+
+        SetFeatureBadge(KeepAwakeBadge, KeepAwakeToggle, session is not null);
+        KeepAwakeDetailText.Text = session is null
+            ? "Off — normal sleep settings"
+            : $"On — {KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session)}";
+
+        BuildKeepAwakeChips();
+
+        // KeepAwakeRequest is a record, so this compares the span itself, not where it started.
+        foreach (var chip in KeepAwakePresetPanel.Children.OfType<ToggleButton>())
+            chip.IsChecked = session is not null && Equals(chip.Tag, session.Request);
+    }
+
+    /// <summary>
+    /// (Re)builds the chip row: the first four presets in Settings order plus a fixed "Net" — four is
+    /// a width limit. Returns untouched when the set hasn't changed.
+    /// </summary>
+    private void BuildKeepAwakeChips()
+    {
+        List<KeepAwakeRequest> wanted =
+        [
+            .. SettingsService.Current.KeepAwakePresets.Take(4),
+            new(KeepAwakeKind.UntilNetworkChange, null, null),
+        ];
+        if (wanted.SequenceEqual(_keepAwakeChips)) return;
+
+        _keepAwakeChips = wanted;
+        KeepAwakePresetPanel.Children.Clear();
+
+        // Set before the chips are parented, so their templates resolve it.
+        foreach (string state in new[] { "", "PointerOver", "Pressed" })
+        {
+            KeepAwakePresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            KeepAwakePresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+        }
+
+        foreach (var request in wanted)
+        {
+            var chip = new ToggleButton
+            {
+                Content         = KeepAwakePolicy.ShortLabel(request),
+                Tag             = request,
+                FontSize        = 11,
+                Padding         = new Thickness(8, 3, 8, 3),
+                MinWidth        = 0,   // the default would spend width this row hasn't got
+                CornerRadius    = new CornerRadius(4),
+                BorderThickness = new Thickness(0),
+            };
+            chip.Checked   += OnKeepAwakePresetChecked;
+            chip.Unchecked += OnKeepAwakePresetUnchecked;
+            KeepAwakePresetPanel.Children.Add(chip);
+        }
+    }
+
+    /// <summary>Keep Awake on/off. Off→on resumes the last span that ran — the same ladder the tray toggle uses.</summary>
+    private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own sync, not a user action
+
+        if (KeepAwakeToggle.IsOn)
+            ActivateKeepAwake(_lastKeepAwake ?? KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+        else
+            KeepAwakeService.Deactivate();
+    }
+
+    /// <summary><see cref="KeepAwakeService.Activate"/> is start-or-replace, so switching spans needs no cancel first.</summary>
+    private void OnKeepAwakePresetChecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        if (sender is ToggleButton { Tag: KeepAwakeRequest request }) ActivateKeepAwake(request);
+    }
+
+    /// <summary>Clicking the active chip cancels — a ToggleButton unchecking itself is that click.</summary>
+    private void OnKeepAwakePresetUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        KeepAwakeService.Deactivate();
+    }
+
+    /// <summary>On the UI thread, unlike the two badges above: the service arms a timer, with no blocking RPC.</summary>
+    private void ActivateKeepAwake(KeepAwakeRequest request)
+    {
+        _lastKeepAwake = request;
+        try
+        {
+            // Raises StateChanged, whose handler reconciles the switch, the detail line and the chips.
+            KeepAwakeService.Activate(request);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("DashboardWindow.ActivateKeepAwake", ex);
+            ApplyKeepAwakeBadge();   // StateChanged never fired — put the switch and chips back
+        }
+    }
+
+    // Second hit target for the switch, as on the badges above.
+    private void OnLidDelayLabelTapped(object sender, TappedRoutedEventArgs e) =>
+        LidDelayToggle.IsOn = !LidDelayToggle.IsOn;
+
+    /// <summary>Reconciles the whole Lid close badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
+    private void ApplyLidBadge()
+    {
+        _updatingBadges = true;
+        try { WriteLidBadge(); }
+        finally { _updatingBadges = false; }
+    }
+
+    private void WriteLidBadge()
     {
         var s = SettingsService.Current;
-        // Snapshot once: SetActivePreset mutates ActivePreset in place from background threads (the
-        // MQTT command worker, a slider commit's Task.Run), so re-reading it across the checks below
-        // could see it flip to null mid-method and render an empty label prefix.
-        var active = s.ActivePreset;
-        if (string.IsNullOrWhiteSpace(active)) return "Custom";
 
-        var preset = s.Presets.FirstOrDefault(p => p.Name == active);
-        return preset is not null && preset.Start == state.Start && preset.Stop == state.Stop
-            ? active
-            : "Custom";
+        // Hidden where there is no lid — except while this app is still holding the override, which
+        // has to stay switchable off. LidDashboardPolicy owns that rule.
+        bool visible = LidDashboardPolicy.ShouldShow(LidDelayService.IsSupported, s.LidDelayEnabled, s.HasSavedLidAction);
+        LidDelayBadge.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (!visible) return;
+
+        SetFeatureBadge(LidDelayBadge, LidDelayToggle, s.LidDelayEnabled);
+        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayMinutes);
+
+        BuildLidDelayChips(s.LidDelayMinutes);
+
+        int? active = LidDashboardPolicy.ActiveChip(s.LidDelayEnabled, s.LidDelayMinutes);
+        foreach (var chip in LidDelayPresetPanel.Children.OfType<ToggleButton>())
+            chip.IsChecked = active is { } minutes && Equals(chip.Tag, minutes);
     }
 
-    /// <summary>Applies active/inactive colours to a feature badge + indicator pair.</summary>
-    private static void SetFeatureBadge(Border badge, Border indicator, bool on)
+    /// <summary>(Re)builds the delay chips. Returns untouched when the set hasn't changed.</summary>
+    private void BuildLidDelayChips(int currentMinutes)
     {
-        badge.Background     = on ? AppColors.BadgeActiveBrush     : AppColors.BadgeInactiveBrush;
-        indicator.Background = on ? AppColors.IndicatorAccentBrush : AppColors.IndicatorGreyBrush;
-    }
+        var wanted = LidDashboardPolicy.Chips(currentMinutes);
+        if (wanted.SequenceEqual(_lidDelayChips)) return;
 
-    // ── Threshold range handler ───────────────────────────────────────────────
+        _lidDelayChips = wanted;
+        LidDelayPresetPanel.Children.Clear();
+
+        // Set before the chips are parented, so their templates resolve it.
+        foreach (string state in new[] { "", "PointerOver", "Pressed" })
+        {
+            LidDelayPresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            LidDelayPresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+        }
+
+        foreach (int minutes in wanted)
+        {
+            var chip = new ToggleButton
+            {
+                Content         = LidDashboardPolicy.ShortLabel(minutes),
+                Tag             = minutes,
+                FontSize        = 11,
+                Padding         = new Thickness(8, 3, 8, 3),
+                MinWidth        = 0,
+                CornerRadius    = new CornerRadius(4),
+                BorderThickness = new Thickness(0),
+            };
+            ToolTipService.SetToolTip(chip, $"Sleep {LidDashboardPolicy.ShortLabel(minutes)} after the lid closes");
+            chip.Checked   += OnLidDelayChipChecked;
+            chip.Unchecked += OnLidDelayChipUnchecked;
+            LidDelayPresetPanel.Children.Add(chip);
+        }
+    }
 
     /// <summary>
-    /// Fires whenever either thumb moves. RangeSelector already keeps RangeStart from passing
-    /// RangeEnd (or vice versa) by dragging the other thumb along with it — but that means the two
-    /// can end up EQUAL (zero gap) rather than crossing, which <c>LenovoChargeThreshold.SetThresholds</c>
-    /// rejects outright (<c>start &gt;= stop</c>). This restores the old two-slider behaviour's
-    /// minimum 5-point gap by nudging whichever thumb DIDN'T just move.
+    /// Lid-delay on/off. <see cref="LidDelayService.SetEnabled"/> owns the setting and the
+    /// power-scheme write together, so this window never touches either directly; the reconcile after
+    /// it is what puts the switch back when the scheme write was refused, since the setting is then
+    /// left off rather than promising a delay the machine will not honour.
+    /// </summary>
+    private void OnLidDelayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;   // our own sync, not a user action
+
+        try { LidDelayService.SetEnabled(LidDelayToggle.IsOn); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayToggled", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Picking a delay also turns the feature on — the chip row is the quick way in, exactly
+    /// as the keep-awake chips start a session.</summary>
+    private void OnLidDelayChipChecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        if (sender is not ToggleButton { Tag: int minutes }) return;
+
+        try
+        {
+            SettingsService.Update(x => x.LidDelayMinutes = minutes);
+            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
+        }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipChecked", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Clicking the filled chip turns the delay off — a ToggleButton unchecking itself is that click.</summary>
+    private void OnLidDelayChipUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        try { LidDelayService.SetEnabled(false); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipUnchecked", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Opens the Settings window. The popup auto-dismissing as it takes focus is deliberate.</summary>
+    private void OnSettingsButton(object sender, RoutedEventArgs e) => _app.ShowSettingsWindow();
+
+    /// <summary>
+    /// RangeSelector keeps the thumbs from crossing but lets them end up equal, which
+    /// <c>SetThresholds</c> rejects — so this enforces a 5-point gap by nudging the other thumb.
     /// </summary>
     private void OnThresholdRangeChanged(object sender, RangeChangedEventArgs e)
     {
@@ -569,23 +915,21 @@ public sealed partial class DashboardWindow : Window
 
         if (stop - start < 5)
         {
-            _updatingSliders = true;
-            if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+            WithSlidersSuppressed(() =>
             {
-                // User moved the start thumb: push stop up — and when that hits the 100 ceiling,
-                // pull start back down instead. Without the second step, dragging start into the
-                // 96-100 range left a sub-5 (even zero) gap, and SetThresholds rejects
-                // start >= stop, so the write silently failed until the next device resync.
-                stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
-                if (stop - start < 5) start = (int)(ThresholdRange.RangeStart = stop - 5);
-            }
-            else
-            {
-                // User moved the stop thumb: push start down — mirrored 5-point floor case.
-                start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
-                if (stop - start < 5) stop = (int)(ThresholdRange.RangeEnd = start + 5);
-            }
-            _updatingSliders = false;
+                if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+                {
+                    // Push stop up; at the 100 ceiling, pull start back down instead.
+                    stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
+                    if (stop - start < 5) start = (int)(ThresholdRange.RangeStart = stop - 5);
+                }
+                else
+                {
+                    // Mirrored 5-point floor case for the stop thumb.
+                    start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
+                    if (stop - start < 5) stop = (int)(ThresholdRange.RangeEnd = start + 5);
+                }
+            });
         }
 
         StartValueText.Text = $"{start}%";
@@ -602,7 +946,7 @@ public sealed partial class DashboardWindow : Window
         _thresholdApplyTimer.Start();
     }
 
-    /// <summary>Auto-applies the current slider values (debounced). Replaces the old Apply button.</summary>
+    /// <summary>Auto-applies the current slider values, debounced.</summary>
     private void CommitThresholds()
     {
         _thresholdApplyTimer.Stop();
@@ -611,22 +955,13 @@ public sealed partial class DashboardWindow : Window
         int stop  = (int)ThresholdRange.RangeEnd;
         Task.Run(() =>
         {
-            // Nothing in here may skip the RunOnUi below: it owns the release of _thresholdEditPending,
-            // and a latched freeze makes Refresh() stop syncing the sliders for the window's life. The
-            // vendor write returns false rather than throwing, but StateChanged runs the tray/tooltip/
-            // MQTT subscribers inline on this thread, so a throw IS reachable from here.
+            // Nothing here may skip the RunOnUi below: it releases _thresholdEditPending, and a latched
+            // freeze stops Refresh syncing the sliders for the window's life.
             bool ok = false;
             try
             {
-                // Route through the shared ChargeControlService (issue #40) — the SAME composition the
-                // tray and MQTT paths use — so this slider drag fires StateChanged and reflects to the
-                // tray/tooltip/MQTT immediately instead of waiting for the next battery tick. An explicit
-                // slider write supersedes any in-flight "charge to 100 % once" (ApplyExplicitThresholds
-                // owns the Deactivate-first-then-write ordering). clearActivePreset:true reproduces the
-                // old behaviour — the threshold is now custom, so any active preset name is cleared on a
-                // successful write (via SettingsService.Update inside the service, so a Reload() that
-                // swapped the settings object during the RPC gap can't make it a lost write).
-                ok = ChargeControlService.SetExplicitThresholds(start, stop, clearActivePreset: true);
+                // The shared composition the tray and MQTT paths use, so the drag reflects to them at once.
+                ok = ChargeControlService.SetExplicitThresholds(start, stop);
             }
             catch (Exception ex) { AppLog.Error("DashboardWindow.CommitThresholds", ex); }
 
@@ -636,9 +971,8 @@ public sealed partial class DashboardWindow : Window
                 {
                     SmartChargeDetailText.Text = "Error — check driver";
                 }
-                // Only release the edit freeze if no newer edit started while this apply was in
-                // flight; otherwise Refresh() snaps the sliders back to this superseded value and
-                // the newer edit's debounced commit then reads (and re-applies) the revert.
+                // Only release the freeze if no newer edit started meanwhile, or Refresh snaps the
+                // sliders back and the newer edit re-applies the revert.
                 if (gen == _thresholdEditGeneration)
                 {
                     _thresholdEditPending = false;
@@ -647,8 +981,6 @@ public sealed partial class DashboardWindow : Window
             });
         });
     }
-
-    // ── Travel override ("charge to 100 % once") ───────────────────────────────
 
     private void OnTravelOverrideButton(object sender, RoutedEventArgs e)
     {
@@ -661,14 +993,9 @@ public sealed partial class DashboardWindow : Window
         Refresh();
     }
 
-    // ── Arc gauge ─────────────────────────────────────────────────────────────
-
     /// <summary>
-    /// Colours the arc by charge state (TODO #34): green, amber, then orange as the level drops,
-    /// with <paramref name="onAC"/> forcing blue regardless of level. Thresholds AND colour bytes
-    /// come from <see cref="GaugePalette"/> — the same constants the tray icon's arc
-    /// (<see cref="Helpers.IconGenerator"/>) renders from — so the gauge and the tray icon agree
-    /// structurally, not by hand-synced literals.
+    /// Colours the arc by charge level, with <paramref name="onAC"/> forcing blue. Thresholds and
+    /// colours come from <see cref="GaugePalette"/>, as the tray icon's arc does.
     /// </summary>
     private void UpdateGaugeArc(int percent, bool onAC)
     {
@@ -687,10 +1014,7 @@ public sealed partial class DashboardWindow : Window
             };
     }
 
-    /// <summary>
-    /// Builds a short radial tick-mark line on the gauge arc at the given clock-face angle.
-    /// Used to mark the Smart Charge start and stop thresholds.
-    /// </summary>
+    /// <summary>Short radial tick mark on the gauge arc at the given clock-face angle.</summary>
     private static Geometry BuildTickGeometry(double cx, double cy, double angleDeg)
     {
         const double innerR = GaugeRadius - 6;
@@ -703,10 +1027,7 @@ public sealed partial class DashboardWindow : Window
         };
     }
 
-    /// <summary>
-    /// Builds a <see cref="PathGeometry"/> for a circular arc.
-    /// Angles follow clock-face convention (0° = 12 o'clock, increasing clockwise).
-    /// </summary>
+    /// <summary>Circular-arc geometry; angles follow clock-face convention (0° = 12 o'clock, clockwise).</summary>
     private static Geometry BuildArcGeometry(
         double cx, double cy, double r, double startDeg, double sweepDeg)
     {

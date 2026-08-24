@@ -4,11 +4,11 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure parsing + routing tests for the MQTT charge-control commands (issue #30). No broker, no RPC —
-// the dispatch side is exercised through a spy IChargeControlActions.
+// Pure parsing and routing for the MQTT charge-control commands. No broker, no RPC — the dispatch
+// side runs through a spy IChargeControlActions.
 public class HaCommandTests
 {
-    // ── Parsing ──────────────────────────────────────────────────────────────────
+    // Parsing
 
     [Theory]
     [InlineData("ON", true)]
@@ -57,8 +57,8 @@ public class HaCommandTests
     [Fact]
     public void TryParse_ChargeToFull_RequiresExactPressPayload()
     {
-        // Only the exact discovery payload_press ("PRESS") may fire the kick-to-100% command — a
-        // stray or retained payload must not (issue #30 review).
+        // Only the exact discovery payload_press may fire the kick-to-100% command; a stray or
+        // retained payload must not.
         Assert.True(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, HaCommand.ButtonPress, out var cmd));
         Assert.Equal(HaCommandKind.ChargeToFull, cmd.Kind);
         Assert.True(HaCommand.TryParse(HaDiscovery.CmdChargeToFull, "  PRESS  ", out _));  // trimmed
@@ -91,7 +91,7 @@ public class HaCommandTests
         Assert.False(HaCommand.TryParse("not_a_command", "ON", out _));
     }
 
-    // ── Dispatch routing ─────────────────────────────────────────────────────────
+    // Dispatch routing
 
     private sealed class SpyActions : IChargeControlActions
     {
@@ -109,7 +109,7 @@ public class HaCommandTests
     }
 
     private static void Dispatch(HaCommandKind kind, SpyActions spy, bool b = false, int i = 0, string s = "")
-        => HaCommandDispatcher.Dispatch(new HaCommand(kind, b, i, s), spy);
+        => HaCommandDispatcher.Dispatch(new HaCommand(kind, b, i, s), spy, new HaSettingsSpy());
 
     [Fact]
     public void Dispatch_SmartCharge_TogglesEnable()
@@ -167,10 +167,8 @@ public class HaCommandTests
         Assert.Equal("Travel", spy.Preset);
     }
 
-    // ── Companion-value source ────────────────────────────────────────────────────
-    // The live ChargeControlActions must take a single-bound number-set's companion value from the
-    // injected provider (HomeAssistantService.CurrentDeviceThresholds in production), consulted once,
-    // when it yields a valid pair.
+    // Companion-value source. The live ChargeControlActions takes a single-bound number-set's
+    // companion value from the injected provider, consulted once, when it yields a valid pair.
 
     [Fact]
     public void ChargeControlActions_CurrentThresholds_UsesProvidedValidPair_ConsultedOnce()

@@ -4,120 +4,152 @@ using MQTTnet.Protocol;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>
-/// Live MQTT publisher for Home Assistant (TODO #28). Owns the broker connection and drives the pure
-/// <see cref="HaDiscovery"/> contract onto it: on connect it publishes the retained discovery configs
-/// + "online" availability (so HA auto-creates the ChargeKeeper device), then an entity state payload
-/// whenever <see cref="PublishState"/> is called; a Last-Will-and-Testament flips availability to
-/// "offline" if the process dies. It also SUBSCRIBES to the charge-control command topics (issue #30)
-/// and routes each inbound message through <see cref="HaCommand.TryParse"/> +
-/// <see cref="HaCommandDispatcher"/> to the app's charge-control services. Reconnects with backoff
-/// while enabled. Turning the feature off clears the retained discovery so HA drops the device; a
-/// normal app exit keeps it (just goes offline). NEVER logs the broker password or any payload.
-/// </summary>
+/// <summary>Live MQTT publisher for Home Assistant. Owns the broker connection, drives the pure
+/// <see cref="HaDiscovery"/> contract onto it, and routes the inbound command topics to the app's
+/// charge-control services. Never logs the broker password or any payload.</summary>
 internal sealed class HomeAssistantService : IDisposable
 {
     private readonly string _swVersion;
     private readonly IMqttClient _client;
     private readonly IChargeControlActions _actions;
+    private readonly IHaSettingsActions _settingsActions;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    // Inbound commands are handed to this single-reader queue and processed one-at-a-time on a
-    // dedicated worker, OFF the MQTT receive callback (issue #30 review): the callback must return
-    // promptly (never run the blocking vendor RPC inline), and a read-modify-write pair for one
-    // command must finish before the next starts (else two near-simultaneous threshold sets each read
-    // the old pair and clobber each other). A single reader gives both properties for free.
+    // Drained on a dedicated worker off the MQTT receive callback, which must return promptly. Single
+    // reader: one command's read-modify-write must finish before the next starts.
     private readonly Channel<HaCommand> _commands =
         Channel.CreateUnbounded<HaCommand>(new UnboundedChannelOptions { SingleReader = true });
     private readonly Task _commandWorker;
 
     private volatile bool _enabled;
-    private MqttClientOptions? _options;
-    private string _nodeId = "", _stateTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
+
+    /// <summary>A snapshot of everything one connect round needs: the staged choices the plan reads,
+    /// plus the credentials and identity every candidate shares. Taken on the Apply thread and never
+    /// read back out of settings, so the maintain loop cannot pick up half of the next Apply.</summary>
+    /// <remarks>Options are built per candidate rather than up front: port and transport together
+    /// decide how the broker is addressed, and the sweep can hold eight of them.</remarks>
+    private sealed record ConnectionOptions(
+        MqttEndpointRequest Request, string Password, bool UseTls,
+        string ClientId, string AvailabilityTopic)
+    {
+        public MqttClientOptions For(MqttEndpointCandidate candidate)
+        {
+            var ob = new MqttClientOptionsBuilder()
+                .WithTransport(candidate.Transport, Request.Host, candidate.Port, UseTls)
+                .WithClientId(ClientId)
+                .WithCleanSession()
+                // MQTTnet pings within this period on an idle link, so the broker won't drop a quiet
+                // connection and a silently-dead one surfaces rather than lingering "connected".
+                .WithKeepAlivePeriod(KeepAlive)
+                // Pinned rather than left to the library default: this is what a dead candidate costs
+                // before the next is tried, so it has to be a known number.
+                .WithTimeout(ConnectTimeout)
+                .WithWillTopic(AvailabilityTopic)
+                .WithWillPayload(HaDiscovery.Offline)
+                .WithWillRetain()
+                .WithWillQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce);
+            if (!string.IsNullOrEmpty(Request.Username))
+                ob = ob.WithCredentials(Request.Username, Password);
+            return ob.Build();
+        }
+    }
+
+    private ConnectionOptions? _options;
+
+    // Where the broker answered last, so a machine that moves between the internal network and the
+    // way in from outside pays the full sweep once per move rather than once per reconnect. Mirrored
+    // into settings so it survives a restart. A single reference swap, because the maintain loop and
+    // Apply both touch it and the four fields have to be read as one.
+    private MqttEndpointMemory? _memory;
+
+    private MqttEndpointMemory? Memory
+    {
+        get => Volatile.Read(ref _memory);
+        set => Volatile.Write(ref _memory, value);
+    }
+    private string _nodeId = "", _stateTopic = "", _statusTopic = "", _availTopic = "", _discoveryPrefix = "homeassistant", _deviceName = "";
     private string? _lastStateJson;   // republished on (re)connect so a fresh HA restart gets current values
-    // Guards the compare-and-set of _lastStateJson: PublishState (battery + command-worker threads) and
-    // OnConnectedAsync (maintain-loop thread) both read+write it, so an unsynchronised check-then-set
-    // could drop a real change (a stale write making the next change wrongly deduped) or double-publish.
+    private string? _lastSurfaceJson; // the settings payload's own dedupe, on its own topic
+    // Guards the cached payloads, which the battery, command-worker and maintain-loop threads all touch.
     private readonly object _stateLock = new();
+    // Which groups are announced. Written from ApplySettings, read on the MQTT threads; guarded by
+    // _stateLock, because a record struct cannot be volatile and a torn read would announce a mix.
+    private HaCategorySet _categories = HaCategorySet.All;
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
-    // Set by OnPowerResume; honoured on the maintain-loop thread so the resume-forced socket drop +
-    // reconnect happens THERE, never racing the loop's own ConnectAsync/OnConnectedAsync (a separate
-    // fire-and-forget DisconnectAsync used to race it). Volatile: cross-thread flag.
+    // A superseded node id and the prefix its retained topics were published under. Held rather than
+    // evicted inline because the change can land while disconnected: best-effort now, guaranteed on
+    // the next connect. Written under _gate, taken with Interlocked.Exchange.
+    private sealed record StaleIdentity(string NodeId, string DiscoveryPrefix);
+    private StaleIdentity? _staleIdentity;
+
+    // Honoured on the maintain-loop thread, so the forced socket drop can't race its own ConnectAsync.
     private volatile bool _reconnectRequested;
 
-    // Coalesces a burst of charge-control StateChanged signals into at most one in-flight fresh EC read
-    // plus one trailing read, so slider drags / a threshold-set-while-override (which fires BOTH events)
-    // don't queue N sequential blocking vendor reads when only the last matters.
+    // Collapses a burst of charge-control signals into one in-flight fresh EC read plus one trailing
+    // read, so a slider drag doesn't queue a blocking vendor read per signal.
     private readonly CoalescingGate _reflectGate = new();
 
-    // Wakes the maintain loop out of its inter-poll delay early — signalled on a detected disconnect
-    // (OnClientDisconnectedAsync) or a resume-from-standby (OnPowerResume), so a reconnect + "online"
-    // republish happens within moments instead of after the full poll/backoff (issue #41). Volatile:
-    // swapped for a fresh instance each time it's consumed.
+    // The same coalescing for the settings snapshot, which several unrelated events can signal at once.
+    private readonly CoalescingGate _surfaceGate = new();
+
+    // Cuts the maintain loop's inter-poll delay short. Volatile: swapped for a fresh instance on use.
     private volatile TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    // Connection-loop timing (issue #41). A generous keep-alive keeps an idle link up; drop detection
-    // is now event-driven (DisconnectedAsync → Wake), so the connected re-poll can be long — it's only
-    // a stability re-check now, not the primary drop detector, so a battery device isn't woken every
-    // 10 s for nothing.
     private static readonly TimeSpan KeepAlive      = TimeSpan.FromSeconds(60);
+    // Drop detection is event-driven (DisconnectedAsync → Wake), so this is only a stability re-check
+    // and can be long — a battery device isn't woken every few seconds for nothing.
     private static readonly TimeSpan ConnectedPoll  = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(3);
+    // What one unreachable transport costs before the next is tried. Same budget the page's
+    // connection check gives each transport, so the two agree on how long "no answer" takes.
+    private static readonly TimeSpan ConnectTimeout = MqttConnectionProbe.Timeout;
     private const double MaxBackoffSeconds = 60;
-    // A connection that lived at least this long is treated as a genuine session, so its drop reconnects
-    // fast (backoff reset). A connection that dropped sooner is a flap (broker accepts the CONNECT then
-    // drops almost immediately) → keep escalating the backoff so we can't tight-spin reconnecting it.
+    // A session shorter than this is a flap, so its backoff keeps escalating instead of resetting.
     private static readonly TimeSpan StableConnection = TimeSpan.FromSeconds(30);
-    // Debounce before the post-command fresh read: lets a burst of near-simultaneous StateChanged
-    // signals collapse into one read AND lets the in-progress device write land first, so we don't
-    // publish an interim state (e.g. a stale "Smart Charge off" seen between a deactivate signal and
-    // the threshold write completing).
+    // Lets the in-progress device write land before the post-command read, so no interim state is
+    // published, and collapses a burst of signals into one read.
     private static readonly TimeSpan ReflectDebounce = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>
-    /// Supplies the current live state to publish immediately on every (re)connect, so a connect
-    /// that happens before the first battery tick still shows real values (previously only
-    /// <see cref="_lastStateJson"/> was republished, and that's empty until <see cref="PublishState"/>
-    /// first runs). Returns null before the first battery reading; falls back to
-    /// <see cref="_lastStateJson"/> when null or unset.
-    /// </summary>
+    /// <summary>Supplies the current live state to publish on every (re)connect, so a connect before
+    /// the first battery tick still shows real values. Null until the first reading.</summary>
     public Func<HaState?>? CurrentStateProvider { get; set; }
 
-    public HomeAssistantService(string swVersion, IChargeControlActions? actions = null)
+    /// <summary>Supplies the settings/network/diagnostic snapshot. Separate from
+    /// <see cref="CurrentStateProvider"/> because it changes on its own events, not on a battery tick.</summary>
+    public Func<HaSurfaceState?>? CurrentSurfaceProvider { get; set; }
+
+    /// <summary>Supplies the vendor capability gates the announcement is filtered through.</summary>
+    public Func<HaCapabilities>? CapabilityProvider { get; set; }
+
+    public HomeAssistantService(string swVersion, IChargeControlActions? actions = null,
+                               IHaSettingsActions? settingsActions = null)
     {
         _swVersion = swVersion;
-        // Give the live actions the device's current thresholds as the companion value for a
-        // single-bound charge_start/charge_stop set — read fresh, on the command worker, because the
-        // app's cached snapshot is only refreshed on a battery tick (see CurrentDeviceThresholds).
         _actions = actions ?? new ChargeControlActions(CurrentDeviceThresholds);
+        if (settingsActions is null)
+        {
+            var live = new HaSettingsActions();
+            // A settings write from the broker must reflect back at once; the battery tick that would
+            // otherwise carry it can be minutes away.
+            live.Changed += PublishSurfaceNow;
+            _settingsActions = live;
+        }
+        else
+            _settingsActions = settingsActions;
         _client = new MqttClientFactory().CreateMqttClient();
-        // Route inbound charge-control commands (issue #30). Registered once for the client's life;
-        // the handler is a no-op for anything that isn't a recognised command topic. It only enqueues;
-        // the actual dispatch runs on the single-worker loop below.
         _client.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
-        // Reconnect + republish "online" the instant a drop is detected, not after the poll interval
-        // (issue #41).
         _client.DisconnectedAsync += OnClientDisconnectedAsync;
         _commandWorker = Task.Run(ProcessCommandsAsync);
 
-        // Reflect a charge-control change (tray OR MQTT command) to HA the moment it settles, so the
-        // smart_charge switch + charge_start/stop numbers + preset select show what actually took
-        // effect (issue #40 item 3) instead of waiting for the next battery tick. Both events funnel
-        // to the same handler: ChargeControlService covers the composed threshold/smart-charge/preset
-        // ops; TravelOverrideService covers the async "charge to 100 % once" activate/revert (whose
-        // restore completes on a background task) so the published state is the settled truth.
-        // Static events — unsubscribed in Dispose so a disposed instance doesn't keep publishing.
+        // TravelOverrideService is needed alongside ChargeControlService because its activate/revert
+        // completes on a background task. Static events — unsubscribed in Dispose.
         ChargeControlService.StateChanged  += OnChargeControlChanged;
         TravelOverrideService.StateChanged += OnChargeControlChanged;
     }
 
-    /// <summary>
-    /// (Re)configures from settings. Starts publishing when enabled AND a host is set; stops (and
-    /// clears retained discovery) otherwise. Safe to call repeatedly — on startup and on every
-    /// settings change (the tray toggle) — it reconciles to the desired state.
-    /// </summary>
+    /// <summary>Reconciles to the settings' desired state; safe to call repeatedly.</summary>
     public void ApplySettings(AppSettings s)
     {
         bool shouldRun = s.HomeAssistantEnabled && !string.IsNullOrWhiteSpace(s.MqttBrokerHost);
@@ -135,49 +167,112 @@ internal sealed class HomeAssistantService : IDisposable
                 return;
             }
 
-            string machine  = Environment.MachineName;
-            _nodeId          = HaDiscovery.NodeId(machine);
+            string machine        = Environment.MachineName;
+            string previousId     = _nodeId;
+            string previousPrefix = _discoveryPrefix;
+            _nodeId          = HaDiscovery.EffectiveNodeId(s.MqttNodeId, machine);
             _stateTopic      = HaDiscovery.StateTopic(_nodeId);
+            _statusTopic     = HaDiscovery.StatusTopic(_nodeId);
             _availTopic      = HaDiscovery.AvailabilityTopic(_nodeId);
             _discoveryPrefix = string.IsNullOrWhiteSpace(s.MqttDiscoveryPrefix) ? "homeassistant" : s.MqttDiscoveryPrefix.Trim();
-            _deviceName      = $"ChargeKeeper ({machine})";
+            _deviceName      = string.IsNullOrWhiteSpace(s.MqttDeviceName) ? $"ChargeKeeper ({machine})" : s.MqttDeviceName.Trim();
+            lock (_stateLock) { _categories = s.MqttCategories; }
 
-            var ob = new MqttClientOptionsBuilder()
-                .WithTcpServer(s.MqttBrokerHost.Trim(), s.MqttBrokerPort)
-                .WithClientId(_nodeId)
-                .WithCleanSession()
-                // Explicit generous keep-alive (issue #41): MQTTnet auto-sends a PINGREQ within this
-                // period whenever the link is otherwise idle (no battery change to publish), so the
-                // broker won't drop a quiet connection — and a link that died silently (e.g. the NIC
-                // suspended in modern standby) is detected within ~1 keep-alive and surfaces as a
-                // DisconnectedAsync we react to, rather than lingering "connected" while HA shows the
-                // Last-Will "offline".
-                .WithKeepAlivePeriod(KeepAlive)
-                .WithWillTopic(_availTopic)
-                .WithWillPayload(HaDiscovery.Offline)
-                .WithWillRetain()
-                .WithWillQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce);
-            if (!string.IsNullOrEmpty(s.MqttUsername))
-                ob = ob.WithCredentials(s.MqttUsername, s.MqttPassword);
-            if (s.MqttUseTls)
-                ob = ob.WithTlsOptions(o => { });
-            _options = ob.Build();
+            // The id is the device identity end to end, so a change orphans every retained topic the
+            // old id owned. Record it under the prefix it was published with, which may have changed
+            // in this same call.
+            if (previousId.Length > 0 && previousId != _nodeId)
+            {
+                AppLog.Info($"HomeAssistant: node id '{previousId}' → '{_nodeId}'; evicting the old device.");
+                _staleIdentity = new(previousId, previousPrefix);
+            }
+            await ClearStaleIdentityAsync(CancellationToken.None).ConfigureAwait(false);
+
+            // Snapshotted on this thread, so the maintain loop never reads the topic and identity
+            // fields the next ApplySettings may already be rewriting.
+            _options = new ConnectionOptions(
+                new MqttEndpointRequest(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort, s.MqttTransportMode),
+                s.MqttPassword, s.MqttUseTls, _nodeId, _availTopic);
+            Memory = s.MqttLastGoodEndpoint;
 
             bool wasRunning = _enabled;
             _enabled = true;
-            if (_loop is null || _loop.IsCompleted)
+            if (!wasRunning)
             {
-                _cts = new CancellationTokenSource();
-                _loop = Task.Run(() => MaintainConnectionAsync(_cts.Token));
+                // A cancelled loop may still be unwinding; abandon it and start a fresh one — it exits
+                // on its own token. IsCompleted lags Cancel, so it cannot gate the restart. Capture the
+                // token in a local: a later ApplyAsync could swap the field before the lambda runs.
+                var cts = new CancellationTokenSource();
+                _cts?.Dispose();
+                _cts = cts;
+                _loop = Task.Run(() => MaintainConnectionAsync(cts.Token));
             }
-            else if (wasRunning)
+            else
             {
-                // Options changed while already running (host/creds edit) — bounce the socket so the
-                // maintain loop reconnects with the new options.
+                // Options changed while running — bounce the socket so the loop reconnects with them.
                 try { await _client.DisconnectAsync().ConfigureAwait(false); } catch { /* loop retries */ }
             }
         }
+        // ApplySettings discards this task, so an unhandled throw would silently disable the feature.
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.Apply", Sanitise(ex)); }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>Connects over the first candidate <see cref="MqttTransportPlan"/> offers that works.
+    /// False once the sweep is spent, which is the caller's cue to back off.</summary>
+    /// <remarks>The remembered endpoint leads the sweep, so the usual reconnect is one attempt. When
+    /// it has stopped working — the machine moved, or the broker was republished elsewhere — the
+    /// sweep behind it finds the new one and the cache is rewritten, which is why a stale entry costs
+    /// an attempt rather than the feature.</remarks>
+    private async Task<bool> ConnectUsingPlanAsync(ConnectionOptions options, CancellationToken ct)
+    {
+        var attempts = new List<MqttEndpointAttempt>();
+        while (MqttTransportPlan.NextEndpoint(options.Request, Memory, attempts) is { } candidate)
+        {
+            MqttProbeResult result;
+            try
+            {
+                // MQTTnet 5 hands a refused CONNACK back as a result code rather than throwing, so
+                // the code has to be read — otherwise a rejection looks like a live connection until
+                // the first publish fails.
+                var connack = await _client.ConnectAsync(options.For(candidate), ct).ConfigureAwait(false);
+                result = MqttConnectionProbe.ClassifyConnack(
+                    connack?.ResultCode ?? MqttClientConnectResultCode.UnspecifiedError, connack?.ReasonString);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { result = MqttConnectionProbe.ClassifyConnectException(ex, ct); }
+
+            if (result.Outcome == MqttProbeOutcome.Success)
+            {
+                RememberEndpoint(options.Request, candidate);
+                return true;
+            }
+
+            // A half-open session from a refused CONNACK would make the next attempt look connected.
+            try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
+            attempts.Add(new(candidate, result));
+        }
+
+        // One line per failed round, naming every candidate tried — the log's whole account of why
+        // nothing is publishing. The details are OS/broker text, never a staged credential.
+        AppLog.Error("HomeAssistantService.Connect: no endpoint connected — " +
+            string.Join("; ", attempts.Select(a =>
+                $"{MqttConnectionProbe.Name(a.Candidate.Transport)}:{a.Candidate.Port}: {a.Result.Detail}")),
+            null);
+        return false;
+    }
+
+    /// <summary>Persists where the broker answered. State, not a setting: the user's choices are left
+    /// exactly as they made them, and the sweep is what reads this back. The username belongs to the
+    /// entry because a broker commonly fronts a separate listener per account; the password never
+    /// does, and nothing here may hold one.</summary>
+    private void RememberEndpoint(MqttEndpointRequest request, MqttEndpointCandidate candidate)
+    {
+        var found = new MqttEndpointMemory(
+            (request.Host ?? "").Trim(), (request.Username ?? "").Trim(), candidate.Port, candidate.Transport);
+        if (found == Memory) return;
+        Memory = found;
+        SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
     }
 
     private async Task MaintainConnectionAsync(CancellationToken ct)
@@ -187,9 +282,8 @@ internal sealed class HomeAssistantService : IDisposable
 
         while (!ct.IsCancellationRequested && _enabled)
         {
-            // A resume-from-standby forces a reconnect: the NIC was suspended so the socket is often
-            // half-dead while IsConnected still reads true. Drop it HERE (on the loop thread) so it
-            // can't race the loop's own ConnectAsync. A resume is not a flap — reset the backoff.
+            // Modern standby suspends the NIC, so after a resume the socket is often half-dead while
+            // IsConnected still reads true. A resume is not a flap — reset the backoff.
             if (_reconnectRequested)
             {
                 _reconnectRequested = false;
@@ -202,9 +296,8 @@ internal sealed class HomeAssistantService : IDisposable
             {
                 if (!_client.IsConnected && _options is { } opt)
                 {
-                    // If we just lost a *brief* session, that's a flap (broker accepts then instantly
-                    // drops); escalate and wait out the backoff BEFORE retrying so we can't tight-spin.
-                    // A genuine drop of a session that lasted (or a first attempt) reconnects at once.
+                    // A session that died young is a flap; wait out the escalating backoff before
+                    // retrying. A drop of a session that lasted, or a first attempt, reconnects at once.
                     if (connectedSince is { } since && DateTime.UtcNow - since < StableConnection)
                     {
                         backoff = NextBackoff(backoff);
@@ -213,55 +306,54 @@ internal sealed class HomeAssistantService : IDisposable
                     }
                     connectedSince = null;
 
-                    await _client.ConnectAsync(opt, ct).ConfigureAwait(false);
-                    await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
-                    connectedSince = DateTime.UtcNow;
+                    if (await ConnectUsingPlanAsync(opt, ct).ConfigureAwait(false))
+                    {
+                        await OnConnectedAsync(ct).ConfigureAwait(false);   // republishes online + fresh state
+                        connectedSince = DateTime.UtcNow;
+                    }
+                    else
+                        backoff = NextBackoff(backoff);   // every transport failed; wait longer before the next round
                 }
                 else if (_client.IsConnected && connectedSince is { } s && DateTime.UtcNow - s >= StableConnection)
                 {
-                    // Session has proven stable → clear the backoff so the NEXT genuine drop is fast.
-                    backoff = InitialBackoff;
+                    backoff = InitialBackoff;   // proven stable, so the next genuine drop reconnects fast
                 }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                AppLog.Error("HomeAssistantService.Connect", Sanitize(ex));   // message only, never creds
+                AppLog.Error("HomeAssistantService.Connect", Sanitise(ex));   // message only, never creds
+                // OnConnectedAsync can throw with the socket up, leaving connectedSince unset and
+                // neither branch reachable next pass — a healthy-looking connection that never gets its
+                // discovery, availability or subscription. Drop it so the next pass retries.
+                try { if (_client.IsConnected) await _client.DisconnectAsync().ConfigureAwait(false); } catch { }
                 backoff = NextBackoff(backoff);
                 connectedSince = null;
             }
-            // Re-poll occasionally while healthy (long — drops are event-driven now); back off while
-            // failing. A genuine live-connection drop or a resume cuts the wait short via Wake() (#41).
+            // Long re-poll while healthy, backoff while failing; a drop or a resume cuts the wait short.
             if (!await DelayOrWake(_client.IsConnected ? ConnectedPoll : backoff, ct).ConfigureAwait(false))
                 break;
         }
     }
 
-    /// <summary>Exponential backoff step, capped — pure so the cap/growth is unit-tested.</summary>
+    /// <summary>Exponential backoff step, capped.</summary>
     internal static TimeSpan NextBackoff(TimeSpan current) =>
         TimeSpan.FromSeconds(Math.Min(current.TotalSeconds * 2, MaxBackoffSeconds));
 
-    /// <summary>
-    /// Whether a DisconnectedAsync event should wake the maintain loop for an early reconnect. Only a
-    /// drop of a genuinely-LIVE connection should (ClientWasConnected). MQTTnet also fires this event
-    /// with ClientWasConnected=false when ConnectAsync itself fails — waking on THAT short-circuits the
-    /// exponential backoff into near-continuous reconnect hammering. Pure so it's unit-tested.
-    /// </summary>
+    /// <summary>Whether a DisconnectedAsync event should wake the loop for an early reconnect. MQTTnet
+    /// also raises it with ClientWasConnected=false when ConnectAsync itself fails, and waking on that
+    /// short-circuits the backoff into near-continuous reconnect hammering.</summary>
     internal static bool ShouldWakeOnDisconnect(bool enabled, bool clientWasConnected) =>
         enabled && clientWasConnected;
 
-    /// <summary>Whether a session that lived <paramref name="lifetime"/> counts as stable (vs a flap).</summary>
+    /// <summary>Whether a session that lived <paramref name="lifetime"/> counts as stable, not a flap.</summary>
     internal static bool IsStableConnection(TimeSpan lifetime) => lifetime >= StableConnection;
 
-    /// <summary>
-    /// Waits up to <paramref name="delay"/>, returning early when <see cref="Wake"/> is signalled.
-    /// Returns false only when the service is cancelled (the caller then breaks the maintain loop).
-    /// </summary>
+    /// <summary>Waits up to <paramref name="delay"/>, early on <see cref="Wake"/>. False on cancel.</summary>
     private async Task<bool> DelayOrWake(TimeSpan delay, CancellationToken ct)
     {
         var wake = _wake.Task;
-        // Linked CTS so that when Wake() wins, we CANCEL the losing Task.Delay instead of abandoning it
-        // (an uncancelled timer would otherwise linger up to a full poll/backoff — up to 60 s).
+        // Linked CTS so a winning Wake() cancels the losing Task.Delay rather than abandoning its timer.
         using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
@@ -271,8 +363,7 @@ internal sealed class HomeAssistantService : IDisposable
             {
                 delayCts.Cancel();
                 try { await delayTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
-                // Consume this wake and re-arm for the next one. A signal that races this swap at
-                // worst costs one poll interval before the next reconnect attempt — benign.
+                // Re-arm. A signal racing the swap costs at worst one poll interval.
                 _wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             }
             else
@@ -284,73 +375,51 @@ internal sealed class HomeAssistantService : IDisposable
 
     private void Wake() => _wake.TrySetResult();
 
-    /// <summary>
-    /// MQTTnet fired a disconnect (broker close, or a keep-alive ping that failed after the NIC
-    /// suspended in modern standby). Wake the maintain loop so it reconnects + republishes "online"
-    /// immediately, shrinking the window where HA shows the Last-Will "offline" while the PC is
-    /// actually alive (issue #41).
-    /// </summary>
+    /// <summary>Wakes the maintain loop on a disconnect so it reconnects and republishes "online" at
+    /// once, shrinking the window where HA shows the Last Will "offline" while the PC is alive.</summary>
     private Task OnClientDisconnectedAsync(MqttClientDisconnectedEventArgs e)
     {
         if (ShouldWakeOnDisconnect(_enabled, e.ClientWasConnected)) Wake();
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Call on resume-from-standby (issue #41). Modern standby suspends the NIC, so the broker's
-    /// Last-Will flips the device "offline" and the TCP socket dies silently; this forces an immediate
-    /// reconnect + "online" + fresh-state republish so the sensors don't linger "Unavailable" after
-    /// the machine wakes. No-op when the feature is disabled.
-    /// <para>
-    /// MUST be wired from the app's PowerModeChanged/Resume handler — this class deliberately does not
-    /// subscribe to <c>SystemEvents</c> itself (it would then own an unsubscribe lifetime that belongs
-    /// to App). See the note in the PR: add <c>_ha?.OnPowerResume();</c> to App.OnPowerModeChanged.
-    /// </para>
-    /// </summary>
+    /// <summary>Forces a reconnect and fresh-state republish after resume-from-standby, so the sensors
+    /// don't linger "Unavailable". Must be called from App's PowerModeChanged handler: this class does
+    /// not subscribe to <c>SystemEvents</c> itself, because the unsubscribe lifetime belongs to App.</summary>
     public void OnPowerResume()
     {
         if (!_enabled) return;
-        // Signal the maintain loop to force a reconnect and wake it — it performs the socket drop +
-        // reconnect on its OWN thread (see the top of MaintainConnectionAsync), so this can't race the
-        // loop's in-flight ConnectAsync/OnConnectedAsync the way a direct DisconnectAsync here would.
+        // The loop drops and reconnects on its own thread, so this can't race its in-flight ConnectAsync.
         _reconnectRequested = true;
         Wake();
     }
 
     private async Task OnConnectedAsync(CancellationToken ct)
     {
-        AppLog.Info($"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
-        // Preset names populate the "Charge preset" select's options (issue #30). Read fresh on each
-        // connect so a reconnect picks up any preset edits made while offline.
-        var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-        bool numeric = ChargeThresholdService.SupportsNumericThresholds;
-        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames, numeric))
-            await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
-        // Evict any retained discovery from the OLD (pre-#29) entity ids so an upgrading user doesn't
-        // keep ghost entities alongside the renamed ones.
+        AppLog.Info(Memory is { } found
+            ? $"HomeAssistant: connected over {MqttConnectionProbe.Name(found.Transport)} on port {found.Port}; " +
+              $"publishing discovery for '{_nodeId}'."
+            : $"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
+        // Evict a superseded node id first, so HA never sees both devices at once.
+        await ClearStaleIdentityAsync(ct).ConfigureAwait(false);
+        // Read under the settings lock: Presets is the live list, which the Settings window mutates in
+        // place, and an unsynchronised enumeration throws and skips the whole connect sequence.
+        await PublishDiscoveryAsync(ct).ConfigureAwait(false);
         await ClearLegacyDiscoveryAsync(ct).ConfigureAwait(false);
-        // Same eviction for the numeric entities on fixed-mode hardware. Suppressing them from the
-        // publish loop above is not enough on its own: a retained config from an earlier build (or
-        // from before this machine's vendor module existed) would otherwise keep the ghost number
-        // entities alive in HA forever, still accepting writes nothing can honour.
-        if (!numeric) await ClearNumericThresholdDiscoveryAsync(ct).ConfigureAwait(false);
         await PublishAsync(_availTopic, HaDiscovery.Online, retain: true, ct).ConfigureAwait(false);
 
-        // Subscribe to the single command wildcard so HA can drive Smart Charge / thresholds / preset
-        // (issue #30). One filter covers every command entity; the handler routes by object-id.
+        // One wildcard covers every command entity; the handler routes by object-id.
         await _client.SubscribeAsync(
             new MqttClientSubscribeOptionsBuilder()
                 .WithTopicFilter(f => f.WithTopic(HaDiscovery.CommandTopicFilter(_nodeId))
                                        .WithAtLeastOnceQoS())
                 .Build(),
             ct).ConfigureAwait(false);
-        // Publish a FRESH current state right away so a connect before any battery tick still shows
-        // live values. Fall back to the last cached snapshot when no provider is set / it has no
-        // reading yet (both null on a very early first connect → nothing published, as before).
+        // A fresh state if there is one, otherwise the cached snapshot; both null on a first connect.
         if (CurrentStateProvider?.Invoke() is { } current)
         {
             string json = HaDiscovery.StatePayload(current);
-            lock (_stateLock) { _lastStateJson = json; }   // set-with-lock; publish unconditionally on connect
+            lock (_stateLock) { _lastStateJson = json; }   // set, but publish unconditionally on connect
             await PublishAsync(_stateTopic, json, retain: true, ct).ConfigureAwait(false);
         }
         else
@@ -360,40 +429,58 @@ internal sealed class HomeAssistantService : IDisposable
             if (last is not null)
                 await PublishAsync(_stateTopic, last, retain: true, ct).ConfigureAwait(false);
         }
+
+        // The settings payload has no "first tick" to wait for, so it is always publishable.
+        if (CurrentSurfaceProvider?.Invoke() is { } surface)
+        {
+            string json = HaSurfacePayload.Build(surface);
+            lock (_stateLock) { _lastSurfaceJson = json; }
+            await PublishAsync(_statusTopic, json, retain: true, ct).ConfigureAwait(false);
+        }
     }
 
-    /// <summary>
-    /// Publishes an entity state snapshot (retained, so HA has a value immediately on restart).
-    /// No-op when the feature is disabled (fix: return BEFORE building/serializing the payload, so a
-    /// battery tick costs nothing while off). When enabled but the payload is unchanged from the last
-    /// one, skips the network publish too — a stationary SoC shouldn't re-send a retained message
-    /// every tick. Still caches while disconnected so the snapshot is re-sent on the next connect.
-    /// Call from the battery-report path.
-    /// </summary>
+    /// <summary>The announcement and its complement, in one pass: a retained config for every entity
+    /// this configuration announces, and an empty retained payload for every entity it does not. The
+    /// second half is what actually deletes a switched-off group's entities — the discovery convention
+    /// removes a component when its config topic is emptied. Leave it out and the retained config that
+    /// created the entity stays on the broker, and the entity lingers as "unavailable" for ever.</summary>
+    private async Task PublishDiscoveryAsync(CancellationToken ct)
+    {
+        HaCategorySet categories;
+        lock (_stateLock) { categories = _categories; }
+        var capabilities = CapabilityProvider?.Invoke() ?? HaCapabilities.Full;
+
+        var presetNames = SettingsService.Read(s => s.Presets.Select(p => p.Name).ToList());
+        foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(
+                     _nodeId, _discoveryPrefix, _deviceName, _swVersion, presetNames,
+                     HaEntityCatalog.Announce(categories, capabilities)))
+            await PublishAsync(topic, json, retain: true, ct).ConfigureAwait(false);
+
+        foreach (string topic in HaDiscovery.RemovalTopics(
+                     _nodeId, _discoveryPrefix, HaEntityCatalog.Withheld(categories, capabilities)))
+            await PublishAsync(topic, "", retain: true, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Publishes an entity state snapshot, retained so HA has a value immediately on restart.
+    /// An unchanged payload is cached but not sent; the cache is updated while disconnected too, ready
+    /// for the next connect.</summary>
     public void PublishState(HaState state)
     {
         if (!_enabled) return;
         string json = HaDiscovery.StatePayload(state);
-        // Atomic compare-and-set: two threads (battery tick + command worker) mustn't both pass the
-        // "unchanged?" check and race the write, nor let a stale write dedupe the next real change.
+        // Compare-and-set under the lock, so a stale write can't dedupe the next real change.
         lock (_stateLock)
         {
-            if (string.Equals(json, _lastStateJson, StringComparison.Ordinal)) return;  // unchanged → don't republish
+            if (string.Equals(json, _lastStateJson, StringComparison.Ordinal)) return;
             _lastStateJson = json;
         }
         if (_client.IsConnected)
             _ = PublishAsync(_stateTopic, json, retain: true, CancellationToken.None);
     }
 
-    /// <summary>
-    /// Inbound MQTT handler for the charge-control command topics (issue #30). Runs on the MQTT
-    /// receive callback, so it does only cheap work: skip retained command payloads (a command is an
-    /// event, not state — a leftover retained payload would otherwise re-fire on every reconnect),
-    /// parse defensively via <see cref="HaCommand.TryParse"/> (ignoring anything malformed/off-topic),
-    /// then hand the parsed command to the single-worker queue and return. The blocking dispatch +
-    /// fresh-state republish happen on <see cref="ProcessCommandsAsync"/>, never here. Never throws
-    /// (the MQTT loop must survive a bad payload) and never logs the payload.
-    /// </summary>
+    /// <summary>Inbound handler for the command topics. Runs on the MQTT receive callback, so it only
+    /// parses and enqueues. Never throws — the MQTT loop must survive a bad payload — and never logs
+    /// the payload.</summary>
     private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
     {
         try
@@ -401,9 +488,8 @@ internal sealed class HomeAssistantService : IDisposable
             string topic = e.ApplicationMessage.Topic;
             if (HaDiscovery.CommandObjectId(_nodeId, topic) is not { } objectId) return Task.CompletedTask;
 
-            // Ignore retained messages on command topics. With CleanSession + resubscribe-on-connect,
-            // a retained cmd/* payload (e.g. a stale PRESS or threshold) is redelivered and would
-            // re-fire on every reconnect. Commands are events; only state topics carry retained value.
+            // A command is an event, not state. With CleanSession plus resubscribe-on-connect, a
+            // retained cmd/* payload would be redelivered and re-fire on every reconnect.
             if (e.ApplicationMessage.Retain)
             {
                 AppLog.Info($"HomeAssistant: ignored retained command '{objectId}'.");
@@ -418,60 +504,42 @@ internal sealed class HomeAssistantService : IDisposable
             }
 
             AppLog.Info($"HomeAssistant: command '{objectId}' → {cmd.Kind}; queued.");
-            _commands.Writer.TryWrite(cmd);   // unbounded + non-blocking; the worker drains it in order
+            // Recorded on acceptance, not dispatch: the status line answers "is the broker reaching us".
+            MqttActivity.RecordCommand(cmd.Kind);
+            _commands.Writer.TryWrite(cmd);   // unbounded and non-blocking; the worker drains it in order
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.OnMessage", Sanitise(ex)); }
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// The single-worker command loop (issue #30 review). Drains <see cref="_commands"/> one command
-    /// at a time — so a blocking read-modify-write for one command completes before the next starts —
-    /// dispatching each to the (now synchronous) <see cref="IChargeControlActions"/> and then
-    /// publishing a FRESH state snapshot so HA reflects the change immediately. Runs for the object's
-    /// lifetime; ends when <see cref="Dispose"/> completes the channel writer.
-    /// </summary>
+    /// <summary>Drains <see cref="_commands"/> one command at a time, so a blocking read-modify-write
+    /// completes before the next starts. Ends when <see cref="Dispose"/> completes the channel writer.</summary>
     private async Task ProcessCommandsAsync()
     {
         await foreach (var cmd in _commands.Reader.ReadAllAsync().ConfigureAwait(false))
         {
             try
             {
-                // The dispatch drives the shared ChargeControlService (or TravelOverrideService for
-                // "charge to 100 % once"), whose StateChanged event we subscribe to — so the FRESH
-                // reflect happens via OnChargeControlChanged, covering the async override
-                // activate/revert timing too. No separate publish call is needed here.
-                HaCommandDispatcher.Dispatch(cmd, _actions);   // synchronous read-modify-write on this worker
+                // The fresh reflect happens via the services' StateChanged, not a publish here.
+                // Synchronous read-modify-write on this worker.
+                if (!HaCommandDispatcher.Dispatch(cmd, _actions, _settingsActions))
+                    AppLog.Info($"HomeAssistant: refused command {cmd.Kind} (the value is not one this machine accepts).");
             }
-            catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitize(ex)); }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Command", Sanitise(ex)); }
         }
     }
 
-    /// <summary>
-    /// Reflect a settled charge-control change to HA (issue #40 item 3). Subscribed to
-    /// <see cref="ChargeControlService.StateChanged"/> AND
-    /// <see cref="TravelOverrideService.StateChanged"/>, so a change from ANY source — tray toggle,
-    /// inbound MQTT command, network-profile auto-apply, or the override auto-revert at full charge —
-    /// republishes the genuinely-current Smart Charge / thresholds / preset. No-op while disabled.
-    /// </summary>
+    /// <summary>Republishes the current Smart Charge, thresholds and preset after a change from any
+    /// source — tray toggle, inbound command, profile auto-apply, or the override's auto-revert.</summary>
     private void OnChargeControlChanged()
     {
         if (!_enabled) return;
-        // Coalesce: only the first signal of a burst starts the reflect loop; the rest just arm a
-        // trailing pass. This collapses a slider drag / a threshold-set-while-override (which fires
-        // BOTH ChargeControlService AND TravelOverrideService) into at most one in-flight fresh read
-        // plus one trailing read, instead of one blocking vendor read per signal.
         if (_reflectGate.Signal())
             _ = ReflectLoopAsync();
     }
 
-    /// <summary>
-    /// Debounced, coalescing driver for the post-command fresh-state republish. Runs one pass per
-    /// coalesced burst: a short debounce (so a burst collapses AND the in-progress device write lands
-    /// before we read — avoiding an interim stale publish), then a single fresh read+publish. If more
-    /// signals arrived during the pass, runs once more; otherwise ends. The blocking vendor read runs
-    /// here on a background continuation, never on the StateChanged caller (tray/command-worker) thread.
-    /// </summary>
+    /// <summary>Debounced driver for the post-command republish. The blocking vendor read runs here on
+    /// a background continuation, never on the StateChanged caller's thread.</summary>
     private async Task ReflectLoopAsync()
     {
         do
@@ -483,50 +551,36 @@ internal sealed class HomeAssistantService : IDisposable
                 if (_enabled)
                     PublishFreshStateAfterCommand();
             }
-            catch (Exception ex) { AppLog.Error("HomeAssistantService.Reflect", Sanitize(ex)); }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.Reflect", Sanitise(ex)); }
         }
         while (_reflectGate.ShouldRepeat());
     }
 
-    /// <summary>
-    /// Publishes state right after a command's write completes, reflecting the change with a FRESH
-    /// device read rather than App's stale cached threshold state (which the command path never
-    /// refreshes). Takes the battery fields from <see cref="CurrentStateProvider"/> but overrides the
-    /// charge-control fields (Smart Charge / thresholds / preset) from a live
-    /// <see cref="ChargeThresholdService.Read"/> + the persisted active preset.
-    /// </summary>
+    /// <summary>Publishes state once a command's write completes, taking the charge-control fields from
+    /// a fresh device read because the command path never refreshes App's cached threshold state.</summary>
     private void PublishFreshStateAfterCommand()
     {
         if (CurrentStateProvider?.Invoke() is not { } baseState) return;
         var fresh = ChargeThresholdService.Read();
-        string? activePreset = SettingsService.Current.ActivePreset;
-        PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, activePreset));
+        var presets = SettingsService.Read(s => s.Presets.ToList());
+        PublishState(HaStateBuilder.ApplyChargeControl(baseState, fresh, presets));
+        // The one-shot override lives in the settings payload, so it reflects here too.
+        PublishSurfaceNow();
     }
 
-    /// <summary>
-    /// The device's CURRENT Smart Charge thresholds, supplied to the live
-    /// <see cref="ChargeControlActions"/> as the companion value a single-bound charge_start/charge_stop
-    /// set is combined with. Returns null when Smart Charge is off/unset or unreadable, so the
-    /// dispatcher falls back to a sensible default pair.
-    /// <para>
-    /// This used to read <see cref="CurrentStateProvider"/> — App's battery-tick snapshot — which
-    /// nothing refreshes after a write: two queued commands (set start, then set stop) both read the
-    /// SAME pre-write pair and the second silently reverted the first. Costs one EC read per
-    /// single-bound number command, on the command worker where the write already blocks.
-    /// </para>
-    /// </summary>
+    /// <summary>The device's current thresholds, the companion value for a single-bound threshold set.
+    /// One EC read, on the command worker where the write already blocks; null when unreadable.</summary>
     private static (int Start, int Stop)? CurrentDeviceThresholds() =>
         ChargeThresholdService.Read() is { Enabled: true } t ? (t.Start, t.Stop) : null;
 
-    /// <summary>
-    /// Republishes the retained discovery configs with the CURRENT preset names. The "Charge preset"
-    /// select's option list is baked into its discovery config at publish time, so without this an
-    /// added/renamed/deleted preset leaves HA offering the list captured at connect time. No-op while
-    /// disabled or disconnected — the next connect publishes the current names anyway.
-    /// </summary>
+    /// <summary>Re-runs the announcement after a change to what is announced: a preset renamed (the
+    /// select's option list is baked into its config at publish time), or a group toggled. Also
+    /// republishes the settings payload, since a group coming back on needs a value to show.</summary>
     public void RepublishDiscovery()
     {
-        if (!_enabled || !_client.IsConnected) return;
+        if (!_enabled) return;
+        lock (_stateLock) { _categories = SettingsService.Read(s => s.MqttCategories); }
+        if (!_client.IsConnected) return;   // the next connect runs the whole sequence anyway
         _ = RepublishDiscoveryAsync();
     }
 
@@ -534,27 +588,67 @@ internal sealed class HomeAssistantService : IDisposable
     {
         try
         {
-            var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-            foreach (var (topic, json) in HaDiscovery.DiscoveryConfigs(_nodeId, _discoveryPrefix, _deviceName, _swVersion,
-                                                                      presetNames, ChargeThresholdService.SupportsNumericThresholds))
-                await PublishAsync(topic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            await PublishDiscoveryAsync(CancellationToken.None).ConfigureAwait(false);
+            PublishSurfaceNow();   // a group coming back on has no value until this lands
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.RepublishDiscovery", Sanitise(ex)); }
     }
 
-    /// <summary>
-    /// Evicts the numeric threshold / preset discovery configs on fixed-mode hardware, so an HA
-    /// instance that saw them from an earlier build stops offering entities this machine cannot
-    /// honour.
-    /// </summary>
-    private async Task ClearNumericThresholdDiscoveryAsync(CancellationToken ct)
+    /// <summary>Publishes the settings/network/diagnostic snapshot, retained and deduped like the
+    /// battery one. The cache is updated while disconnected too, ready for the next connect.</summary>
+    public void PublishSurface(HaSurfaceState surface)
     {
-        foreach (var (component, objectId) in HaDiscovery.NumericThresholdEntities)
-            await PublishAsync(HaDiscovery.ConfigTopic(_discoveryPrefix, component, _nodeId, objectId),
-                               "", retain: true, ct).ConfigureAwait(false);
+        if (!_enabled) return;
+        string json = HaSurfacePayload.Build(surface);
+        lock (_stateLock)
+        {
+            if (string.Equals(json, _lastSurfaceJson, StringComparison.Ordinal)) return;
+            _lastSurfaceJson = json;
+        }
+        if (_client.IsConnected)
+            _ = PublishAsync(_statusTopic, json, retain: true, CancellationToken.None);
     }
 
-    /// <summary>Publishes empty retained payloads to the OLD (pre-#29) discovery config topics to evict ghosts.</summary>
+    /// <summary>Reflects a change straight back, without waiting for a battery tick — a settings write
+    /// from the broker, a keep-awake session ending, a network location moving. Signals rather than
+    /// publishes: the snapshot reaches a vendor service and an adapter enumeration, and the loudest
+    /// caller is a Settings toggle on the UI thread.</summary>
+    public void PublishSurfaceNow()
+    {
+        if (!_enabled) return;
+        if (_surfaceGate.Signal())
+            _ = Task.Run(SurfaceLoopAsync);
+    }
+
+    /// <summary>Coalesced driver for the settings publish. The trailing pass is what guarantees the
+    /// last snapshot wins: two concurrent reads could otherwise let an older one take the dedupe slot
+    /// and strand the newer value.</summary>
+    private async Task SurfaceLoopAsync()
+    {
+        do
+        {
+            _surfaceGate.BeginPass();
+            try
+            {
+                if (_enabled && CurrentSurfaceProvider?.Invoke() is { } surface) PublishSurface(surface);
+            }
+            catch (Exception ex) { AppLog.Error("HomeAssistantService.PublishSurface", Sanitise(ex)); }
+            await Task.Yield();   // never hold the pool thread across the repeat check
+        }
+        while (_surfaceGate.ShouldRepeat());
+    }
+
+    /// <summary>Empties every retained topic a superseded node id owned, so HA deletes the old device
+    /// rather than leaving a ghost. No-op while disconnected: the next connect runs it.</summary>
+    private async Task ClearStaleIdentityAsync(CancellationToken ct)
+    {
+        if (!_client.IsConnected) return;
+        if (Interlocked.Exchange(ref _staleIdentity, null) is not { } stale) return;
+        foreach (string topic in HaDiscovery.TopicsToClear(stale.NodeId, stale.DiscoveryPrefix))
+            await PublishAsync(topic, "", retain: true, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Empties the superseded config topics so an upgrading user keeps no ghost entities.</summary>
     private async Task ClearLegacyDiscoveryAsync(CancellationToken ct)
     {
         foreach (var (component, objectId) in HaDiscovery.LegacyEntities)
@@ -573,11 +667,13 @@ internal sealed class HomeAssistantService : IDisposable
                 .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
             await _client.PublishAsync(msg, ct).ConfigureAwait(false);
+            // The one choke point every outbound message passes through.
+            MqttActivity.RecordPublish();
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitize(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); }
     }
 
-    private async Task StopInternalAsync(bool clearDiscovery)
+    private async Task StopInternalAsync(bool clearDiscovery, CancellationToken ct = default)
     {
         _enabled = false;
         _cts?.Cancel();
@@ -587,34 +683,35 @@ internal sealed class HomeAssistantService : IDisposable
             {
                 if (clearDiscovery)
                 {
-                    // User disabled the feature — remove the retained discovery configs so HA drops
-                    // the device entirely (a normal exit skips this and just goes offline, keeping it).
-                    // Clear the OLD (pre-#29) ids too so an upgraded-then-disabled user leaves no ghosts.
-                    foreach (var (component, objectId) in HaDiscovery.Entities.Concat(HaDiscovery.LegacyEntities))
-                        await PublishAsync(HaDiscovery.ConfigTopic(_discoveryPrefix, component, _nodeId, objectId),
-                                           "", retain: true, CancellationToken.None).ConfigureAwait(false);
+                    // Feature turned off: empty every retained topic the node owns, state included, so
+                    // HA drops the device. An "offline" publish here would re-retain what this cleared.
+                    foreach (string topic in HaDiscovery.TopicsToClear(_nodeId, _discoveryPrefix))
+                        await PublishAsync(topic, "", retain: true, ct).ConfigureAwait(false);
                 }
+                else
+                    // A normal exit keeps the retained discovery, so the device persists in HA.
+                    await PublishAsync(_availTopic, HaDiscovery.Offline, retain: true, ct).ConfigureAwait(false);
 
-                await PublishAsync(_availTopic, HaDiscovery.Offline, retain: true, CancellationToken.None).ConfigureAwait(false);
-                await _client.DisconnectAsync().ConfigureAwait(false);
+                await _client.DisconnectAsync(cancellationToken: ct).ConfigureAwait(false);
             }
         }
         catch { /* best-effort teardown */ }
     }
 
-    // Guarantees a thrown broker error can never carry the password into the log — we log only the
-    // exception type + message, both broker-generated, and drop the stack/inner chain.
-    private static Exception Sanitize(Exception ex) => new($"{ex.GetType().Name}: {ex.Message}");
+    // Keeps a thrown broker error from carrying the password into the log: type and message only.
+    private static Exception Sanitise(Exception ex) => new($"{ex.GetType().Name}: {ex.Message}");
 
     public void Dispose()
     {
-        // Detach from the static charge-control events so a disposed instance stops publishing.
         ChargeControlService.StateChanged  -= OnChargeControlChanged;
         TravelOverrideService.StateChanged -= OnChargeControlChanged;
-        // Stop the command worker: complete the channel so ProcessCommandsAsync drains and exits.
         try { _commands.Writer.TryComplete(); } catch { }
-        // Graceful exit: go offline but KEEP the retained discovery so the device persists in HA.
-        try { StopInternalAsync(clearDiscovery: false).Wait(TimeSpan.FromSeconds(3)); } catch { }
+        // Reached from the tray's Exit on the UI thread, so run the teardown off it and bound it. The
+        // token expires before the wait, so the wait ends because the work ended rather than with a
+        // QoS 1 publish still in flight into _client.Dispose(), waiting on a PUBACK a half-dead socket
+        // never sends. Left undisposed: the token can outlive this call, and the process is exiting.
+        var stopCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(750));
+        try { Task.Run(() => StopInternalAsync(clearDiscovery: false, stopCts.Token)).Wait(TimeSpan.FromSeconds(1)); } catch { }
         try { _commandWorker.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _client.Dispose();
         _cts?.Dispose();
@@ -622,25 +719,16 @@ internal sealed class HomeAssistantService : IDisposable
     }
 }
 
-/// <summary>
-/// Collapses a burst of signals into at most one in-flight run plus one trailing run. Lock-based and
-/// side-effect-free (it only tracks the running/pending flags) so the coalescing decision is
-/// unit-tested without threads. Used by <see cref="HomeAssistantService"/> to coalesce charge-control
-/// StateChanged signals into a bounded number of blocking vendor reads.
-/// <list type="bullet">
-/// <item><see cref="Signal"/> — records a signal; returns true only to the caller that must START the
-///   loop (a signal while a loop already runs returns false but arms a trailing pass).</item>
-/// <item><see cref="BeginPass"/> — claims the pending work at the top of each pass.</item>
-/// <item><see cref="ShouldRepeat"/> — true to run another pass (a signal arrived during the last one),
-///   otherwise clears the running flag and returns false to end the loop.</item>
-/// </list>
-/// </summary>
+/// <summary>Collapses a burst of signals into at most one in-flight run plus one trailing run. Tracks
+/// only the running/pending flags, so the coalescing decision is testable without threads.</summary>
 internal sealed class CoalescingGate
 {
     private readonly object _lock = new();
     private bool _running;
     private bool _pending;
 
+    /// <summary>Records a signal, returning true only to the caller that must start the loop; a signal
+    /// arriving while one runs returns false but arms a trailing pass.</summary>
     public bool Signal()
     {
         lock (_lock)
@@ -657,6 +745,7 @@ internal sealed class CoalescingGate
         lock (_lock) { _pending = false; }
     }
 
+    /// <summary>True to run another pass; otherwise clears the running flag and ends the loop.</summary>
     public bool ShouldRepeat()
     {
         lock (_lock)

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using ChargeKeeper.Services;
 using ChargeKeeper.Vendors;
 using Windows.System.Power;
@@ -5,18 +6,23 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Pure state-mapping tests for the Home Assistant publisher (TODO #28/#29): HA mobile-app-aligned
-// battery state / health / remaining-charge-time derivations, plus the Smart Charge off-state
-// semantics (stop 100, start unavailable, smart_charge false).
+// Pure state mapping for the Home Assistant publisher: the battery state, health and
+// remaining-charge-time derivations, plus the Smart Charge off-state semantics.
 public class HaStateBuilderTests
 {
+    private static List<ThresholdPreset> TwoPresets() =>
+    [
+        new ThresholdPreset("Daily",  60, 80),
+        new ThresholdPreset("Travel", 80, 100),
+    ];
+
     // Convenience wrapper so each test only sets the fields it cares about.
     private static HaState Build(int soc = 72, int rateMw = 45000, bool onAc = true,
         BatteryStatus status = BatteryStatus.Charging, ChargeThresholdState? threshold = null,
         int? adapterWatts = 65, int? remainingMwh = 40000, int? fullMwh = 60000, int? designMwh = 60000,
-        bool lowPowerMode = false, string? activePreset = null)
+        bool lowPowerMode = false, IReadOnlyList<ThresholdPreset>? presets = null)
         => HaStateBuilder.Build(soc, rateMw, onAc, status, threshold, adapterWatts,
-            remainingMwh, fullMwh, designMwh, lowPowerMode, activePreset);
+            remainingMwh, fullMwh, designMwh, lowPowerMode, presets);
 
     [Fact]
     public void Build_OnAc_SmartChargeOn_IncludesThresholdsWattsAndFlag()
@@ -57,7 +63,7 @@ public class HaStateBuilderTests
     public void Build_TravelOverrideActive_LooksLikeDisabled_Stop100_StartUnavailable()
     {
         // The "charge to 100 % once" override activates by calling SetEnabled(false), so the live
-        // threshold read comes back Enabled:false — exactly what the builder sees.
+        // threshold read comes back Enabled:false.
         var s = Build(soc: 90, rateMw: 30000,
             threshold: new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80));
         Assert.False(s.SmartChargeEnabled);
@@ -76,7 +82,7 @@ public class HaStateBuilderTests
         Assert.Equal(80, s.ChargeStop);
     }
 
-    // ── Issue #29: battery state ─────────────────────────────────────────────────
+    // Battery state
 
     [Fact]
     public void Build_Charging_StateIsCharging_IsChargingTrue()
@@ -97,7 +103,7 @@ public class HaStateBuilderTests
     [Fact]
     public void Build_IdleBelowFull_ThresholdHeld_ReadsNotCharging_NotFull()
     {
-        // Held at an 80 % threshold: Idle but NOT full → "Not Charging", not "Full".
+        // Held at an 80 % threshold: idle but not full, so "Not Charging" rather than "Full".
         var s = Build(soc: 80, status: BatteryStatus.Idle, rateMw: 0);
         Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
         Assert.False(s.IsCharging);
@@ -114,31 +120,31 @@ public class HaStateBuilderTests
     [Fact]
     public void Build_FullSoc_ButDischarging_ReadsNotCharging_NotFull()
     {
-        // 100 % while actually on battery (just unplugged) is NOT "Full" — Full requires AC (review).
+        // 100 % on battery, just unplugged, is not "Full": Full requires AC.
         var s = Build(soc: 100, status: BatteryStatus.Discharging, rateMw: -8000, onAc: false);
         Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
     }
 
-    // ── Issue #30 review: fresh-state overlay after a command ─────────────────────
+    // Fresh-state overlay after a command
 
     [Fact]
     public void ApplyChargeControl_OverridesChargeFields_KeepsBatteryFields()
     {
-        // A base snapshot with STALE Smart Charge off/100 …
+        // A base snapshot with stale Smart Charge off/100 …
         var baseState = Build(soc: 66, rateMw: 30000, onAc: true, status: BatteryStatus.Charging,
             threshold: new ChargeThresholdState(Capable: true, Enabled: false, Start: 0, Stop: 0),
-            activePreset: "Travel");
+            presets: TwoPresets());
         Assert.False(baseState.SmartChargeEnabled);
 
-        // … overlaid with a FRESH read showing Smart Charge on 70–90 and a new active preset.
+        // … overlaid with a fresh read showing Smart Charge on 80–100, which is Travel's range.
         var updated = HaStateBuilder.ApplyChargeControl(
-            baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 70, Stop: 90), "Daily");
+            baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 80, Stop: 100), TwoPresets());
 
         // Charge-control fields reflect the fresh read …
         Assert.True(updated.SmartChargeEnabled);
-        Assert.Equal(70, updated.ChargeStart);
-        Assert.Equal(90, updated.ChargeStop);
-        Assert.Equal("Daily", updated.ActivePreset);
+        Assert.Equal(80, updated.ChargeStart);
+        Assert.Equal(100, updated.ChargeStop);
+        Assert.Equal("Travel", updated.ActivePreset);
         // … while the battery fields are carried over untouched from the base snapshot.
         Assert.Equal(66, updated.Soc);
         Assert.Equal(30000, updated.PowerMw);
@@ -147,26 +153,50 @@ public class HaStateBuilderTests
     }
 
     [Fact]
-    public void ApplyChargeControl_FreshOff_ReportsStop100_StartOmitted()
+    public void ApplyChargeControl_RederivesThePreset_RatherThanCarryingTheBaseSnapshotsName()
     {
-        var baseState = Build(threshold: new ChargeThresholdState(true, true, 60, 80));
+        // The base snapshot is built from App's cached threshold state, which the command path never
+        // refreshes. Carrying its preset name over would publish the one the device has just left.
+        var baseState = Build(threshold: new ChargeThresholdState(true, true, 80, 100),
+                              presets: TwoPresets());
+        Assert.Equal("Travel", baseState.ActivePreset);
+
         var updated = HaStateBuilder.ApplyChargeControl(
-            baseState, new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80), null);
-        Assert.False(updated.SmartChargeEnabled);
-        Assert.Null(updated.ChargeStart);
-        Assert.Equal(100, updated.ChargeStop);
-        Assert.Null(updated.ActivePreset);
+            baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 60, Stop: 80), TwoPresets());
+
+        Assert.Equal("Daily", updated.ActivePreset);
     }
 
     [Fact]
-    public void Build_PassesThroughLowPowerModeAndActivePreset()
+    public void ApplyChargeControl_FreshOff_ReportsStop100_StartOmitted_AndNoPreset()
     {
-        var s = Build(lowPowerMode: true, activePreset: "Daily");
+        var baseState = Build(threshold: new ChargeThresholdState(true, true, 60, 80), presets: TwoPresets());
+        var updated = HaStateBuilder.ApplyChargeControl(
+            baseState, new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80), TwoPresets());
+        Assert.False(updated.SmartChargeEnabled);
+        Assert.Null(updated.ChargeStart);
+        Assert.Equal(100, updated.ChargeStop);
+        Assert.Null(updated.ActivePreset);   // not limiting, so the stored range means nothing
+    }
+
+    [Fact]
+    public void Build_PassesThroughLowPowerMode_AndDerivesActivePresetFromTheThresholds()
+    {
+        var s = Build(lowPowerMode: true, presets: TwoPresets(),
+                      threshold: new ChargeThresholdState(Capable: true, Enabled: true, Start: 60, Stop: 80));
         Assert.True(s.LowPowerMode);
         Assert.Equal("Daily", s.ActivePreset);
     }
 
-    // ── Issue #29: health ────────────────────────────────────────────────────────
+    [Fact]
+    public void Build_ThresholdsMatchNoPreset_LeavesActivePresetNull()
+    {
+        var s = Build(presets: TwoPresets(),
+                      threshold: new ChargeThresholdState(Capable: true, Enabled: true, Start: 55, Stop: 75));
+        Assert.Null(s.ActivePreset);
+    }
+
+    // Health
 
     [Theory]
     [InlineData(60000, 60000, "Good")]     // 100 % of design
@@ -187,7 +217,7 @@ public class HaStateBuilderTests
         Assert.Null(HaStateBuilder.DeriveHealth(fullMwh, designMwh));
     }
 
-    // ── Issue #29: remaining charge time ─────────────────────────────────────────
+    // Remaining charge time
 
     [Fact]
     public void RemainingMinutes_ChargingHalfWay_ComputesMinutesToFull()

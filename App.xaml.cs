@@ -10,26 +10,17 @@ using ChargeKeeper.UI;
 namespace ChargeKeeper;
 
 /// <summary>
-/// Application entry point.  Owns the tray icon lifetime and coordinates the
-/// dashboard popup and context menu.
+/// Application entry point. Owns the tray icon lifetime and coordinates the dashboard popup and
+/// context menu.
 /// </summary>
 public partial class App : Application
 {
     // Invisible WinUI 3 host — the framework exits when every window is closed.
     private Window?              _hostWindow;
 
-    // Completes when the display subsystem is considered settled enough to create WINDOWS (issue
-    // #76). The tray icon is deliberately NOT behind this gate — see OnLaunched. Every window the
-    // user can ask for awaits it, so a click that lands during the settle is served afterwards
-    // rather than dropped: in the overwhelmingly common case the gate is already complete and the
-    // await finishes synchronously, leaving those paths byte-for-byte as they were.
-    // RunContinuationsAsynchronously is load-bearing, not boilerplate. TrySetResult runs on the UI
-    // thread, and a parked awaiter that captured this same DispatcherQueueSynchronizationContext
-    // would otherwise be resumed INLINE at the TrySetResult call site (TaskAwaiter skips the Post
-    // when the captured context is already current) — building and showing the dashboard nested
-    // inside OnLaunched, before _hostWindow, the battery subscription and _ha exist. Nothing today
-    // reads those from that path, so this is pre-emptive; the comment at the gate says the resume is
-    // queued, and this is what makes that true.
+    // Completes when the display subsystem is settled enough to create windows; the tray icon is
+    // deliberately not behind this gate. RunContinuationsAsynchronously stops a parked awaiter
+    // resuming INLINE at the TrySetResult call site, nested inside OnLaunched.
     private readonly TaskCompletionSource _windowsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal Task WindowsReady => _windowsReady.Task;
     private TaskbarIcon?         _trayIcon;
@@ -41,67 +32,56 @@ public partial class App : Application
     // Last known battery status — used to detect Charging→Idle transitions for toasts.
     private BatteryStatus _lastBatteryStatus = BatteryStatus.NotPresent;
 
-    // Guards the coherence of the _last* battery fields + transition-detection state. Two readers/
-    // writers can now touch them concurrently: (1) the MQTT CurrentStateProvider snapshot, invoked on
-    // the MQTT thread (issue #40 item 5), and (2) OnBatteryReportUpdated itself, in case two genuine
-    // ReportUpdated events ever overlap on the MTA thread pool. Each takes this lock only for the brief
-    // read-or-publish of the fields (no vendor RPC, no MQTT publish spans it — see item 6), so a reader
-    // always sees a whole tick, never a torn mix of this tick's and the previous tick's fields.
-    // (The old startup Task.Run-vs-event race this used to guard is gone: SubscribeBatteryEvents now
-    // seeds the fields BEFORE subscribing, so no second full-handler copy runs concurrently.)
+    // Keeps the _last* battery fields coherent across the MQTT snapshot thread, the history sampler
+    // and OnBatteryReportUpdated. Held only for the read-or-publish of the fields — never across a
+    // vendor RPC or an MQTT publish.
     private readonly System.Threading.Lock _batteryReportLock = new();
 
-    // Cached tray icon state; Pct = -1 means not yet read.
+    // Cached tray icon state; Pct = -1 means not yet read. This is the last READING, which the MQTT
+    // snapshot and the tooltip also depend on — never the record of what the icon is showing.
     private (int Pct, bool Charging) _lastIconState = (-1, false);
 
-    // Guards the low-battery toast from firing repeatedly during the same discharge.
-    // Reset with 5 % hysteresis so it re-fires on the next dip if the user charges briefly.
+    // What the tray icon is actually showing. Kept apart from _lastIconState so a repaint that never
+    // landed cannot be recorded as applied and dedupe every later tick at the same reading away.
+    private readonly TrayIconLatch _iconLatch = new();
+
+    // Fire-once latch, reset with 5 % hysteresis so a brief charge re-arms it.
     private bool _lowBatteryWarningFired;
 
-    // ── Teardown forensics + self-heal ─────────────────────────────────────────
-    // Diagnosed 2026-07-02: on AC unplug (and standby), this machine's Intel GPU can fault during
-    // the power transition (LiveKernelEvent 141). The compositor connection under the app dies and
-    // WinUI tears the process down as a CLEAN exit — no exception reaches any managed handler, no
-    // WER record, nothing in any log. The flags below let OnProcessExit tell that silent framework
-    // teardown apart from the two legitimate exits (tray-menu Exit, Windows logoff/shutdown) and
-    // relaunch a fresh instance for the illegitimate one.
+    // Fire-once latch for the opposite end, re-armed the moment the level falls back below.
+    private bool _highBatteryWarningFired;
+
+    // A GPU fault during a power transition kills the compositor connection, and WinUI then tears
+    // the process down as a CLEAN exit with nothing in any log. These flags let OnProcessExit tell
+    // that apart from the two legitimate exits — tray-menu Exit and Windows logoff/shutdown.
     private static volatile bool _intentionalExit;
     private static volatile bool _sessionEnding;
     private static readonly DateTime _processStartUtc = DateTime.UtcNow;
 
-    // How this process was started. Parsed once in Program.Main (argv is immutable, and OnLaunched
-    // used to re-read it three times) and handed in, so the launch decisions Main already took —
-    // which is what makes the watchdog probe cheap — and the ones left to OnLaunched read the same
-    // answer rather than two independent parses that can drift.
+    // Parsed once in Program.Main and handed in, so Main's launch decisions and OnLaunched's read
+    // the same answer rather than two parses that can drift.
     private readonly StartupArgs _startup;
 
-    // internal, not public: Program.Main is the only caller (and StartupArgs is internal too). The
-    // XAML-generated partial never constructs App — the generated Main that did is disabled.
+    // Upper bound for the hand-editable startup delay; 60 s is the top preset Settings offers.
+    private const int MaxStartupDelaySeconds = 60;
+
     internal App(StartupArgs startup)
     {
         _startup = startup;
 
         InitializeComponent();
 
-        // THE key lifetime decision for a tray app (confirmed by app.log forensics 2026-07-02):
-        // during a GPU/compositor reset (AC unplug, standby), the framework can destroy ALL our
-        // windows from below — and with the default OnLastWindowClose policy it then tears the
-        // whole process down as a clean exit ("Dashboard window closed" → "Host window closed" →
-        // "DispatcherQueue.ShutdownStarting" within the same second). A tray app's lifetime must
-        // be anchored to the tray icon (a Win32 construct, not a XAML window), so only an explicit
-        // Application.Exit() — the tray menu's Exit — may end the process. The dashboard already
-        // recreates itself lazily on the next tray click when its window has been destroyed.
+        // A tray app's lifetime is anchored to the tray icon, not to a XAML window: a compositor
+        // reset can destroy every window from below, and OnLastWindowClose would then end the
+        // process. The dashboard recreates itself lazily on the next tray click.
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
-        // Last-resort diagnostics: log any unhandled managed exception to
-        // %AppData%\ChargeKeeper\app.log before the process dies, so GUI crashes
-        // (which surface only as an opaque 0xC000027B stowed exception in Event Viewer)
-        // leave an actionable stack trace behind.
+        // GUI crashes surface only as an opaque 0xC000027B stowed exception in Event Viewer, so log
+        // the managed exception before the process dies.
         UnhandledException += (_, e) =>
         {
             LogCrash("Application.UnhandledException", e.Exception);
-            // Leave e.Handled = false: some failures aren't safely recoverable, and we'd
-            // rather crash visibly than soldier on in a corrupt state.
+            // Leave e.Handled = false: crashing visibly beats running corrupt.
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
@@ -110,30 +90,20 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Fires on every CLEAN process teardown (it does NOT fire for hard kills like taskkill or a
-    /// native access violation — which is exactly what makes it the right hook: an installer's
-    /// taskkill must not trigger a relaunch that races the file copy). If the exit was neither
-    /// user-initiated nor a logoff/shutdown, it is the silent compositor-loss teardown described
-    /// above — spawn a replacement instance. The dying process is already elevated, so the child
-    /// inherits elevation without a UAC prompt.
+    /// Fires on every CLEAN teardown, never on a hard kill such as an installer's taskkill — which
+    /// is what makes it safe to relaunch from. An exit that is neither user-initiated nor a logoff
+    /// is the silent compositor-loss teardown, and gets a replacement instance.
     /// </summary>
     private void OnProcessExit(object? sender, EventArgs e)
     {
-        // No "quiet exit" flag guards this any more. It used to suppress the 288 duplicate-instance
-        // + ProcessExit line pairs a day (which would bury the real forensics) that the watchdog
-        // probes and the /debug command produced. Those never reach this handler now: they resolve
-        // and exit inside Program.Main, so no App is constructed and nothing subscribes here. Every
-        // process that DOES get here is a real running instance whose teardown is worth a line.
         var uptime = DateTime.UtcNow - _processStartUtc;
         AppLog.Info($"ProcessExit: clean teardown after {uptime:hh\\:mm\\:ss} " +
                     $"(intentional={_intentionalExit}, sessionEnding={_sessionEnding}).");
 
         if (_intentionalExit || _sessionEnding) return;
 
-        // Crash-loop guard: allow at most 3 auto-relaunches per 10 minutes, tracked in a small
-        // state file. (A minimum-uptime gate was tried first and misfired: a GPU-reset teardown
-        // can hit a process that is only seconds old — e.g. launch, open dashboard, unplug —
-        // and the young-process rule wrongly suppressed the one relaunch that mattered.)
+        // Crash-loop guard: at most 3 auto-relaunches per 10 minutes. Deliberately not gated on
+        // uptime as well — a GPU-reset teardown can hit a process that is only seconds old.
         if (!TryRecordRelaunch())
         {
             AppLog.Info("Not relaunching: 3 auto-relaunches within 10 minutes — giving up.");
@@ -154,9 +124,8 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Sliding-window rate limiter for the self-heal relaunch: returns false once 3 relaunches
-    /// have happened within the last 10 minutes. Timestamps persist in a file because each check
-    /// runs in a NEW process — in-memory state can't span the relaunch chain it is limiting.
+    /// Sliding-window rate limiter for the self-heal relaunch: false once 3 relaunches have happened
+    /// within 10 minutes. Timestamps live in a file because each check runs in a NEW process.
     /// </summary>
     private static bool TryRecordRelaunch()
     {
@@ -185,37 +154,22 @@ public partial class App : Application
         }
     }
 
-    // Delegates to the shared AppLog (originally this method wrote crash.log directly; AppLog
-    // generalised that into an Info/Error log so major non-fatal events get a trail too).
     private static void LogCrash(string source, Exception? ex) => AppLog.Error(source, ex);
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // The /debug command and the "should this probe resurrect the app at all?" question are
-        // both settled in Program.Main, before WinUI loads — that is the whole point of the custom
-        // entry point, so do NOT reintroduce either check here.
+        // The /debug command and "should this probe resurrect the app?" are settled in Program.Main,
+        // before WinUI loads — do not reintroduce either check here.
         bool watchdogStart = _startup.IsWatchdogProbe;
 
-        // Must be the very first thing: exit before any window or tray icon is created if another
-        // instance already holds the lock.
-        //
-        // The mutex has exactly two acquire sites, and IsHeld is the handoff between them. A
-        // watchdog probe that got this far ALREADY owns the lock — claiming it is how Main decided
-        // the app was gone, and it deliberately kept it (releasing it just to re-take it here would
-        // open a window for another instance, and the re-take could fail). So IsHeld short-circuits
-        // this acquire for that path. Every OTHER launch reaches Main's fall-through without ever
-        // touching the mutex, so IsHeld is false and it is acquired here exactly as it always was.
-        // Neither path may acquire twice: a Mutex is re-entrant per owning thread, so a second
-        // WaitOne would silently bump the recursion count rather than fail — no crash, just a lie.
+        // Must come before any window or tray icon is created. A watchdog probe that got this far
+        // already holds the lock, and neither path may acquire twice: a Mutex is re-entrant per
+        // owning thread, so a second WaitOne would bump the recursion count rather than fail.
         if (!SingleInstance.IsHeld &&
             !await SingleInstance.TryAcquireAsync(_startup.SingleInstanceAttempts).ConfigureAwait(true))
         {
-            // Only a real duplicate launch can land here now (a probe holds the lock, and one that
-            // didn't get it never constructed this App), which is precisely the case worth logging.
             AppLog.Info("Another instance already holds the single-instance lock — exiting.");
-            _intentionalExit = true;   // must be set — otherwise OnProcessExit's self-heal relaunches
-                                        // this "duplicate" exit, and the relaunch detects a duplicate
-                                        // too, looping forever
+            _intentionalExit = true;   // else OnProcessExit relaunches this duplicate exit, forever
             Application.Current.Exit();
             return;
         }
@@ -225,171 +179,139 @@ public partial class App : Application
         else
             WatchdogTask.TryClearHoldMarker();   // any deliberate start re-arms resurrection
 
-        // Minidump-on-crash net for genuine unhandled faults (WER LocalDumps), now OPT-IN on
-        // release builds: a shipped app shouldn't quietly write minidumps of itself into the user's
-        // profile, so it follows the stored intent the /debug command (handled in Program.Main) sets
-        // (debug builds arm it regardless). "Off" actively disarms rather than just skipping — the registration is an
-        // HKLM key that outlives the process, so a machine that once armed it would keep dumping
-        // forever. Every instance runs this unconditionally, however it was spawned: the intent is
-        // read from settings, so a watchdog probe or self-heal relaunch re-asserts the user's answer
-        // instead of having to guess it from its own argv. The louder SilentProcessExit monitor that
-        // once helped pin the undock-kill root cause is retired and disarmed the same way — it
-        // dumped ~11 MB on every 5-minute watchdog probe exit — and the dump folder it filled is
-        // trimmed here. See CrashDumps.cs for the full story. Backgrounded: this only needs to be
-        // armed before some FUTURE crash, not before the rest of startup (window/tray-icon creation
-        // below) proceeds — the registry + file I/O here would otherwise add unaccounted latency to
-        // the exact "is the app actually running yet" window this app's history has repeatedly had
-        // trouble with.
+        // Minidump-on-crash (WER LocalDumps) follows the intent /debug stores; "off" actively
+        // disarms, because the registration is an HKLM key that outlives the process. Backgrounded:
+        // it only has to be armed before a FUTURE crash, not before the tray icon appears.
         _ = Task.Run(() =>
         {
             string dumpDir = AppPaths.DataFile("dumps");
             CrashDumps.ApplyPolicy(dumpDir);
-            CrashDumps.TryDisarmSilentExitMonitor();   // retired: it dumped ~11 MB per 5-min watchdog probe
+            CrashDumps.TryDisarmSilentExitMonitor();
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();
         });
 
-        // Opt native Win32 elements (the tray context menu) into system dark mode. Must run
-        // before any UI is created so the menu HWND inherits the setting.
+        // Must run before any UI is created so the tray menu's native HWND inherits the setting.
         NativeMethods.EnableDarkModeForNativeUi();
 
-        // Capture the UI dispatcher while we're on the UI thread. Battery events fire on a
-        // background thread and must marshal tray-icon updates back here (see UpdateTrayIcon).
+        // Battery events fire on a background thread and must marshal tray-icon updates back here.
         _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
-        // Teardown forensics: this event fires when the XAML framework itself initiates process
-        // teardown (last window closed — or, the case we're hunting, the compositor connection
-        // dying under the app during a GPU reset). Its presence/absence in app.log next to a
-        // ProcessExit line tells the silent-death mechanisms apart.
+        // Its presence next to a ProcessExit line is what tells the silent-death mechanisms apart.
         _dispatcher.ShutdownStarting += (_, _) =>
             AppLog.Info("DispatcherQueue.ShutdownStarting — framework-initiated teardown.");
 
         // Logoff/shutdown must not trigger the self-heal relaunch in OnProcessExit.
         Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
 
-        // THE TRAY ICON GOES UP FIRST — ahead of both waits below (issue #76). It used to sit after
-        // them, which on the paths that matter most (a watchdog restore after unlock, an auto-relaunch)
-        // cost 10-20s of "where is my tray icon?" — the tray icon IS this app, so that window is the
-        // app being absent.
-        //
-        // Moving it is sound because the waits guard a hazard the icon does not share. The settle
-        // exists because a fresh WinUI WINDOW can die to the same GPU/compositor reset it was born
-        // from (see the teardown forensics at the top of this file). A tray icon is not a window: it
-        // is a message-only HWND plus a Shell_NotifyIcon registration, and even the right-click menu
-        // is a native Win32 PopupMenu built from the flyout on the message window — no compositor, no
-        // XamlRoot, nothing that a mid-recovery display subsystem can pull out from under it.
-        // (Verified against H.NotifyIcon 2.4.1: ForceCreate → TrayIcon.Create; ContextMenuMode
-        // defaults to PopupMenu, so the XAML flyout is only a template for the native menu.)
-        //
-        // The startup delay is likewise about keeping HEAVY work off a contended sign-in, not about
-        // the icon: registering a tray icon costs no RPC, no disk, no GPU. Window creation and the
-        // history disk scan — the bulk of what the delay was written for — still wait it out below.
-        //
-        // ONE THING DID MOVE AHEAD OF THE DELAY, deliberately and with eyes open: TrayMenu's ctor
-        // ends in QueueRefresh(), so the menu's state seed (a Lenovo EC RPC + an SCM query + a Task
-        // Scheduler COM connect) now starts here rather than after the waits. That is the price of
-        // an icon that can answer a right-click the moment it appears — a menu whose every toggle
-        // reads unchecked is worse than no menu. It is bounded: the seed runs on a thread-pool
-        // thread (never the sign-in critical path this delay protects), it is three short
-        // out-of-process reads rather than the delay's real targets, and each one is individually
-        // guarded. NetworkLocationService's NIC enumeration is NOT part of it — that is on Start()
-        // below, still behind the delay.
-        //
-        // Registering the notification platform (ToastService.Register — a COM/registry call,
-        // tens–hundreds of ms cold for an unpackaged app) used to sit between the icon's creation and
-        // the pump getting back to it: the icon existed but could not answer a click for as long as
-        // the registration took. It now rides SubscribeBatteryEvents' background seed sequence, which
-        // is also the only thing ordered against it (a startup low-battery toast must not race it).
+        // Deliberately ahead of both waits below: the waits guard a hazard the icon does not share.
+        // A tray icon is a message-only HWND plus a Shell_NotifyIcon registration, not a window, and
+        // its menu is a native Win32 PopupMenu — nothing a recovering display subsystem can pull away.
         InitTrayIcon();
 
-        // When OnProcessExit resurrected us after a GPU-reset teardown — or a watchdog probe is
-        // restoring us right after an unlock/resume — the display subsystem may still be
-        // mid-recovery: give it a moment before creating windows, or the fresh instance can die to
-        // the same reset it was born from.
+        // A fresh instance created right after a GPU-reset teardown, an unlock or a resume can die
+        // to the same reset it was born from: give the display subsystem a moment first.
         if (watchdogStart || _startup.IsAutoRelaunch)
         {
-            if (!watchdogStart)
-                AppLog.Info("Started via auto-relaunch; waiting 5s for the display subsystem to settle.");
+            PowerLog.Event("Display settle: holding window creation for 5 s",
+                           watchdogStart ? "watchdog relaunch" : "auto-relaunch after a display teardown");
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
         }
 
-        // Configurable startup delay — keeps the app off the critical sign-in path on
-        // machines where many elevated processes start simultaneously.
-        int delay = SettingsService.Current.StartupDelaySeconds;
+        // Keeps the app off the critical sign-in path; clamped because settings.json is hand-editable.
+        int delay = Math.Clamp(SettingsService.Current.StartupDelaySeconds, 0, MaxStartupDelaySeconds);
         if (delay > 0)
             await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(true);
 
         // Exit is reachable from the moment InitTrayIcon returns, so the two waits above are the one
-        // window in which Shutdown() can run BEFORE the startup it is tearing down. Application.Exit()
-        // normally unwinds the message loop long before a pending delay fires, but the race is real at
-        // the margin (a delay whose continuation is already queued when the Exit click is dispatched),
-        // and the whole block below is exactly what must not run afterwards: it would re-subscribe the
-        // battery events Shutdown just detached, re-arm the history timer, and stand up a fresh
-        // HomeAssistantService — publishing 'online' to the broker after _ha was disposed — leaving a
-        // headless process with no icon behind a hold marker that keeps the watchdog from noticing.
+        // window in which Shutdown() can run BEFORE the startup it is tearing down. Everything below
+        // would re-subscribe, re-arm and reconnect exactly what Shutdown just released.
         if (_intentionalExit)
         {
             AppLog.Info("Exit was chosen during the startup wait — abandoning the rest of startup.");
             return;
         }
 
-        // Windows are safe to create from here on. Opening this gate BEFORE the first one is created
-        // is deliberate: a tray click that arrived while the icon was up but the display was still
-        // settling parked on WindowsReady, and this is the point it may proceed.
+        // Opened BEFORE the first window is created, so a tray click parked on the gate may proceed.
         _windowsReady.TrySetResult();
+        PowerLog.Event("Display settle: complete, windows may be created", "startup gate opened");
 
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         SubscribeBatteryEvents();
         StartHistorySampling();
         ScheduleUpdateCheck();
-        NetworkLocationService.Start();   // TODO #31 — TrayMenu subscribes to LocationChanged for the auto-apply reaction
+        // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
+        // and applying its preset is exactly what this drops the rule to avoid.
+        SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
+        NetworkLocationService.Start();
+        KeepAwakeService.Start();
+        // Also the crash-recovery point: puts the user's own Windows lid-close action back if a
+        // previous run died with it still overridden.
+        LidDelayService.Start();
 
-        // TODO #28 — Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled AND a broker
-        // host are set in settings.json; OnBatteryReportUpdated feeds it state, Shutdown disposes it.
+        // Before the publisher reads the port: an upgraded install carries the old 1883 default, and
+        // connecting on it once would remember it as the endpoint that works.
+        SettingsService.RetireTheDefaultMqttPort();
+
+        // Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled and a broker host are set.
         _ha = new HomeAssistantService(AppInfo.Version);
-        // Publish live values immediately on every (re)connect — not just after a battery event fires.
-        // Set BEFORE ApplySettings, which may start connecting (and invoke this) right away. This runs
-        // on the MQTT thread, concurrent with OnBatteryReportUpdated's writes to the _last* fields, so
-        // snapshot them under _batteryReportLock — otherwise a publish could mix a tick-N field with a
-        // tick-(N-1) one (a torn read). Build the immutable HaState INSIDE the lock for a coherent
-        // snapshot, then return it: the caller (HomeAssistantService) does the actual MQTT publish
-        // OUTSIDE this call, so the lock never spans the broker RPC and can't deadlock. Returns null
-        // before the first reading, so nothing bogus is published.
+        // Publishes live values on every (re)connect. Set BEFORE ApplySettings, which may start
+        // connecting — and invoke this — right away. Runs on the MQTT thread, so the fields are
+        // snapshotted under the lock; the caller publishes outside this call.
         _ha.CurrentStateProvider = () =>
         {
             using (_batteryReportLock.EnterScope())
             {
-                if (_lastIconState.Pct < 0) return null;
+                if (_lastIconState.Pct < 0) return null;   // no reading yet — publish nothing
                 return HaStateBuilder.Build(
-                    _lastIconState.Pct, _lastRateMW, _lastOnAC, _lastBatteryStatus, _lastThresholdState,
+                    _lastIconState.Pct, _lastRateMW, _lastIconState.Charging, _lastBatteryStatus, _lastThresholdState,
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                    SettingsService.Current.ActivePreset);
+                    SettingsService.Read(s => s.Presets.ToList()));
             }
         };
+        // The settings, network and diagnostic snapshot, and the vendor gates the announcement is
+        // filtered through. Both run on the MQTT threads.
+        _ha.CurrentSurfaceProvider = () => HaSurfaceReader.Read(AppInfo.Version);
+        _ha.CapabilityProvider     = HaSurfaceReader.Capabilities;
         _ha.ApplySettings(SettingsService.Current);
+        // "Reload settings from disk" must reach the live MQTT client too — the Settings window's
+        // reload only refreshes what it displays.
+        SettingsService.Reloaded += () => _ha?.ApplySettings(SettingsService.Current);
+        // The settings payload has no battery tick of its own, so every source that can move one of
+        // its values publishes it. Unchanged payloads are deduped, so a redundant signal costs nothing.
+        SettingsService.Changed             += () => _ha?.PublishSurfaceNow();
+        // The tray style is one of those values, and an icon-mode command from Home Assistant has no
+        // battery tick of its own. The latch carries the style, so this repaints only when it moved.
+        SettingsService.Changed             += RepaintTrayIconFromLastReading;
+        KeepAwakeService.StateChanged       += () => _ha?.PublishSurfaceNow();
+        NetworkLocationService.LocationChanged += _ => _ha?.PublishSurfaceNow();
     }
 
     private HomeAssistantService? _ha;
-
-    // ── Tray icon ─────────────────────────────────────────────────────────────
 
     private void InitTrayIcon()
     {
         _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
 
-        // Start with the static ChargeKeeper mark; battery arc replaces it on the first battery event.
-        var exeDir   = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        var iconPath = IconGenerator.GenerateAndSaveTrayIcon(exeDir);
-        _trayIcon.Icon = new System.Drawing.Icon(iconPath);
+        // Start with the static ChargeKeeper mark; the battery arc replaces it on the first event.
+        // Guarded because nothing above this on the startup path catches: a disk fault would kill
+        // the process before the tray icon exists, and the self-heal would relaunch into it again.
+        try
+        {
+            var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+            _trayIcon.Icon = new System.Drawing.Icon(IconGenerator.GenerateAndSaveTrayIcon(exeDir));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("InitTrayIcon.BrandIcon", ex);
+            // The in-memory renderer needs no disk at all.
+            try { _trayIcon.Icon = IconGenerator.RenderBatteryIcon(0, false, SettingsService.Current.IconMode); }
+            catch (Exception fallbackEx) { AppLog.Error("InitTrayIcon.FallbackIcon", fallbackEx); }
+        }
 
-        // Left-click → dashboard. Right-click → native popup menu (refreshed first).
-        IToggleFeature[] features =
-        [
-            new SmartChargeFeature(),
-            new SmartStandbyFeature(),
-            new AutoStartFeature(),
-        ];
+        // A second left-click inside the double-click window opens Settings instead.
+        IToggleFeature[] features = [new AutoStartFeature()];
         _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
                              windowsReady: WindowsReady);
         _trayIcon.ContextFlyout     = _menu.Flyout;
@@ -399,58 +321,49 @@ public partial class App : Application
         _trayIcon.ForceCreate();
     }
 
-    // ── Battery monitoring (dynamic icon + toast triggers) ────────────────────
-
     private void SubscribeBatteryEvents()
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        // Re-render the tray icon at the new taskbar DPI when the display config changes (monitor
-        // added/removed, taskbar moved to a different-DPI monitor, scale changed) — otherwise the
-        // cached slot size + the battery-tick-gated render leave the arc rescaled/washed-out until the
-        // next battery event (issue #40 item 2 trigger).
+        // The tray slot size is DPI-dependent and the render is gated on battery ticks, so without
+        // this the arc stays rescaled until the next battery event.
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
-        // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's
-        // own state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
+        // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's own
+        // state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
 
-        // Seed the icon + _last* baseline from a forced initial read, THEN subscribe to ReportUpdated
-        // — in that order (issue #40 item 6). Previously we subscribed FIRST and then fired a
-        // concurrent Task.Run(OnBatteryReportUpdated), so a second full copy of the handler ran
-        // alongside a just-registered event — and _batteryReportLock existed only to stop those two
-        // interleaving on the shared _last* fields (a duplicate "AC connected" toast + a spurious
-        // charger-wattage invalidate). Seeding before subscribing removes that race at the source: the
-        // seed runs single-threaded (nothing is subscribed yet), and its transition toasts are natural
-        // no-ops because they edge-detect against _lastBatteryStatus, still NotPresent at that point.
-        // The low-battery warning is LEVEL-based, not edge-based, so an at-startup low battery still
-        // toasts on this first real evaluation — the intended startup warning is preserved.
-        //
-        // Runs off the UI thread (this method is called on the UI thread during startup) so the
-        // battery read + Lenovo RPCs + capacity-file read stay off the cold-start path; the static
-        // brand icon covers the brief gap. Subscribing only AFTER the seed completes means the first
-        // real event can't overlap the seed. A battery change during the seed is not lost: the seed
-        // itself captures current state, and every change after subscription is delivered.
+        // Seed the baseline from a forced read, THEN subscribe — in that order, so the first real
+        // event cannot overlap the seed. Off the UI thread, so the battery read and the vendor RPCs
+        // stay off the cold-start path.
         _ = Task.Run(() =>
         {
-            // Registration leads the seed because the seed is what can raise the startup low-battery
-            // warning, and a toast shown before the notification platform is registered is silently
-            // dropped. That ordering is the ONLY constraint on it (see OnLaunched), so this one
-            // background sequence satisfies it without either half costing the UI thread anything.
-            ToastService.Register();
-            OnBatteryReportUpdated(Battery.AggregateBattery, null!);
-            Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+            // Nothing observes this Task, so without the catch a throw is completely silent: the
+            // Battery.AggregateBattery read and the += below both sit outside
+            // OnBatteryReportUpdated's own try, and either faulting means no seed, no subscription,
+            // no battery event ever, and the icon left on the startup mark.
+            try
+            {
+                // Registration leads the seed: a toast raised before the notification platform is
+                // registered is silently dropped.
+                ToastService.Register();
+                // Exit is reachable from the tray menu while this runs, and Shutdown's -= would then
+                // precede the += below, seeding against a disposed tray icon and MQTT service.
+                if (_intentionalExit) return;
+                OnBatteryReportUpdated(Battery.AggregateBattery, null!);
+                Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+            }
+            catch (Exception ex)
+            {
+                LogCrash("SubscribeBatteryEvents.Seed", ex);
+            }
         });
     }
-
-    // ── History sampling ──────────────────────────────────────────────────────
 
     private System.Threading.Timer? _historyTimer;
 
     private void StartHistorySampling()
     {
-        // LoadWindow does a full CSV scan (up to 14 days of rows) — real disk I/O that must not
-        // run on the UI thread during startup, or a large history file could visibly delay launch.
-        // Prime the in-memory window from disk so the dashboard shows history immediately after a
-        // restart, then sample at a fixed cadence so downtime is visible as a gap in the timeline.
+        // LoadWindow scans up to 14 days of CSV — real disk I/O that must not run on the UI thread.
+        // The fixed cadence afterwards is what makes downtime visible as a gap in the timeline.
         Task.Run(() =>
         {
             var span   = SettingsService.Current.GraphTimeScale.ToTimeSpan();
@@ -467,9 +380,19 @@ public partial class App : Application
     {
         try
         {
-            if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
-            int? limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
-            var gap = BatteryHistoryService.Record(_lastIconState.Pct, limit, _lastRateMW);
+            // Runs on a timer pool thread, so snapshot the fields together — a row must not pair
+            // this tick's SoC with the previous tick's limit and power. Record does disk I/O and
+            // must stay outside the lock.
+            int pct; int? limit; int rate;
+            using (_batteryReportLock.EnterScope())
+            {
+                if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
+                pct   = _lastIconState.Pct;
+                limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
+                rate  = _lastRateMW;
+            }
+
+            var gap = BatteryHistoryService.Record(pct, limit, rate);
             if (gap is { } g) CheckDrainAnomaly(g);
         }
         catch (Exception ex)
@@ -479,10 +402,8 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Overnight-drain anomaly (TODO #26): fires a toast when a just-detected downtime gap shows a
-    /// genuine, trustworthy over-threshold drain. The actual decision (noise floors + rate check)
-    /// lives in the pure, unit-tested <see cref="DrainAnomalyPolicy"/>; this only reads settings and
-    /// raises the toast.
+    /// Raises the overnight-drain toast when a just-detected downtime gap shows a genuine
+    /// over-threshold drain. The decision itself lives in <see cref="DrainAnomalyPolicy"/>.
     /// </summary>
     private static void CheckDrainAnomaly(DowntimeGapInfo gap)
     {
@@ -491,35 +412,48 @@ public partial class App : Application
             ToastService.NotifyDrainAnomaly(gap.SocDropPercent, gap.GapDuration);
     }
 
+    private static System.Threading.Timer? _shutdownCancelledProbe;
+
     private static void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
     {
         _sessionEnding = true;
-        AppLog.Info($"SessionEnding: {e.Reason}.");
+        PowerLog.Event($"Session ending: {e.Reason}", "Windows sign-out, restart or shutdown");
+        // A restart or sign-out does not go through Shutdown(), so the Windows lid-close action
+        // would otherwise stay overridden for as long as the app is not running.
+        LidDelayService.Stop();
+
+        // Windows raises no event when another app vetoes the shutdown, so still being alive a
+        // while later is the only detector — and _sessionEnding would otherwise suppress the
+        // self-heal relaunch for the rest of the session.
+        _shutdownCancelledProbe?.Dispose();
+        _shutdownCancelledProbe = new System.Threading.Timer(_ =>
+        {
+            _sessionEnding = false;
+            LidDelayService.Start();
+        }, null, TimeSpan.FromSeconds(30), System.Threading.Timeout.InfiniteTimeSpan);
     }
 
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
-        // Log every transition — the timeline around these lines is what lets a later silent
-        // teardown be correlated with a power event (see the self-heal notes at the top).
-        AppLog.Info($"PowerModeChanged: {e.Mode}.");
+        // Every transition is logged: this timeline is what correlates a later silent teardown
+        // with a power event.
+        PowerLog.Event($"Windows power mode: {e.Mode}", "system power notification");
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
 
-        // A charger swap while asleep produces no AC→battery transition to invalidate on, so drop
-        // the cached adapter wattage on resume too — the next on-AC read re-queries whatever's
-        // attached now (TODO #41).
+        // A charger swap while asleep produces no AC→battery transition to invalidate on.
         ChargerInfoService.Invalidate();
 
-        // The MQTT link is the most likely thing to have gone half-dead across standby (the socket
-        // may survive the OS suspend while the broker already dropped us via keep-alive, so its
-        // Last-Will flipped every sensor to "unavailable"). Kick an immediate reconnect + republish
-        // "online" so HA doesn't wait out the keep-alive/backoff before the sensors return (#41).
+        // The socket can survive the OS suspend while the broker already dropped us via keep-alive,
+        // flipping every sensor to "unavailable" — reconnect rather than wait out the backoff.
         _ha?.OnPowerResume();
 
-        // On resume the shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated,
-        // so H.NotifyIcon's built-in recovery never fires. A plain ForceCreate() can't help here:
-        // its Create() early-returns while the library still believes the icon exists. Force a real
-        // re-add by removing the stale registration first, then creating — the same TryRemove()+
-        // Create() pair the library itself uses to recover from TaskbarCreated.
+        // A keep-awake expiry that elapsed while suspended never fires: the timer's due time passes
+        // in suspended wall-clock time.
+        KeepAwakeService.OnPowerResume();
+
+        // The shell sometimes drops the tray icon WITHOUT broadcasting TaskbarCreated, so
+        // H.NotifyIcon's recovery never fires and ForceCreate() early-returns while the library
+        // still believes the icon exists. Remove the stale registration first, then create.
         RunOnUi(() =>
         {
             if (_trayIcon is { } icon)
@@ -537,7 +471,6 @@ public partial class App : Application
         {
             var report = sender.GetReport();
 
-            // ── Compute percentage ────────────────────────────────────────────
             int pct = 0;
             if (report.FullChargeCapacityInMilliwattHours is > 0 and { } full &&
                 report.RemainingCapacityInMilliwattHours  is { } remaining)
@@ -547,59 +480,38 @@ public partial class App : Application
 
             bool charging = BatteryStatsFormatter.IsOnAC(report.Status);
 
-            // ── Battery history ───────────────────────────────────────────────
-            // Sampled on a fixed cadence by _historyTimer (see SampleHistory), NOT per battery
-            // event — a regular cadence is what lets downtime show up as a gap in the graph.
-
-            // ── Battery capacity history (TODO #24) ─────────────────────────────
-            // Unlike the SoC history above, this rides the battery-report EVENT rather than a
-            // dedicated timer — RecordIfNewDay is a cheap no-op after the first success each day,
-            // and this event already fires often enough (multiple times an hour) that a separate
-            // timer would add nothing but a second thing to start/stop at shutdown. Independent of the
-            // _last* fields, so it stays outside the lock.
+            // SoC history rides _historyTimer's fixed cadence instead, which is what makes downtime
+            // show as a gap. Capacity history touches none of the _last* fields, so it stays outside
+            // the lock.
             if (report.FullChargeCapacityInMilliwattHours is > 0 and { } fullChargeMwh)
                 BatteryCapacityHistoryService.RecordIfNewDay(fullChargeMwh, report.DesignCapacityInMilliwattHours);
 
-            // ── Vendor RPCs — deliberately BEFORE the lock (issue #40 item 6) ─────────────────
-            // The MQTT CurrentStateProvider (issue #40 item 5) now also takes _batteryReportLock, so
-            // holding it across a blocking Lenovo EC call would stall MQTT publishing. Read the charge
-            // threshold once here (reused below for both _lastThresholdState AND the charge-complete
-            // stop%, so this also drops the old duplicate second read) and warm the charger-wattage
-            // cache while on AC (TODO #41 — the read RPCs at most once per AC session, and Invalidate()
-            // below drops it on unplug). Consumers (tooltip, HA snapshot) then read
-            // ChargerInfoService.CachedWattage directly rather than an App-level copy (TODO #18).
+            // Vendor RPCs stay OUTSIDE the lock — the MQTT snapshot takes it too, and holding it
+            // across a blocking EC call would stall publishing.
             var thresholdState = ChargeThresholdService.Read();
             if (charging) ChargerInfoService.GetRatedWattage();
 
-            // ── Critical section — coherent edge-detect + _last* publish, NO vendor RPC ───────
-            // The lock's ONLY remaining job is to keep this block atomic against a concurrent MQTT
-            // snapshot read (item 5) or an overlapping real ReportUpdated event, so neither sees a
-            // torn mix of this tick's and the previous tick's _last* fields. It never spans a vendor
-            // RPC (hoisted above) and never blocks (icon/tooltip/dashboard only marshal via
-            // non-blocking TryEnqueue). The HaState is BUILT here for a coherent snapshot but PUBLISHED
-            // after the lock releases, so the lock never spans the MQTT publish either.
+            // Critical section: a coherent edge-detect and _last* publish, so no reader sees a torn
+            // mix of two ticks. It spans no vendor RPC and never blocks — the toasts and the MQTT
+            // publish are deferred to after the lock releases.
             HaState haSnapshot;
             bool fireLowBattery = false;
+            int? highBatteryWarnAtPct = null;   // the configured level, carried out of the lock
             bool fireChargingStarted = false;
             int? chargeCompleteStopPct = null;
+            bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
             using (_batteryReportLock.EnterScope())
             {
-                // ── Dynamic tray icon ─────────────────────────────────────────
-                // Only re-render when something meaningful changed (avoids GDI churn every tick).
-                if ((pct, charging) != _lastIconState)
-                {
-                    _lastIconState = (pct, charging);
-                    UpdateTrayIcon(pct, charging);
-                }
+                _lastIconState = (pct, charging);
+                // Still gated to avoid GDI churn on every tick, but inside UpdateTrayIcon and against
+                // what was last PAINTED — a repaint that never landed leaves the gate open.
+                UpdateTrayIcon(pct, charging);
 
-                // ── Dashboard live update ──────────────────────────────────────
-                // Push an immediate refresh to the open dashboard so power connect/disconnect
-                // and percentage changes are reflected at once, without waiting for the 5 s timer.
+                // Refresh the open dashboard at once rather than waiting for its own 5 s timer.
                 if (_dashboard is not null)
                 {
-                    // Re-read _dashboard on the UI thread (where the Closed handler nulls it). Touching
-                    // a window that closed after this tick captured it throws InvalidOperationException
-                    // via combase — fatal inside a raw dispatcher callback. RunOnUi catches as backstop.
+                    // Re-read _dashboard on the UI thread, where the Closed handler nulls it:
+                    // touching a window that closed since this tick captured it throws via combase.
                     RunOnUi(() =>
                     {
                         if (_dashboard is { } dash && dash.AppWindow.IsVisible)
@@ -607,7 +519,6 @@ public partial class App : Application
                     });
                 }
 
-                // ── Low-battery warning ───────────────────────────────────────
                 var s = SettingsService.Current;
                 if (s.LowBatteryWarningEnabled &&
                     report.Status == BatteryStatus.Discharging &&
@@ -624,80 +535,86 @@ public partial class App : Application
                     _lowBatteryWarningFired = false;
                 }
 
-                // ── Toast: charging complete ──────────────────────────────────
-                // Fire when the battery transitions from Charging → Idle (threshold or full). Reuses
-                // the single thresholdState read above rather than a fresh EC RPC.
+                // The threshold state decides whether a high level is news: within the cap it is
+                // the cap working, above it the cap is not holding.
+                if (HighBatteryWarningPolicy.ShouldWarn(s.HighBatteryWarningEnabled, pct,
+                        s.HighBatteryWarningPct, _highBatteryWarningFired, thresholdState))
+                {
+                    _highBatteryWarningFired = true;
+                    highBatteryWarnAtPct = s.HighBatteryWarningPct;   // fired outside the lock (see below)
+                }
+                else if (HighBatteryWarningPolicy.ClearsLatch(pct, s.HighBatteryWarningPct))
+                {
+                    _highBatteryWarningFired = false;
+                }
+
                 if (_lastBatteryStatus == BatteryStatus.Charging &&
                     report.Status      == BatteryStatus.Idle)
                 {
                     chargeCompleteStopPct = thresholdState is { Enabled: true, Stop: > 0 } ? thresholdState.Stop : 100;
                 }
 
-                // ── Travel override revert ────────────────────────────────────
-                // Feed every reading to the service; it owns the "revert once charging completes"
-                // decision (Charging→Idle edge, or Idle at 100 %) and the fire-once latch, and
-                // dispatches any actual EC revert on its own background Task (never blocks here).
+                // The service owns the "revert once charging completes" decision and dispatches any
+                // EC revert on its own background Task.
                 TravelOverrideService.OnBatteryReport(pct, report.Status);
 
-                // ── Tray tooltip ──────────────────────────────────────────────
-                _lastOnAC           = charging;   // IsOnAC — shared with the icon expression above
                 _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
                 _lastThresholdState = thresholdState;                          // hoisted read above
                 _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
                 _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
-                _lastDesignMwh      = report.DesignCapacityInMilliwattHours;   // TODO #29 — battery-health denominator
-                // Windows Energy Saver → the HA mobile-app "Low Power Mode" attribute (TODO #29).
+                _lastDesignMwh      = report.DesignCapacityInMilliwattHours;
                 _lastLowPowerMode   = PowerManager.EnergySaverStatus == EnergySaverStatus.On;
                 UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
-                // ── Home Assistant snapshot (TODO #28/#29/#30) ────────────────
-                // Built under the lock for a coherent _last* view; PUBLISHED below, outside the lock.
-                // HaStateBuilder gates which fields are known and derives the HA mobile-app-aligned
-                // battery sensors (state/health/remaining time); the active preset drives the "Charge
-                // preset" select's reflected value.
+                // Built here for a coherent _last* view; published below, outside the lock.
                 haSnapshot = HaStateBuilder.Build(
                     pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
                     _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
-                    SettingsService.Current.ActivePreset);
+                    SettingsService.Read(s => s.Presets.ToList()));
 
-                // ── Toast: AC connected ───────────────────────────────────────
                 if (_lastBatteryStatus == BatteryStatus.Discharging &&
                     report.Status      == BatteryStatus.Charging)
                 {
                     fireChargingStarted = true;   // fired outside the lock (see below)
                 }
 
-                // ── Charger-wattage cache invalidation ────────────────────────
-                // Unplugged: drop ChargerInfoService's memoized adapter wattage, so the next AC
-                // session re-reads whatever adapter is attached then — it may be a different charger.
+                // Unplugged: the next AC session may be a different adapter.
                 if (_lastBatteryStatus != BatteryStatus.Discharging &&
                     report.Status      == BatteryStatus.Discharging)
                 {
                     ChargerInfoService.Invalidate();
                 }
 
+                // Only the EDGE, and only from a real previous reading — NotPresent is the
+                // pre-first-report seed, and calling that "charger disconnected" would put a fiction
+                // at the top of every log.
+                if (_lastBatteryStatus != BatteryStatus.NotPresent &&
+                    BatteryStatsFormatter.IsOnAC(_lastBatteryStatus) != charging)
+                {
+                    powerSourceEdge = charging;
+                }
+
                 _lastBatteryStatus = report.Status;
             }
 
-            // ── Toasts (outside the lock) ─────────────────────────────────────
-            // ToastService.Notify* does a synchronous WinRT/COM Show; keeping it out of the critical
-            // section means a toast can't stall a concurrent MQTT snapshot read (which now also takes
-            // _batteryReportLock). The fire/skip decisions + the _lowBatteryWarningFired latch were made
-            // inside the lock above; only the COM Show is deferred here.
+            // Outside the lock for the same reason the toasts are: the log write is file I/O.
+            if (powerSourceEdge is { } onAc)
+                PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",
+                               onAc ? "charger connected" : "charger disconnected");
+
+            // ToastService.Notify* does a synchronous WinRT/COM Show; the decisions and the latch
+            // above were taken under the lock, so only the Show is deferred.
             if (fireLowBattery)                    ToastService.NotifyLowBattery(pct);
+            if (highBatteryWarnAtPct is { } warnAt) ToastService.NotifyHighBattery(pct, warnAt);
             if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop);
             if (fireChargingStarted)               ToastService.NotifyChargingStarted();
 
-            // ── Home Assistant publish (outside the lock) ─────────────────────
-            // No-op unless the MQTT publisher is enabled+connected. Kept out of the critical section
-            // so the lock never spans the publish (item 5) even though PublishState is fire-and-forget.
             _ha?.PublishState(haSnapshot);
         }
         catch (Exception ex)
         {
-            // Battery API failure is non-fatal — the tray icon just stays as-is. Logged because this
-            // handler owns the icon, the toasts, the history sample and the MQTT publish: a fault
-            // partway through silently drops all of them for that tick.
+            // Non-fatal, but logged: this handler owns the icon, the toasts and the MQTT publish, so
+            // a fault partway through drops all of them for that tick.
             LogCrash("OnBatteryReportUpdated", ex);
         }
     }
@@ -705,81 +622,99 @@ public partial class App : Application
     private System.Drawing.Icon? _currentBatteryIcon;
     private Microsoft.UI.Dispatching.DispatcherQueue? _dispatcher;
 
-    // Tooltip state — rebuilt on every battery tick and pushed to the tray icon.
     private string  _lastTooltip             = "";
     private string? _updateAvailableVersion;
     private int     _lastRateMW;   // milliwatts; positive = charging, negative = draining
-    private bool    _lastOnAC;
     private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
     private int?    _lastFullMwh;
-    private int?    _lastDesignMwh;      // design capacity (TODO #29) — battery-health denominator
-    private bool    _lastLowPowerMode;   // Windows Energy Saver active (TODO #29) — HA state attribute
+    private int?    _lastDesignMwh;      // design capacity — the battery-health denominator
+    private bool    _lastLowPowerMode;   // Windows Energy Saver active
     private ChargeThresholdState? _lastThresholdState;
 
     private void UpdateTrayIcon(int pct, bool charging)
     {
-        // The tray icon is a UI object and must be mutated on the UI thread. Battery
-        // ReportUpdated fires on a background (MTA) thread, so marshal the whole
-        // render → swap → dispose onto the dispatcher. Mutating/disposing the icon off-thread
-        // races with the shell and faults the native tray/GDI handle — an access violation that
-        // bypasses managed try/catch and kills the process (observed when unplugging AC power).
+        // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
+        // style and the thresholds in force now rather than the ones set when it was posted. The
+        // threshold state is already cached from this tick's ChargeThresholdService.Read.
+        var request = new TrayIconRequest(pct, charging, SettingsService.Current.IconMode,
+                                          _lastThresholdState);
+        if (!_iconLatch.NeedsRepaint(request)) return;
+
+        // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
+        // off-thread faults the native tray/GDI handle, an access violation that bypasses managed
+        // try/catch and kills the process.
         if (_dispatcher is { } dq && !dq.HasThreadAccess)
         {
-            dq.TryEnqueue(() => UpdateTrayIcon(pct, charging));
+            // A refused enqueue is a repaint that will never happen; the latch is untouched either
+            // way, so the next tick tries again rather than deduping against an icon that never moved.
+            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, charging)))
+                AppLog.Error("UpdateTrayIcon.Enqueue", new InvalidOperationException(
+                    "The dispatcher queue refused the tray-icon repaint; the icon still shows the previous state."));
             return;
         }
 
         try
         {
-            var mode    = SettingsService.Current.IconMode;
-            var newIcon = IconGenerator.RenderBatteryIcon(pct, charging, mode);
+            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.Charging, request.Mode,
+                                                          request.Threshold);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
             oldIcon?.Dispose();
+            // Only here: the latch records what the tray icon is showing, not what was asked for.
+            _iconLatch.MarkPainted(request);
         }
-        catch
+        catch (Exception ex)
         {
-            // Icon rendering failure is non-fatal.
+            // Non-fatal, but no longer silent — a swallowed failure used to leave the stale icon in
+            // place with nothing anywhere to say why.
+            AppLog.Error("UpdateTrayIcon", ex);
         }
     }
 
+    /// <summary>Repaints from the last reading, for the sources that change the icon without a
+    /// battery event of their own. Deduped by the latch, so an unrelated change costs nothing.</summary>
+    private void RepaintTrayIconFromLastReading()
+    {
+        var (pct, charging) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
+        UpdateTrayIcon(pct, charging);
+    }
+
     /// <summary>
-    /// Fires when the desktop display topology or DPI changes. The tray slot size is DPI-dependent,
-    /// so drop the cached slot size and repaint the icon at the new resolution.
+    /// The tray slot size is DPI-dependent, so a display topology or DPI change drops the cached
+    /// slot size and repaints the icon at the new resolution. The taskbar's light/dark setting is
+    /// dropped on the same event: it decides the glyph's outline strength, and this is the display
+    /// notification the shell does raise.
     /// </summary>
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
         Helpers.IconGenerator.InvalidateSlotSizeCache();
+        Helpers.IconGenerator.InvalidateThemeCache();
         ForceIconRefresh();
     }
 
-    /// <summary>
-    /// Forces an immediate tray icon re-render using the last known battery state.
-    /// Called when the icon mode is toggled from the tray menu or settings panel.
-    /// </summary>
+    /// <summary>Forces an immediate tray icon re-render from the last known battery state, or from
+    /// the unknown state when no battery report has arrived yet — the style change, the slot-size
+    /// change and the tray recreate that call this all have to show without waiting for a tick.</summary>
     internal void ForceIconRefresh()
     {
-        if (_lastIconState.Pct >= 0)
-            UpdateTrayIcon(_lastIconState.Pct, _lastIconState.Charging);
+        // The pixels changed without the request changing, so the latch has to be dropped first.
+        _iconLatch.Invalidate();
+        RepaintTrayIconFromLastReading();
     }
 
     /// <summary>
-    /// Rebuilds the tray tooltip from the last cached battery reading — used when something that
-    /// affects the tooltip changes outside of a battery event (the travel-override activate/revert),
-    /// so it doesn't stay stuck on a stale line until the next ReportUpdated fires. Re-reads the
-    /// charge threshold so a just-restored Smart Charge limit shows immediately. Safe off the UI
-    /// thread: it only builds a string, then UpdateTooltip marshals the assignment via RunOnUi.
+    /// Rebuilds the tray tooltip and the icon from the last cached reading, for the changes that
+    /// arrive without a battery event (the travel-override activate/revert). Re-reads the charge
+    /// threshold, so a just-restored Smart Charge limit shows in both immediately.
     /// </summary>
     internal void RefreshTooltip()
     {
-        // The vendor RPC stays OUTSIDE the lock (never hold _batteryReportLock across an EC call).
+        // The vendor RPC stays OUTSIDE the lock — never hold _batteryReportLock across an EC call.
         var threshold = ChargeThresholdService.Read();
 
-        // Then take the lock to write _lastThresholdState and snapshot the fields UpdateTooltip needs,
-        // so this off-thread writer (fires on TravelOverrideService.StateChanged) stays coherent with
-        // OnBatteryReportUpdated and the MQTT CurrentStateProvider read — otherwise a snapshot could
-        // pair this just-restored threshold with a previous tick's battery fields.
+        // Then take the lock, so this off-thread writer does not pair the new threshold with a
+        // previous tick's battery fields.
         int pct; int? remaining, full;
         using (_batteryReportLock.EnterScope())
         {
@@ -789,15 +724,15 @@ public partial class App : Application
             full      = _lastFullMwh;
         }
         UpdateTooltip(pct, remaining, full);
+        // The icon carries the threshold marks too, and the threshold is what just moved. Deduped by
+        // the latch, so an unchanged one costs nothing.
+        RepaintTrayIconFromLastReading();
     }
 
     /// <summary>
-    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch. An exception
-    /// thrown inside a DispatcherQueue callback is NOT surfaced to Application.UnhandledException —
-    /// it tears the process down as an opaque 0xC000027B stowed exception (nothing reaches crash.log).
-    /// That is the root cause of the "tray icon vanishes" reports: e.g. a battery tick refreshing a
-    /// dashboard window that just closed throws InvalidOperationException via combase. Catching here
-    /// keeps the tray alive; the failure is logged instead of fatal.
+    /// Marshals <paramref name="action"/> onto the UI thread with a guaranteed catch: an exception
+    /// inside a DispatcherQueue callback does NOT reach Application.UnhandledException, and tears the
+    /// process down as an opaque 0xC000027B stowed exception instead.
     /// </summary>
     private void RunOnUi(Action action)
     {
@@ -814,53 +749,43 @@ public partial class App : Application
     {
         var lines = new System.Text.StringBuilder();
 
-        // 💠 ChargeKeeper  v1.0.x
-        // 💠 is the brand mark in ZeroZero's signature teal (#27e0c8-ish). A tray tooltip is plain
-        // text — no per-glyph colour — so a colour emoji is the only way to carry brand colour, and
-        // the bright cyan-teal reads clearly on the dark Win11 tooltip background.
+        // A tray tooltip is plain text, so a colour emoji is the only way to carry the brand teal.
         lines.Append($"💠 ChargeKeeper  v{AppInfo.Version}");
 
-        // ⚡ AC · 75%  ·  +45 W   (on AC — the bolt forced to its TEXT/outline form via U+FE0E so it
-        //                          renders bright like the ⚙/⏱/⬆ outlines; the colour plug 🔌 was a
-        //                          dark emoji that nearly vanished on the dark tooltip background)
-        // 🔋 75%  ·  −18 W        (on battery)
-        // Glyph follows the power source so it never contradicts the AC label, and the rate is
-        // shown only in its expected direction via the shared formatter (mW below 1 W, real −).
-        string chargeIcon = _lastOnAC ? "⚡︎" : "🔋";   // ⚡ + U+FE0E = outline (text) presentation
-        // Adapter wattage (TODO #41) rides along in the "AC" label itself — "AC (65W)" — rather
-        // than as a separate line, since it's a property of the power SOURCE, not a new stat. Read
-        // ChargerInfoService's own memoized value (this label only shows on AC, where it's warmed).
+        // U+FE0E forces the bolt to its text/outline form, so it renders bright like the ⚙/⏱/⬆
+        // outlines rather than as a dark colour emoji on the dark tooltip background.
+        string chargeIcon = _lastIconState.Charging ? "⚡︎" : "🔋";
+        // Adapter wattage rides the "AC" label — it is a property of the power source, not a new
+        // stat — and only shows on AC, where the cache is warm.
         string acLabel = ChargerInfoService.CachedWattage is { } watts ? $"AC ({watts}W)" : "AC";
-        lines.Append(_lastOnAC
+        lines.Append(_lastIconState.Charging
             ? $"\n{chargeIcon} {acLabel} · {pct}%"
             : $"\n{chargeIcon} {pct}%");
-        string? rate = (_lastOnAC && _lastRateMW > 0) || (!_lastOnAC && _lastRateMW < 0)
+        string? rate = (_lastIconState.Charging && _lastRateMW > 0) || (!_lastIconState.Charging && _lastRateMW < 0)
             ? PowerFormat.SignedRate(_lastRateMW)
             : null;
         if (rate is not null)
             lines.Append($"  ·  {rate}");
 
-        // ⏱ ~2h 15m remaining  /  ⏱ ~45m to full — the same estimate the two windows' REMAINING
-        // stat shows, via the shared formatter (noise floor, >99h cap, and h/m text all live there;
-        // this used to be a third hand-rolled copy that had already drifted on zero-padding).
         string timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMW, remainingMwh, fullMwh);
         if (timeText != "—")
             lines.Append($"\n⏱ {timeText}");
 
-        // 🔝 Charging to 100%   OR   ⚙ Smart Charge: 70–80%
+        // A mode-based vendor (HP, Surface) reports Start as 0 by contract, so it gets a cap rather
+        // than a range.
         if (TravelOverrideService.IsActive)
             lines.Append("\n🔝 Charging to 100%");
-        else if (_lastThresholdState is { Enabled: true, Start: > 0, Stop: > 0 } sc)
-            lines.Append($"\n⚙ Smart Charge: {sc.Start}–{sc.Stop}%");
+        else if (_lastThresholdState is { IsLimiting: true } sc)
+            lines.Append(sc.HasStartThreshold ? $"\n⚙ Smart Charge: {sc.Start}–{sc.Stop}%"
+                                              : $"\n⚙ Smart Charge: to {sc.Stop}%");
 
-        // ⬆ Update available: vX.Y.Z
         if (_updateAvailableVersion is { } uv)
             lines.Append($"\n⬆ Update available: v{uv}");
 
         var tooltip = lines.ToString();
 
         // NOTIFYICONDATA.szTip holds at most 127 UTF-16 chars (+ NUL); clamp so the shell doesn't
-        // silently truncate. Don't split a surrogate pair (the emoji glyphs are 2 code units each).
+        // silently truncate, without splitting a surrogate pair.
         const int MaxTipLength = 127;
         if (tooltip.Length > MaxTipLength)
         {
@@ -879,63 +804,70 @@ public partial class App : Application
         });
     }
 
-    // ── Update check ──────────────────────────────────────────────────────────
+    /// <summary>How often the background check re-asks GitHub after the first one.</summary>
+    internal static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(24);
 
     private void ScheduleUpdateCheck()
     {
-        // Fire-and-forget: delay 30 s so the check doesn't slow down the cold-start path.
-        // The async lambda ensures the inner CheckAsync Task is awaited (ContinueWith would
-        // have returned Task<Task> and orphaned the HTTP request).
+        // Delayed 30 s so the check doesn't slow the cold-start path, then repeated daily: this is
+        // the whole background update mechanism, so a machine left signed in has to keep checking.
+        // The async lambda is what makes the inner CheckAsync awaited — ContinueWith would return
+        // Task<Task> and orphan the request.
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            await UpdateCheckService.CheckAsync(version =>
+            while (true)
             {
-                _updateAvailableVersion = version;
-                // Refresh tooltip to include the update notice; refresh menu badge on UI thread.
-                UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, null, null);
-                RunOnUi(() => _menu?.SetUpdateBadge(version));
-            }).ConfigureAwait(false);
+                await UpdateCheckService.Shared.CheckAsync(version =>
+                {
+                    _updateAvailableVersion = version;
+                    // Pass the cached capacities: nulls here would drop the "remaining" line and
+                    // latch the shortened text into _lastTooltip.
+                    UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
+                    RunOnUi(() => _menu?.SetUpdateBadge(version));
+                }).ConfigureAwait(false);
+
+                await Task.Delay(UpdateCheckInterval).ConfigureAwait(false);
+            }
         });
     }
 
-    // ── Dashboard ─────────────────────────────────────────────────────────────
-
-    // A tray click that lands while the popup is open first deactivates the popup
-    // (auto-hiding it); guard against immediately re-showing it from the same click.
+    // A tray click that lands while the popup is open first deactivates it, so guard against
+    // immediately re-showing the popup from that same click.
     private const int ReopenGuardMs = 300;
 
     // True while a tray click is parked on the settle gate. UI thread only, so no locking.
     private bool _clickParkedOnGate;
 
-    // async void is deliberate (and safe): this is an ICommand handler, and the try/catch below spans
-    // the await. The await is the settle gate — normally already complete, so it does not yield and
-    // this runs exactly as the synchronous version did. Only on a watchdog/auto-relaunch start can a
-    // click land early enough to actually suspend here; it then resumes on the UI thread once windows
-    // are allowed, so the user's click opens the dashboard a moment later instead of doing nothing.
+    // When the previous tray left-click arrived, for TrayClickPolicy's double-click test. Null once
+    // a pair has resolved, so a third rapid click starts a fresh pair. UI thread only.
+    private DateTimeOffset? _lastTrayClickAt;
+
+    // async void is safe here: this is an ICommand handler and the try/catch spans the await, which
+    // is the settle gate and is normally already complete.
     private async void ToggleDashboard()
     {
-        // Guard the whole open path: a failure building or showing the popup must not take
-        // down the tray app. Log it and stay alive so the menu/icon keep working.
+        // Stamped BEFORE the settle gate below: a double-click is about how fast the USER clicked,
+        // and the gate can park a click for seconds on a watchdog/auto-relaunch start.
+        var now      = DateTimeOffset.Now;
+        var previous = _lastTrayClickAt;
+        _lastTrayClickAt = now;
+
+        // A failure building or showing the popup must not take down the tray app.
         try
         {
             if (!WindowsReady.IsCompleted)
             {
-                // The icon is up but windows are not allowed yet (watchdog/auto-relaunch settle).
-                // Park the FIRST click and drop the rest: an icon that visibly does nothing invites
-                // re-clicking, and those extra clicks are the user asking for the same window, not
-                // asking to toggle it. Replaying them all would resume in order and read as
-                // open-then-hide — the popup flashes and the user has to click a third time.
-                // ReopenGuardMs cannot absorb this: the second click takes the IsVisible branch and
-                // never reaches the guard.
+                // Park the FIRST click and drop the rest: replaying them all in order would read as
+                // open-then-hide. ReopenGuardMs cannot absorb it — the second click would take the
+                // IsVisible branch and never reach the guard.
                 if (_clickParkedOnGate) return;
                 _clickParkedOnGate = true;
                 try     { await WindowsReady.ConfigureAwait(true); }
                 finally { _clickParkedOnGate = false; }
             }
 
-            // Lazily create the window once and reuse it; subscribe Closed only at creation
-            // so handlers don't accumulate on every click.
+            // Subscribe Closed only at creation so handlers don't accumulate on every click.
             if (_dashboard is null)
             {
                 _dashboard = new DashboardWindow(this);
@@ -946,11 +878,29 @@ public partial class App : Application
                 };
             }
 
-            if (_dashboard.AppWindow.IsVisible)
-                _dashboard.HideWindow();
-            else if (_dashboard.SinceHidden.TotalMilliseconds > ReopenGuardMs)
-                _dashboard.ShowNearTray();
-            // else: this click is the same gesture that just auto-hid the popup — leave it hidden.
+            switch (TrayClickPolicy.Decide(now, previous, NativeMethods.DoubleClickTime,
+                                           _dashboard.AppWindow.IsVisible, _dashboard.SinceHidden,
+                                           TimeSpan.FromMilliseconds(ReopenGuardMs)))
+            {
+                case TrayClickAction.HideDashboard:
+                    _dashboard.HideWindow();
+                    break;
+
+                case TrayClickAction.OpenDashboard:
+                    _dashboard.ShowNearTray();
+                    break;
+
+                case TrayClickAction.OpenSettingsAndHideDashboard:
+                    // Ends the pair, so a third rapid click is a fresh first click.
+                    _lastTrayClickAt = null;
+                    // Hidden BEFORE Settings is activated: the dashboard is IsAlwaysOnTop and would
+                    // otherwise fight the new window for z-order at the same corner of the screen.
+                    if (_dashboard.AppWindow.IsVisible) _dashboard.HideWindow();
+                    ShowSettingsWindow();
+                    break;
+
+                // TrayClickAction.None: the same gesture that just auto-hid the popup.
+            }
         }
         catch (Exception ex)
         {
@@ -959,58 +909,53 @@ public partial class App : Application
         }
     }
 
-    // ── Battery history pop-out ──────────────────────────────────────────────────
-
     /// <summary>
-    /// Opens the bigger, resizable battery-history graph window, or focuses it if already open.
-    /// Mirrors TrayMenu's AboutWindow singleton pattern (create once, Activate() thereafter) rather
-    /// than DashboardWindow's hide/show toggle — the window closes itself on focus loss (popup-style
-    /// dismissal), so instances are short-lived and Closed keeps the singleton reference honest.
+    /// Opens the resizable battery-history graph window, or focuses it if already open. The window
+    /// dismisses itself on focus loss, so Closed is what keeps the singleton reference honest.
     /// </summary>
     internal void ShowHistoryWindow()
     {
-        if (_historyWindow is not null)
+        // Guarded like its two siblings: BatteryHistoryWindow renders its graph in the constructor,
+        // and a throw from this XAML event handler would reach Application.UnhandledException,
+        // which deliberately leaves Handled = false.
+        try
         {
+            if (_historyWindow is not null)
+            {
+                _historyWindow.Activate();
+                return;
+            }
+
+            // Captured BEFORE HideWindow below: the pop-out animates open from the dashboard's rect,
+            // and null places the window at its final rect directly.
+            Windows.Graphics.RectInt32? origin = null;
+            if (_dashboard is { } dash && dash.AppWindow.IsVisible)
+            {
+                origin = new Windows.Graphics.RectInt32(
+                    dash.AppWindow.Position.X, dash.AppWindow.Position.Y,
+                    dash.AppWindow.Size.Width, dash.AppWindow.Size.Height);
+
+                // Hidden now rather than via its own Deactivated handler: the dashboard is
+                // IsAlwaysOnTop and would keep fighting the pop-out for z-order at the same rect.
+                dash.HideWindow();
+            }
+
+            _historyWindow = new BatteryHistoryWindow(origin);
+            _historyWindow.Closed += (_, _) => _historyWindow = null;
             _historyWindow.Activate();
-            return;
         }
-
-        // Capture the dashboard's on-screen rect (physical px) NOW — it's read before HideWindow()
-        // below. The pop-out animates open from this rect ("the dashboard's graph grows into a
-        // window"); null (no visible dashboard) skips the animation and places the window at its
-        // final rect directly.
-        Windows.Graphics.RectInt32? origin = null;
-        if (_dashboard is { } dash && dash.AppWindow.IsVisible)
+        catch (Exception ex)
         {
-            origin = new Windows.Graphics.RectInt32(
-                dash.AppWindow.Position.X, dash.AppWindow.Position.Y,
-                dash.AppWindow.Size.Width, dash.AppWindow.Size.Height);
-
-            // Hide the dashboard NOW rather than waiting for its own Deactivated handler to react
-            // to the new window taking focus. The dashboard is IsAlwaysOnTop=true; left visible,
-            // it can keep fighting the freshly-activated (non-topmost) pop-out for z-order/focus
-            // at the exact same on-screen rect, which was observed as the pop-out opening and then
-            // immediately closing again (its own focus-loss dismissal misfiring within the same
-            // instant). Hiding it up front removes that contender entirely.
-            dash.HideWindow();
+            LogCrash("ShowHistoryWindow", ex);
+            _historyWindow = null;   // drop the half-built window so the next click retries cleanly
         }
-
-        _historyWindow = new BatteryHistoryWindow(origin);
-        _historyWindow.Closed += (_, _) => _historyWindow = null;
-        _historyWindow.Activate();
     }
 
-    // ── Settings window (TODO #19) ────────────────────────────────────────────
-
     /// <summary>
-    /// Opens the Settings window, or focuses it if already open. Single reusable instance — same
-    /// lazy-create-once-then-Activate singleton pattern as <see cref="ShowHistoryWindow"/>, but
-    /// (unlike that window and the dashboard) this one is a normal titled/resizable window that
-    /// stays open until the user closes it, not a popup that dismisses on focus loss. Guards
-    /// creation the same way <see cref="ToggleDashboard"/> does: a failure here must not take down
-    /// the tray app.
+    /// Opens the Settings window, or focuses it if already open. Unlike the dashboard and the
+    /// history pop-out this is a normal titled window that stays open until the user closes it.
     /// </summary>
-    private async void ShowSettingsWindow()
+    internal async void ShowSettingsWindow()
     {
         try
         {
@@ -1025,7 +970,7 @@ public partial class App : Application
 
             _settings = new SettingsWindow(_menu!,
                 onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
-                onPresetsChanged: () => _ha?.RepublishDiscovery());
+                onDiscoveryChanged: () => _ha?.RepublishDiscovery());
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }
@@ -1036,12 +981,10 @@ public partial class App : Application
         }
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
-
     private void Shutdown()
     {
-        _intentionalExit = true;   // tells OnProcessExit this teardown is legitimate — no relaunch
-        WatchdogTask.WriteHoldMarker();   // and tells the watchdog task the same — stay down
+        _intentionalExit = true;          // tells OnProcessExit this teardown is legitimate
+        WatchdogTask.WriteHoldMarker();   // and tells the watchdog task to stay down
         AppLog.Info("User exit via tray menu.");
 
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
@@ -1050,7 +993,8 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
-        _ha?.Dispose();   // goes offline in HA but keeps the retained discovery (device persists)
+        LidDelayService.Stop();   // hands the Windows lid-close action back before we go
+        _ha?.Dispose();           // goes offline in HA but keeps the retained discovery
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();

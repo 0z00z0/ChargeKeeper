@@ -1,4 +1,4 @@
-# ChargeKeeper
+﻿# ChargeKeeper
 
 **Battery care from the system tray** — charge limits, a live battery gauge, and smart standby
 control. ChargeKeeper runs on Lenovo ThinkPads (via the Lenovo Power Management Driver) and on
@@ -61,21 +61,18 @@ number.
 
 ## Install
 
-**winget** (recommended):
-
-```powershell
-winget install 0z00z0.ChargeKeeper
-winget upgrade 0z00z0.ChargeKeeper   # update later
-```
-
-Or grab `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
-and run it. The installer is **per-user — no admin needed to install** — and offers two options:
+Download `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
+and run it. The installer is **per-user — no admin needed to install** — and offers one option:
 
 - **Run at startup** — auto-starts the app at sign-in. Ticking it asks for elevation once, to
   register a prompt-free elevated logon task.
-- **Auto update in background** — a logon task that silently runs `winget upgrade` after each
-  sign-in, so the app keeps itself current. Needs no elevation, and only works once the package is
-  available from a winget source (see [installer/README.md](installer/README.md)).
+
+Updates come from GitHub Releases. The app checks 30 seconds after start and once a day after that,
+and the tray menu's **Check for updates** asks on demand. A downloaded installer is verified before
+it is launched: intact digest, a present signature, and the signer `CN=ZeroZero Software`.
+
+winget manifests ship as release assets, but the package is not in `microsoft/winget-pkgs`, so
+`winget install 0z00z0.ChargeKeeper` finds nothing.
 
 The app itself shows a UAC prompt when it launches, since changing the charge threshold / standby
 service requires administrator rights.
@@ -226,26 +223,30 @@ cd installer
 The app targets the Microsoft stack (.NET, Windows App SDK / WinUI 3, `System.*` runtime
 packages). The only **non-Microsoft** dependencies are:
 
-| Library | Author | Purpose | License |
+| Library | Author | Purpose | Licence |
 |---------|--------|---------|---------|
 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) | HavenDV | System-tray icon + native context menu for WinUI 3 | MIT |
 | [TaskScheduler](https://github.com/dahall/TaskScheduler) | David Hall | Managed wrapper over the Windows Task Scheduler API (auto-start) | MIT |
 | [CommunityToolkit.WinUI.Controls.RangeSelector](https://github.com/CommunityToolkit/Windows) | .NET Foundation | Dual-handle range slider (Smart Charge start/stop threshold) | MIT |
 | [CommunityToolkit.WinUI.Controls.SettingsControls](https://github.com/CommunityToolkit/Windows) | .NET Foundation | SettingsCard/SettingsExpander rows (Settings window) | MIT |
 | [WinUIEx](https://github.com/dotMorten/WinUIEx) | Morten Nielsen | WinUI 3 window helper extensions (Settings window placement) | MIT |
-| [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the Home Assistant integration | MIT |
+| [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the broker integration | MIT |
 | [NLog](https://github.com/NLog/NLog) | Jarek Kowalski, Kim Christensen, Julian Verdurmen | Event log with size/age-based rotation (app.log) | BSD-3-Clause |
 
-## Home Assistant (MQTT)
+## MQTT
 
-ChargeKeeper can publish to [Home Assistant](https://www.home-assistant.io/) over MQTT using HA's
-**auto-discovery** — no YAML on the HA side. When enabled it connects to your broker and creates a
-single **ChargeKeeper** device with entities for battery %, charge power (W), on-AC, the Smart Charge
-start/stop thresholds, and the adapter rating; an availability topic (with a Last-Will) marks it
-offline if the app stops.
+ChargeKeeper can publish battery and charge state to an MQTT broker. When enabled it connects to your
+broker and creates a single **ChargeKeeper** device with entities for battery %, charge power (W),
+on-AC, the Smart Charge start/stop thresholds, and the adapter rating; an availability topic (with a
+Last-Will) marks it offline if the app stops.
+
+The entities are announced with the **Home Assistant MQTT Discovery** convention — an openly
+published spec that some MQTT consumers follow and others ignore. [Home Assistant](https://www.home-assistant.io/)
+itself therefore picks the device up with no YAML, and so does any other consumer implementing the
+same convention; one that does not can still subscribe to the state topics directly.
 
 It is **off by default** and never touches the network until you both enable it and set a broker
-host. Configure it from the tray icon → **Settings…** → **Home Assistant** — the enabled toggle
+host. Configure it from the tray icon → **Settings…** → **MQTT** — the enabled toggle
 applies immediately, and the broker host/port/username/password/TLS/discovery-prefix fields commit
 as a batch behind an **Apply** button (so the MQTT connection reconnects once per Apply, not per
 keystroke). The password is never logged or shown in any toast.
@@ -261,7 +262,7 @@ settings folder**), then picked up without restarting via tray icon → **Reload
   "MqttUsername": "your-mqtt-user",
   "MqttPassword": "your-mqtt-password",       // stored locally, same as any MQTT client
   "MqttUseTls": false,
-  "MqttDiscoveryPrefix": "homeassistant"      // must match HA's MQTT discovery prefix
+  "MqttDiscoveryPrefix": "homeassistant"      // the prefix your consumer discovers on
 }
 ```
 
@@ -293,18 +294,18 @@ one Lenovo Vantage uses.
 - **[LenPwrCtl](https://github.com/alandau/LenPwrCtl)** by **alandau** (MIT) — the Power Manager RPC
   interface in [`native/pwrmgr.idl`](native/pwrmgr.idl) (endpoint, context handles, and the
   `LpcGetChargeThreshold` / `LpcSetChargeThreshold` procedure layout) was **reverse-engineered by
-  this project** and is reused here under its MIT license. This app would not be possible without it.
+  this project** and is reused here under its MIT licence. This app would not be possible without it.
   Huge thanks. 🙏
 
 The `native/` bridge (`lenpower.c`) is a thin wrapper that exposes two flat exports over that
 interface for the managed app to P/Invoke; the interface definition itself is alandau's work.
 
 **Tooling:** the installer is built with **[Inno Setup](https://jrsoftware.org/isinfo.php)** by
-Jordan Russell & Martijn Laan (free, with attribution under its license), and distributed via
+Jordan Russell & Martijn Laan (free, with attribution under its licence), and distributed via
 **[winget](https://github.com/microsoft/winget-cli)** (Microsoft, MIT).
 
-## License
+## Licence
 
 [MIT](LICENSE) © ZeroZero Software ([0z0.xyz](https://0z0.xyz)) — you are free to use, modify,
-fork, and redistribute, including commercially, **provided you keep the copyright and license
+fork, and redistribute, including commercially, **provided you keep the copyright and licence
 notice**. See [LICENSE](LICENSE) for the full text.

@@ -1,12 +1,10 @@
 namespace ChargeKeeper.Helpers;
 
-/// <summary>
-/// Minimal <see cref="System.Windows.Input.ICommand"/> implementation that delegates
-/// execution to an <see cref="Action"/>. Used to bind tray icon click handlers.
-/// </summary>
+/// <summary>Minimal <see cref="System.Windows.Input.ICommand"/> that delegates to an
+/// <see cref="Action"/>.</summary>
 internal sealed class RelayCommand(Action execute) : System.Windows.Input.ICommand
 {
-    // ICommand requires this event; always enabled so it is intentionally never raised.
+    // Required by ICommand; always enabled, so it is deliberately never raised.
 #pragma warning disable CS0067
     public event EventHandler? CanExecuteChanged;
 #pragma warning restore CS0067

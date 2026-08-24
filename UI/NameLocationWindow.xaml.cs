@@ -8,24 +8,23 @@ using ChargeKeeper.Helpers;
 namespace ChargeKeeper.UI;
 
 /// <summary>
-/// Minimal name-input prompt (TODO #31) — the "Name location" step when adding a network-profile
-/// configuration for the currently-detected network. Small always-on-top, bordered, no-title-bar
-/// chrome (see <see cref="ConfigureChrome"/>), centred on the monitor under the cursor — the same
-/// popup style the app's other small dialogs use, just with a text-input step instead of static
-/// content.
+/// Name-input prompt for the "Name location" step when adding a network profile for the currently
+/// detected network. Small always-on-top popup, centred on the monitor under the cursor.
 /// </summary>
 internal sealed partial class NameLocationWindow : Window
 {
     private readonly TaskCompletionSource<string?> _result = new();
 
-    /// <param name="suggestedName">
-    /// Pre-filled and pre-selected so accepting the default is a single Enter/click — derived from
-    /// the detected location's WiFi SSID or adapter name (see <c>NetworkLocationService.DisplayHint</c>),
-    /// never left blank, so there's always something sensible to accept without typing.
-    /// </param>
-    internal NameLocationWindow(string suggestedName)
+    /// <param name="suggestedName">Pre-filled and pre-selected, so the default can be accepted with one Enter.</param>
+    /// <param name="matchKey">The MAC/subnet the profile will match on; the row is hidden when not supplied.</param>
+    internal NameLocationWindow(string suggestedName, string? matchKey = null)
     {
         InitializeComponent();
+
+        MatchKeyText.Text = string.IsNullOrWhiteSpace(matchKey) ? "" : $"Matches on {matchKey}";
+        MatchKeyText.Visibility = MatchKeyText.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        // Must run after the match-key row is set: it measures the content to size the window.
         ConfigureChrome();
 
         NameBox.Text = suggestedName;
@@ -33,10 +32,8 @@ internal sealed partial class NameLocationWindow : Window
 
         OkBtn.Click     += (_, _) => Accept(suggestedName);
         CancelBtn.Click += (_, _) => { _result.TrySetResult(null); Close(); };
-        // Alt+F4 / clicking away (this window is always-on-top but not focus-locked) without
-        // using either button — treat exactly like Cancel rather than leaving the caller's await
-        // hanging forever. TrySetResult (not SetResult) makes this a safe no-op when a button
-        // already completed the result.
+        // A dismiss without either button completes as a cancel, rather than leaving the caller's
+        // await hanging. TrySetResult, so it is a no-op when a button already completed the result.
         Closed += (_, _) => _result.TrySetResult(null);
 
         NameBox.KeyDown += (_, e) =>
@@ -70,14 +67,11 @@ internal sealed partial class NameLocationWindow : Window
         int cw = (int)Math.Round(300 * scale);
         int ch = (int)Math.Round((Root.DesiredSize.Height > 0 ? Root.DesiredSize.Height : 120) * scale);
 
-        // Size first, then centre: this window's height is whatever the measured content needs, and
-        // the CLIENT area is what must be exactly that — so it can't use
-        // NativeMethods.CenterRectOnCursorMonitor (one MoveAndResize of an outer rect, which would
-        // shrink the client by the border). ResizeClient adds the non-client border on top, hence
-        // re-reading AppWindow.Size for the outer extent the centring must actually work from.
+        // The CLIENT area must be exactly the measured height, so CentreRectOnCursorMonitor is no use
+        // here — it sizes an outer rect. ResizeClient adds the border on top, hence re-reading Size.
         AppWindow.ResizeClient(new SizeInt32(cw, ch));
         var outer = AppWindow.Size;
-        var rect  = NativeMethods.CenterInWorkArea(work, outer.Width, outer.Height);
+        var rect  = NativeMethods.CentreInWorkArea(work, outer.Width, outer.Height);
         AppWindow.Move(new PointInt32(rect.X, rect.Y));
     }
 }
