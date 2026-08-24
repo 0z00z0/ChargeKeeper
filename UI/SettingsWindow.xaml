@@ -410,19 +410,16 @@
                          and not the name of a dependency. -->
                     <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Publish to MQTT" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="publishing to MQTT"
-                                        Info="The master switch for the whole feature. Nothing on the network is touched while it is off, and the rest of this page is hidden because none of it applies."/>
-                    </StackPanel>
-
+                    <!-- No section heading of its own: the master switch is one card directly under
+                         the page title, the way every other page opens, and a heading here would
+                         only repeat the card's own name back at it. -->
                     <controls:SettingsCard Header="Publish to MQTT">
                         <controls:SettingsCard.Description>
                             <TextBlock Text="Publishes battery and charge state to an MQTT broker." Style="{StaticResource SettingHintStyle}"/>
                         </controls:SettingsCard.Description>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <local:InfoIcon Subject="the publish switch"
-                                            Info="The entities are announced by auto-discovery. This switch applies immediately; the broker fields apply on Apply."/>
+                                            Info="The master switch for the whole feature. Nothing on the network is touched while it is off, and the rest of this page is hidden because none of it applies. The entities are announced by auto-discovery; this switch applies immediately, while the broker fields apply on Apply."/>
                             <ToggleSwitch x:Name="HaEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHaEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -528,16 +525,21 @@
                             </StackPanel>
                         </controls:SettingsCard>
 
+                        <!-- A section, headed like every other one. An expander's own Header draws
+                             inside the card chrome and reads as a settings row, not as a title, so
+                             the name lives above the chrome and the expander does not repeat it. -->
                         <Border Style="{StaticResource SectionDividerStyle}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                            <local:InfoIcon Subject="the broker section"
+                                            Info="These fields are staged locally and take effect on Apply, so the connection is remade once per edit session rather than once per keystroke. Port and transport left on Automatic are found by probing."/>
+                        </StackPanel>
 
-                        <controls:SettingsExpander x:Name="MqttBrokerExpander" IsExpanded="False"
-                                                   Header="Broker">
+                        <controls:SettingsExpander x:Name="MqttBrokerExpander" IsExpanded="False">
                             <controls:SettingsExpander.Description>
                                 <TextBlock Text="How the broker is reached. Staged here and applied together."
                                            Style="{StaticResource SettingHintStyle}"/>
                             </controls:SettingsExpander.Description>
-                            <local:InfoIcon Subject="the broker section"
-                                            Info="These fields are staged locally and take effect on Apply, so the connection is remade once per edit session rather than once per keystroke. Port and transport left on Automatic are found by probing."/>
 
                             <controls:SettingsExpander.Items>
                                 <controls:SettingsCard Header="Host">
@@ -686,15 +688,18 @@
                         <!-- Last, and closed: each group maps to a Settings page, so what a toggle
                              covers needs no explaining beyond its own name, and the set is changed
                              far less often than anything above it. -->
-                        <controls:SettingsExpander x:Name="MqttPublishExpander" IsExpanded="False"
-                                                   Header="What to publish"
-                                                   Margin="0,4,0,0">
+                        <Border Style="{StaticResource SectionDividerStyle}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="What to publish" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
+                            <local:InfoIcon Subject="the publishing groups"
+                                            Info="Each group covers the entities from the Settings page it is named after. Switching a group off withdraws its entities from the broker, so nothing is left behind as unavailable; switching it back on announces them again. Entities the hardware cannot honour are never announced, whatever these are set to."/>
+                        </StackPanel>
+
+                        <controls:SettingsExpander x:Name="MqttPublishExpander" IsExpanded="False">
                             <controls:SettingsExpander.Description>
                                 <TextBlock Text="Which groups of entities are announced."
                                            Style="{StaticResource SettingHintStyle}"/>
                             </controls:SettingsExpander.Description>
-                            <local:InfoIcon Subject="the publishing groups"
-                                            Info="Each group covers the entities from the Settings page it is named after. Switching a group off withdraws its entities from the broker, so nothing is left behind as unavailable; switching it back on announces them again. Entities the hardware cannot honour are never announced, whatever these are set to."/>
 
                             <controls:SettingsExpander.Items>
                                 <!-- One row per Settings page. Switching one off is a removal, not a
