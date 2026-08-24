@@ -13,11 +13,15 @@
         scripts\make-appicon.ps1        -> Assets\AppIcon.ico / .png, Assets\SetupIcon.ico
         installer\make-wizard-images.ps1 -> installer\wizard\wiz*.bmp
 
-    THE FOUR REPRESENTATIONS (keep in sync — there is no test that will catch drift):
+    THE FOUR REPRESENTATIONS:
       1. brand\chargekeeper-icon.svg   — the authoritative vector; change it FIRST.
       2. this file                     — both PowerShell generators.
       3. Helpers\IconGenerator.cs      — the runtime tray icon (C#; cannot share this code).
       4. installer\wizard\*.svg        — design references for the wizard banners only.
+
+    Tests\BrandMarkGeometryTests.cs pins 1-3 together: it parses $BatteryGlyphGeometry below and
+    the SVG's attributes, and probes IconGenerator's own render. Representation 4 is a design
+    reference that nothing generates from, and no test covers it.
 
     Callers own their own surface (plates, backgrounds, banners, text). This file owns the glyph
     and the palettes, nothing else.
@@ -66,6 +70,45 @@ $BatteryGlyphPalettes = @{
     }
 }
 
+# ── Geometry ──────────────────────────────────────────────────────────────────
+# brand\chargekeeper-icon.svg on its 256-unit reference canvas, one figure per key. Declared as
+# data rather than inlined into the drawing calls because Tests\BrandMarkGeometryTests.cs parses
+# this block and compares every value with the SVG's attributes and with Helpers\IconGenerator.cs.
+#
+# Keep the shape of each line — "Name = <number>", one per line — or the test stops seeing the key
+# and fails loudly rather than silently passing.
+#
+# Body, cap and guard share the centre line y = 128; the fill band is the body's inner rect inset
+# by ~14 units on every side. The ink spans y 29..227, i.e. 77 % of the canvas.
+$BatteryGlyphGeometry = @{
+    Canvas      = 256.0
+
+    BodyX       = 15.0
+    BodyY       = 51.0
+    BodyW       = 191.0
+    BodyH       = 154.0
+    BodyRadius  = 6.0
+    BodyPen     = 13.0
+
+    CapX        = 221.0
+    CapY        = 93.0
+    CapW        = 20.0
+    CapH        = 70.0
+    CapRadius   = 3.0
+
+    FillX       = 36.0
+    FillY       = 72.0
+    FillW       = 113.24
+    FillH       = 113.0
+    FillRadius  = 3.0
+    FillAlpha   = 230.0
+
+    GuardX      = 161.16
+    GuardTop    = 29.0
+    GuardBottom = 227.0
+    GuardPen    = 9.0
+}
+
 # Rounded rect as a GraphicsPath; radius clamped to half the shorter side so tiny frames can't
 # produce arcs larger than the rect itself (GDI+ folds them over on themselves otherwise).
 function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]$r) {
@@ -106,12 +149,14 @@ function Draw-BatteryGlyph {
         [double]   $MinGuardPen = 0.0
     )
 
-    # Geometry below is brand\chargekeeper-icon.svg verbatim, on its 256-unit canvas.
+    # Every figure comes from $BatteryGlyphGeometry above, which is brand\chargekeeper-icon.svg.
+    $m = $BatteryGlyphGeometry
 
     # Battery body outline: flat stroke, round line-join.
-    $bodyPath = New-RoundedRectPath ($ox + 15 * $s) ($oy + 80 * $s) (191 * $s) (96 * $s) (6 * $s)
+    $bodyPath = New-RoundedRectPath ($ox + $m.BodyX * $s) ($oy + $m.BodyY * $s) `
+                                    ($m.BodyW * $s) ($m.BodyH * $s) ($m.BodyRadius * $s)
     try {
-        $bodyPen = New-Object System.Drawing.Pen($Palette.Body, [Math]::Max(13 * $s, $MinBodyPen))
+        $bodyPen = New-Object System.Drawing.Pen($Palette.Body, [Math]::Max($m.BodyPen * $s, $MinBodyPen))
         try {
             $bodyPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
             $g.DrawPath($bodyPen, $bodyPath)
@@ -119,26 +164,29 @@ function Draw-BatteryGlyph {
     } finally { $bodyPath.Dispose() }
 
     # Battery cap (positive terminal): solid, same tone as the body.
-    $capPath = New-RoundedRectPath ($ox + 221 * $s) ($oy + 106 * $s) (20 * $s) (44 * $s) (3 * $s)
+    $capPath = New-RoundedRectPath ($ox + $m.CapX * $s) ($oy + $m.CapY * $s) `
+                                   ($m.CapW * $s) ($m.CapH * $s) ($m.CapRadius * $s)
     try {
         $cap = New-Object System.Drawing.SolidBrush($Palette.Body)
         try { $g.FillPath($cap, $capPath) } finally { $cap.Dispose() }
     } finally { $capPath.Dispose() }
 
-    # Interior charge fill: solid at ~90 % opacity (alpha ≈ 230).
-    $fillPath = New-RoundedRectPath ($ox + 36 * $s) ($oy + 101 * $s) (110 * $s) (55 * $s) (3 * $s)
+    # Interior charge fill: solid at ~90 % opacity (alpha 230).
+    $fillPath = New-RoundedRectPath ($ox + $m.FillX * $s) ($oy + $m.FillY * $s) `
+                                    ($m.FillW * $s) ($m.FillH * $s) ($m.FillRadius * $s)
     try {
         $fillBrush = New-Object System.Drawing.SolidBrush(
-            [System.Drawing.Color]::FromArgb(230, $Palette.Fill))
+            [System.Drawing.Color]::FromArgb([int]$m.FillAlpha, $Palette.Fill))
         try { $g.FillPath($fillBrush, $fillPath) } finally { $fillBrush.Dispose() }
     } finally { $fillPath.Dispose() }
 
     # Guard line crossing the body — flat/butt caps (NOT round); round caps would bulge past the
-    # body outline at the top and bottom, which the vector does not do.
-    $limitPen = New-Object System.Drawing.Pen($Palette.Guard, [Math]::Max(9 * $s, $MinGuardPen))
+    # line's declared ink extent at the top and bottom, which the vector does not do.
+    $limitPen = New-Object System.Drawing.Pen($Palette.Guard, [Math]::Max($m.GuardPen * $s, $MinGuardPen))
     try {
         $limitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Flat
         $limitPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Flat
-        $g.DrawLine($limitPen, ($ox + 161 * $s), ($oy + 66 * $s), ($ox + 161 * $s), ($oy + 190 * $s))
+        $g.DrawLine($limitPen, ($ox + $m.GuardX * $s), ($oy + $m.GuardTop    * $s),
+                               ($ox + $m.GuardX * $s), ($oy + $m.GuardBottom * $s))
     } finally { $limitPen.Dispose() }
 }
