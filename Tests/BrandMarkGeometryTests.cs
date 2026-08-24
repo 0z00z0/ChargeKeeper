@@ -3,8 +3,6 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using ChargeKeeper.Helpers;
-using ChargeKeeper.Services;
-using ChargeKeeper.Vendors;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -14,7 +12,14 @@ namespace ChargeKeeper.Tests;
 /// vector, scripts\BatteryGlyph.ps1 for the two build-time generators, and Helpers\IconGenerator.cs
 /// for the in-process tray icon. Nothing can share code across that divide, so these tests are what
 /// stops the three drifting: a change to one and not the others goes red here instead of shipping
-/// an executable whose Explorer icon no longer matches its own tray icon.
+/// an executable whose Explorer icon no longer matches the brand it is drawn from.
+/// <para>
+/// IconGenerator states the mark's heights TWICE, on purpose: AppIconHeights is the brand's own
+/// landscape shape, which the vector and the glyph script describe and every baked bitmap uses;
+/// TraySlotHeights is the same mark stretched to fill a square 16 px notification-area slot. Both
+/// are pinned below — the static set against the other two representations, the tray set against
+/// its own literals — and a further test holds them apart, so re-merging them cannot pass quietly.
+/// </para>
 /// </summary>
 public class BrandMarkGeometryTests
 {
@@ -213,14 +218,64 @@ public class BrandMarkGeometryTests
         Assert.Equal(IconGenerator.MarkCanvas, ReadSvg().Canvas, Tolerance);
 
     [Fact]
-    public void TheVectorsGuardLineSpansTheRenderersInkExtent()
+    public void TheVectorStatesTheSameHeightsAsTheStaticGeometrySet()
     {
-        // MarkInkTop/MarkInkBottom are what the tray renderer draws the threshold line between, and
-        // what TrayIconContrastTests measures the frame usage against. The vector's line is the same
-        // line, so the two extents are the same numbers.
-        var svg = ReadSvg();
-        Assert.Equal(IconGenerator.MarkInkTop,    svg.GuardTop,    Tolerance);
-        Assert.Equal(IconGenerator.MarkInkBottom, svg.GuardBottom, Tolerance);
+        // The whole of AppIconHeights against the whole of the vector, in one place: body, cap,
+        // interior band and the guard line's ink extent. Body and cap are private constants in the
+        // renderer no longer — they are this record — so this is a direct pin rather than a probe.
+        var svg    = ReadSvg();
+        var appIcon = IconGenerator.AppIconHeights;
+
+        Assert.Equal(svg.BodyY,       appIcon.BodyTop,        Tolerance);
+        Assert.Equal(svg.BodyBottom,  appIcon.BodyBottom,     Tolerance);
+        Assert.Equal(svg.CapY,        appIcon.CapTop,         Tolerance);
+        Assert.Equal(svg.CapY + svg.CapH, appIcon.CapBottom,  Tolerance);
+        Assert.Equal(svg.FillY,       appIcon.InteriorTop,    Tolerance);
+        Assert.Equal(svg.FillY + svg.FillH, appIcon.InteriorBottom, Tolerance);
+        Assert.Equal(svg.GuardTop,    appIcon.InkTop,         Tolerance);
+        Assert.Equal(svg.GuardBottom, appIcon.InkBottom,      Tolerance);
+    }
+
+    [Fact]
+    public void TheTraySlotSetKeepsTheMaximisedHeights()
+    {
+        // #112: the notification-area slot is square and as little as 16 px across, so the tray icon
+        // gets the brand mark's vertical figures scaled 1.6x about y = 128. Pinned to its own
+        // literals rather than derived from the vector — the vector deliberately does NOT say this.
+        var tray = IconGenerator.TraySlotHeights;
+
+        Assert.Equal(51.0,  tray.BodyTop,        Tolerance);
+        Assert.Equal(205.0, tray.BodyBottom,     Tolerance);
+        Assert.Equal(93.0,  tray.CapTop,         Tolerance);
+        Assert.Equal(163.0, tray.CapBottom,      Tolerance);
+        Assert.Equal(72.0,  tray.InteriorTop,    Tolerance);
+        Assert.Equal(185.0, tray.InteriorBottom, Tolerance);
+        Assert.Equal(29.0,  tray.InkTop,         Tolerance);
+        Assert.Equal(227.0, tray.InkBottom,      Tolerance);
+    }
+
+    [Fact]
+    public void TheTwoHeightSetsStayApart()
+    {
+        // The failure this exists for is a re-merge: assigning one set to the other, or propagating
+        // the tray's figures back into the vector, which is what made the installer and About icons
+        // chubby the first time. Every tray figure is strictly outside its static counterpart.
+        var appIcon = IconGenerator.AppIconHeights;
+        var tray    = IconGenerator.TraySlotHeights;
+
+        Assert.True(tray.BodyTop        < appIcon.BodyTop,        "the tray body is no taller than the brand's.");
+        Assert.True(tray.BodyBottom     > appIcon.BodyBottom,     "the tray body is no taller than the brand's.");
+        Assert.True(tray.CapTop         < appIcon.CapTop,         "the tray cap is no taller than the brand's.");
+        Assert.True(tray.CapBottom      > appIcon.CapBottom,      "the tray cap is no taller than the brand's.");
+        Assert.True(tray.InteriorTop    < appIcon.InteriorTop,    "the tray interior is no taller than the brand's.");
+        Assert.True(tray.InteriorBottom > appIcon.InteriorBottom, "the tray interior is no taller than the brand's.");
+        Assert.True(tray.InkTop         < appIcon.InkTop,         "the tray ink is no taller than the brand's.");
+        Assert.True(tray.InkBottom      > appIcon.InkBottom,      "the tray ink is no taller than the brand's.");
+
+        // Both sets stay on the canvas's centre line, so the two marks differ in height and in
+        // nothing else.
+        Assert.Equal(IconGenerator.MarkCanvas / 2f, (appIcon.InkTop + appIcon.InkBottom) / 2f, 1.0);
+        Assert.Equal(IconGenerator.MarkCanvas / 2f, (tray.InkTop    + tray.InkBottom)    / 2f, 1.0);
     }
 
     [Fact]
@@ -260,21 +315,14 @@ public class BrandMarkGeometryTests
 
     private static string Hex(uint packedArgb) => $"#{packedArgb & 0x00FFFFFF:X6}";
 
-    // ── Vector vs the pixels the runtime renderer actually produces ───────────
+    // ── Vector vs the pixels the static renderer actually produces ────────────
     //
-    // The figures above are only the ones IconGenerator exposes. Body and cap live in private
-    // constants, so the vector is held against them the only way available from outside: render the
-    // mark at the reference canvas size and probe where the vector says its shapes are.
-
-    /// <summary>The threshold state that makes the live renderer draw the canonical static icon:
-    /// capped at the brand's guard position, with no start mark (Start = 0 is what a mode-based
-    /// vendor reports, and HasStartThreshold rejects it).</summary>
-    private static ChargeThresholdState CanonicalThreshold() =>
-        new(Capable: true, Enabled: true, Start: 0, Stop: IconGenerator.MarkCanonicalGuard);
+    // The declared figures agreeing is not the same as the render obeying them. These probe the
+    // bitmap the static .ico is written from, at the reference canvas size, where the vector says
+    // each shape is. A tray-set render substituted here would fail every one of them.
 
     private static Bitmap RenderCanonicalMark() =>
-        IconGenerator.RenderStyleBitmap((int)IconGenerator.MarkCanvas, IconGenerator.MarkCanonicalPercent,
-                                        charging: false, TrayIconMode.BrandMark, CanonicalThreshold());
+        IconGenerator.RenderAppIconBitmap((int)IconGenerator.MarkCanvas);
 
     [Fact]
     public void TheRenderedMarkHasItsBodyWhereTheVectorDrawsIt()

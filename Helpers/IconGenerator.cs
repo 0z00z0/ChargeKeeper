@@ -148,7 +148,7 @@ internal static class IconGenerator
 
     // Stamped into the filename so an in-place app update regenerates the icon rather than serving
     // the previous version's cached file. Bump on any change to the mark.
-    private const string IconVersion = "v8";
+    private const string IconVersion = "v9";
 
     /// <summary>Generates the multi-size ICO file and returns its path, or returns the cached path
     /// when it already exists.</summary>
@@ -188,7 +188,7 @@ internal static class IconGenerator
         mode switch
         {
             TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
-            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging, threshold),
+            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging, threshold, TraySlotHeights),
             _                      => RenderBatteryBitmap(size, percent, charging, threshold),
         };
 
@@ -247,27 +247,44 @@ internal static class IconGenerator
 
     // Brand-mark geometry on the 256-unit reference canvas. The interior band is where the charge
     // fill lives: 0 % is its left edge, 100 % its right, and the guard line sits at a percentage on
-    // the same scale.
-    //
-    // The vertical figures are the SVG's scaled 1.6x about the centre line: the mark's proportions
-    // are landscape and the tray slot is square, so it used to be a letterbox with 48 % of the frame
-    // height in use. The horizontal figures are untouched — they already spanned 91 %.
+    // the same scale. Horizontal figures, radii, pen widths and colours are the same wherever the
+    // mark is drawn; the heights are not, and MarkHeights is that difference.
     private const float MarkInteriorLeft  = 36f;
     private const float MarkInteriorRight = 185f;
-    private const float MarkInteriorTop    = 72f;
-    private const float MarkInteriorBottom = 185f;
-
-    // Body, cap and the guard line's vertical extent. The guard overhangs the body top and bottom,
-    // so its extent is the mark's full ink height.
-    private const float MarkBodyTop    = 51f;
-    private const float MarkBodyBottom = 205f;
-    private const float MarkCapTop     = 93f;
-    private const float MarkCapBottom  = 163f;
-    internal const float MarkInkTop    = 29f;
-    internal const float MarkInkBottom = 227f;
 
     /// <summary>The reference canvas the mark's figures are expressed on.</summary>
     internal const float MarkCanvas = 256f;
+
+    /// <summary>The mark's vertical figures, all centred on y = 128. The guard line overhangs the
+    /// body top and bottom, so its extent is the mark's full ink height.</summary>
+    internal readonly record struct MarkHeights(
+        float BodyTop, float BodyBottom,
+        float CapTop,  float CapBottom,
+        float InteriorTop, float InteriorBottom,
+        float InkTop,  float InkBottom);
+
+    // TWO SETS, DELIBERATELY. The surfaces are shaped differently and one set cannot serve both, so
+    // re-merging them regresses whichever one loses. #112 asked for the tray slot alone.
+
+    /// <summary>The mark in the brand's own proportions, as brand\chargekeeper-icon.svg draws it:
+    /// landscape, its ink over 48 % of the canvas height. This is what the static on-disk .ico, the
+    /// app and setup icons and the wizard banners are drawn on — surfaces whose chrome leaves the
+    /// mark room around it, and where stretching it to the frame reads as a chubby battery.</summary>
+    internal static readonly MarkHeights AppIconHeights = new(
+        BodyTop:      80f, BodyBottom:     176f,
+        CapTop:      106f, CapBottom:      150f,
+        InteriorTop: 101f, InteriorBottom: 156f,
+        InkTop:       66f, InkBottom:      190f);
+
+    /// <summary>The same mark with its vertical figures scaled 1.6x about the centre line, taking
+    /// the ink to 77 % of the canvas height. The live tray icon only: the notification area's slot
+    /// is square and as little as 16 px across, so the brand's landscape proportions letterbox away
+    /// half of it.</summary>
+    internal static readonly MarkHeights TraySlotHeights = new(
+        BodyTop:      51f, BodyBottom:     205f,
+        CapTop:       93f, CapBottom:      163f,
+        InteriorTop:  72f, InteriorBottom: 185f,
+        InkTop:       29f, InkBottom:      227f);
 
     // The charge level and guard position that reproduce brand\chargekeeper-icon.svg's fixed fill
     // rect and guard line. 76 % rather than the exact 74 % the rect measures, because 74 lands in
@@ -285,15 +302,18 @@ internal static class IconGenerator
     /// an interior fill in the charge tier's colour at <paramref name="percent"/>, and the Terracotta
     /// threshold lines <paramref name="threshold"/> calls for, expressed on a 256-unit reference
     /// canvas scaled to <paramref name="size"/> with stroke floors that keep it legible at 16 px.
+    /// <paramref name="heights"/> picks the proportions: <see cref="TraySlotHeights"/> for the live
+    /// tray icon, <see cref="AppIconHeights"/> for everything drawn in the brand's own shape.
     /// </summary>
     /// <remarks>
     /// A deliberate hand-maintained third copy of the geometry: the two build-time generators share
     /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process and cannot shell out to
-    /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative — change it,
-    /// then BatteryGlyph.ps1, then here. No test catches the three drifting apart.
+    /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative for
+    /// <see cref="AppIconHeights"/> — change it, then BatteryGlyph.ps1, then here.
+    /// Tests\BrandMarkGeometryTests.cs pins the three together, and pins the two height sets apart.
     /// </remarks>
     private static Bitmap RenderMarkBitmap(int size, int percent, bool charging,
-                                           ChargeThresholdState? threshold)
+                                           ChargeThresholdState? threshold, MarkHeights heights)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -304,7 +324,7 @@ internal static class IconGenerator
         float s = size / MarkCanvas;
 
         // Battery body outline.
-        var bodyRect = RectangleF.FromLTRB(15 * s, MarkBodyTop * s, 206 * s, MarkBodyBottom * s);
+        var bodyRect = RectangleF.FromLTRB(15 * s, heights.BodyTop * s, 206 * s, heights.BodyBottom * s);
         using (var bodyPath = BuildRoundedRectPath(bodyRect, 6 * s))
         using (var bodyPen  = new System.Drawing.Pen(MarkSteel, Math.Max(13 * s, 1.6f))
                                    { LineJoin = LineJoin.Round })
@@ -312,7 +332,7 @@ internal static class IconGenerator
 
         // Battery cap (positive terminal).
         using (var capPath = BuildRoundedRectPath(
-                   RectangleF.FromLTRB(221 * s, MarkCapTop * s, 241 * s, MarkCapBottom * s), 3 * s))
+                   RectangleF.FromLTRB(221 * s, heights.CapTop * s, 241 * s, heights.CapBottom * s), 3 * s))
         using (var cap     = new SolidBrush(MarkSteel))
             g.FillPath(cap, capPath);
 
@@ -321,8 +341,8 @@ internal static class IconGenerator
         float fillRight = MarkInteriorX(percent);
         if (fillRight > MarkInteriorLeft)
         {
-            var fillRect = RectangleF.FromLTRB(MarkInteriorLeft * s, MarkInteriorTop * s,
-                                               fillRight * s, MarkInteriorBottom * s);
+            var fillRect = RectangleF.FromLTRB(MarkInteriorLeft * s, heights.InteriorTop * s,
+                                               fillRight * s, heights.InteriorBottom * s);
             using var fillPath  = BuildRoundedRectPath(fillRect, 3 * s);
             using var fillBrush = new SolidBrush(Color.FromArgb(230, FillFor(percent, charging)));
             g.FillPath(fillBrush, fillPath);
@@ -332,8 +352,8 @@ internal static class IconGenerator
         // Start first: where the two nearly meet, the stop mark is the one that must stay readable.
         var (stop, start) = ThresholdMarksFor(threshold);
         var contrast      = CurrentContrast();
-        if (start is { } startPct) DrawMarkLine(g, size, startPct, contrast, minor: true);
-        if (stop  is { } stopPct)  DrawMarkLine(g, size, stopPct,  contrast, minor: false);
+        if (start is { } startPct) DrawMarkLine(g, size, startPct, contrast, heights, minor: true);
+        if (stop  is { } stopPct)  DrawMarkLine(g, size, stopPct,  contrast, heights, minor: false);
 
         return bmp;
     }
@@ -341,12 +361,13 @@ internal static class IconGenerator
     /// <summary>Draws one threshold line across the mark's interior at <paramref name="percent"/>.
     /// A halo goes down first: at 16 px the line itself is two pixels of a mid-tone, which on a
     /// light taskbar is nothing. <paramref name="minor"/> draws the thinner start mark.</summary>
-    private static void DrawMarkLine(Graphics g, int size, int percent, IconContrast contrast, bool minor)
+    private static void DrawMarkLine(Graphics g, int size, int percent, IconContrast contrast,
+                                     MarkHeights heights, bool minor)
     {
         float s      = size / MarkCanvas;
         float x      = MarkInteriorX(percent) * s;
-        float top    = MarkInkTop    * s;
-        float bottom = MarkInkBottom * s;
+        float top    = heights.InkTop    * s;
+        float bottom = heights.InkBottom * s;
         // Flat caps and a ≥1.5 px floor, so the line survives the 16 px frame without overhanging.
         float width  = minor ? Math.Max(6 * s, 1.5f) : Math.Max(9 * s, 2f);
         Color color  = MarkTerracotta;
@@ -363,10 +384,12 @@ internal static class IconGenerator
     }
 
     /// <summary>The mark in its canonical brand proportions, for the static on-disk .ico: the same
-    /// renderer as the live style, fed the charge level and guard position that land where
-    /// brand\chargekeeper-icon.svg puts them, so the file and the style cannot drift.</summary>
-    private static Bitmap RenderIconBitmap(int size) =>
-        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold);
+    /// renderer as the live style but on <see cref="AppIconHeights"/>, fed the charge level and
+    /// guard position that land where brand\chargekeeper-icon.svg puts them, so the file and the
+    /// vector cannot drift.</summary>
+    internal static Bitmap RenderAppIconBitmap(int size) =>
+        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold,
+                         AppIconHeights);
 
     /// <summary>The threshold state that puts the mark's guard line where the brand puts it. Start is
     /// 0 — the brand has one line, and 0 is also what a mode-based vendor reports.</summary>
@@ -538,7 +561,7 @@ internal static class IconGenerator
     {
         var tmp = filePath + ".tmp";
         using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-            WriteIco(fs, RenderIconBitmap, IconSizes);
+            WriteIco(fs, RenderAppIconBitmap, IconSizes);
         File.Move(tmp, filePath, overwrite: true);
     }
 }
