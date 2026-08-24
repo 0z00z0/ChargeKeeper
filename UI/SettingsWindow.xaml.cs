@@ -54,8 +54,10 @@ internal sealed partial class SettingsWindow : Window
         // window and calls Activate() once the ctor returns, so a throw here leaves an orphaned,
         // never-shown window and every later "Settings…" click leaks another.
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
-        SafeInit(nameof(RefreshAllSections), RefreshAllSections);
+        // Before RefreshAllSections, which reloads the panel: an uninitialised one ignores a reload,
+        // so the other order works only by accident.
         SafeInit(nameof(InitialiseMqttPanel), InitialiseMqttPanel);
+        SafeInit(nameof(RefreshAllSections), RefreshAllSections);
         SafeInit(nameof(LoadAboutOnce), LoadAboutOnce);
         // Before the first layout pass: MeasureTallestPageExtent sizes the window to the tallest
         // page, and Smart Charge is much shorter once its sections are hidden on fixed-mode hardware.
