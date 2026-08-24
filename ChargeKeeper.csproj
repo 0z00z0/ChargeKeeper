@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
@@ -201,7 +201,6 @@
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
-    <PackageReference Include="MQTTnet" Version="5.2.0.1603" />
     <!-- Pinned exact (not floating), like WinUIEx below — latest stable as of 2026-07-17. Backs
          Services/AppLog; adopted to get bounded log rotation (app.log grew unbounded) rather than
          re-inventing it. NB the MAJOR matters: NLog 6 removed FileTarget.concurrentWrites and
@@ -230,8 +229,35 @@
        (SHARED_REF in ci.yml/release.yml), so builds are reproducible; local dev uses the live
        sibling folder. (The repo/folder was renamed ZeroZeroBrand → 0z0-shared 2026-07-13; project
        name ZeroZero.Brand.WinUI is unchanged.) Integration contract documented in README. -->
+  <PropertyGroup>
+    <ZeroZeroSharedDir Condition="'$(ZeroZeroSharedDir)' == ''">..\0z0-shared</ZeroZeroSharedDir>
+  </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\0z0-shared\src\ZeroZero.Brand.WinUI\ZeroZero.Brand.WinUI.csproj" />
+    <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Brand.WinUI\ZeroZero.Brand.WinUI.csproj" />
+    <!--
+      The MQTT module. ONE reference: ZeroZero.Mqtt.WinUI brings ZeroZero.Mqtt.Discovery,
+      ZeroZero.Mqtt and ZeroZero.Config with it, and MQTTnet transitively inside ZeroZero.Mqtt,
+      which is the only assembly that sees it — no client-library type reaches a public signature,
+      so this app no longer references MQTTnet at all. Implementation guide:
+      0z0-shared/docs/zerozero-mqtt.md.
+
+      UndefineProperties is required whenever the consuming app publishes self-contained with
+      WindowsAppSDKSelfContained set as a GLOBAL property: MSBuild propagates a global into every
+      project reference, and the Windows App SDK targets reject it on a class library. This app
+      declares it as a project property instead (see above), so the metadata only covers a
+      command-line publish that sets it globally.
+    -->
+    <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Mqtt.WinUI\ZeroZero.Mqtt.WinUI.csproj">
+      <UndefineProperties>WindowsAppSDKSelfContained</UndefineProperties>
+    </ProjectReference>
+    <!--
+      The entity and document layer. A SECOND reference is required, contrary to the guide's
+      "a consumer takes one project reference": ZeroZero.Mqtt.WinUI references ZeroZero.Mqtt and
+      ZeroZero.Brand.WinUI only, so the panel alone brings no entity vocabulary and every
+      Discovery type fails to resolve with CS0234. Measured against v0.1.0.
+    -->
+    <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Mqtt.Discovery\ZeroZero.Mqtt.Discovery.csproj" />
   </ItemGroup>
 
   <!--

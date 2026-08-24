@@ -1,7 +1,7 @@
 namespace ChargeKeeper.Services;
 
-/// <summary>The charge-control actions an inbound MQTT command can trigger, behind an interface so the
-/// dispatcher's routing can be tested with a spy instead of the live vendor RPC.</summary>
+/// <summary>The charge-control actions an inbound MQTT command can trigger, behind an interface so
+/// the entity table's command seam can be tested with a spy instead of the live vendor RPC.</summary>
 internal interface IChargeControlActions
 {
     /// <summary>Current start/stop to combine a single-bound number-set against; falls back to a valid
@@ -21,12 +21,12 @@ internal interface IChargeControlActions
 }
 
 /// <summary>The settings an inbound MQTT command can write — the same writes the Settings window
-/// makes. Behind an interface for the same reason as <see cref="IChargeControlActions"/>: the routing
-/// is testable without touching settings.json, the power scheme or a vendor service.</summary>
-internal interface IHaSettingsActions
+/// makes. Behind an interface for the same reason as <see cref="IChargeControlActions"/>: the command
+/// seam is testable without touching settings.json, the power scheme or a vendor service.</summary>
+internal interface ISettingsActions
 {
-    /// <summary>The configured preset names, for the one membership check the parser cannot do: the
-    /// list changes while the app runs.</summary>
+    /// <summary>The configured preset names, which are the two preset-backed selects' options. Read on
+    /// every announcement pass, because the list changes while the app runs.</summary>
     IReadOnlyList<string> PresetNames();
 
     void SetKeepAwake(bool on);
@@ -49,103 +49,35 @@ internal interface IHaSettingsActions
     void SetDowntimeGap(int minutes);
 }
 
-/// <summary>Pure routing from a parsed <see cref="HaCommand"/> to an action, including the clamp that
-/// keeps a single-bound threshold set MinGap from its companion. False means the command was refused
-/// and nothing was applied.</summary>
-internal static class HaCommandDispatcher
+/// <summary>The one rule a charge threshold arriving on its own has to obey: its companion stays put,
+/// and the pair stays <see cref="PresetEditValidator.MinGap"/> apart. Pure, because it is the only
+/// part of the charge-control seam that decides rather than acts.</summary>
+/// <remarks>This clamps where a refusal would be worse. The two thresholds are one control split over
+/// two entities, so a receiver's slider can legitimately be dragged to a value that is only invalid
+/// against the other half — refusing it would leave the slider showing a value the device never took,
+/// with nothing on screen to say why. Every bound the entity itself declares is still enforced by
+/// refusal, before this is reached.</remarks>
+internal static class ChargeThresholdCommands
 {
-    public static bool Dispatch(HaCommand cmd, IChargeControlActions charge, IHaSettingsActions settings)
+    /// <summary>A new start against the stop in force. Stop is kept; start is held far enough below it.</summary>
+    public static (int Start, int Stop) WithStart(int wanted, int stop)
     {
-        switch (cmd.Kind)
-        {
-            case HaCommandKind.SmartCharge:
-                charge.SetSmartChargeEnabled(cmd.BoolValue);
-                return true;
+        int upper = Math.Max(PresetEditValidator.MinThreshold, stop - PresetEditValidator.MinGap);
+        return (Math.Clamp(wanted, PresetEditValidator.MinThreshold, upper), stop);
+    }
 
-            case HaCommandKind.ChargeStart:
-            {
-                var (_, stop) = charge.CurrentThresholds();
-                // Keep the companion Stop fixed; clamp the new Start so Stop stays at least MinGap above.
-                int upper = Math.Max(PresetEditValidator.MinThreshold, stop - PresetEditValidator.MinGap);
-                int start = Math.Clamp(cmd.IntValue, PresetEditValidator.MinThreshold, upper);
-                charge.ApplyThresholds(start, stop);
-                return true;
-            }
-
-            case HaCommandKind.ChargeStop:
-            {
-                var (start, _) = charge.CurrentThresholds();
-                // Keep the companion Start fixed; clamp the new Stop so it stays at least MinGap above.
-                int lower = Math.Min(PresetEditValidator.MaxThreshold, start + PresetEditValidator.MinGap);
-                int stop = Math.Clamp(cmd.IntValue, lower, PresetEditValidator.MaxThreshold);
-                charge.ApplyThresholds(start, stop);
-                return true;
-            }
-
-            case HaCommandKind.ChargeToFull:
-                charge.ChargeToFullOnce();
-                return true;
-
-            case HaCommandKind.SetPreset:
-                charge.ApplyPreset(cmd.StringValue);
-                return true;
-
-            case HaCommandKind.KeepAwake:
-                settings.SetKeepAwake(cmd.BoolValue);
-                return true;
-
-            case HaCommandKind.KeepAwakeFor:
-                // The parser only produces a request for input it accepted, so a null here is a
-                // refusal, not a default to fall back on.
-                if (cmd.Request is not { } request) return false;
-                settings.StartKeepAwake(request);
-                return true;
-
-            case HaCommandKind.KeepAwakeDisplayOn:  settings.SetKeepAwakeDisplayOn(cmd.BoolValue); return true;
-            case HaCommandKind.LidDelay:            settings.SetLidDelay(cmd.BoolValue);           return true;
-            case HaCommandKind.LidDelayMinutes:     settings.SetLidDelayMinutes(cmd.IntValue);     return true;
-            case HaCommandKind.LidDelayLock:        settings.SetLidDelayLock(cmd.BoolValue);       return true;
-            case HaCommandKind.SmartStandby:        settings.SetSmartStandby(cmd.BoolValue);       return true;
-            case HaCommandKind.LowBatteryWarning:   settings.SetLowBatteryWarning(cmd.BoolValue);  return true;
-            case HaCommandKind.LowBatteryLevel:     settings.SetLowBatteryLevel(cmd.IntValue);     return true;
-            case HaCommandKind.HighBatteryWarning:  settings.SetHighBatteryWarning(cmd.BoolValue); return true;
-            case HaCommandKind.HighBatteryLevel:    settings.SetHighBatteryLevel(cmd.IntValue);    return true;
-            case HaCommandKind.DrainWarning:        settings.SetDrainWarning(cmd.BoolValue);       return true;
-            case HaCommandKind.DrainRate:           settings.SetDrainRate(cmd.IntValue);           return true;
-            case HaCommandKind.NetworkProfiles:     settings.SetNetworkProfiles(cmd.BoolValue);    return true;
-            case HaCommandKind.StartupDelay:        settings.SetStartupDelay(cmd.IntValue);        return true;
-            case HaCommandKind.DowntimeGap:         settings.SetDowntimeGap(cmd.IntValue);         return true;
-
-            case HaCommandKind.IconMode:
-                settings.SetIconMode((TrayIconMode)cmd.IntValue);
-                return true;
-
-            case HaCommandKind.UnknownNetworkPreset:
-            {
-                // Checked here rather than in the parser because the preset list changes while the app
-                // runs. The sentinel is "route nowhere", and is stored as no preset at all.
-                if (string.Equals(cmd.StringValue, PresetEditValidator.UnknownNetworkSentinel,
-                                  StringComparison.OrdinalIgnoreCase))
-                {
-                    settings.SetUnknownNetworkPreset(null);
-                    return true;
-                }
-                string? match = settings.PresetNames()
-                    .FirstOrDefault(n => string.Equals(n, cmd.StringValue, StringComparison.OrdinalIgnoreCase));
-                if (match is null) return false;
-                settings.SetUnknownNetworkPreset(match);
-                return true;
-            }
-
-            default:
-                return false;
-        }
+    /// <summary>A new stop against the start in force. Start is kept; stop is held far enough above it.</summary>
+    public static (int Start, int Stop) WithStop(int wanted, int start)
+    {
+        int lower = Math.Min(PresetEditValidator.MaxThreshold, start + PresetEditValidator.MinGap);
+        return (start, Math.Clamp(wanted, lower, PresetEditValidator.MaxThreshold));
     }
 }
 
 /// <summary>The live <see cref="IChargeControlActions"/>, routing each command onto the shared
 /// <see cref="ChargeControlService"/> the tray menu also drives. Every method runs synchronously and
-/// the vendor RPC blocks for seconds, so the caller must dispatch off the MQTT receive callback.</summary>
+/// the vendor RPC blocks for seconds, so it belongs on the command worker rather than on the receive
+/// callback — which is where the module runs the work a verdict carries.</summary>
 internal sealed class ChargeControlActions : IChargeControlActions
 {
     // A fresh device read: the app's cached snapshot only refreshes on a battery tick, so two queued
@@ -196,11 +128,11 @@ internal sealed class ChargeControlActions : IChargeControlActions
     public void ApplyPreset(string name) => ChargeControlService.ApplyPresetByName(name);
 }
 
-/// <summary>The live <see cref="IHaSettingsActions"/>. Each write goes through the same service the
+/// <summary>The live <see cref="ISettingsActions"/>. Each write goes through the same service the
 /// Settings window calls, never straight at settings.json, so the side effects — the power-scheme
 /// override, the OS keep-awake hold, the vendor service control — happen exactly as they do from the
 /// UI. Runs on the command worker, where a blocking write is expected.</summary>
-internal sealed class HaSettingsActions : IHaSettingsActions
+internal sealed class SettingsActions : ISettingsActions
 {
     /// <summary>Raised after a write lands, so the publisher reflects the new value without waiting
     /// for a battery tick.</summary>

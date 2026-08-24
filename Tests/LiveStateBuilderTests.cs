@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using ChargeKeeper.Services;
 using ChargeKeeper.Vendors;
 using Windows.System.Power;
@@ -8,7 +8,7 @@ namespace ChargeKeeper.Tests;
 
 // Pure state mapping for the Home Assistant publisher: the battery state, health and
 // remaining-charge-time derivations, plus the Smart Charge off-state semantics.
-public class HaStateBuilderTests
+public class LiveStateBuilderTests
 {
     private static List<ThresholdPreset> TwoPresets() =>
     [
@@ -17,11 +17,11 @@ public class HaStateBuilderTests
     ];
 
     // Convenience wrapper so each test only sets the fields it cares about.
-    private static HaState Build(int soc = 72, int rateMw = 45000, bool onAc = true,
+    private static LiveState Build(int soc = 72, int rateMw = 45000, bool onAc = true,
         BatteryStatus status = BatteryStatus.Charging, ChargeThresholdState? threshold = null,
         int? adapterWatts = 65, int? remainingMwh = 40000, int? fullMwh = 60000, int? designMwh = 60000,
         bool lowPowerMode = false, IReadOnlyList<ThresholdPreset>? presets = null)
-        => HaStateBuilder.Build(soc, rateMw, onAc, status, threshold, adapterWatts,
+        => LiveStateBuilder.Build(soc, rateMw, onAc, status, threshold, adapterWatts,
             remainingMwh, fullMwh, designMwh, lowPowerMode, presets);
 
     [Fact]
@@ -88,7 +88,7 @@ public class HaStateBuilderTests
     public void Build_Charging_StateIsCharging_IsChargingTrue()
     {
         var s = Build(soc: 70, status: BatteryStatus.Charging);
-        Assert.Equal(HaDiscovery.StateCharging, s.BatteryState);
+        Assert.Equal(LiveStateBuilder.StateCharging, s.BatteryState);
         Assert.True(s.IsCharging);
     }
 
@@ -96,7 +96,7 @@ public class HaStateBuilderTests
     public void Build_Full_StateIsFull_NotCharging()
     {
         var s = Build(soc: 100, status: BatteryStatus.Idle, rateMw: 0);
-        Assert.Equal(HaDiscovery.StateFull, s.BatteryState);
+        Assert.Equal(LiveStateBuilder.StateFull, s.BatteryState);
         Assert.False(s.IsCharging);
     }
 
@@ -105,7 +105,7 @@ public class HaStateBuilderTests
     {
         // Held at an 80 % threshold: idle but not full, so "Not Charging" rather than "Full".
         var s = Build(soc: 80, status: BatteryStatus.Idle, rateMw: 0);
-        Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
+        Assert.Equal(LiveStateBuilder.StateNotCharging, s.BatteryState);
         Assert.False(s.IsCharging);
     }
 
@@ -113,7 +113,7 @@ public class HaStateBuilderTests
     public void Build_Discharging_ReadsNotCharging()
     {
         var s = Build(soc: 55, status: BatteryStatus.Discharging, rateMw: -15000);
-        Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
+        Assert.Equal(LiveStateBuilder.StateNotCharging, s.BatteryState);
         Assert.False(s.IsCharging);
     }
 
@@ -122,7 +122,7 @@ public class HaStateBuilderTests
     {
         // 100 % on battery, just unplugged, is not "Full": Full requires AC.
         var s = Build(soc: 100, status: BatteryStatus.Discharging, rateMw: -8000, onAc: false);
-        Assert.Equal(HaDiscovery.StateNotCharging, s.BatteryState);
+        Assert.Equal(LiveStateBuilder.StateNotCharging, s.BatteryState);
     }
 
     // Fresh-state overlay after a command
@@ -137,7 +137,7 @@ public class HaStateBuilderTests
         Assert.False(baseState.SmartChargeEnabled);
 
         // … overlaid with a fresh read showing Smart Charge on 80–100, which is Travel's range.
-        var updated = HaStateBuilder.ApplyChargeControl(
+        var updated = LiveStateBuilder.ApplyChargeControl(
             baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 80, Stop: 100), TwoPresets());
 
         // Charge-control fields reflect the fresh read …
@@ -161,7 +161,7 @@ public class HaStateBuilderTests
                               presets: TwoPresets());
         Assert.Equal("Travel", baseState.ActivePreset);
 
-        var updated = HaStateBuilder.ApplyChargeControl(
+        var updated = LiveStateBuilder.ApplyChargeControl(
             baseState, new ChargeThresholdState(Capable: true, Enabled: true, Start: 60, Stop: 80), TwoPresets());
 
         Assert.Equal("Daily", updated.ActivePreset);
@@ -171,7 +171,7 @@ public class HaStateBuilderTests
     public void ApplyChargeControl_FreshOff_ReportsStop100_StartOmitted_AndNoPreset()
     {
         var baseState = Build(threshold: new ChargeThresholdState(true, true, 60, 80), presets: TwoPresets());
-        var updated = HaStateBuilder.ApplyChargeControl(
+        var updated = LiveStateBuilder.ApplyChargeControl(
             baseState, new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80), TwoPresets());
         Assert.False(updated.SmartChargeEnabled);
         Assert.Null(updated.ChargeStart);
@@ -205,7 +205,7 @@ public class HaStateBuilderTests
     [InlineData(30000, 60000, "Poor")]     // 50 %
     public void DeriveHealth_MapsWearRatio(int fullMwh, int designMwh, string expected)
     {
-        Assert.Equal(expected, HaStateBuilder.DeriveHealth(fullMwh, designMwh));
+        Assert.Equal(expected, LiveStateBuilder.DeriveHealth(fullMwh, designMwh));
     }
 
     [Theory]
@@ -214,7 +214,7 @@ public class HaStateBuilderTests
     [InlineData(48000, 0)]
     public void DeriveHealth_UnknownWhenCapacityMissing(int? fullMwh, int? designMwh)
     {
-        Assert.Null(HaStateBuilder.DeriveHealth(fullMwh, designMwh));
+        Assert.Null(LiveStateBuilder.DeriveHealth(fullMwh, designMwh));
     }
 
     // Remaining charge time
@@ -223,7 +223,7 @@ public class HaStateBuilderTests
     public void RemainingMinutes_ChargingHalfWay_ComputesMinutesToFull()
     {
         // 30 Wh to add (60000-30000 mWh) at 45000 mW ≈ 0.667 h ≈ 40 min.
-        int? min = HaStateBuilder.RemainingMinutesToFull(isCharging: true, chargeRateMw: 45000,
+        int? min = LiveStateBuilder.RemainingMinutesToFull(isCharging: true, chargeRateMw: 45000,
             remainingMwh: 30000, fullMwh: 60000);
         Assert.Equal(40, min);
     }
@@ -231,13 +231,13 @@ public class HaStateBuilderTests
     [Fact]
     public void RemainingMinutes_NullWhenNotCharging()
     {
-        Assert.Null(HaStateBuilder.RemainingMinutesToFull(false, -15000, 30000, 60000));
+        Assert.Null(LiveStateBuilder.RemainingMinutesToFull(false, -15000, 30000, 60000));
     }
 
     [Fact]
     public void RemainingMinutes_NullWhenRateNegligible()
     {
-        Assert.Null(HaStateBuilder.RemainingMinutesToFull(true, 50, 30000, 60000));
+        Assert.Null(LiveStateBuilder.RemainingMinutesToFull(true, 50, 30000, 60000));
     }
 
     [Fact]

@@ -7,15 +7,16 @@ using Windows.System;
 using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Mqtt.WinUI;
 
 namespace ChargeKeeper.UI;
 
 /// <summary>The app's Settings window: a NavigationView with one panel per section, built from
-/// <see cref="SettingsCard"/>/<see cref="SettingsExpander"/> rows. Every setting commits as it is
-/// edited except the Home Assistant broker fields, which stage locally and commit as a batch behind
-/// Apply so <c>HomeAssistantService</c> reconnects once per edit session, not per keystroke. Plain
-/// WinUI chrome, not <see cref="ChargeKeeper.Helpers.WindowChrome.ApplyPopup"/> — that
-/// auto-dismisses on focus loss, which would close the window mid-edit.</summary>
+/// <see cref="SettingsCard"/>/<see cref="SettingsExpander"/> rows. Every setting on these pages
+/// commits as it is edited; the MQTT page is the shared module's own panel, which stages its broker
+/// block behind an Apply of its own. Plain WinUI chrome, not
+/// <see cref="ChargeKeeper.Helpers.WindowChrome.ApplyPopup"/> — that auto-dismisses on focus loss,
+/// which would close the window mid-edit.</summary>
 internal sealed partial class SettingsWindow : Window
 {
     private const string AppName = AppInfo.Name;
@@ -24,18 +25,12 @@ internal sealed partial class SettingsWindow : Window
     private const int DefaultHeight = 750;
 
     private readonly TrayMenu _menu;
-    private readonly Action   _onHomeAssistantChanged;
 
-    // Raised when what is announced changes: a preset renamed, or a publishing group toggled. The
-    // select options and the announced entity set are both baked into the retained discovery configs,
-    // so without this the broker keeps the set captured at connect time.
-    private readonly Action   _onDiscoveryChanged;
-
-    // Whether the publisher has a live link, and the on-demand republish behind "Publish now".
-    // Asked rather than held: the connection comes and goes on its own, so a cached answer is stale
-    // the moment the page stops looking.
-    private readonly Func<bool>       _isBrokerConnected;
-    private readonly Func<Task<bool>> _onPublishNow;
+    // The MQTT publisher, or null when startup never reached it. The window supplies it to the shared
+    // settings panel and calls it directly for the one thing the panel knows nothing about: a preset
+    // renamed here changes the two preset selects' options, which are baked into the retained
+    // discovery document.
+    private readonly Services.MqttPublisher? _mqtt;
 
     // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
@@ -45,14 +40,10 @@ internal sealed partial class SettingsWindow : Window
     // discarded can be stopped before it fires against a detached row or a closed window.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onDiscoveryChanged,
-                          Func<bool> isBrokerConnected, Func<Task<bool>> onPublishNow)
+    public SettingsWindow(TrayMenu menu, Services.MqttPublisher? mqtt)
     {
         _menu = menu;
-        _onHomeAssistantChanged = onHomeAssistantChanged;
-        _onDiscoveryChanged     = onDiscoveryChanged;
-        _isBrokerConnected      = isBrokerConnected;
-        _onPublishNow           = onPublishNow;
+        _mqtt = mqtt;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -64,7 +55,7 @@ internal sealed partial class SettingsWindow : Window
         // never-shown window and every later "Settings…" click leaks another.
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
         SafeInit(nameof(RefreshAllSections), RefreshAllSections);
-        SafeInit(nameof(WireHaBrokerFieldEditHandlers), WireHaBrokerFieldEditHandlers);
+        SafeInit(nameof(InitialiseMqttPanel), InitialiseMqttPanel);
         SafeInit(nameof(LoadAboutOnce), LoadAboutOnce);
         // Before the first layout pass: MeasureTallestPageExtent sizes the window to the tallest
         // page, and Smart Charge is much shorter once its sections are hidden on fixed-mode hardware.
@@ -115,8 +106,8 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>Re-reads every section's controls from live settings. Also called when an
     /// already-open window is re-activated, so a change made behind its back (a settings reload, an
-    /// out-of-band edit to settings.json) shows up. Any un-applied Home Assistant broker edit is
-    /// discarded by the re-sync.</summary>
+    /// out-of-band edit to settings.json) shows up. The MQTT panel is reloaded rather than reset, so
+    /// a half-typed broker field survives a re-activation.</summary>
     internal void RefreshAllSections()
     {
         LoadGeneral();
@@ -124,7 +115,9 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadKeepAwake();
-        LoadHomeAssistant();
+        // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
+        // throw away a half-entered host name.
+        if (_mqtt is not null) MqttPanel.Reload();
 
         // Re-read the firmware charge mode on every re-activation, so a mode changed OUTSIDE this
         // app (HP's own utility, another tool, the tray) is reflected rather than showing whatever
@@ -291,7 +284,7 @@ internal sealed partial class SettingsWindow : Window
 
         // An in-flight probe outlives the window by up to its budget; cancelling makes the
         // continuation bail before it touches a torn-down control.
-        CancelProbe();
+        if (_mqtt is not null) MqttPanel.Cancel();
     }
 
     // Set in OnClosed. Background callbacks started before the close still marshal back, and
@@ -359,10 +352,8 @@ internal sealed partial class SettingsWindow : Window
         // Opening the page reads what is already known and probes nothing: a probe follows an
         // explicit action — a Broker setting edited, Test connection, or Apply — and never the mere
         // act of looking at the page.
-        if (tag == "HomeAssistant")
-            RefreshHaActivityTexts();
-        else
-            CancelProbe();   // nothing left on screen for its answer to land on
+        if (tag == "HomeAssistant" && _mqtt is not null)
+            MqttPanel.Refresh();
 
         // The remaining-time line counts down, so it needs a tick — but only while it is on screen.
         if (tag == "KeepAwake")
@@ -861,7 +852,7 @@ internal sealed partial class SettingsWindow : Window
             // preset names too — rebuild both rather than re-keying a live row in place.
             RebuildPresetRows();
             RebuildNetworkRuleRows();
-            _onDiscoveryChanged();   // HA's preset select carries the old name until discovery is republished
+            _mqtt?.Republish();   // the preset select carries the old name until the document is rewritten
         }
         else
         {
@@ -901,7 +892,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
-        _onDiscoveryChanged();   // the deleted name must stop being offered in HA's preset select
+        _mqtt?.Republish();   // the deleted name must stop being offered by the preset select
         _menu.ReconcileFromExternalChange();
     }
 
@@ -916,7 +907,7 @@ internal sealed partial class SettingsWindow : Window
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();   // the new preset should be selectable from Network rows at once
-        _onDiscoveryChanged();        // …and from HA's preset select, once discovery is republished
+        _mqtt?.Republish();           // …and from the preset select, once the document is rewritten
         _menu.ReconcileFromExternalChange();
     }
 
@@ -1622,588 +1613,49 @@ internal sealed partial class SettingsWindow : Window
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddKeepAwakeNetworkRule", ex); }
     }
 
-    private void LoadHomeAssistant()
+    /// <summary>Hands the shared MQTT panel everything it needs from this application, once, on the
+    /// UI thread. Everything protocol-shaped — what a transport is, what the discovery prefix
+    /// controls, what Automatic does about encryption — is the module's own copy and is deliberately
+    /// absent here; what ChargeKeeper publishes is the module's blind spot and is all that is
+    /// supplied.</summary>
+    private void InitialiseMqttPanel()
     {
-        var s = SettingsService.Current;
-        WithUpdatingSuppressed(() =>
+        if (_mqtt is not { } mqtt)
         {
-            BuildPortCombo();   // before the first read-back: an empty combo has nothing to select
-            HaEnabledToggle.IsOn   = s.HomeAssistantEnabled;
-            HaHostBox.Text         = s.MqttBrokerHost;
-            HaUsernameBox.Text     = s.MqttUsername;
-            HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
-            HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
-            HaTransportCombo.SelectedIndex  = (int)s.MqttTransportMode;
-            HaEncryptionCombo.SelectedIndex = (int)s.MqttEncryption;
-            SelectStagedPort(s.MqttBrokerPort);
-            // Blank means "use the machine-derived default", so show it as a placeholder rather
-            // than pre-filling it — an untouched field must keep meaning "default".
-            HaDeviceNameBox.PlaceholderText = DefaultDeviceName();
-            HaDeviceNameBox.Text            = s.MqttDeviceName;
-
-            MqttBatteryStatusToggle.IsOn  = s.MqttPublishBatteryStatus;
-            MqttSmartChargeToggle.IsOn    = s.MqttPublishSmartCharge;
-            MqttKeepAwakeToggle.IsOn      = s.MqttPublishKeepAwake;
-            MqttLidCloseToggle.IsOn       = s.MqttPublishLidClose;
-            MqttNotificationsToggle.IsOn  = s.MqttPublishNotifications;
-            MqttNetworkToggle.IsOn        = s.MqttPublishNetwork;
-            MqttAppDiagnosticsToggle.IsOn = s.MqttPublishAppDiagnostics;
-        });
-        RefreshHaNodeIdText();
-        RefreshMqttDetailVisibility();
-        RefreshPortEntry();
-        // This re-sync discards any un-applied broker edit, so a leftover "Applied." must not
-        // linger claiming stale values are live.
-        HaAppliedText.Visibility = Visibility.Collapsed;
-        HaTestResultText.Visibility = Visibility.Collapsed;   // the tested values are gone with it
-        RefreshHaBrokerStatusText();
-        RefreshHaActivityTexts();
-        RefreshHaDetectText();
-    }
-
-    /// <summary>Hides the four detail sections while publishing is off. Hidden, not disabled: a
-    /// greyed page still invites reading, and none of it has an answer until the feature is on.</summary>
-    private void RefreshMqttDetailVisibility()
-    {
-        MqttDetailPanel.Visibility = HaEnabledToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
-        RefreshPublishNowEnabled();
-    }
-
-    /// <summary>Commits every group toggle at once and re-announces. Unlike the broker fields these
-    /// apply immediately: the change is a publish, not a reconnect, so there is nothing to batch.</summary>
-    private void OnMqttCategoryToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        SettingsService.Update(s =>
-        {
-            s.MqttPublishBatteryStatus  = MqttBatteryStatusToggle.IsOn;
-            s.MqttPublishSmartCharge    = MqttSmartChargeToggle.IsOn;
-            s.MqttPublishKeepAwake      = MqttKeepAwakeToggle.IsOn;
-            s.MqttPublishLidClose       = MqttLidCloseToggle.IsOn;
-            s.MqttPublishNotifications  = MqttNotificationsToggle.IsOn;
-            s.MqttPublishNetwork        = MqttNetworkToggle.IsOn;
-            s.MqttPublishAppDiagnostics = MqttAppDiagnosticsToggle.IsOn;
-        });
-        _onDiscoveryChanged();
-    }
-
-    /// <summary>Hides "Applied." and the test result the moment any broker field is edited — those
-    /// edits are not live until the next Apply, so either label would vouch for values since
-    /// retyped — and restarts the probe, because the answer belongs to the old values.</summary>
-    private void WireHaBrokerFieldEditHandlers()
-    {
-        void Hide()
-        {
-            HaAppliedText.Visibility    = Visibility.Collapsed;
-            HaTestResultText.Visibility = Visibility.Collapsed;
-        }
-        void Restage() { Hide(); ScheduleProbe(); }
-
-        // Not a Broker setting: the device name names this machine to the consumer and reaches no
-        // broker decision, so editing it stages without probing.
-        HaDeviceNameBox.TextChanged       += (_, _) => Hide();
-        // Every Broker setting restages. The password is one of them because an endpoint that
-        // answers and refuses the credentials ends the sweep, so a corrected password changes the
-        // verdict; the discovery prefix is one because it is a Broker setting, though it decides
-        // only what is published, never which door is knocked on.
-        HaHostBox.TextChanged             += (_, _) => Restage();
-        HaUsernameBox.TextChanged         += (_, _) => Restage();
-        HaPasswordBox.PasswordChanged     += (_, _) => Restage();
-        HaPrefixBox.TextChanged           += (_, _) => Restage();
-        HaEncryptionCombo.SelectionChanged += (_, _) => Restage();
-        HaTransportCombo.SelectionChanged += (_, _) => Restage();
-        HaPortCustomBox.TextChanged       += (_, _) => { RefreshPortEntry(); Restage(); };
-
-        _haProbeDebounce.Tick += (_, _) =>
-        {
-            _haProbeDebounce.Stop();
-            StartProbe(MqttProbeTrigger.BrokerSettingChanged);
-        };
-    }
-
-    // HomeAssistantEnabled is not one of the batched broker fields — it applies immediately, same
-    // as every other toggle here.
-    private void OnHaEnabledToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        bool on = HaEnabledToggle.IsOn;
-        SettingsService.Update(s => s.HomeAssistantEnabled = on);
-        RefreshMqttDetailVisibility();
-        // Switching publishing on is not a Broker setting changing, so it probes nothing; switching
-        // off must abandon a probe already in flight, because off means no network at all.
-        if (!on) CancelProbe();
-        _onHomeAssistantChanged();   // exactly one reconnect attempt for this toggle flip
-    }
-
-    /// <summary>Commits all the batched broker fields at once, so <c>HomeAssistantService</c>
-    /// reconnects per Apply click rather than per keystroke. The device ID is not in the batch —
-    /// renaming every entity must not be a side effect of editing a host
-    /// (<see cref="OnChangeNodeIdClicked"/>).</summary>
-    private void OnHaApplyClicked(object sender, RoutedEventArgs e)
-    {
-        if (!RefreshPortEntry()) return;   // an out-of-range port is refused, never rounded into range
-
-        string device = HaDeviceNameBox.Text?.Trim() ?? "";
-        string host   = HaHostBox.Text?.Trim() ?? "";
-        int?   port   = StagedPort();
-        string user   = HaUsernameBox.Text?.Trim() ?? "";
-        string pass   = HaPasswordBox.Password ?? "";
-        var    enc    = StagedEncryption();
-        var    trans  = StagedTransport();
-        string prefix = string.IsNullOrWhiteSpace(HaPrefixBox.Text) ? "homeassistant" : HaPrefixBox.Text.Trim();
-
-        SettingsService.Update(s =>
-        {
-            s.MqttBrokerHost       = host;
-            s.MqttBrokerPort       = port;
-            s.MqttUsername         = user;
-            s.MqttPassword         = pass;
-            s.MqttEncryptionMode   = enc;
-            s.MqttTransportMode    = trans;
-            s.MqttDiscoveryPrefix  = prefix;
-            s.MqttDeviceName       = device;
-        });
-
-        _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
-        RefreshHaBrokerStatusText();
-        RefreshHaActivityTexts();
-
-        HaAppliedText.Visibility = Visibility.Visible;
-        // Apply is one of the three things that ask for a probe. Its own throwaway connection, not
-        // the one the reconnect above makes: the page reports what it measured itself.
-        StartProbe(MqttProbeTrigger.Apply);
-    }
-
-    // The dropdown's fixed head and tail. Everything between them is MqttTransportPlan.OfferedPorts,
-    // so what can be chosen and what the sweep probes are the same list.
-    private const string PortAutomaticLabel = "Automatic";
-    private const string PortCustomLabel    = "Other…";
-
-    /// <summary>Fills the port dropdown once. Rebuilding it on every read-back would drop the
-    /// selection the caller is about to set.</summary>
-    private void BuildPortCombo()
-    {
-        if (HaPortCombo.Items.Count > 0) return;
-
-        HaPortCombo.Items.Add(new ComboBoxItem { Content = PortAutomaticLabel });
-        foreach (int port in MqttTransportPlan.OfferedPorts)
-            HaPortCombo.Items.Add(new ComboBoxItem { Content = PortText(port) });
-        HaPortCombo.Items.Add(new ComboBoxItem { Content = PortCustomLabel });
-    }
-
-    private static string PortText(int port) =>
-        port.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-    private int PortCustomIndex => HaPortCombo.Items.Count - 1;
-
-    /// <summary>Puts the saved port on the dropdown: Automatic for none, the matching entry for one
-    /// the list offers, and the typed box for anything else.</summary>
-    private void SelectStagedPort(int? port)
-    {
-        if (port is not { } value) { HaPortCombo.SelectedIndex = 0; HaPortCustomBox.Text = ""; return; }
-
-        int offered = IndexOfOfferedPort(value);
-        if (offered >= 0) { HaPortCombo.SelectedIndex = offered + 1; HaPortCustomBox.Text = ""; return; }
-
-        HaPortCombo.SelectedIndex = PortCustomIndex;
-        HaPortCustomBox.Text      = PortText(value);
-    }
-
-    private static int IndexOfOfferedPort(int port)
-    {
-        var offered = MqttTransportPlan.OfferedPorts;
-        for (int i = 0; i < offered.Count; i++) if (offered[i] == port) return i;
-        return -1;
-    }
-
-    private void OnHaPortSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_updating) return;
-        RefreshPortEntry();
-        HaAppliedText.Visibility    = Visibility.Collapsed;
-        HaTestResultText.Visibility = Visibility.Collapsed;
-        ScheduleProbe();
-    }
-
-    /// <summary>Shows the typed-port box only for the last entry, and validates what is in it through
-    /// the same range check every other numeric setting uses. False means Apply must not run.</summary>
-    private bool RefreshPortEntry()
-    {
-        bool custom = HaPortCombo.SelectedIndex == PortCustomIndex;
-        HaPortCustomBox.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-
-        // An empty box before the first keystroke is not yet a mistake, so it is not yet an error.
-        string? error = custom && !string.IsNullOrWhiteSpace(HaPortCustomBox.Text)
-            ? SettingRanges.ValidatePort(HaPortCustomBox.Text, out _)
-            : null;
-
-        HaPortErrorText.Text       = error ?? "";
-        HaPortErrorText.Foreground = CriticalBrush();
-        HaPortErrorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
-
-        // A half-typed port must not reach settings; blocking Apply refuses it outright rather than
-        // quietly saving some other value.
-        bool usable = error is null && (!custom || StagedPort() is not null);
-        HaApplyBtn.IsEnabled = usable;
-        return usable;
-    }
-
-    /// <summary>The staged port, or null for Automatic — read identically by Apply, by the test and
-    /// by the endpoint search. Null too for a typed value that does not validate, so nothing
-    /// downstream ever sees an out-of-range port.</summary>
-    private int? StagedPort()
-    {
-        int index = HaPortCombo.SelectedIndex;
-        if (index <= 0) return null;
-        if (index <= MqttTransportPlan.OfferedPorts.Count) return MqttTransportPlan.OfferedPorts[index - 1];
-        return SettingRanges.ValidatePort(HaPortCustomBox.Text, out int typed) is null ? typed : null;
-    }
-
-    /// <summary>The staged transport choice — the combo's order is the enum's, so no lookup table.</summary>
-    private MqttTransportSetting StagedTransport() => HaTransportCombo.SelectedIndex < 0
-        ? MqttTransportSetting.Auto
-        : (MqttTransportSetting)HaTransportCombo.SelectedIndex;
-
-    /// <summary>The staged encryption choice, read the same way as the transport.</summary>
-    private MqttEncryptionSetting StagedEncryption() => HaEncryptionCombo.SelectedIndex < 0
-        ? MqttEncryptionSetting.Auto
-        : (MqttEncryptionSetting)HaEncryptionCombo.SelectedIndex;
-
-    /// <summary>The staged fields as the pure plan reads them. The password is deliberately absent:
-    /// nothing the plan decides depends on it.</summary>
-    private MqttEndpointRequest StagedRequest() => new(
-        HaHostBox.Text?.Trim() ?? "", HaUsernameBox.Text?.Trim() ?? "", StagedPort(),
-        StagedTransport(), StagedEncryption());
-
-    /// <summary>The saved fields as the pure plan reads them — what the live connection is using, as
-    /// against what is staged in the boxes. The two differ until Apply.</summary>
-    private static MqttEndpointRequest SavedRequest()
-    {
-        var s = SettingsService.Current;
-        return new(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort, s.MqttTransportMode, s.MqttEncryption);
-    }
-
-    /// <summary>Writes one Status row: the trimmed line on screen, the whole string on the hover tip,
-    /// and the colour. The single writer for the block, because the fixed height only holds if every
-    /// value goes on in the same shape — one line, and an error that is a colour and nothing else.
-    /// The info icons are static and are deliberately not touched here.</summary>
-    private static void SetStatusValue(TextBlock target, string text, bool error = false)
-    {
-        target.Text = text;
-        ToolTipService.SetToolTip(target, text);
-        target.Foreground = error ? CriticalBrush() : SecondaryBrush();
-    }
-
-    private void RefreshHaBrokerStatusText() => SetStatusValue(HaBrokerStatusText,
-        MqttStatusFormatter.DescribeBroker(SavedRequest(), SettingsService.Current.MqttLastGoodEndpoint));
-
-    /// <summary>Tests the staged broker values — whatever is in the fields, applied or not, since
-    /// the point of the button is to check before committing.</summary>
-    private void OnHaTestConnectionClicked(object sender, RoutedEventArgs e)
-    {
-        if (_haProbeCts is not null) return;   // a second click while one runs is dropped, not queued
-        StartProbe(MqttProbeTrigger.TestConnection);
-    }
-
-    /// <summary>The staged values as a probe target. One builder for the test button and the endpoint
-    /// search, so a green test is about the connection the search would make.</summary>
-    private MqttProbeTarget ProbeTarget(MqttEndpointRequest request) => new(
-        Host:     request.Host,
-        Port:     request.Port,
-        Username: request.Username,
-        Password: HaPasswordBox.Password ?? "",
-        ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()),
-        // The cache too, so the search starts where the broker answered last rather than sweeping
-        // from scratch on every visit to this page.
-        Transport:  request.Transport,
-        Encryption: request.Encryption,
-        Memory:     SettingsService.Current.MqttLastGoodEndpoint);
-
-    /// <summary>Records where the broker answered, against the host and user name it answered for.
-    /// The password is never part of the entry.</summary>
-    private static void RememberProbedEndpoint(MqttEndpointRequest request, MqttProbeReport report)
-    {
-        if (!report.Succeeded) return;
-        var found = new MqttEndpointMemory(
-            request.Host.Trim(), request.Username.Trim(),
-            report.Candidate.Port, report.Candidate.Transport, report.Candidate.Encrypted);
-        SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
-    }
-
-    private void SetHaTestRunning(bool running)
-    {
-        HaTestBtn.IsEnabled       = !running;
-        HaTestProgress.IsActive   = running;
-        HaTestProgress.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        if (running) ShowHaTestResult("Testing…", failure: false);
-    }
-
-    /// <summary>The one line under the button row, carrying a sweep's progress endpoint by endpoint
-    /// and then its verdict. The single writer, so the running commentary and the answer cannot end
-    /// up on two different surfaces.</summary>
-    private void ShowHaTestResult(string text, bool failure)
-    {
-        HaTestResultText.Text       = text;
-        HaTestResultText.Foreground = failure ? CriticalBrush() : SecondaryBrush();
-        HaTestResultText.Visibility = Visibility.Visible;
-    }
-
-    // The one probe in flight, whatever asked for it — a Broker setting settling, Test connection or
-    // Apply — or null when none is running. Both the re-entrancy guard and the handle OnClosed
-    // cancels through. The settle timer beside it keeps a typed host from starting a probe per
-    // keystroke; 700 ms is the same settle the preset rows use.
-    private CancellationTokenSource? _haProbeCts;
-    private readonly DispatcherTimer _haProbeDebounce = new() { Interval = TimeSpan.FromMilliseconds(700) };
-
-    /// <summary>Restarts the settle timer after a Broker setting is edited, cancelling whatever the
-    /// previous value had in flight — its answer is about values since retyped.</summary>
-    private void ScheduleProbe()
-    {
-        if (_updating) return;
-        CancelProbe();
-        _haProbeDebounce.Start();
-    }
-
-    /// <summary>Abandons any probe in flight and the settle timer behind it. Called when the values
-    /// it was asked about change, when the page is left, and when the window closes — a cancelled
-    /// probe never touches a control again, because the continuation checks that the source it
-    /// started with is still the current one.</summary>
-    private void CancelProbe()
-    {
-        _haProbeDebounce.Stop();
-        _haProbeCts?.Cancel();
-        _haProbeCts = null;
-    }
-
-    /// <summary>Probes for the broker's endpoint, if this trigger warrants one. Every caller names
-    /// what the user did; there is no path in from opening the page, re-showing a section or a
-    /// timer.</summary>
-    private void StartProbe(MqttProbeTrigger trigger)
-    {
-        CancelProbe();
-
-        var request = StagedRequest();
-        if (!MqttTransportPlan.ShouldProbe(trigger, HaEnabledToggle.IsOn, request.Host))
-        {
-            RefreshHaDetectText();
+            // No publisher means startup never got that far. Leaving the page blank is honest; an
+            // uninitialised panel would offer controls that commit into nothing.
+            HomeAssistantPanel.Visibility = Visibility.Collapsed;
             return;
         }
-        RunProbe(request);
-    }
 
-    /// <summary>async void, and guarded whole: nothing may escape into the dispatcher. Never blocks
-    /// the UI thread — every stage of the sweep is a socket wait, and the only work back here is the
-    /// progress line and the result.</summary>
-    private async void RunProbe(MqttEndpointRequest request)
-    {
-        var cts = new CancellationTokenSource();
-        _haProbeCts = cts;
-        try
+        MqttPanel.Initialise(new MqttPanelSetup
         {
-            SetHaTestRunning(true);
-
-            // The progress goes under the buttons that caused it, one endpoint at a time, so the
-            // Status block above stays a statement of what is true rather than a commentary.
-            // Reported from whichever thread the probe resumed on, so it is bounced through RunOnUi
-            // rather than trusted to land on this one. The identity check drops a report from a
-            // probe that has already been superseded.
-            var progress = new Progress<MqttDetectProgress>(p => RunOnUi(() =>
-            {
-                if (_haProbeCts == cts) ShowHaTestResult(MqttConnectionProbe.Describe(p), failure: false);
-            }));
-
-            var report = await MqttConnectionProbe.RunAsync(ProbeTarget(request), cts.Token, progress);
-            if (cts.IsCancellationRequested || _haProbeCts != cts) return;
-
-            RememberProbedEndpoint(request, report);
-            ShowHaTestResult(MqttConnectionProbe.Describe(report), MqttConnectionProbe.IsFailure(report));
-            RefreshHaDetectText();
-            RefreshHaBrokerStatusText();
-        }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.RunProbe", ex); }
-        finally
-        {
-            // Only the probe still holding the field puts the controls back: a superseded one would
-            // otherwise re-enable the button under the probe that replaced it.
-            if (_haProbeCts == cts)
-            {
-                _haProbeCts = null;
-                SetHaTestRunning(false);
-            }
-            cts.Dispose();
-        }
-    }
-
-    /// <summary>The Connection line: where the settings in force came from. A statement of what is
-    /// true now, never a running commentary — a probe's progress and its verdict belong under the
-    /// buttons that cause them, and a failed sweep leaves this saying what the settings still are.</summary>
-    private void RefreshHaDetectText()
-    {
-        var request = SavedRequest();
-        SetStatusValue(HaDetectText, string.IsNullOrWhiteSpace(request.Host)
-            ? "No broker host set"
-            : MqttTransportPlan.DescribeProvenance(request, SettingsService.Current.MqttLastGoodEndpoint));
-    }
-
-    /// <summary>Re-reads the two live-connection facts on page-show and after an Apply, not on a timer.</summary>
-    private void RefreshHaActivityTexts()
-    {
-        var now = DateTime.UtcNow;
-        SetStatusValue(HaLastPublishText, MqttStatusFormatter.DescribeLastPublish(MqttActivity.LastPublishUtc, now));
-        SetStatusValue(HaLastCommandText, MqttStatusFormatter.DescribeLastCommand(MqttActivity.LastCommand, now));
-        // The link comes and goes without the page hearing about it, so the button's state is re-read
-        // wherever the facts beside it are.
-        RefreshPublishNowEnabled();
-    }
-
-    // True while a manual publish is in flight. Same discipline as the connection test: a second
-    // click is dropped rather than queued, and the button is disabled for the duration.
-    private bool _haPublishing;
-
-    /// <summary>Live only when there is somewhere to publish to — the feature on, a broker connected,
-    /// and nothing already in flight.</summary>
-    private void RefreshPublishNowEnabled() =>
-        HaPublishNowBtn.IsEnabled = !_haPublishing && HaEnabledToggle.IsOn && _isBrokerConnected();
-
-    /// <summary>Republishes the current state on demand. State only: what the entities already are,
-    /// never a fresh announcement, so no retained config topic is rewritten and nothing in Home
-    /// Assistant is re-declared. Awaited on the UI thread, which is where the continuation resumes —
-    /// no raw dispatcher callback, whose unhandled exception would take the process down as a stowed
-    /// exception that never reaches Application.UnhandledException.</summary>
-    private async void OnHaPublishNowClicked(object sender, RoutedEventArgs e)
-    {
-        if (_haPublishing) return;
-        _haPublishing = true;
-        try
-        {
-            RefreshPublishNowEnabled();
-            bool sent = await _onPublishNow();
-            if (_closed) return;   // window went while the publish was in flight
-
-            // Last publish is recorded at PublishAsync's success — the one choke point every outbound
-            // message passes through — so re-reading the activity slots is what shows the result.
-            RefreshHaActivityTexts();
-            if (!sent) SetStatusValue(HaLastPublishText, "Nothing reached the broker", error: true);
-        }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaPublishNowClicked", ex); }
-        finally
-        {
-            _haPublishing = false;
-            if (!_closed) RefreshPublishNowEnabled();
-        }
-    }
-
-    /// <summary>The device name used when <see cref="AppSettings.MqttDeviceName"/> is blank — the same
-    /// expression <c>HomeAssistantService.ApplyAsync</c> falls back to.</summary>
-    private static string DefaultDeviceName() => $"ChargeKeeper ({Environment.MachineName})";
-
-    /// <summary>The id actually published under, override or machine-derived default.</summary>
-    private static string EffectiveNodeId() =>
-        HaDiscovery.EffectiveNodeId(SettingsService.Current.MqttNodeId, Environment.MachineName);
-
-    private void RefreshHaNodeIdText() => HaNodeIdText.Text = EffectiveNodeId();
-
-    /// <summary>The device ID's own confirmation dialog. The id is the <c>unique_id</c> stem, the
-    /// device identifier and every topic segment, so changing it renames every entity in Home
-    /// Assistant — hence the separate dialog, gated on a valid different id and an acknowledgement
-    /// tick.</summary>
-    private async void OnChangeNodeIdClicked(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            string current = EffectiveNodeId();
-
-            var idBox = new TextBox
-            {
-                Text            = SettingsService.Current.MqttNodeId,
-                PlaceholderText = HaDiscovery.NodeId(Environment.MachineName),
-            };
-            var errorText = new TextBlock
-            {
-                FontSize     = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Visibility   = Visibility.Collapsed,
-                Foreground   = CriticalBrush(),
-            };
-            // The id is sanitised to [a-z0-9_] before it reaches a topic, so echo what will be
-            // published — otherwise "Office ThinkPad" silently becomes something else.
-            var previewText = new TextBlock
-            {
-                FontSize     = 11,
-                Opacity      = 0.7,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            var ack = new CheckBox { Content = "I understand my automations will break" };
-
-            var body = new StackPanel { Spacing = 8, Width = 420 };
-            body.Children.Add(new TextBlock
-            {
-                Text         = $"Current ID: {current}",
-                TextWrapping = TextWrapping.Wrap,
-            });
-            body.Children.Add(new TextBlock { Text = "New ID", Opacity = 0.7, FontSize = 12 });
-            body.Children.Add(idBox);
-            body.Children.Add(previewText);
-            body.Children.Add(errorText);
-            body.Children.Add(new TextBlock
-            {
-                Text = "Changing the ID renames every ChargeKeeper entity on the broker. "
-                     + "Automations, dashboards and history that point at the old entities will stop "
-                     + "working — they will not report an error, the entities simply will not be there "
-                     + "any more.\n\n"
-                     + "ChargeKeeper removes the old entities from the broker on confirmation. "
-                     + "Their recorded history is not carried over to the new ones.\n\n"
-                     + "An empty box restores the name derived from this machine.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 4, 0, 0),
-            });
-            body.Children.Add(ack);
-
-            var dialog = new ContentDialog
-            {
-                XamlRoot          = Content.XamlRoot,
-                Title             = "Change device ID",
-                Content           = body,
-                PrimaryButtonText = "Change ID",
-                CloseButtonText   = "Cancel",
-                DefaultButton     = ContentDialogButton.Close,
-                IsPrimaryButtonEnabled = false,
-            };
-
-            // The primary button is the only gate, so re-derive it from scratch on every edit
-            // rather than tracking a "was valid" flag that can go stale.
-            void Revalidate()
-            {
-                string raw      = idBox.Text ?? "";
-                string? error   = HaDiscovery.ValidateNodeId(raw);
-                string candidate = HaDiscovery.EffectiveNodeId(raw, Environment.MachineName);
-
-                errorText.Text       = error ?? "";
-                errorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
-                previewText.Text     = error is null ? $"Publishes as: {candidate}" : "";
-
-                dialog.IsPrimaryButtonEnabled = error is null && candidate != current && ack.IsChecked == true;
-            }
-
-            idBox.TextChanged += (_, _) => Revalidate();
-            ack.Checked       += (_, _) => Revalidate();
-            ack.Unchecked     += (_, _) => Revalidate();
-            Revalidate();
-
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-
-            // Store the sanitised form: the card above shows the effective id and the two must not
-            // disagree. Blank stays blank — that is the "use the machine default" sentinel.
-            string entered = (idBox.Text ?? "").Trim();
-            string newId   = entered.Length == 0 ? "" : HaDiscovery.NormalizeNodeId(entered);
-
-            SettingsService.Update(s => s.MqttNodeId = newId);
-            // Same callback the broker Apply uses: HomeAssistantService evicts the old id's retained
-            // topics before republishing discovery under the new one.
-            _onHomeAssistantChanged();
-            RefreshHaNodeIdText();
-        }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.OnChangeNodeIdClicked", ex); }
+            Settings          = mqtt.Settings,
+            Groups            = mqtt.Groups,
+            TopicRoot         = MqttPublisher.TopicRoot,
+            Activity          = mqtt.Activity,
+            ConnectionState   = () => mqtt.State,
+            PublishNow        = mqtt.PublishNowAsync,
+            // Both must run the real paths: the panel's device-id dialogue has already promised the
+            // old entities are removed, which only the connection's apply keeps, and the announced
+            // entity set is baked into the retained document, which only a republish rewrites.
+            ConnectionChanged = mqtt.ApplyConnection,
+            PublishSetChanged = mqtt.Republish,
+            RecallEndpoint    = mqtt.RecallEndpoint,
+            DefaultDeviceName = mqtt.DefaultDeviceName,
+            PublishTitle      = "Publish to MQTT",
+            PublishDescription = "Publishes battery and charge state to an MQTT broker.",
+            PublishGroupsInfo =
+                "Each group covers the entities from the Settings page it is named after. Switching "
+                + "one off stops it publishing and marks its entities unavailable; nothing is deleted, "
+                + "and switching it back on restores everything you set on them. Entities the hardware "
+                + "cannot honour are never announced, whatever these are set to.",
+            DeviceIdConsequence =
+                "Every ChargeKeeper automation, dashboard card and history graph pointing at the old "
+                + "entities has to be repointed by hand.",
+            CommandLabel      = mqtt.Entities.NameOf,
+            Log               = new AppMqttLog(),
+        });
     }
 
     // The About section hosts BrandAboutControl inline, populated in the ctor, so it needs no
