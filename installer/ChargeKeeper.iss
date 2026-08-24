@@ -137,7 +137,17 @@ Type: files; Name: "{app}\LenovoTray.dll"
 Type: files; Name: "{app}\LenovoTray.pri"
 Type: files; Name: "{app}\LenovoTray.deps.json"
 Type: files; Name: "{app}\LenovoTray.runtimeconfig.json"
-Type: files; Name: "{app}\LenovoRed-*.ico"
+Type: files; Name: "{app}\LenovoTray.pdb"
+; The old tray icon was generated into {app} under two names across its life: plain
+; "LenovoRed.ico" (1.0.0) and version-suffixed "LenovoRed-v2/-v4.ico" (1.0.10 - 1.1.x). The
+; suffixed pattern alone left the plain file behind on the earliest installs, so match both.
+Type: files; Name: "{app}\LenovoRed*.ico"
+; Start-menu leftovers from the old name, both pointing at the deleted LenovoTray.exe: the
+; loose shortcut an "All apps" install left, and the one inside the program group older
+; versions created. The group folder goes only if nothing else is left in it.
+Type: files; Name: "{autoprograms}\Lenovo Power Tray.lnk"
+Type: files; Name: "{autoprograms}\Lenovo Power Tray\Lenovo Power Tray.lnk"
+Type: dirifempty; Name: "{autoprograms}\Lenovo Power Tray"
 
 [Icons]
 ; Per-user "All apps" Start-menu entry. IconFilename points at the exe itself (which embeds
