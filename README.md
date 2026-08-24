@@ -247,7 +247,8 @@ same convention; one that does not can still subscribe to the state topics direc
 
 It is **off by default** and never touches the network until you both enable it and set a broker
 host. Configure it from the tray icon → **Settings…** → **MQTT** — the enabled toggle
-applies immediately, and the broker host/port/username/password/TLS/discovery-prefix fields commit
+applies immediately, and the broker host/port/transport/encryption/username/password/discovery-prefix
+fields commit
 as a batch behind an **Apply** button (so the MQTT connection reconnects once per Apply, not per
 keystroke). The password is never logged or shown in any toast.
 
@@ -258,10 +259,11 @@ settings folder**), then picked up without restarting via tray icon → **Reload
 {
   "HomeAssistantEnabled": true,
   "MqttBrokerHost": "homeassistant.local",   // or the broker IP
-  "MqttBrokerPort": 1883,
+  "MqttBrokerPort": 1883,                     // or null to find the port by probing
   "MqttUsername": "your-mqtt-user",
   "MqttPassword": "your-mqtt-password",       // stored locally, same as any MQTT client
-  "MqttUseTls": false,
+  "MqttTransportMode": "Auto",                // Auto | Tcp | WebSocket
+  "MqttEncryptionMode": "Auto",               // Auto (encrypted first, then plain) | On | Off
   "MqttDiscoveryPrefix": "homeassistant"      // the prefix your consumer discovers on
 }
 ```

@@ -150,7 +150,25 @@ internal sealed class AppSettings
 
     public string MqttUsername { get; set; } = "";
     public string MqttPassword { get; set; } = "";
-    public bool   MqttUseTls   { get; set; } = false;
+
+    /// <summary>
+    /// The two-state encryption switch <see cref="MqttEncryptionMode"/> replaced, read once to
+    /// migrate and then cleared. Three-valued on purpose: null means the key was absent, which is a
+    /// file older than the setting or a brand-new one, and reads as "nothing was chosen" — an absent
+    /// key is not a false, and must never be taken for one. An explicit value is a choice and is
+    /// carried across exactly, so an upgrade cannot start negotiating what was pinned.
+    /// </summary>
+    public bool? MqttUseTls { get; set; }
+
+    /// <summary>Whether the link to the broker is encrypted. Automatic tries encrypted first and
+    /// falls back to plain; an explicit choice is never probed around, exactly as for the port and
+    /// the transport. Null means the migration from <see cref="MqttUseTls"/> has not run.</summary>
+    public MqttEncryptionSetting? MqttEncryptionMode { get; set; }
+
+    /// <summary>The setting as everything downstream reads it. Automatic until the migration has run,
+    /// which is also what a file carrying neither key means.</summary>
+    [JsonIgnore]
+    public MqttEncryptionSetting MqttEncryption => MqttEncryptionMode ?? MqttEncryptionSetting.Auto;
 
     /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
     /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
@@ -423,6 +441,50 @@ internal static class SettingsService
         if (settings.MqttBrokerPort != RetiredDefaultMqttPort) return false;
         settings.MqttBrokerPort = null;
         return true;
+    }
+
+    /// <summary>
+    /// Turns the old two-state encryption switch into the three-state setting. Runs once, and
+    /// touches nothing else in settings.
+    /// </summary>
+    /// <remarks>
+    /// settings.json is deliberately not copied aside first: nothing is destroyed, one key is read
+    /// and one written, and being wrong costs a connect attempt.
+    /// </remarks>
+    public static void MigrateMqttEncryption()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            if (MigrateEncryptionMode(settings) is not { } chosen) return;
+
+            Save();
+            AppLog.Info($"MQTT encrypted connection carried over from the old switch as {chosen}.");
+        }
+    }
+
+    /// <summary>The decision behind <see cref="MigrateMqttEncryption"/>, separated so the once-only
+    /// guard is testable: the setting chosen, or null when the migration has already run and must
+    /// not run again.</summary>
+    /// <remarks>
+    /// An explicit switch becomes an explicit setting — true stays encrypted, false stays plain —
+    /// because an upgrade must not turn either into something that negotiates. Only a file that never
+    /// carried the key at all defaults to Automatic. This is the rule the network-rule migration had
+    /// to learn: an absent key is not a false, and must not select the branch that changes behaviour.
+    /// The old key is cleared on the way through, so the file never holds two answers at once.
+    /// </remarks>
+    internal static MqttEncryptionSetting? MigrateEncryptionMode(AppSettings settings)
+    {
+        if (settings.MqttEncryptionMode is not null) return null;
+
+        settings.MqttEncryptionMode = settings.MqttUseTls switch
+        {
+            true  => MqttEncryptionSetting.On,
+            false => MqttEncryptionSetting.Off,
+            null  => MqttEncryptionSetting.Auto,
+        };
+        settings.MqttUseTls = null;
+        return settings.MqttEncryptionMode;
     }
 
     /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an

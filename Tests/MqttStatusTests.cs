@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.Sockets;
 using System.Threading;
 using ChargeKeeper.Services;
@@ -48,7 +48,7 @@ public class MqttStatusFormatterTests
     [Fact]
     public void Broker_ReportsPinnedValuesAndFoundOnesAlike()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket, Encrypted: true);
 
         Assert.Equal("mq.laget.no:443 over WebSocket", MqttStatusFormatter.DescribeBroker(
             new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Auto), memory));
@@ -66,7 +66,7 @@ public class MqttStatusFormatterTests
     [Fact]
     public void Broker_WithNothingPinnedAndNothingFoundHere_SaysSoRatherThanGuessing()
     {
-        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket, Encrypted: true);
 
         Assert.Equal("10.0.20.22 — not connected yet", MqttStatusFormatter.DescribeBroker(
             new MqttEndpointRequest("10.0.20.22", "ck", null, MqttTransportSetting.Auto), elsewhere));
@@ -243,18 +243,40 @@ public class MqttConnectionProbeTests
     private static MqttProbeReport Report(params (MqttTransport Transport, MqttProbeOutcome Outcome)[] attempts) =>
         new([.. attempts.Select(a => new MqttEndpointAttempt(new MqttEndpointCandidate(1883, a.Transport), a.Outcome))]);
 
-    // The two lines the page shows while a sweep runs. Pinned exactly: they are the only account of
-    // what a search that can take tens of seconds is doing.
+    // The lines the page shows under the button row while a sweep runs. Pinned exactly: they are the
+    // only account of what a search that can take tens of seconds is doing, and every one of them has
+    // to name the endpoint it is about.
     [Fact]
-    public void DescribeProgress_NamesThePortStageAndTheTransportStageApart()
+    public void DescribeProgress_NamesTheEndpointAtEveryStage()
     {
-        Assert.Equal("Detecting… | Probing port: 443",
+        Assert.Equal("Trying WebSocket on port 443…",
             MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Port, 443, MqttTransport.WebSocket)));
-        Assert.Equal("Detecting… | Probing transport WebSocket",
+        Assert.Equal("Trying WebSocket on port 443 — asking the broker…",
             MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Transport, 443, MqttTransport.WebSocket)));
-        Assert.Equal("Detecting… | Probing transport TCP",
+        Assert.Equal("Trying TCP on port 1883 — asking the broker…",
             MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Transport, 1883, MqttTransport.Tcp)));
     }
+
+    // Progress is an account of the search, not a spinner: each candidate's own verdict is reported
+    // as it lands, in the same words the summary would use for it.
+    [Fact]
+    public void DescribeProgress_ReportsEachCandidatesOutcomeAsItLands()
+    {
+        Assert.Equal("TCP on port 1883 connected.", Finished(1883, MqttTransport.Tcp,
+            new MqttProbeResult(MqttProbeOutcome.Success, "")));
+        Assert.Equal("TCP on port 8883 could not be reached (nothing is listening on that port).",
+            Finished(8883, MqttTransport.Tcp,
+                new MqttProbeResult(MqttProbeOutcome.Unreachable, "nothing is listening on that port")));
+        Assert.Equal("WebSocket on port 443 rejected these credentials.", Finished(443, MqttTransport.WebSocket,
+            new MqttProbeResult(MqttProbeOutcome.AuthRejected, "NotAuthorized")));
+
+        // Never reported without a result, but an empty one must not read as a success.
+        Assert.Equal("TCP on port 1883 — no answer recorded.",
+            MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Finished, 1883, MqttTransport.Tcp)));
+    }
+
+    private static string Finished(int port, MqttTransport transport, MqttProbeResult result) =>
+        MqttConnectionProbe.Describe(new MqttDetectProgress(MqttDetectStage.Finished, port, transport, result));
 
     // A run that reached nothing can now hold eight attempts of the same clause; one of each is the
     // whole of what the user can act on.

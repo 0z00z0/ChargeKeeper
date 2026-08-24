@@ -18,6 +18,13 @@ internal static class MqttTransportEndpoint
     /// broker published through a CDN or reverse proxy is only ever reachable that way.</summary>
     private static readonly int[] SecureWebSocketPorts = [443, 8084, 8883];
 
+    /// <summary>Whether the link will actually be encrypted, as opposed to whether encryption was
+    /// asked for. The two differ on a WebSocket port whose scheme is fixed by convention: the address
+    /// decides there, and no setting can undo it. Pure, and the one place the difference is worked
+    /// out, so the plan, the cache and what the page says cannot disagree about it.</summary>
+    public static bool Encrypts(MqttTransport transport, int port, bool requested) =>
+        requested || (transport == MqttTransport.WebSocket && SecureWebSocketPorts.Contains(ClampPort(port)));
+
     /// <summary>The URI the WebSocket transport connects to. Pure.</summary>
     public static string WebSocketUri(string host, int port, bool useTls)
     {

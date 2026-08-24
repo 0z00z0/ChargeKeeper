@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -18,11 +18,12 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class MqttProbeLoopbackTests
 {
-    // Pinned to TCP: these exercise the socket/CONNACK stages against a loopback listener, and Auto
-    // would follow every failure with a WebSocket attempt nothing here serves.
+    // Pinned to TCP and to plain: these exercise the socket/CONNACK stages against a loopback
+    // listener that speaks neither WebSocket nor TLS, so leaving either on Automatic would only add
+    // attempts against something nothing here serves.
     private static MqttProbeTarget Target(int port) =>
-        new("127.0.0.1", port, "user", "secret", UseTls: false, ClientId: "chargekeeper_probe",
-            Transport: MqttTransportSetting.Tcp);
+        new("127.0.0.1", port, "user", "secret", ClientId: "chargekeeper_probe",
+            Transport: MqttTransportSetting.Tcp, Encryption: MqttEncryptionSetting.Off);
 
     /// <summary>A port that was bound and released, so a connect to it is refused rather than hanging.</summary>
     private static int ClosedPort()
@@ -75,7 +76,8 @@ public class MqttProbeLoopbackTests
     public async Task AutoOnAPinnedPort_WhenTcpIsClosed_AlsoTriesWebSocket()
     {
         var target = new MqttProbeTarget("127.0.0.1", ClosedPort(), "user", "secret",
-            UseTls: false, ClientId: "chargekeeper_probe", Transport: MqttTransportSetting.Auto);
+            ClientId: "chargekeeper_probe", Transport: MqttTransportSetting.Auto,
+            Encryption: MqttEncryptionSetting.Off);
 
         var report = await MqttConnectionProbe.RunAsync(target, CancellationToken.None);
 
@@ -115,8 +117,8 @@ public class MqttProbeLoopbackTests
         // The port is left to the search, or pinning one would filter the stale entry out before it
         // could be tried — which is a different behaviour from the one under test here.
         var target = new MqttProbeTarget("127.0.0.1", null, "user", "secret",
-            UseTls: false, ClientId: "chargekeeper_probe",
-            Transport: MqttTransportSetting.Tcp, Memory: stale);
+            ClientId: "chargekeeper_probe", Transport: MqttTransportSetting.Tcp,
+            Encryption: MqttEncryptionSetting.Off, Memory: stale);
 
         var report = await MqttConnectionProbe.RunAsync(target, CancellationToken.None);
 
@@ -124,10 +126,11 @@ public class MqttProbeLoopbackTests
         Assert.True(report.Attempts.Count > 1);                  // …and losing it does not end the run
     }
 
-    /// <summary>The progress line is what the page shows while a sweep runs, so the port stage has to
-    /// be reported before anything is known about the endpoint.</summary>
+    /// <summary>The progress line is what the page shows under the button row while a sweep runs, so
+    /// the port stage has to be reported before anything is known about the endpoint, and each
+    /// candidate's verdict as it lands.</summary>
     [Fact]
-    public async Task ARun_ReportsTheStagesItIsOn()
+    public async Task ARun_ReportsTheStagesItIsOnAndEachVerdict()
     {
         using var broker = new FakeBroker(reject: false);
         var seen = new List<string>();
@@ -137,7 +140,11 @@ public class MqttProbeLoopbackTests
 
         // Progress<T> posts asynchronously, so settle before reading rather than racing the last report.
         await Task.Delay(250);
-        lock (seen) Assert.Contains($"Detecting… | Probing port: {broker.Port}", seen);
+        lock (seen)
+        {
+            Assert.Contains($"Trying TCP on port {broker.Port}…", seen);
+            Assert.Contains($"TCP on port {broker.Port} connected.", seen);
+        }
     }
 
     /// <summary>Cancellation is what a closing window and a retyped host both do. The run has to come

@@ -1,4 +1,4 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using MQTTnet;
 using MQTTnet.Protocol;
 
@@ -29,13 +29,15 @@ internal sealed class HomeAssistantService : IDisposable
     /// <remarks>Options are built per candidate rather than up front: port and transport together
     /// decide how the broker is addressed, and the sweep can hold eight of them.</remarks>
     private sealed record ConnectionOptions(
-        MqttEndpointRequest Request, string Password, bool UseTls,
+        MqttEndpointRequest Request, string Password,
         string ClientId, string AvailabilityTopic)
     {
         public MqttClientOptions For(MqttEndpointCandidate candidate)
         {
             var ob = new MqttClientOptionsBuilder()
-                .WithTransport(candidate.Transport, Request.Host, candidate.Port, UseTls)
+                // Encryption comes off the candidate, not off the snapshot: under Automatic it is
+                // one of the things the sweep is finding, and it can differ between candidates.
+                .WithTransport(candidate.Transport, Request.Host, candidate.Port, candidate.Encrypted)
                 .WithClientId(ClientId)
                 .WithCleanSession()
                 // MQTTnet pings within this period on an idle link, so the broker won't drop a quiet
@@ -191,8 +193,9 @@ internal sealed class HomeAssistantService : IDisposable
             // Snapshotted on this thread, so the maintain loop never reads the topic and identity
             // fields the next ApplySettings may already be rewriting.
             _options = new ConnectionOptions(
-                new MqttEndpointRequest(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort, s.MqttTransportMode),
-                s.MqttPassword, s.MqttUseTls, _nodeId, _availTopic);
+                new MqttEndpointRequest(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort,
+                                        s.MqttTransportMode, s.MqttEncryption),
+                s.MqttPassword, _nodeId, _availTopic);
             Memory = s.MqttLastGoodEndpoint;
 
             bool wasRunning = _enabled;
@@ -269,7 +272,8 @@ internal sealed class HomeAssistantService : IDisposable
     private void RememberEndpoint(MqttEndpointRequest request, MqttEndpointCandidate candidate)
     {
         var found = new MqttEndpointMemory(
-            (request.Host ?? "").Trim(), (request.Username ?? "").Trim(), candidate.Port, candidate.Transport);
+            (request.Host ?? "").Trim(), (request.Username ?? "").Trim(),
+            candidate.Port, candidate.Transport, candidate.Encrypted);
         if (found == Memory) return;
         Memory = found;
         SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
@@ -396,8 +400,11 @@ internal sealed class HomeAssistantService : IDisposable
 
     private async Task OnConnectedAsync(CancellationToken ct)
     {
+        // The encryption is named because Automatic can fall back to plain with nobody choosing it,
+        // and a downgrade that leaves no trace is one nobody can notice afterwards.
         AppLog.Info(Memory is { } found
-            ? $"HomeAssistant: connected over {MqttConnectionProbe.Name(found.Transport)} on port {found.Port}; " +
+            ? $"HomeAssistant: connected over {MqttConnectionProbe.Name(found.Transport)} on port {found.Port}, " +
+              $"{(found.Encrypted == true ? "encrypted" : "not encrypted")}; " +
               $"publishing discovery for '{_nodeId}'."
             : $"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
         // Evict a superseded node id first, so HA never sees both devices at once.
@@ -609,6 +616,47 @@ internal sealed class HomeAssistantService : IDisposable
             _ = PublishAsync(_statusTopic, json, retain: true, CancellationToken.None);
     }
 
+    /// <summary>Whether there is a live link to publish onto: the feature running and the client
+    /// connected. What a "publish now" can act on, and what the Settings page gates its button by.</summary>
+    public bool IsConnected => _enabled && _client.IsConnected;
+
+    /// <summary>Publishes the current state and settings snapshots on demand. Nothing is announced
+    /// and no config topic is written, so this republishes what the entities already are rather than
+    /// re-declaring that they exist. False when nothing reached the broker.</summary>
+    /// <remarks>
+    /// The dedupe caches are bypassed on purpose, and updated as if the payload had changed. Dropping
+    /// an unchanged payload is right for a signal and wrong for a button: pressing it and having
+    /// nothing leave the machine is indistinguishable from a dead connection. Which groups are
+    /// switched on needs no filter here — a withheld group's entities are never announced and its
+    /// config topic is emptied, so nothing consumes the fields it would have read.
+    /// </remarks>
+    public async Task<bool> PublishCurrentStateAsync()
+    {
+        if (!IsConnected) return false;
+        try
+        {
+            bool sent = false;
+            if (CurrentStateProvider?.Invoke() is { } state)
+            {
+                string json = HaDiscovery.StatePayload(state);
+                lock (_stateLock) { _lastStateJson = json; }
+                sent |= await PublishAsync(_stateTopic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            }
+            if (CurrentSurfaceProvider?.Invoke() is { } surface)
+            {
+                string json = HaSurfacePayload.Build(surface);
+                lock (_stateLock) { _lastSurfaceJson = json; }
+                sent |= await PublishAsync(_statusTopic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            }
+            return sent;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("HomeAssistantService.PublishCurrentState", Sanitise(ex));
+            return false;
+        }
+    }
+
     /// <summary>Reflects a change straight back, without waiting for a battery tick — a settings write
     /// from the broker, a keep-awake session ending, a network location moving. Signals rather than
     /// publishes: the snapshot reaches a vendor service and an adapter enumeration, and the loudest
@@ -656,7 +704,9 @@ internal sealed class HomeAssistantService : IDisposable
                                "", retain: true, ct).ConfigureAwait(false);
     }
 
-    private async Task PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
+    /// <summary>False when the message did not reach the broker. Only a caller the user is watching
+    /// needs to know — everything else publishes into the background, where the log is the trace.</summary>
+    private async Task<bool> PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
     {
         try
         {
@@ -669,8 +719,9 @@ internal sealed class HomeAssistantService : IDisposable
             await _client.PublishAsync(msg, ct).ConfigureAwait(false);
             // The one choke point every outbound message passes through.
             MqttActivity.RecordPublish();
+            return true;
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); return false; }
     }
 
     private async Task StopInternalAsync(bool clearDiscovery, CancellationToken ct = default)
