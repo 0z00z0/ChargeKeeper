@@ -403,6 +403,131 @@ public class NetworkLocationServiceTests
             NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, reversed)?.Name);
     }
 
+    // The uplink Windows names, which is preferred over the MAC pairing above. The rows are measured
+    // from MSFT_NetAdapterBindingSettingData (root\standardcimv2, ComponentID 'vms_pp'): Name is the
+    // connection alias and InterfaceDescription the hardware name. Docked, exactly one row is enabled
+    // and it names the dock; undocked, five rows come back and every one is disabled.
+
+    private static readonly UplinkBinding[] BoundToTheDock = [new("Ethernet", PhysicalDesc)];
+
+    [Fact]
+    public void Detect_SwitchWithAnOverriddenMac_KeysOnTheBoundUplinkAndNotTheClone()
+    {
+        // What the MAC pairing cannot see. Cloning the uplink's address onto the vNIC is Hyper-V's
+        // default, not its contract; with the address hand-set, nothing pairs and the reading is given
+        // up. The binding record still names the NIC, so the key follows it.
+        var port = BridgedSwitchPort() with { Mac = "00:15:5D:01:02:03" };
+        BridgePeer[] peers = [Physical(), Interface(BridgeAlias, BridgeDesc, "00:15:5D:01:02:03")];
+
+        var bound  = NetworkLocationService.Detect([port], peers, 31, () => null, () => BoundToTheDock);
+        var byMacs = NetworkLocationService.Detect([port], peers, 31, () => null);
+
+        Assert.Equal(PhysicalMac, bound.AdapterMac);
+        Assert.Equal("Ethernet", bound.DisplayHint);
+        Assert.Equal("10.0.1.0/23", bound.IpCidr);
+        Assert.True(byMacs.IsEmpty);   // the same table without the binding resolves nothing
+    }
+
+    [Fact]
+    public void Detect_NoEnabledBinding_ReadsExactlyAsTheMacPairingAlone()
+    {
+        // Undocked, or no Hyper-V at all: measured, the rows that come back are all disabled, so the
+        // filtered read is empty and nothing about the reading may move.
+        var port = BridgedSwitchPort();
+
+        var withReader = NetworkLocationService.DetectDetailed([port], MeasuredPeers, 31, () => null, () => []);
+        var without    = NetworkLocationService.DetectDetailed([port], MeasuredPeers, 31, () => null);
+
+        Assert.Equal(PhysicalMac, withReader.Location.AdapterMac);
+        Assert.Equal(without, withReader);
+    }
+
+    [Fact]
+    public void Detect_TheBindingReadThrows_StillResolvesThroughTheMacPairing()
+    {
+        // The read is a WMI round trip on every network change. It must never be the reason a location
+        // fails to resolve.
+        var location = NetworkLocationService.Detect(
+            [BridgedSwitchPort()], MeasuredPeers, 31, () => null,
+            () => throw new InvalidOperationException("WMI unavailable"));
+
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("Ethernet", location.DisplayHint);
+    }
+
+    [Fact]
+    public void Detect_NoSwitchPortAmongTheCandidates_NeverReadsTheBindings()
+    {
+        // Measured at 300-650 ms per read, so a machine with no Hyper-V must not pay it on every
+        // network change.
+        var wifi = WifiCard("10.0.0.0/23");
+        bool read = false;
+
+        NetworkLocationService.Detect([wifi], PeersOf(wifi), 9, () => "HomeWiFi",
+                                      () => { read = true; return []; });
+
+        Assert.False(read);
+    }
+
+    [Fact]
+    public void ResolveBoundUplink_TwoEnabledBindings_DefersToTheMacPairing()
+    {
+        // vms_pp records that an adapter carries AN external switch, not which one. With two switches
+        // the record cannot say which this port belongs to, and the MAC — which is per-switch — can.
+        UplinkBinding[] two =
+        [
+            new("Ethernet",   PhysicalDesc),
+            new("Ethernet 4", "ASIX USB to Gigabit Ethernet Family Adapter"),
+        ];
+
+        Assert.Null(NetworkLocationService.ResolveBoundUplink(BridgeAlias, BridgeDesc, MeasuredPeers, two));
+        Assert.Equal("Ethernet", NetworkLocationService.ResolveSwitchUplink(
+            BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers, two)?.Name);
+    }
+
+    [Fact]
+    public void ResolveBoundUplink_RowNamingAvNic_DefersToTheMacPairing()
+    {
+        // Measured: the host vNICs appear among the vms_pp rows themselves, so a row is not by itself
+        // proof of a NIC. Only a non-virtual peer holding a hardware address can be the uplink.
+        UplinkBinding[] namesTheVnic = [new(BridgeAlias, BridgeDesc)];
+
+        Assert.Null(NetworkLocationService.ResolveBoundUplink(
+            BridgeAlias, BridgeDesc, MeasuredPeers, namesTheVnic));
+    }
+
+    [Fact]
+    public void ResolveBoundUplink_AliasRenamed_StillMatchesOnTheHardwareName()
+    {
+        // The alias is user-editable, and the binding row and the adapter list are different tables.
+        UplinkBinding[] byDescription = [new("Renamed by the user", PhysicalDesc)];
+
+        Assert.Equal("Ethernet", NetworkLocationService.ResolveBoundUplink(
+            BridgeAlias, BridgeDesc, MeasuredPeers, byDescription)?.Name);
+    }
+
+    [Fact]
+    public void ResolveBoundUplink_PlainPhysicalAdapter_IsNeverRepointed()
+    {
+        // The same gate the MAC pairing has: an adapter that is not a switch port must never be
+        // re-keyed onto whatever the binding happens to name.
+        Assert.Null(NetworkLocationService.ResolveBoundUplink("WiFi", WifiDesc, MeasuredPeers, BoundToTheDock));
+    }
+
+    [Fact]
+    public void Detect_BoundUplinkOverAVpn_LeavesTheTunnelPathAlone()
+    {
+        // The metric scan is what finds the NIC under a tunnel, and the binding must not divert it: the
+        // tunnel holds the route, the switch port holds the address, the binding names the NIC.
+        AdapterCandidate[] all = [WireGuard(), BridgedSwitchPort(), Tether("100.110.83.0/24")];
+
+        var location = NetworkLocationService.Detect(all, MeasuredPeers, VpnIndex, () => null,
+                                                     () => BoundToTheDock);
+
+        Assert.Equal(PhysicalMac, location.AdapterMac);
+        Assert.Equal("10.0.1.0/23", location.IpCidr);
+    }
+
     // NDIS filter layers, which GetAllNetworkInterfaces returns as interfaces of their own
 
     [Theory]

@@ -209,6 +209,11 @@
          specific — read AppLog's remarks and NLogConfigTests before bumping this. -->
     <PackageReference Include="NLog" Version="6.1.4" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
+    <!-- WMI, for Services/HyperVUplinkBindings: MSFT_NetAdapterBindingSettingData is how Windows
+         names the NIC an external Hyper-V switch is bound to, which the MAC walk-back can only
+         infer. Same 10.0.9 band as the two System.* references either side; the package ships in
+         a self-contained unpackaged publish, as HyperVManagerTray already does. -->
+    <PackageReference Include="System.Management" Version="10.0.9" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
     <PackageReference Include="TaskScheduler" Version="2.12.2" />
     <!-- Pinned exact (not floating) per TODO #19 spec — latest stable 2.9.x as of 2026-07-13.
