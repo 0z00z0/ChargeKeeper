@@ -90,7 +90,6 @@ public class MqttTransportPlanTests
 
         Assert.Null(MqttTransportPlan.Reusable(request, elsewhere));
         Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp), First(request, elsewhere));
-        Assert.True(MqttTransportPlan.ShouldDetect(request, elsewhere));
     }
 
     // A broker commonly fronts a separate listener per account, so the entry belongs to the user name
@@ -215,17 +214,37 @@ public class MqttTransportPlanTests
         Assert.Equal(MqttTransportPlan.OfferedPorts.Count, MqttTransportPlan.OfferedPorts.Distinct().Count());
     }
 
-    // Probing costs seconds, so it only runs when there is nothing to reuse.
+    // Probing puts the machine on the network, so it follows something the user did.
     [Fact]
-    public void ShouldDetect_OnlyWhenNothingIsRememberedForThisHost()
+    public void EveryExplicitAction_Probes()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        // Every member, read off the enum, so a trigger added without a decision here fails loudly.
+        foreach (var trigger in Enum.GetValues<MqttProbeTrigger>())
+        {
+            Assert.True(MqttTransportPlan.ShouldProbe(trigger, publishingEnabled: true, "mq.laget.no"));
 
-        Assert.True (MqttTransportPlan.ShouldDetect(Auto(), null));
-        Assert.False(MqttTransportPlan.ShouldDetect(Auto(), memory));
-        Assert.True (MqttTransportPlan.ShouldDetect(Auto(host: "10.0.20.22"), memory));
-        // Nothing to probe without a host.
-        Assert.False(MqttTransportPlan.ShouldDetect(Auto(host: "   "), null));
+            // Publishing off means no network at all, and a blank host has nothing to probe.
+            Assert.False(MqttTransportPlan.ShouldProbe(trigger, publishingEnabled: false, "mq.laget.no"));
+            Assert.False(MqttTransportPlan.ShouldProbe(trigger, publishingEnabled: true,  "   "));
+            Assert.False(MqttTransportPlan.ShouldProbe(trigger, publishingEnabled: true,  ""));
+        }
+    }
+
+    // Fail closed: a trigger the list has not been taught about probes nothing, so adding a member
+    // for something passive — a page shown, a timer — cannot start a sweep by default.
+    [Fact]
+    public void AnUnlistedTrigger_NeverProbes() =>
+        Assert.False(MqttTransportPlan.ShouldProbe((MqttProbeTrigger)99, publishingEnabled: true, "mq.laget.no"));
+
+    // What is remembered orders the sweep; it never decides whether there is one.
+    [Fact]
+    public void ARememberedEndpoint_DoesNotSuppressTheProbe()
+    {
+        Assert.True(MqttTransportPlan.ShouldProbe(
+            MqttProbeTrigger.BrokerSettingChanged, publishingEnabled: true, "mq.laget.no"));
+        Assert.Equal(
+            new MqttEndpointCandidate(443, MqttTransport.WebSocket),
+            First(Auto(), new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket)));
     }
 
     [Fact]

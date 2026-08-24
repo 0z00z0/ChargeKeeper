@@ -280,10 +280,9 @@ internal sealed partial class SettingsWindow : Window
         NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
-        // An in-flight connection test or endpoint search outlives the window by up to its budget;
-        // cancelling makes each continuation bail before it touches a torn-down control.
-        _haProbeCts?.Cancel();
-        CancelAutodetect();
+        // An in-flight probe outlives the window by up to its budget; cancelling makes the
+        // continuation bail before it touches a torn-down control.
+        CancelProbe();
     }
 
     // Set in OnClosed. Background callbacks started before the close still marshal back, and
@@ -348,15 +347,13 @@ internal sealed partial class SettingsWindow : Window
             RefreshCurrentNetworkText();
         }
 
+        // Opening the page reads what is already known and probes nothing: a probe follows an
+        // explicit action — a Broker setting edited, Test connection, or Apply — and never the mere
+        // act of looking at the page.
         if (tag == "HomeAssistant")
-        {
             RefreshHaActivityTexts();
-            // Opening the page is one of the two triggers for the endpoint search; the other is a
-            // field it depends on changing.
-            StartAutodetect();
-        }
         else
-            CancelAutodetect();   // nothing left on screen for its answer to land on
+            CancelProbe();   // nothing left on screen for its answer to land on
 
         // The remaining-time line counts down, so it needs a tick — but only while it is on screen.
         if (tag == "KeepAwake")
@@ -1680,7 +1677,7 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>Hides "Applied." and the test result the moment any broker field is edited — those
     /// edits are not live until the next Apply, so either label would vouch for values since
-    /// retyped — and restarts the endpoint search, because the answer belongs to the old values.</summary>
+    /// retyped — and restarts the probe, because the answer belongs to the old values.</summary>
     private void WireHaBrokerFieldEditHandlers()
     {
         void Hide()
@@ -1688,20 +1685,28 @@ internal sealed partial class SettingsWindow : Window
             HaAppliedText.Visibility    = Visibility.Collapsed;
             HaTestResultText.Visibility = Visibility.Collapsed;
         }
-        void Restage() { Hide(); ScheduleAutodetect(); }
+        void Restage() { Hide(); ScheduleProbe(); }
 
+        // Not a Broker setting: the device name names this machine to the consumer and reaches no
+        // broker decision, so editing it stages without probing.
         HaDeviceNameBox.TextChanged       += (_, _) => Hide();
-        HaPrefixBox.TextChanged           += (_, _) => Hide();
-        // Every field the endpoint search depends on. The password is not one of them: it decides
-        // whether the broker accepts the session, never which door the session knocks on.
+        // Every Broker setting restages. The password is one of them because an endpoint that
+        // answers and refuses the credentials ends the sweep, so a corrected password changes the
+        // verdict; the discovery prefix is one because it is a Broker setting, though it decides
+        // only what is published, never which door is knocked on.
         HaHostBox.TextChanged             += (_, _) => Restage();
         HaUsernameBox.TextChanged         += (_, _) => Restage();
-        HaPasswordBox.PasswordChanged     += (_, _) => Hide();
+        HaPasswordBox.PasswordChanged     += (_, _) => Restage();
+        HaPrefixBox.TextChanged           += (_, _) => Restage();
         HaTlsToggle.Toggled               += (_, _) => Restage();
         HaTransportCombo.SelectionChanged += (_, _) => Restage();
         HaPortCustomBox.TextChanged       += (_, _) => { RefreshPortEntry(); Restage(); };
 
-        _haDetectDebounce.Tick += (_, _) => { _haDetectDebounce.Stop(); StartAutodetect(); };
+        _haProbeDebounce.Tick += (_, _) =>
+        {
+            _haProbeDebounce.Stop();
+            StartProbe(MqttProbeTrigger.BrokerSettingChanged);
+        };
     }
 
     // HomeAssistantEnabled is not one of the batched broker fields — it applies immediately, same
@@ -1712,9 +1717,9 @@ internal sealed partial class SettingsWindow : Window
         bool on = HaEnabledToggle.IsOn;
         SettingsService.Update(s => s.HomeAssistantEnabled = on);
         RefreshMqttDetailVisibility();
-        // Switching on is the first moment a search is allowed to run; switching off must abandon
-        // one already in flight.
-        if (on) StartAutodetect(); else CancelAutodetect();
+        // Switching publishing on is not a Broker setting changing, so it probes nothing; switching
+        // off must abandon a probe already in flight, because off means no network at all.
+        if (!on) CancelProbe();
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this toggle flip
     }
 
@@ -1750,9 +1755,11 @@ internal sealed partial class SettingsWindow : Window
         _onHomeAssistantChanged();   // exactly one reconnect attempt for this Apply click
         RefreshHaBrokerStatusText();
         RefreshHaActivityTexts();
-        RefreshHaDetectText();
 
         HaAppliedText.Visibility = Visibility.Visible;
+        // Apply is one of the three things that ask for a probe. Its own throwaway connection, not
+        // the one the reconnect above makes: the page reports what it measured itself.
+        StartProbe(MqttProbeTrigger.Apply);
     }
 
     // The dropdown's fixed head and tail. Everything between them is MqttTransportPlan.OfferedPorts,
@@ -1803,7 +1810,7 @@ internal sealed partial class SettingsWindow : Window
         RefreshPortEntry();
         HaAppliedText.Visibility    = Visibility.Collapsed;
         HaTestResultText.Visibility = Visibility.Collapsed;
-        ScheduleAutodetect();
+        ScheduleProbe();
     }
 
     /// <summary>Shows the typed-port box only for the last entry, and validates what is in it through
@@ -1859,43 +1866,12 @@ internal sealed partial class SettingsWindow : Window
                 SettingsService.Current.MqttTransportMode),
             SettingsService.Current.MqttLastGoodEndpoint);
 
-    // The in-flight connection test, or null when none is running — both the re-entrancy guard and
-    // the handle OnClosed cancels through.
-    private CancellationTokenSource? _haProbeCts;
-
     /// <summary>Tests the staged broker values — whatever is in the fields, applied or not, since
-    /// the point of the button is to check before committing. Awaited directly rather than pushed
-    /// to <c>Task.Run</c>: the probe is I/O all the way down.</summary>
-    private async void OnHaTestConnectionClicked(object sender, RoutedEventArgs e)
+    /// the point of the button is to check before committing.</summary>
+    private void OnHaTestConnectionClicked(object sender, RoutedEventArgs e)
     {
         if (_haProbeCts is not null) return;   // a second click while one runs is dropped, not queued
-
-        var cts = new CancellationTokenSource();
-        _haProbeCts = cts;
-        try
-        {
-            var request = StagedRequest();
-            var target  = ProbeTarget(request);
-
-            SetHaTestRunning(true);
-            var report = await MqttConnectionProbe.RunAsync(target, cts.Token);
-
-            if (cts.IsCancellationRequested) return;   // window closed mid-probe — touch nothing
-            RememberProbedEndpoint(request, report);
-            HaTestResultText.Text       = MqttConnectionProbe.Describe(report);
-            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(report) ? CriticalBrush() : SecondaryBrush();
-            HaTestResultText.Visibility = Visibility.Visible;
-            RefreshHaDetectText();
-            RefreshHaBrokerStatusText();
-        }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaTestConnectionClicked", ex); }
-        finally
-        {
-            bool cancelled = cts.IsCancellationRequested;   // read BEFORE disposing the source
-            _haProbeCts = null;
-            cts.Dispose();
-            if (!cancelled) SetHaTestRunning(false);
-        }
+        StartProbe(MqttProbeTrigger.TestConnection);
     }
 
     /// <summary>The staged values as a probe target. One builder for the test button and the endpoint
@@ -1934,76 +1910,88 @@ internal sealed partial class SettingsWindow : Window
         HaTestResultText.Visibility = Visibility.Visible;
     }
 
-    // The in-flight endpoint search, and the settle timer that keeps a typed host from starting one
-    // per keystroke. 700 ms is the same settle the preset rows use.
-    private CancellationTokenSource? _haDetectCts;
-    private readonly DispatcherTimer _haDetectDebounce = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    // The one probe in flight, whatever asked for it — a Broker setting settling, Test connection or
+    // Apply — or null when none is running. Both the re-entrancy guard and the handle OnClosed
+    // cancels through. The settle timer beside it keeps a typed host from starting a probe per
+    // keystroke; 700 ms is the same settle the preset rows use.
+    private CancellationTokenSource? _haProbeCts;
+    private readonly DispatcherTimer _haProbeDebounce = new() { Interval = TimeSpan.FromMilliseconds(700) };
 
-    /// <summary>Restarts the settle timer. Every edit to a field the endpoint depends on lands here,
-    /// so a host typed a character at a time costs one search rather than one per keystroke.</summary>
-    private void ScheduleAutodetect()
+    /// <summary>Restarts the settle timer after a Broker setting is edited, cancelling whatever the
+    /// previous value had in flight — its answer is about values since retyped.</summary>
+    private void ScheduleProbe()
     {
         if (_updating) return;
-        CancelAutodetect();
-        _haDetectDebounce.Start();
+        CancelProbe();
+        _haProbeDebounce.Start();
     }
 
-    /// <summary>Abandons any search in flight. Called when the values it was asked about change,
-    /// and when the window closes — a cancelled search never touches a control again, because the
-    /// continuation checks that the source it started with is still the current one.</summary>
-    private void CancelAutodetect()
+    /// <summary>Abandons any probe in flight and the settle timer behind it. Called when the values
+    /// it was asked about change, when the page is left, and when the window closes — a cancelled
+    /// probe never touches a control again, because the continuation checks that the source it
+    /// started with is still the current one.</summary>
+    private void CancelProbe()
     {
-        _haDetectDebounce.Stop();
-        _haDetectCts?.Cancel();
-        _haDetectCts = null;
+        _haProbeDebounce.Stop();
+        _haProbeCts?.Cancel();
+        _haProbeCts = null;
     }
 
-    /// <summary>Searches for the broker's port and transport, but only when nothing is remembered for
-    /// this host and user name. A remembered answer is shown rather than re-proved: the sweep costs
-    /// real seconds, and the live connection re-proves it anyway on its next connect.</summary>
-    private void StartAutodetect()
+    /// <summary>Probes for the broker's endpoint, if this trigger warrants one. Every caller names
+    /// what the user did; there is no path in from opening the page, re-showing a section or a
+    /// timer.</summary>
+    private void StartProbe(MqttProbeTrigger trigger)
     {
-        CancelAutodetect();
-
-        // Nothing is probed while publishing is off: in that state the app touches no network at all,
-        // and a search would be the one exception.
-        if (!HaEnabledToggle.IsOn) return;
+        CancelProbe();
 
         var request = StagedRequest();
-        var memory  = SettingsService.Current.MqttLastGoodEndpoint;
-        if (!MqttTransportPlan.ShouldDetect(request, memory)) { RefreshHaDetectText(); return; }
-
-        RunAutodetect(request, memory);
+        if (!MqttTransportPlan.ShouldProbe(trigger, HaEnabledToggle.IsOn, request.Host))
+        {
+            RefreshHaDetectText();
+            return;
+        }
+        RunProbe(request);
     }
 
     /// <summary>async void, and guarded whole: nothing may escape into the dispatcher. Never blocks
     /// the UI thread — every stage of the sweep is a socket wait, and the only work back here is the
     /// progress line and the result.</summary>
-    private async void RunAutodetect(MqttEndpointRequest request, MqttEndpointMemory? memory)
+    private async void RunProbe(MqttEndpointRequest request)
     {
         var cts = new CancellationTokenSource();
-        _haDetectCts = cts;
+        _haProbeCts = cts;
         try
         {
+            SetHaTestRunning(true);
+
             // Reported from whichever thread the probe resumed on, so it is bounced through RunOnUi
             // rather than trusted to land on this one. The identity check drops a report from a
-            // search that has already been superseded.
+            // probe that has already been superseded.
             var progress = new Progress<MqttDetectProgress>(p => RunOnUi(() =>
             {
-                if (_haDetectCts == cts) HaDetectText.Text = MqttConnectionProbe.Describe(p);
+                if (_haProbeCts == cts) HaDetectText.Text = MqttConnectionProbe.Describe(p);
             }));
 
             var report = await MqttConnectionProbe.RunAsync(ProbeTarget(request), cts.Token, progress);
-            if (cts.IsCancellationRequested || _haDetectCts != cts) return;
+            if (cts.IsCancellationRequested || _haProbeCts != cts) return;
 
             RememberProbedEndpoint(request, report);
+            HaTestResultText.Text       = MqttConnectionProbe.Describe(report);
+            HaTestResultText.Foreground = MqttConnectionProbe.IsFailure(report) ? CriticalBrush() : SecondaryBrush();
+            HaTestResultText.Visibility = Visibility.Visible;
             RefreshHaDetectText(report);
             RefreshHaBrokerStatusText();
         }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.RunAutodetect", ex); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.RunProbe", ex); }
         finally
         {
-            if (_haDetectCts == cts) _haDetectCts = null;
+            // Only the probe still holding the field puts the controls back: a superseded one would
+            // otherwise re-enable the button under the probe that replaced it.
+            if (_haProbeCts == cts)
+            {
+                _haProbeCts = null;
+                SetHaTestRunning(false);
+            }
             cts.Dispose();
         }
     }

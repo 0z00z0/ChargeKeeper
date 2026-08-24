@@ -131,10 +131,21 @@ internal static class MqttTransportPlan
         && Same(m.Username, request.Username)
             ? m : null;
 
-    /// <summary>Whether the endpoint has to be probed at all: only when nothing is remembered for
-    /// this host and username. Pure.</summary>
-    public static bool ShouldDetect(MqttEndpointRequest request, MqttEndpointMemory? memory) =>
-        !string.IsNullOrWhiteSpace(request.Host) && Reusable(request, memory) is null;
+    /// <summary>Whether an explicit action should start a probe. Pure.</summary>
+    /// <remarks>
+    /// The trigger is the gate, not the cache: a probe costs real seconds and puts the machine on the
+    /// network, so it happens because somebody asked for it. <see cref="MqttProbeTrigger"/> is the
+    /// closed set of things that count as asking, and showing the page is deliberately not one of
+    /// them. What is remembered still leads the sweep once one runs — it decides the order, never
+    /// whether there is a sweep at all.
+    /// </remarks>
+    public static bool ShouldProbe(MqttProbeTrigger trigger, bool publishingEnabled, string host) =>
+        // Nothing is probed while publishing is off: in that state the app touches no network at all,
+        // and a probe would be the one exception. A blank host has nothing to probe.
+        trigger is MqttProbeTrigger.BrokerSettingChanged or MqttProbeTrigger.TestConnection
+                or MqttProbeTrigger.Apply
+        && publishingEnabled
+        && !string.IsNullOrWhiteSpace(host);
 
     /// <summary>How the endpoint in force came to be what it is. Pure.</summary>
     public static string DescribeProvenance(MqttEndpointRequest request) =>
@@ -195,6 +206,21 @@ internal readonly record struct MqttEndpointAttempt(
         : this(candidate, new MqttProbeResult(outcome, "")) { }
 
     public MqttProbeOutcome Outcome => Result.Outcome;
+}
+
+/// <summary>What asked for a probe. A closed set, and every member is an action the user took:
+/// opening the page, re-showing a section and a timer are absent on purpose, so a probe can only
+/// follow something deliberate. <see cref="MqttTransportPlan.ShouldProbe"/> lists them one by one
+/// rather than accepting whatever arrives, so a member added here has to be considered there before
+/// it can put the machine on the network.</summary>
+internal enum MqttProbeTrigger
+{
+    /// <summary>One of the Broker settings was edited and has settled.</summary>
+    BrokerSettingChanged,
+    /// <summary>The Test connection button.</summary>
+    TestConnection,
+    /// <summary>The Apply button, which is also what makes the staged values live.</summary>
+    Apply,
 }
 
 /// <summary>Which stage of one candidate the sweep is on. The two are worth telling apart because
