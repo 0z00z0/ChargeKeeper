@@ -207,6 +207,33 @@ public class KeepAwakePolicyTests
         Assert.Equal("Net", KeepAwakePolicy.ShortLabel(new(KeepAwakeKind.UntilNetworkChange, null, null)));
 
     [Fact]
+    public void ShortLabel_NamedPreset_ReadsAsItsName()
+    {
+        // Settings shows a named preset by name; a chip showing "1h30" for the same object is the
+        // drift the single formatter exists to prevent.
+        var named = new KeepAwakeRequest(KeepAwakeKind.Duration, TimeSpan.FromMinutes(90), null, "Meeting");
+        Assert.Equal("Meeting", KeepAwakePolicy.ShortLabel(named));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ShortLabel_NoUsableName_FallsBackToTheSpan(string? name)
+    {
+        var request = new KeepAwakeRequest(KeepAwakeKind.Duration, TimeSpan.FromMinutes(90), null, name);
+        Assert.Equal("1h30", KeepAwakePolicy.ShortLabel(request));
+    }
+
+    [Fact]
+    public void SpanLabel_IgnoresTheName_SoAnEditableSpanStaysParseable()
+    {
+        // What seeds the "Expires" box: seeding it with the name would make the next save reject it.
+        var named = new KeepAwakeRequest(KeepAwakeKind.UntilTime, null, new TimeOnly(17, 0), "Meeting");
+        Assert.Equal("17:00", KeepAwakePolicy.SpanLabel(named));
+    }
+
+    [Fact]
     public void ShortLabel_Indefinite_AndMalformedRequests_ReadAsNoExpiry()
     {
         // A kind whose own field is unset has no clock expiry, so labelling it with a span would

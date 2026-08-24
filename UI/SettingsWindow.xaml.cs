@@ -1311,8 +1311,8 @@ internal sealed partial class SettingsWindow : Window
     /// showing an uneditable one.</summary>
     private static string ToEditableSpan(KeepAwakeRequest r) => r switch
     {
-        { Kind: KeepAwakeKind.UntilTime, Until: not null }                       => KeepAwakePolicy.ShortLabel(r),
-        { Kind: KeepAwakeKind.Duration, Duration: { } d } when d > TimeSpan.Zero => KeepAwakePolicy.ShortLabel(r),
+        { Kind: KeepAwakeKind.UntilTime, Until: not null }                       => KeepAwakePolicy.SpanLabel(r),
+        { Kind: KeepAwakeKind.Duration, Duration: { } d } when d > TimeSpan.Zero => KeepAwakePolicy.SpanLabel(r),
         _                                                                       => "",
     };
 
