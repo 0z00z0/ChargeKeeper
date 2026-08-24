@@ -189,13 +189,23 @@ public sealed partial class DashboardWindow : Window
     /// Sets the RangeSelector's bounds from code: assigning them in XAML throws a XamlParseException
     /// at LoadComponent on this Windows App SDK build. Guarded against a bogus apply on init.
     /// </summary>
-    private void ConfigureThresholdRange()
+    private void ConfigureThresholdRange() => WithSlidersSuppressed(() =>
     {
-        _updatingSliders = true;
         ThresholdRange.Maximum       = 100;   // set Maximum first so Minimum never transiently exceeds it
         ThresholdRange.Minimum       = 5;
         ThresholdRange.StepFrequency = 5;
-        _updatingSliders = false;
+    });
+
+    /// <summary>Raises <see cref="_updatingSliders"/> around a batch of programmatic RangeSelector
+    /// writes, lowering it in a <c>finally</c> — the same shape <see cref="ApplyStatusBadges"/> uses,
+    /// and for the same reason: a throw part-way through a hand-written pair latches the guard for
+    /// the window's life, after which <see cref="OnThresholdRangeChanged"/> returns at its first line
+    /// and no drag ever reaches the device.</summary>
+    private void WithSlidersSuppressed(Action apply)
+    {
+        _updatingSliders = true;
+        try { apply(); }
+        finally { _updatingSliders = false; }
     }
 
     /// <summary>Immediate full refresh on a battery event, rather than waiting for the 5 s tick. UI thread only.</summary>
@@ -420,12 +430,13 @@ public sealed partial class DashboardWindow : Window
 
         if (showSliders && !_thresholdEditPending && chargeState!.Start > 0 && chargeState.Stop > 0)
         {
-            _updatingSliders = true;
-            ThresholdRange.RangeStart = chargeState.Start;
-            ThresholdRange.RangeEnd   = chargeState.Stop;
-            StartValueText.Text = $"{chargeState.Start}%";
-            StopValueText.Text  = $"{chargeState.Stop}%";
-            _updatingSliders = false;
+            WithSlidersSuppressed(() =>
+            {
+                ThresholdRange.RangeStart = chargeState.Start;
+                ThresholdRange.RangeEnd   = chargeState.Stop;
+                StartValueText.Text = $"{chargeState.Start}%";
+                StopValueText.Text  = $"{chargeState.Stop}%";
+            });
         }
         ThresholdSliders.Visibility = showSliders ? Visibility.Visible : Visibility.Collapsed;
 
@@ -904,20 +915,21 @@ public sealed partial class DashboardWindow : Window
 
         if (stop - start < 5)
         {
-            _updatingSliders = true;
-            if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+            WithSlidersSuppressed(() =>
             {
-                // Push stop up; at the 100 ceiling, pull start back down instead.
-                stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
-                if (stop - start < 5) start = (int)(ThresholdRange.RangeStart = stop - 5);
-            }
-            else
-            {
-                // Mirrored 5-point floor case for the stop thumb.
-                start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
-                if (stop - start < 5) stop = (int)(ThresholdRange.RangeEnd = start + 5);
-            }
-            _updatingSliders = false;
+                if (e.ChangedRangeProperty == RangeSelectorProperty.MinimumValue)
+                {
+                    // Push stop up; at the 100 ceiling, pull start back down instead.
+                    stop = (int)(ThresholdRange.RangeEnd = Math.Min(start + 5, 100));
+                    if (stop - start < 5) start = (int)(ThresholdRange.RangeStart = stop - 5);
+                }
+                else
+                {
+                    // Mirrored 5-point floor case for the stop thumb.
+                    start = (int)(ThresholdRange.RangeStart = Math.Max(stop - 5, 5));
+                    if (stop - start < 5) stop = (int)(ThresholdRange.RangeEnd = start + 5);
+                }
+            });
         }
 
         StartValueText.Text = $"{start}%";
