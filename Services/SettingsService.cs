@@ -115,9 +115,15 @@ internal sealed class AppSettings
 
     public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
 
-    /// <summary>Set once the rules keyed on the routed adapter have been dropped. Persisted, because
-    /// clearing on every start would also drop the rules saved since.</summary>
-    public bool NetworkRulesKeyedOnPhysicalAdapter { get; set; }
+    /// <summary>
+    /// Three-valued on purpose. True once the rules keyed on the routed adapter have been dropped —
+    /// persisted, because clearing on every start would also drop the rules saved since. Null means
+    /// the key was absent from settings.json, which is a file older than the key or one synced in
+    /// from another machine, and reads as "nothing to migrate": absent configuration must never
+    /// select the branch that destroys rules. Only an explicit false asks for the migration, and
+    /// <see cref="SettingsService.Save"/> stamps null to true so it can be asked for at most once.
+    /// </summary>
+    public bool? NetworkRulesKeyedOnPhysicalAdapter { get; set; }
 
     /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
     /// on a network the user simply hasn't named yet.</summary>
@@ -234,12 +240,18 @@ internal static class SettingsService
         {
             try
             {
+                var settings = _current ?? new AppSettings();
+                // Stamps the migration marker on the way out, so a file written before the key
+                // existed is recorded as needing nothing rather than being read as "not yet
+                // migrated" on every later start. Never overwrites an explicit false: that is a
+                // pending migration, and the stamp must not pre-empt it.
+                settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
+
                 Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
                 // Atomic write: serialise to a temp file, then replace the target, so a crash
                 // mid-write cannot truncate the existing settings.json.
                 var tmp = _path + ".tmp";
-                File.WriteAllText(tmp,
-                    JsonSerializer.Serialize(_current ?? new AppSettings(), _opts));
+                File.WriteAllText(tmp, JsonSerializer.Serialize(settings, _opts));
                 File.Move(tmp, _path, overwrite: true);
             }
             catch (Exception ex)
@@ -312,37 +324,60 @@ internal static class SettingsService
     /// <summary>
     /// Drops network location rules written before locations were keyed on the physical adapter: those
     /// carry whatever the routing table pointed at, so a VPN's or a virtual switch's MAC and subnet can
-    /// stand for several places at once and cannot be mapped back to a NIC. Runs once, and touches
-    /// nothing else in settings; settings.json is copied aside first.
+    /// stand for several places at once and cannot be mapped back to a NIC. Runs at most once, only
+    /// when <see cref="AppSettings.NetworkRulesKeyedOnPhysicalAdapter"/> is explicitly false, and
+    /// touches nothing else in settings; settings.json is copied aside first when a rule is going.
     /// </summary>
     public static void ClearRulesKeyedOnTheRoutedAdapter()
     {
         lock (_lock)
         {
             var settings = _current ??= ReadFile(_path) ?? new AppSettings();
-            if (settings.NetworkRulesKeyedOnPhysicalAdapter) return;
+            if (settings.NetworkRulesKeyedOnPhysicalAdapter is not false)
+            {
+                // Absent key: stamp it rather than migrate, so the question is settled for good.
+                if (settings.NetworkRulesKeyedOnPhysicalAdapter is null) Save();
+                return;
+            }
 
-            // Copies the file as it still stands on disk: ClearRoutedAdapterRules only mutates memory,
-            // and nothing reaches settings.json until Save below.
-            if (settings.NetworkLocationRules.Count > 0)
-                PreserveCopy(_path, "backup", "network location rules cleared");
+            var adapters = NetworkLocationService.EnumerateAdapters();
 
-            int dropped = ClearRoutedAdapterRules(settings) ?? 0;
+            // Copies the file as it still stands on disk, and only when a rule is actually going:
+            // ClearRoutedAdapterRules mutates memory alone, and nothing reaches settings.json until
+            // Save below. Skipping the empty case is what keeps an earlier copy from being joined by
+            // a useless one — the copies are per-second-stamped, never a single overwritten slot.
+            if (FindRoutedAdapterRules(settings, adapters).Count > 0)
+                PreserveCopy(_path, "backup", "network location rules keyed on a virtual adapter removed");
+
+            int dropped = ClearRoutedAdapterRules(settings, adapters) ?? 0;
             Save();
-            AppLog.Info($"Network location rules cleared ({dropped} dropped): locations are now keyed on the physical adapter.");
+            AppLog.Info($"Network location rules keyed on the routed adapter removed ({dropped} dropped); "
+                      + $"{settings.NetworkLocationRules.Count} kept.");
         }
     }
 
+    /// <summary>
+    /// The rules the migration removes: those whose stored MAC belongs to a virtual adapter on this
+    /// machine. That is the only positive evidence a key was written against the routed adapter rather
+    /// than the NIC behind it, and a rule that cannot be shown to be one is left alone — a rule the
+    /// user still wants is worth more than a stale one they can delete.
+    /// </summary>
+    internal static List<NetworkLocationRule> FindRoutedAdapterRules(
+        AppSettings settings, IReadOnlyList<BridgePeer> adapters) =>
+        settings.NetworkLocationRules
+            .Where(r => NetworkLocationService.IsVirtualAdapterMac(r.AdapterMac, adapters))
+            .ToList();
+
     /// <summary>The decision behind <see cref="ClearRulesKeyedOnTheRoutedAdapter"/>, separated so the
-    /// once-only guard is testable: how many rules were dropped, or null when the clear has already run
-    /// and must not run again.</summary>
-    internal static int? ClearRoutedAdapterRules(AppSettings settings)
+    /// once-only guard is testable: how many rules were removed, or null when the migration is not
+    /// being asked for — the marker is true, or absent and therefore not a request.</summary>
+    internal static int? ClearRoutedAdapterRules(AppSettings settings, IReadOnlyList<BridgePeer> adapters)
     {
-        if (settings.NetworkRulesKeyedOnPhysicalAdapter) return null;
-        int dropped = settings.NetworkLocationRules.Count;
-        settings.NetworkLocationRules.Clear();
+        if (settings.NetworkRulesKeyedOnPhysicalAdapter is not false) return null;
+        var doomed = FindRoutedAdapterRules(settings, adapters);
+        foreach (var rule in doomed) settings.NetworkLocationRules.Remove(rule);
         settings.NetworkRulesKeyedOnPhysicalAdapter = true;
-        return dropped;
+        return doomed.Count;
     }
 
     /// <summary>The port the broker setting defaulted to before Automatic existed. A settings.json

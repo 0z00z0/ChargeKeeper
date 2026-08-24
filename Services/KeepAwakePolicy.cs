@@ -92,10 +92,20 @@ internal static class KeepAwakePolicy
     }
 
     /// <summary>
-    /// A chip-sized label — "30m", "1h", "1h30", "17:00", "Net". Separate from
+    /// A chip-sized label: a named preset's own name, otherwise its <see cref="SpanLabel"/>. The name
+    /// wins because Settings shows a named preset by name, and a chip captioned with the span for the
+    /// same object is the drift this single formatter exists to prevent. Separate from
     /// <see cref="DescribeRemaining"/>, which describes a running session's remaining time.
     /// </summary>
-    public static string ShortLabel(KeepAwakeRequest request)
+    public static string ShortLabel(KeepAwakeRequest request) =>
+        string.IsNullOrWhiteSpace(request.Name) ? SpanLabel(request) : request.Name!.Trim();
+
+    /// <summary>
+    /// The span alone — "30m", "1h", "1h30", "17:00", "Net" — with no regard for
+    /// <see cref="KeepAwakeRequest.Name"/>. What an editable "Expires" box is seeded with, so the
+    /// value there is one the parser can read back rather than a label.
+    /// </summary>
+    public static string SpanLabel(KeepAwakeRequest request)
     {
         switch (request.Kind)
         {

@@ -68,7 +68,19 @@ internal sealed partial class SettingsWindow : Window
         });
 
         Closed += OnClosed;
+
+        // After Closed, which owns the detach. Without this the "Current network" lines only ever
+        // refresh on open, on a section switch and on a rule edit, so a dock, an undock or a carrier
+        // change leaves a network on screen that the service moved off long ago.
+        NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
     }
+
+    // Raised off the UI thread by NetworkLocationService — marshal before touching anything.
+    private void OnNetworkLocationChanged(NetworkLocation location) => RunOnUi(() =>
+    {
+        RefreshCurrentNetworkText();
+        RefreshKeepAwakeCurrentNetworkText();
+    });
 
     private bool _aboutLoaded;
 
@@ -127,8 +139,29 @@ internal sealed partial class SettingsWindow : Window
         ContentScroller.Loaded -= OnContentScrollerLoaded;
         if (_fittedToContent) return;
         _fittedToContent = true;
+        try { ApplyMinimumSize(); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.ApplyMinimumSize", ex); }
         try { FitWindowToContent(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.FitWindowToContent", ex); }
+    }
+
+    /// <summary>Stops the window being dragged below its navigation pane and its widest fixed
+    /// control. Set here rather than in <see cref="ConfigureWindowChrome"/>: the rasterisation scale
+    /// the DIP arithmetic has to be converted with is only readable once the tree has laid out.</summary>
+    private void ApplyMinimumSize()
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+
+        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
+        int width  = WindowFit.MinimumWidthDip(Nav.OpenPaneLength,
+                                               ContentScroller.Padding.Left + ContentScroller.Padding.Right);
+        int height = WindowFit.MinimumHeightDip(Nav.MenuItems.Count,
+                                                ContentScroller.Padding.Top + ContentScroller.Padding.Bottom);
+
+        presenter.PreferredMinimumWidth  = WindowFit.ToPhysicalPixels(width,  scale);
+        presenter.PreferredMinimumHeight = WindowFit.ToPhysicalPixels(height, scale);
+        AppLog.Info($"SettingsWindow minimum size: {width}x{height} DIP at scale {scale} -> "
+                  + $"{presenter.PreferredMinimumWidth}x{presenter.PreferredMinimumHeight} px.");
     }
 
     /// <summary>Grows the window so the tallest page fits without a scrollbar, then re-clamps it to
@@ -230,9 +263,10 @@ internal sealed partial class SettingsWindow : Window
 
         StopAllPresetDebounceTimers();
 
-        // Static event, instance handler: without this the closed window stays reachable from
-        // KeepAwakeService for the process's life and keeps touching a torn-down UI tree.
-        KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
+        // Static events, instance handlers: without these the closed window stays reachable from
+        // the services for the process's life and keeps touching a torn-down UI tree.
+        KeepAwakeService.StateChanged          -= OnKeepAwakeStateChanged;
+        NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
         // An in-flight connection test or endpoint search outlives the window by up to its budget;
@@ -1298,8 +1332,8 @@ internal sealed partial class SettingsWindow : Window
     /// showing an uneditable one.</summary>
     private static string ToEditableSpan(KeepAwakeRequest r) => r switch
     {
-        { Kind: KeepAwakeKind.UntilTime, Until: not null }                       => KeepAwakePolicy.ShortLabel(r),
-        { Kind: KeepAwakeKind.Duration, Duration: { } d } when d > TimeSpan.Zero => KeepAwakePolicy.ShortLabel(r),
+        { Kind: KeepAwakeKind.UntilTime, Until: not null }                       => KeepAwakePolicy.SpanLabel(r),
+        { Kind: KeepAwakeKind.Duration, Duration: { } d } when d > TimeSpan.Zero => KeepAwakePolicy.SpanLabel(r),
         _                                                                       => "",
     };
 

@@ -1,3 +1,5 @@
+using System.Net.NetworkInformation;
+using System.Text.Json;
 using ChargeKeeper.Services;
 using Xunit;
 
@@ -193,47 +195,94 @@ public class NetworkLocationRuleTests
         Assert.Null(settings.FindNetworkRule(OfficeDock));
     }
 
-    // The one-time clear of rules written before locations were keyed on the physical adapter
+    // The one-time removal of rules written before locations were keyed on the physical adapter
 
-    private static AppSettings SettingsWithRules() => new()
+    private const string SwitchMac = "00:15:5D:EA:DC:CF";   // Hyper-V external switch port
+    private const string NicMac    = "30:89:4A:68:1C:3A";   // the card behind it
+
+    private static readonly List<BridgePeer> Adapters =
+    [
+        new("vEthernet (External)", SwitchMac, IsVirtual: true,  OperationalStatus.Up),
+        new("Wi-Fi",                NicMac,    IsVirtual: false, OperationalStatus.Up),
+    ];
+
+    /// <summary>One rule keyed on the switch port, one on the card — only the first is identifiable
+    /// as written against the routed adapter.</summary>
+    private static AppSettings SettingsAwaitingMigration() => new()
     {
-        NetworkProfilesEnabled   = true,
-        UnknownNetworkPresetName = "Daily",
+        NetworkProfilesEnabled              = true,
+        UnknownNetworkPresetName            = "Daily",
+        NetworkRulesKeyedOnPhysicalAdapter  = false,
         NetworkLocationRules =
         [
-            new() { Name = "Office", AdapterMac = "00:15:5D:EA:DC:CF", IpCidr = "172.24.64.0/20", PresetName = "Daily" },
-            new() { Name = "Home",   AdapterMac = "00:15:5D:EA:DC:CF", IpCidr = "172.24.64.0/20", PresetName = "Travel" },
+            new() { Name = "Office", AdapterMac = SwitchMac, IpCidr = "172.24.64.0/20", PresetName = "Daily" },
+            new() { Name = "Cabin",  AdapterMac = NicMac,    IpCidr = "10.0.20.0/24",   PresetName = "Travel" },
         ],
     };
 
     [Fact]
-    public void ClearRoutedAdapterRules_DropsEveryRuleAndReportsHowMany()
+    public void ClearRoutedAdapterRules_MarkerAbsent_RemovesNothing()
     {
-        var s = SettingsWithRules();
+        // The defect this replaced: a settings.json written before the key existed read as "not yet
+        // migrated" and lost every rule. Absent configuration means nothing to do.
+        var s = SettingsAwaitingMigration();
+        s.NetworkRulesKeyedOnPhysicalAdapter = null;
 
-        Assert.Equal(2, SettingsService.ClearRoutedAdapterRules(s));
-        Assert.Empty(s.NetworkLocationRules);
+        Assert.Null(SettingsService.ClearRoutedAdapterRules(s, Adapters));
+        Assert.Equal(2, s.NetworkLocationRules.Count);
+        Assert.Null(s.NetworkRulesKeyedOnPhysicalAdapter);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_RemovesOnlyTheVirtualAdapterRules()
+    {
+        var s = SettingsAwaitingMigration();
+
+        Assert.Equal(1, SettingsService.ClearRoutedAdapterRules(s, Adapters));
+        Assert.Single(s.NetworkLocationRules);
+        Assert.Equal("Cabin", s.NetworkLocationRules[0].Name);
         Assert.True(s.NetworkRulesKeyedOnPhysicalAdapter);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_NothingIdentifiable_StillMarksItDone()
+    {
+        var s = SettingsAwaitingMigration();
+        s.NetworkLocationRules.RemoveAll(r => r.AdapterMac == SwitchMac);
+
+        Assert.Equal(0, SettingsService.ClearRoutedAdapterRules(s, Adapters));
+        Assert.Single(s.NetworkLocationRules);
+        Assert.True(s.NetworkRulesKeyedOnPhysicalAdapter);
+    }
+
+    [Fact]
+    public void ClearRoutedAdapterRules_MarkerTrue_RemovesNothing()
+    {
+        var s = SettingsAwaitingMigration();
+        s.NetworkRulesKeyedOnPhysicalAdapter = true;
+
+        Assert.Null(SettingsService.ClearRoutedAdapterRules(s, Adapters));
+        Assert.Equal(2, s.NetworkLocationRules.Count);
     }
 
     [Fact]
     public void ClearRoutedAdapterRules_SecondCall_DoesNothing()
     {
-        // The marker is the whole guard: clearing on every start would drop the rules saved since.
-        var s = SettingsWithRules();
-        SettingsService.ClearRoutedAdapterRules(s);
-        s.NetworkLocationRules.Add(new() { Name = "Cabin", AdapterMac = "30:89:4A:68:1C:3A", IpCidr = "10.0.20.0/24" });
+        // The marker is the whole guard: running on every start would take the rules saved since.
+        var s = SettingsAwaitingMigration();
+        SettingsService.ClearRoutedAdapterRules(s, Adapters);
+        s.NetworkLocationRules.Add(new() { Name = "Dock", AdapterMac = SwitchMac, IpCidr = "10.0.1.0/24" });
 
-        Assert.Null(SettingsService.ClearRoutedAdapterRules(s));
-        Assert.Single(s.NetworkLocationRules);
-        Assert.Equal("Cabin", s.NetworkLocationRules[0].Name);
+        Assert.Null(SettingsService.ClearRoutedAdapterRules(s, Adapters));
+        Assert.Equal(2, s.NetworkLocationRules.Count);
+        Assert.Equal("Dock", s.NetworkLocationRules[1].Name);
     }
 
     [Fact]
     public void ClearRoutedAdapterRules_TouchesNothingElse()
     {
-        var s = SettingsWithRules();
-        SettingsService.ClearRoutedAdapterRules(s);
+        var s = SettingsAwaitingMigration();
+        SettingsService.ClearRoutedAdapterRules(s, Adapters);
 
         Assert.True(s.NetworkProfilesEnabled);
         Assert.Equal("Daily", s.UnknownNetworkPresetName);
@@ -241,11 +290,23 @@ public class NetworkLocationRuleTests
     }
 
     [Fact]
-    public void ClearRoutedAdapterRules_NoRulesToDrop_StillMarksItDone()
+    public void FindRoutedAdapterRules_UnknownMac_IsNotIdentifiable()
     {
-        var s = new AppSettings();
+        // A MAC no adapter on this machine owns proves nothing either way, so the rule stays.
+        var s = SettingsAwaitingMigration();
+        s.NetworkLocationRules[0].AdapterMac = "AA:BB:CC:DD:EE:FF";
 
-        Assert.Equal(0, SettingsService.ClearRoutedAdapterRules(s));
-        Assert.True(s.NetworkRulesKeyedOnPhysicalAdapter);
+        Assert.Empty(SettingsService.FindRoutedAdapterRules(s, Adapters));
+    }
+
+    [Fact]
+    public void SettingsFileWithoutTheMarker_DeserialisesAsNull()
+    {
+        // The whole premise: System.Text.Json leaves an absent key at the property's default, so the
+        // default has to be the harmless one.
+        var loaded = JsonSerializer.Deserialize<AppSettings>("""{ "NetworkProfilesEnabled": true }""");
+
+        Assert.NotNull(loaded);
+        Assert.Null(loaded!.NetworkRulesKeyedOnPhysicalAdapter);
     }
 }
