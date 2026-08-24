@@ -98,6 +98,12 @@
                      it also reaches the rows built in code below. -->
                 <Grid.Resources>
                     <x:Double x:Key="SettingsCardMinHeight">52</x:Double>
+
+                    <!-- The MQTT page's Status block, in one place because the whole point of the
+                         block is that it does not move: four facts, four lines, and a height that is
+                         the same whether every value is an em-dash or one of them is a two-clause
+                         connection error. -->
+                    <x:Double x:Key="MqttStatusCardHeight">140</x:Double>
                 </Grid.Resources>
 
                 <StackPanel x:Name="GeneralPanel" Spacing="4">
@@ -403,6 +409,27 @@
                             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <Setter Property="TextWrapping" Value="Wrap"/>
                         </Style>
+
+                        <!-- The Status block's own two tiers. The label is the elastic half and gives
+                             way first; the value is the field width every other row on this page uses,
+                             so the right edge is the page's right edge here too. -->
+                        <Style x:Key="MqttStatusLabelStyle" TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="TextWrapping" Value="NoWrap"/>
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                        </Style>
+                        <!-- The overflow rule, in one place: one line, never wrapped, an ellipsis
+                             where it does not fit, and the whole string on a hover tip that the
+                             code-behind sets beside the text. Nothing here may change a size —
+                             a value that is an error changes colour and only colour. -->
+                        <Style x:Key="MqttStatusValueStyle" TargetType="TextBlock"
+                               BasedOn="{StaticResource SettingHintStyle}">
+                            <Setter Property="Width" Value="{StaticResource MqttFieldWidth}"/>
+                            <Setter Property="TextAlignment" Value="Right"/>
+                            <Setter Property="TextWrapping" Value="NoWrap"/>
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                        </Style>
                     </StackPanel.Resources>
 
                     <!-- The page title. Everything below says "broker": Home Assistant is named once,
@@ -435,56 +462,80 @@
                                             Info="Read-only, and about the live connection rather than the fields below. It is re-read when this page opens, not on a timer."/>
                         </StackPanel>
 
-                        <!-- First in Status because it answers the question the rest of the page
-                             raises: whether these values were found or chosen. It also carries the
-                             search's progress, so there is one line to watch rather than two. -->
-                        <controls:SettingsCard Header="Connection">
-                            <controls:SettingsCard.Description>
-                                <TextBlock Text="Where the broker settings in force came from." Style="{StaticResource SettingHintStyle}"/>
-                            </controls:SettingsCard.Description>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <local:InfoIcon Subject="how the connection was found"
-                                                Info="A port and transport left on Automatic are found by probing the host, and the answer is remembered against that host and user name. Setting either by hand pins it, and nothing is probed around it."/>
-                                <TextBlock x:Name="HaDetectText" Text="—" VerticalAlignment="Center"
-                                           Style="{StaticResource SettingHintStyle}"/>
-                            </StackPanel>
-                        </controls:SettingsCard>
+                        <!-- One card, four label/value rows, and a fixed height. Not four
+                             SettingsCards: a card sizes itself to its content, and the content here
+                             is a value the connection decides, so a long one starved the header
+                             column and grew the card to twenty times its height. The height is a
+                             resource beside the card floor, the values never wrap, and the per-row
+                             descriptions are gone — the info icons already carry the explanation, and
+                             the descriptions were what made the block tall when everything was well.
+                             Column order is the page's alignment contract: elastic label, then the
+                             row's own action, then the icon, then the value at the field width, so
+                             nothing can displace the right edge and no value can be squeezed. -->
+                        <Border Height="{StaticResource MqttStatusCardHeight}"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{ThemeResource ControlCornerRadius}"
+                                Padding="16,6,16,6">
+                            <Grid ColumnSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <!-- The only elastic column, so it is the only thing a narrow
+                                         window or a row button can take space from. -->
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                        <controls:SettingsCard Header="Broker in use">
-                            <controls:SettingsCard.Description>
-                                <TextBlock Text="The address the live connection is using." Style="{StaticResource SettingHintStyle}"/>
-                            </controls:SettingsCard.Description>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <local:InfoIcon Subject="the broker in use"
-                                                Info="The saved values, not the ones staged in the fields below. The two differ until Apply is pressed."/>
-                                <TextBlock x:Name="HaBrokerStatusText" Text="Not set" VerticalAlignment="Center"
-                                           Style="{StaticResource SettingHintStyle}"/>
-                            </StackPanel>
-                        </controls:SettingsCard>
+                                <!-- First, because it answers the question the rest of the page
+                                     raises: whether these values were found or chosen. -->
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Connection"
+                                           Style="{StaticResource MqttStatusLabelStyle}"/>
+                                <local:InfoIcon Grid.Row="0" Grid.Column="2"
+                                                Subject="how the connection was found"
+                                                Info="Where the broker settings in force came from. A port and transport left on Automatic are found by probing the host, and the answer is remembered against that host and user name. Setting either by hand pins it, and nothing is probed around it."/>
+                                <TextBlock x:Name="HaDetectText" Grid.Row="0" Grid.Column="3" Text="—"
+                                           Style="{StaticResource MqttStatusValueStyle}"/>
 
-                        <controls:SettingsCard Header="Last publish">
-                            <controls:SettingsCard.Description>
-                                <TextBlock Text="When a message last reached the broker." Style="{StaticResource SettingHintStyle}"/>
-                            </controls:SettingsCard.Description>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <local:InfoIcon Subject="the last publish time"
-                                                Info="Unchanged values are not re-sent, so this stands still while nothing changes."/>
-                                <TextBlock x:Name="HaLastPublishText" Text="—" VerticalAlignment="Center"
-                                           Style="{StaticResource SettingHintStyle}"/>
-                            </StackPanel>
-                        </controls:SettingsCard>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Broker in use"
+                                           Style="{StaticResource MqttStatusLabelStyle}"/>
+                                <local:InfoIcon Grid.Row="1" Grid.Column="2"
+                                                Subject="the broker in use"
+                                                Info="The address the live connection is using. The saved values, not the ones staged in the fields below. The two differ until Apply is pressed."/>
+                                <TextBlock x:Name="HaBrokerStatusText" Grid.Row="1" Grid.Column="3" Text="Not set"
+                                           Style="{StaticResource MqttStatusValueStyle}"/>
 
-                        <controls:SettingsCard Header="Last command received">
-                            <controls:SettingsCard.Description>
-                                <TextBlock Text="The most recent command received from the broker." Style="{StaticResource SettingHintStyle}"/>
-                            </controls:SettingsCard.Description>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <local:InfoIcon Subject="the last command received"
-                                                Info="Commands arrive on the topics the announced entities subscribe to. Nothing is shown until one is acted on."/>
-                                <TextBlock x:Name="HaLastCommandText" Text="—" VerticalAlignment="Center"
-                                           Style="{StaticResource SettingHintStyle}"/>
-                            </StackPanel>
-                        </controls:SettingsCard>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Last publish"
+                                           Style="{StaticResource MqttStatusLabelStyle}"/>
+                                <!-- In the row's own column, not the value's: the value keeps the
+                                     field width whatever the button does, so a narrow window trims
+                                     the label rather than the fact. -->
+                                <Button x:Name="HaPublishNowBtn" Grid.Row="2" Grid.Column="1"
+                                        Content="Publish now" Click="OnHaPublishNowClicked"
+                                        VerticalAlignment="Center"
+                                        MinHeight="0" Padding="10,3,10,3" FontSize="12"/>
+                                <local:InfoIcon Grid.Row="2" Grid.Column="2"
+                                                Subject="the last publish time"
+                                                Info="When a message last reached the broker. Unchanged values are not re-sent, so this stands still while nothing changes. Publish now sends the current state for the groups switched on below; it announces nothing and re-declares no entity."/>
+                                <TextBlock x:Name="HaLastPublishText" Grid.Row="2" Grid.Column="3" Text="—"
+                                           Style="{StaticResource MqttStatusValueStyle}"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Last command received"
+                                           Style="{StaticResource MqttStatusLabelStyle}"/>
+                                <local:InfoIcon Grid.Row="3" Grid.Column="2"
+                                                Subject="the last command received"
+                                                Info="The most recent command received from the broker. Commands arrive on the topics the announced entities subscribe to. Nothing is shown until one is acted on."/>
+                                <TextBlock x:Name="HaLastCommandText" Grid.Row="3" Grid.Column="3" Text="—"
+                                           Style="{StaticResource MqttStatusValueStyle}"/>
+                            </Grid>
+                        </Border>
 
                         <!-- Before Broker: which device this is comes before how it connects. The name
                              is cosmetic and rides the Apply batch; the id is destructive and changes

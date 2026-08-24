@@ -993,7 +993,10 @@ public partial class App : Application
 
             _settings = new SettingsWindow(_menu!,
                 onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
-                onDiscoveryChanged: () => _ha?.RepublishDiscovery());
+                onDiscoveryChanged: () => _ha?.RepublishDiscovery(),
+                isBrokerConnected: () => _ha?.IsConnected ?? false,
+                // State only: the current values on their own topics, no discovery config rewritten.
+                onPublishNow: () => _ha?.PublishCurrentStateAsync() ?? Task.FromResult(false));
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }

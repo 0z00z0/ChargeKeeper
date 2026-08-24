@@ -31,6 +31,12 @@ internal sealed partial class SettingsWindow : Window
     // so without this the broker keeps the set captured at connect time.
     private readonly Action   _onDiscoveryChanged;
 
+    // Whether the publisher has a live link, and the on-demand republish behind "Publish now".
+    // Asked rather than held: the connection comes and goes on its own, so a cached answer is stale
+    // the moment the page stops looking.
+    private readonly Func<bool>       _isBrokerConnected;
+    private readonly Func<Task<bool>> _onPublishNow;
+
     // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
     private bool _updating;
@@ -39,11 +45,14 @@ internal sealed partial class SettingsWindow : Window
     // discarded can be stopped before it fires against a detached row or a closed window.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
-    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onDiscoveryChanged)
+    public SettingsWindow(TrayMenu menu, Action onHomeAssistantChanged, Action onDiscoveryChanged,
+                          Func<bool> isBrokerConnected, Func<Task<bool>> onPublishNow)
     {
         _menu = menu;
         _onHomeAssistantChanged = onHomeAssistantChanged;
         _onDiscoveryChanged     = onDiscoveryChanged;
+        _isBrokerConnected      = isBrokerConnected;
+        _onPublishNow           = onPublishNow;
 
         InitializeComponent();
         Title = "ChargeKeeper Settings";
@@ -1654,8 +1663,11 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>Hides the four detail sections while publishing is off. Hidden, not disabled: a
     /// greyed page still invites reading, and none of it has an answer until the feature is on.</summary>
-    private void RefreshMqttDetailVisibility() =>
+    private void RefreshMqttDetailVisibility()
+    {
         MqttDetailPanel.Visibility = HaEnabledToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+        RefreshPublishNowEnabled();
+    }
 
     /// <summary>Commits every group toggle at once and re-announces. Unlike the broker fields these
     /// apply immediately: the change is a publish, not a reconnect, so there is nothing to batch.</summary>
@@ -1857,14 +1869,25 @@ internal sealed partial class SettingsWindow : Window
     private MqttEndpointRequest StagedRequest() => new(
         HaHostBox.Text?.Trim() ?? "", HaUsernameBox.Text?.Trim() ?? "", StagedPort(), StagedTransport());
 
-    private void RefreshHaBrokerStatusText() => HaBrokerStatusText.Text =
+    /// <summary>Writes one Status row: the trimmed line on screen, the whole string on the hover tip,
+    /// and the colour. The single writer for the block, because the fixed height only holds if every
+    /// value goes on in the same shape — one line, and an error that is a colour and nothing else.
+    /// The info icons are static and are deliberately not touched here.</summary>
+    private static void SetStatusValue(TextBlock target, string text, bool error = false)
+    {
+        target.Text = text;
+        ToolTipService.SetToolTip(target, text);
+        target.Foreground = error ? CriticalBrush() : SecondaryBrush();
+    }
+
+    private void RefreshHaBrokerStatusText() => SetStatusValue(HaBrokerStatusText,
         MqttStatusFormatter.DescribeBroker(
             new MqttEndpointRequest(
                 SettingsService.Current.MqttBrokerHost,
                 SettingsService.Current.MqttUsername,
                 SettingsService.Current.MqttBrokerPort,
                 SettingsService.Current.MqttTransportMode),
-            SettingsService.Current.MqttLastGoodEndpoint);
+            SettingsService.Current.MqttLastGoodEndpoint));
 
     /// <summary>Tests the staged broker values — whatever is in the fields, applied or not, since
     /// the point of the button is to check before committing.</summary>
@@ -2008,18 +2031,57 @@ internal sealed partial class SettingsWindow : Window
     private void RefreshHaDetectText()
     {
         var request = StagedRequest();
-        HaDetectText.Foreground = SecondaryBrush();
-        HaDetectText.Text = string.IsNullOrWhiteSpace(request.Host)
+        SetStatusValue(HaDetectText, string.IsNullOrWhiteSpace(request.Host)
             ? "No broker host set"
-            : MqttTransportPlan.DescribeProvenance(request);
+            : MqttTransportPlan.DescribeProvenance(request));
     }
 
     /// <summary>Re-reads the two live-connection facts on page-show and after an Apply, not on a timer.</summary>
     private void RefreshHaActivityTexts()
     {
         var now = DateTime.UtcNow;
-        HaLastPublishText.Text = MqttStatusFormatter.DescribeLastPublish(MqttActivity.LastPublishUtc, now);
-        HaLastCommandText.Text = MqttStatusFormatter.DescribeLastCommand(MqttActivity.LastCommand, now);
+        SetStatusValue(HaLastPublishText, MqttStatusFormatter.DescribeLastPublish(MqttActivity.LastPublishUtc, now));
+        SetStatusValue(HaLastCommandText, MqttStatusFormatter.DescribeLastCommand(MqttActivity.LastCommand, now));
+        // The link comes and goes without the page hearing about it, so the button's state is re-read
+        // wherever the facts beside it are.
+        RefreshPublishNowEnabled();
+    }
+
+    // True while a manual publish is in flight. Same discipline as the connection test: a second
+    // click is dropped rather than queued, and the button is disabled for the duration.
+    private bool _haPublishing;
+
+    /// <summary>Live only when there is somewhere to publish to — the feature on, a broker connected,
+    /// and nothing already in flight.</summary>
+    private void RefreshPublishNowEnabled() =>
+        HaPublishNowBtn.IsEnabled = !_haPublishing && HaEnabledToggle.IsOn && _isBrokerConnected();
+
+    /// <summary>Republishes the current state on demand. State only: what the entities already are,
+    /// never a fresh announcement, so no retained config topic is rewritten and nothing in Home
+    /// Assistant is re-declared. Awaited on the UI thread, which is where the continuation resumes —
+    /// no raw dispatcher callback, whose unhandled exception would take the process down as a stowed
+    /// exception that never reaches Application.UnhandledException.</summary>
+    private async void OnHaPublishNowClicked(object sender, RoutedEventArgs e)
+    {
+        if (_haPublishing) return;
+        _haPublishing = true;
+        try
+        {
+            RefreshPublishNowEnabled();
+            bool sent = await _onPublishNow();
+            if (_closed) return;   // window went while the publish was in flight
+
+            // Last publish is recorded at PublishAsync's success — the one choke point every outbound
+            // message passes through — so re-reading the activity slots is what shows the result.
+            RefreshHaActivityTexts();
+            if (!sent) SetStatusValue(HaLastPublishText, "Nothing reached the broker", error: true);
+        }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.OnHaPublishNowClicked", ex); }
+        finally
+        {
+            _haPublishing = false;
+            if (!_closed) RefreshPublishNowEnabled();
+        }
     }
 
     /// <summary>The device name used when <see cref="AppSettings.MqttDeviceName"/> is blank — the same

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using ChargeKeeper.Services;
 using ChargeKeeper.Vendors;
 using Xunit;
@@ -36,6 +37,24 @@ public class HomeAssistantServiceTests
         // Battery fields untouched by the charge-control overlay.
         Assert.Equal(50, reflected.Soc);
         Assert.Equal(65, reflected.AdapterWatts);
+    }
+
+    // "Publish now" is offered whenever the page thinks there is a link, and the link can go between
+    // the page looking and the click landing. Nothing may leave the machine in that gap, and the
+    // button's own report of failure depends on the false coming back rather than a silent no-op.
+    [Fact]
+    public async Task PublishCurrentState_WithNoConnection_SendsNothingAndSaysSo()
+    {
+        using var ha = new HomeAssistantService("test");
+        bool stateAsked = false;
+        ha.CurrentStateProvider = () => { stateAsked = true; return BaseState(); };
+
+        var before = MqttActivity.LastPublishUtc;
+
+        Assert.False(ha.IsConnected);
+        Assert.False(await ha.PublishCurrentStateAsync());
+        Assert.False(stateAsked);                              // no snapshot even taken
+        Assert.Equal(before, MqttActivity.LastPublishUtc);     // and nothing recorded as sent
     }
 
     [Fact]

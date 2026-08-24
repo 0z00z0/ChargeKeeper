@@ -609,6 +609,47 @@ internal sealed class HomeAssistantService : IDisposable
             _ = PublishAsync(_statusTopic, json, retain: true, CancellationToken.None);
     }
 
+    /// <summary>Whether there is a live link to publish onto: the feature running and the client
+    /// connected. What a "publish now" can act on, and what the Settings page gates its button by.</summary>
+    public bool IsConnected => _enabled && _client.IsConnected;
+
+    /// <summary>Publishes the current state and settings snapshots on demand. Nothing is announced
+    /// and no config topic is written, so this republishes what the entities already are rather than
+    /// re-declaring that they exist. False when nothing reached the broker.</summary>
+    /// <remarks>
+    /// The dedupe caches are bypassed on purpose, and updated as if the payload had changed. Dropping
+    /// an unchanged payload is right for a signal and wrong for a button: pressing it and having
+    /// nothing leave the machine is indistinguishable from a dead connection. Which groups are
+    /// switched on needs no filter here — a withheld group's entities are never announced and its
+    /// config topic is emptied, so nothing consumes the fields it would have read.
+    /// </remarks>
+    public async Task<bool> PublishCurrentStateAsync()
+    {
+        if (!IsConnected) return false;
+        try
+        {
+            bool sent = false;
+            if (CurrentStateProvider?.Invoke() is { } state)
+            {
+                string json = HaDiscovery.StatePayload(state);
+                lock (_stateLock) { _lastStateJson = json; }
+                sent |= await PublishAsync(_stateTopic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            }
+            if (CurrentSurfaceProvider?.Invoke() is { } surface)
+            {
+                string json = HaSurfacePayload.Build(surface);
+                lock (_stateLock) { _lastSurfaceJson = json; }
+                sent |= await PublishAsync(_statusTopic, json, retain: true, CancellationToken.None).ConfigureAwait(false);
+            }
+            return sent;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("HomeAssistantService.PublishCurrentState", Sanitise(ex));
+            return false;
+        }
+    }
+
     /// <summary>Reflects a change straight back, without waiting for a battery tick — a settings write
     /// from the broker, a keep-awake session ending, a network location moving. Signals rather than
     /// publishes: the snapshot reaches a vendor service and an adapter enumeration, and the loudest
@@ -656,7 +697,9 @@ internal sealed class HomeAssistantService : IDisposable
                                "", retain: true, ct).ConfigureAwait(false);
     }
 
-    private async Task PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
+    /// <summary>False when the message did not reach the broker. Only a caller the user is watching
+    /// needs to know — everything else publishes into the background, where the log is the trace.</summary>
+    private async Task<bool> PublishAsync(string topic, string payload, bool retain, CancellationToken ct)
     {
         try
         {
@@ -669,8 +712,9 @@ internal sealed class HomeAssistantService : IDisposable
             await _client.PublishAsync(msg, ct).ConfigureAwait(false);
             // The one choke point every outbound message passes through.
             MqttActivity.RecordPublish();
+            return true;
         }
-        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); }
+        catch (Exception ex) { AppLog.Error("HomeAssistantService.Publish", Sanitise(ex)); return false; }
     }
 
     private async Task StopInternalAsync(bool clearDiscovery, CancellationToken ct = default)
