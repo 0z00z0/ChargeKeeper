@@ -117,6 +117,8 @@ Configured in Settings (on/off toggle + threshold).
 ## Settings
 
 Settings persist to `%AppData%\ChargeKeeper\settings.json` — a roaming, human-readable JSON file.
+The MQTT broker block is the one exception: it lives beside it in `mqtt.json`, together with
+`mqtt-discovery.json`, which records what has actually been put on the broker.
 
 > **Upgrading from Lenovo Power Tray?** On first launch the app automatically moves the old
 > `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper`, so settings and battery history

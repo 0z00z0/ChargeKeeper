@@ -235,40 +235,56 @@ packages). The only **non-Microsoft** dependencies are:
 
 ## MQTT
 
-ChargeKeeper can publish battery and charge state to an MQTT broker. When enabled it connects to your
-broker and creates a single **ChargeKeeper** device with entities for battery %, charge power (W),
-on-AC, the Smart Charge start/stop thresholds, and the adapter rating; an availability topic (with a
-Last-Will) marks it offline if the app stops.
+ChargeKeeper can publish its battery, charge and settings surface to an MQTT broker. When enabled it
+connects to your broker and announces a single **ChargeKeeper** device with forty entities — battery
+level and state, charge power, on-AC, battery health and the raw capacities, the Smart Charge limit
+and preset, Keep Awake, the lid-close delay, the warning thresholds, the detected network and the
+app's own diagnostics. An availability topic, with a Last-Will, marks the device offline if the app
+stops.
+
+Each entity has **its own bare topic carrying a plain value** — no JSON payload and no templates — so
+a shell script or a flow engine reads one with no parsing. Twenty-three of them take commands, and a
+value the app will not act on is refused with a reason rather than silently clamped.
 
 The entities are announced with the **Home Assistant MQTT Discovery** convention — an openly
 published spec that some MQTT consumers follow and others ignore. [Home Assistant](https://www.home-assistant.io/)
 itself therefore picks the device up with no YAML, and so does any other consumer implementing the
-same convention; one that does not can still subscribe to the state topics directly.
+same convention; one that does not can still subscribe to the state topics directly. Device-based
+discovery sets the receiver floor at Home Assistant **2024.11.0**.
 
 It is **off by default** and never touches the network until you both enable it and set a broker
-host. Configure it from the tray icon → **Settings…** → **MQTT** — the enabled toggle
-applies immediately, and the broker host/port/transport/encryption/username/password/discovery-prefix
-fields commit
-as a batch behind an **Apply** button (so the MQTT connection reconnects once per Apply, not per
-keystroke). The password is never logged or shown in any toast.
+host. Configure it from the tray icon → **Settings…** → **MQTT**: the master switch, the device name
+and the publish-group toggles apply immediately, and the broker host, port, transport, encryption,
+username, password and discovery prefix commit as a batch behind an **Apply** button, so the
+connection is remade once per edit session rather than once per keystroke. The password is never
+logged and never leaves the machine except to the broker it authenticates to.
 
-Settings can also be edited directly in `%AppData%\ChargeKeeper\settings.json` (tray icon → **Open
-settings folder**), then picked up without restarting via tray icon → **Reload settings from file**:
+### Where the settings live
+
+The broker block lives in **`%AppData%\ChargeKeeper\mqtt.json`**, beside `settings.json` rather than
+inside it (tray icon → **Open settings folder**). An installation upgrading from an earlier version
+has its broker block moved there automatically, keeping the device id — so every existing entity
+carries over with its name, area, labels and automations intact.
 
 ```jsonc
 {
-  "HomeAssistantEnabled": true,
-  "MqttBrokerHost": "homeassistant.local",   // or the broker IP
-  "MqttBrokerPort": 1883,                     // or null to find the port by probing
-  "MqttUsername": "your-mqtt-user",
-  "MqttPassword": "your-mqtt-password",       // stored locally, same as any MQTT client
-  "MqttTransportMode": "Auto",                // Auto | Tcp | WebSocket
-  "MqttEncryptionMode": "Auto",               // Auto (encrypted first, then plain) | On | Off
-  "MqttDiscoveryPrefix": "homeassistant"      // the prefix your consumer discovers on
+  "Enabled": true,
+  "Host": "homeassistant.local",   // or the broker IP
+  "Port": 1883,                    // or null to find the port by probing
+  "Username": "your-mqtt-user",
+  "Password": "your-mqtt-password", // stored locally, same as any MQTT client
+  "TransportMode": "Auto",          // Auto | Tcp | WebSocket
+  "EncryptionMode": "Auto",         // Auto (encrypted first, then plain) | On | Off
+  "DeviceId": "",                   // empty = derived from the machine name
+  "DeviceName": "",                 // empty = "ChargeKeeper (<machine name>)"
+  "DiscoveryPrefix": "homeassistant", // the prefix your consumer discovers on
+  "Groups": { "app_diagnostics": true } // per-group switches; an absent key takes its own default
 }
 ```
 
-The password lives only in your own local settings file.
+`mqtt-discovery.json` sits beside it. That is a record of what was actually put on the broker, not a
+setting: it is what lets an entity removed while the app was closed be cleaned up on the next
+connect, and what stops a one-off retirement being replayed on every start.
 
 ## Shared components
 
@@ -283,9 +299,17 @@ integration works:
   *Check for Updates* button. ChargeKeeper always returns `false` — it downloads the installer on a
   background task and exits itself when ready, so the window never needs to drive the exit
   (`OnBeforeExit` is therefore left unset).
-- CI clones the library **pinned to an exact commit** (see the `ZEROZEROBRAND_REF` step in
-  [`.github/workflows/ci.yml`](.github/workflows/ci.yml)); bump the pin deliberately after
-  validating a new library version locally.
+The **MQTT module** comes from the same repository — `ZeroZero.Mqtt` for the protocol,
+`ZeroZero.Mqtt.Discovery` for the entity and document layer, and `ZeroZero.Mqtt.WinUI` for the
+settings panel the MQTT page hosts. ChargeKeeper supplies the topic root, the forty entity
+declarations, the seven publish groups and the copy saying what it publishes; everything else —
+the endpoint sweep, the encryption model, the retained document, the eviction ledger and every
+protocol sentence in the panel — belongs to the module.
+
+- CI clones the library **pinned to a release tag**, read from
+  [`.github/0z0-shared-ref`](.github/0z0-shared-ref) by both workflows so the two pins cannot drift.
+  Bump the pin deliberately, after reading that tag's release notes and validating locally; a
+  build-time guard warns when the sibling checkout has moved away from the pin.
 
 ## Credits & acknowledgements
 
