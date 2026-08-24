@@ -68,7 +68,19 @@ internal sealed partial class SettingsWindow : Window
         });
 
         Closed += OnClosed;
+
+        // After Closed, which owns the detach. Without this the "Current network" lines only ever
+        // refresh on open, on a section switch and on a rule edit, so a dock, an undock or a carrier
+        // change leaves a network on screen that the service moved off long ago.
+        NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
     }
+
+    // Raised off the UI thread by NetworkLocationService — marshal before touching anything.
+    private void OnNetworkLocationChanged(NetworkLocation location) => RunOnUi(() =>
+    {
+        RefreshCurrentNetworkText();
+        RefreshKeepAwakeCurrentNetworkText();
+    });
 
     private bool _aboutLoaded;
 
@@ -230,9 +242,10 @@ internal sealed partial class SettingsWindow : Window
 
         StopAllPresetDebounceTimers();
 
-        // Static event, instance handler: without this the closed window stays reachable from
-        // KeepAwakeService for the process's life and keeps touching a torn-down UI tree.
-        KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
+        // Static events, instance handlers: without these the closed window stays reachable from
+        // the services for the process's life and keeps touching a torn-down UI tree.
+        KeepAwakeService.StateChanged          -= OnKeepAwakeStateChanged;
+        NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
         // An in-flight connection test or endpoint search outlives the window by up to its budget;
