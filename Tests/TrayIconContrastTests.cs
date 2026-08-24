@@ -59,6 +59,56 @@ public class TrayIconContrastTests
                     $"light track {light} is not darker than the dark track {dark}.");
     }
 
+    // Taskbar theme, as the tray icon learns about it
+
+    [Theory]
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.General)]     // WM_SETTINGCHANGE "ImmersiveColorSet"
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.Color)]       // WM_SYSCOLORCHANGE
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.VisualStyle)] // WM_THEMECHANGED
+    public void TheCategoriesAThemeFlipArrivesInAreAccepted(Microsoft.Win32.UserPreferenceCategory category)
+    {
+        Assert.True(IconGenerator.CategoryCanCarryThemeChange(category),
+                    $"{category} is dropped, so a light/dark flip arriving in it never repaints.");
+    }
+
+    [Theory]
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.Mouse)]
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.Keyboard)]
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.Locale)]
+    [InlineData(Microsoft.Win32.UserPreferenceCategory.Power)]
+    public void CategoriesThatCannotCarryAThemeFlipAreDropped(Microsoft.Win32.UserPreferenceCategory category)
+    {
+        Assert.False(IconGenerator.CategoryCanCarryThemeChange(category),
+                     $"{category} is accepted, so unrelated settings churn the icon.");
+    }
+
+    [Fact]
+    public void AnUnmovedThemeReportsNoChange()
+    {
+        // General is also the catch-all for every unmapped setting, so the event alone means
+        // nothing — without this gate a mouse-speed change would force a full GDI repaint.
+        IconGenerator.RefreshThemeCacheIfChanged();   // seed from the live setting
+
+        Assert.False(IconGenerator.RefreshThemeCacheIfChanged(),
+                     "a second read of an unchanged setting reported a change.");
+    }
+
+    [Fact]
+    public void ARefreshLeavesTheCacheAgreeingWithTheLiveSetting()
+    {
+        // The refresh both detects and adopts; a detect that failed to adopt would repaint with the
+        // old contrast and then report "unchanged" for ever after. Cleared first, so the adopt
+        // branch is the one that runs rather than the unchanged-value early return.
+        IconGenerator.InvalidateThemeCache();
+        IconGenerator.RefreshThemeCacheIfChanged();
+
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+        bool live = key?.GetValue("SystemUsesLightTheme") is int light && light != 0;
+
+        Assert.Equal(live, IconGenerator.TaskbarUsesLightTheme());
+    }
+
     // Frame usage
 
     [Fact]

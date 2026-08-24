@@ -61,6 +61,29 @@ internal static class IconGenerator
     /// <summary>Drops the cached taskbar theme so the next render re-reads it.</summary>
     internal static void InvalidateThemeCache() => _cachedLightTaskbar = null;
 
+    /// <summary>Whether a <c>UserPreferenceChanged</c> category can be carrying a taskbar light/dark
+    /// flip. The toggle broadcasts WM_SETTINGCHANGE "ImmersiveColorSet", which maps to no SPI code
+    /// and so falls to <c>General</c>; the same switch also produces WM_SYSCOLORCHANGE
+    /// (<c>Color</c>) and WM_THEMECHANGED (<c>VisualStyle</c>). None of the three is exclusive to a
+    /// theme change, so a caller still has to check the value — see
+    /// <see cref="RefreshThemeCacheIfChanged"/>.</summary>
+    internal static bool CategoryCanCarryThemeChange(Microsoft.Win32.UserPreferenceCategory category) =>
+        category is Microsoft.Win32.UserPreferenceCategory.General
+                 or Microsoft.Win32.UserPreferenceCategory.Color
+                 or Microsoft.Win32.UserPreferenceCategory.VisualStyle;
+
+    /// <summary>Re-reads the taskbar theme and reports whether it moved. The notification carrying a
+    /// light/dark flip is a catch-all category that fires for unrelated settings too, so the caller
+    /// gates its repaint on the value having changed rather than on the event arriving. A cold cache
+    /// counts as changed: the previous value is unknown, and one repaint is the safe answer.</summary>
+    internal static bool RefreshThemeCacheIfChanged()
+    {
+        bool light = ReadSystemUsesLightTheme();
+        if (_cachedLightTaskbar == light) return false;
+        _cachedLightTaskbar = light;
+        return true;
+    }
+
     private static bool ReadSystemUsesLightTheme()
     {
         try
