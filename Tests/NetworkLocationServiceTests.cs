@@ -222,11 +222,22 @@ public class NetworkLocationServiceTests
     // "vEthernet (Bridged)", which holds the routable address; "vEthernet (Default Switch)" is an
     // internal switch with a synthesised Microsoft-OUI address and no physical partner.
 
-    private const string PhysicalMac      = "48:65:EE:18:86:EF";
-    private const string DefaultSwitchMac = "00:15:5D:EA:DC:CF";
-    private const string BridgeAlias      = "vEthernet (Bridged)";
-    private const string BridgeDesc       = "Hyper-V Virtual Ethernet Adapter #2";
-    private const string PhysicalDesc     = "Realtek USB GbE Family Controller";
+    private const string PhysicalMac       = "48:65:EE:18:86:EF";
+    private const string DefaultSwitchMac  = "00:15:5D:EA:DC:CF";
+    private const string BridgeAlias       = "vEthernet (Bridged)";
+    private const string BridgeDesc        = "Hyper-V Virtual Ethernet Adapter #2";
+    private const string PhysicalDesc      = "Realtek USB GbE Family Controller";
+    private const string WifiDesc          = "Intel(R) Wi-Fi 6E AX211 160MHz";
+    private const string DefaultSwitchDesc = "Hyper-V Virtual Ethernet Adapter";
+
+    // The four NDIS layers Windows binds, named exactly as the stack reports them. "Virtual WiFi" is
+    // the odd one out: only its name says "Virtual", which is why LooksVirtual catches it and the
+    // other three had to be named in FilterMarkers instead.
+    private const string WfpNative   = "WFP Native MAC Layer LightWeight Filter-0000";
+    private const string Wfp8023     = "WFP 802.3 MAC Layer LightWeight Filter-0000";
+    private const string QosLayer    = "QoS Packet Scheduler-0000";
+    private const string NativeWifi  = "Native WiFi Filter Driver-0000";
+    private const string VirtualWifi = "Virtual WiFi Filter Driver-0000";
 
     // IsVirtual comes from the real predicate, as it does for AdapterCandidate below.
     private static BridgePeer Interface(string name, string description, string? mac,
@@ -237,33 +248,67 @@ public class NetworkLocationServiceTests
                                        OperationalStatus status = OperationalStatus.Up) =>
         Interface(name, PhysicalDesc, mac, status);
 
-    // What GetAllNetworkInterfaces returns on the docked machine, before any filtering: six of these
-    // carry the one hardware address, because Windows binds an NDIS filter layer to each adapter and
-    // every layer clones its host's address. The two adapters Get-NetAdapter shows are "Ethernet" and
-    // "vEthernet (Bridged)"; the rest are filter and scheduler layers, named by suffixing whichever
-    // of the alias and the description the stack knows them by.
+    // A filter layer bound to a host adapter: measured, the stack suffixes BOTH the host's alias and
+    // its description, and the layer clones the host's hardware address verbatim.
+    private static BridgePeer Twin(string hostAlias, string hostDesc, string layer, string? mac,
+                                   OperationalStatus status = OperationalStatus.Up) =>
+        Interface($"{hostAlias}-{layer}", $"{hostDesc}-{layer}", mac, status);
+
+    // Recorded from a live GetAllNetworkInterfaces() on the affected machine, not composed: 77
+    // interfaces there against the 17 rows Get-NetAdapter shows. Every interface carrying one of the
+    // three hardware addresses the walk-back reasons about is kept verbatim with its real
+    // description; the repetitive remainder — 22 NotPresent "Mobile N" clones, the WAN miniport
+    // family, the Wi-Fi Direct pair and the tunnels — is left out, since nothing in the walk-back can
+    // reach it. Docked, so "Ethernet" is Up holding no IPv4 (the external switch took it) and its own
+    // filter twin is present; undocked, that twin is the one row of the six that disappears.
     private static readonly BridgePeer[] MeasuredInterfaces =
     [
-        Physical(),                                                                        // Realtek USB GbE, no IPv4
-        Interface("Ethernet-WFP Native MAC Layer LightWeight Filter-0000",
-                  $"{PhysicalDesc}-WFP Native MAC Layer LightWeight Filter-0000", PhysicalMac),
+        // The dock's address, on six interfaces, of which Get-NetAdapter shows two.
+        Physical(),                                            // Realtek USB GbE, no IPv4
+        Twin("Ethernet", PhysicalDesc, WfpNative, PhysicalMac),
         Interface(BridgeAlias, BridgeDesc, PhysicalMac),
-        Interface($"{BridgeAlias}-WFP Native MAC Layer LightWeight Filter-0000",
-                  $"{BridgeDesc}-WFP Native MAC Layer LightWeight Filter-0000",  PhysicalMac),
-        Interface($"{BridgeAlias}-WFP 802.3 MAC Layer LightWeight Filter-0000",
-                  $"{BridgeDesc}-WFP 802.3 MAC Layer LightWeight Filter-0000",   PhysicalMac),
-        Interface($"{BridgeAlias}-QoS Packet Scheduler-0000",
-                  $"{BridgeDesc}-QoS Packet Scheduler-0000",                     PhysicalMac),
-        Interface("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter", DefaultSwitchMac),
-        Interface("WiFi",       "Intel(R) Wi-Fi 6E AX211 160MHz",      "AA:BB:CC:11:22:33", OperationalStatus.Down),
-        Interface("Ethernet 2", "Intel(R) Ethernet Connection I219-LM", "AA:BB:CC:44:55:66", OperationalStatus.Down),
-        Interface("Local Area Connection* 1", "WAN Miniport (Network Monitor)", null, OperationalStatus.Down),
+        Twin(BridgeAlias, BridgeDesc, WfpNative, PhysicalMac),
+        Twin(BridgeAlias, BridgeDesc, Wfp8023,   PhysicalMac),
+        Twin(BridgeAlias, BridgeDesc, QosLayer,  PhysicalMac),
+
+        // The radio's address, on six more. Three of these layers are classified non-virtual, so this
+        // is the set that decides whether the filter list is complete.
+        Interface("WiFi", WifiDesc, WifiMac),
+        Twin("WiFi", WifiDesc, WfpNative,   WifiMac),
+        Twin("WiFi", WifiDesc, Wfp8023,     WifiMac),
+        Twin("WiFi", WifiDesc, QosLayer,    WifiMac),
+        Twin("WiFi", WifiDesc, NativeWifi,  WifiMac),
+        Twin("WiFi", WifiDesc, VirtualWifi, WifiMac),
+
+        // The internal switch: a Microsoft-OUI address belonging to no NIC, with its own layers.
+        Interface("vEthernet (Default Switch)", DefaultSwitchDesc, DefaultSwitchMac),
+        Twin("vEthernet (Default Switch)", DefaultSwitchDesc, WfpNative, DefaultSwitchMac),
+        Twin("vEthernet (Default Switch)", DefaultSwitchDesc, Wfp8023,   DefaultSwitchMac),
+        Twin("vEthernet (Default Switch)", DefaultSwitchDesc, QosLayer,  DefaultSwitchMac),
+
+        // The modem, and the adapters the pairing must never reach for.
+        Interface("Mobile", "5G Solution 5000", MobileMac),
+        Twin("Mobile", "5G Solution 5000", WfpNative, MobileMac),
+        Interface("Ethernet 2", "PANGP Virtual Ethernet Adapter Secure", "02:50:41:00:00:01", OperationalStatus.Down),
+        Interface("Petterhagen - Dell docking", $"{PhysicalDesc} #2", DockMac, OperationalStatus.NotPresent),
+        Interface("Ethernet 3", "Lenovo USB Ethernet", "60:7D:09:45:F4:E8", OperationalStatus.NotPresent),
+        Interface("Local Area Connection* 10", "WAN Miniport (Network Monitor)", null),
     ];
 
     // The same set as the shipped enumeration hands to the walk-back: filter layers gone, so the one
     // hardware address is left on the two adapters that really own it.
     private static readonly BridgePeer[] MeasuredPeers =
         [.. MeasuredInterfaces.Where(i => !NetworkLocationService.IsFilterInterface(i.Name, i.Description))];
+
+    // FilterMarkers as it stood before the scheduler and Native WiFi layers were named, so a test can
+    // measure what closing that gap actually moved rather than assert it in the abstract.
+    private static readonly string[] MarkersBeforeTheSchedulerGapWasClosed =
+        ["-WFP ", "LightWeight Filter", "-NDIS ", "Multiplexor"];
+
+    private static bool WasFilteredBefore(BridgePeer i) =>
+        MarkersBeforeTheSchedulerGapWasClosed.Any(m =>
+            i.Name.Contains(m, StringComparison.OrdinalIgnoreCase) ||
+            (i.Description ?? "").Contains(m, StringComparison.OrdinalIgnoreCase));
 
     [Theory]
     [InlineData(BridgeAlias,                  BridgeDesc)]
@@ -381,6 +426,47 @@ public class NetworkLocationServiceTests
     public void IsFilterInterface_RealAdaptersAreLeftAlone(string name, string description)
     {
         Assert.False(NetworkLocationService.IsFilterInterface(name, description));
+    }
+
+    [Theory]
+    [InlineData("WiFi",         WifiDesc,   QosLayer)]
+    [InlineData("WiFi",         WifiDesc,   NativeWifi)]
+    [InlineData(BridgeAlias,    BridgeDesc, QosLayer)]
+    [InlineData("Ethernet",     PhysicalDesc, QosLayer)]
+    public void IsFilterInterface_TheSchedulerAndNativeWifiLayers_AreNotAdapters(
+        string hostAlias, string hostDesc, string layer)
+    {
+        // Neither layer carries "-WFP " or "LightWeight Filter" in either half of its name, so both
+        // passed the marker list as adapters. Measured, they clone the host's hardware address, and on
+        // the radio they are classified non-virtual as well — nothing else keeps them out of the
+        // pairing.
+        var twin = Twin(hostAlias, hostDesc, layer, PhysicalMac);
+        Assert.True(NetworkLocationService.IsFilterInterface(twin.Name, twin.Description));
+    }
+
+    [Fact]
+    public void FilterMarkers_ClosingTheSchedulerGap_ThinsTheRadioAndLeavesTheDockUnmoved()
+    {
+        BridgePeer[] before = [.. MeasuredInterfaces.Where(i => !WasFilteredBefore(i))];
+
+        // The leak, measured: on the radio's address the old list left three non-virtual partners
+        // where Get-NetAdapter shows one card.
+        Assert.Equal(3, before.Count(i => i.Mac == WifiMac && !i.IsVirtual));
+        Assert.Equal("WiFi", MeasuredPeers.Single(i => i.Mac == WifiMac && !i.IsVirtual).Name);
+        Assert.DoesNotContain(MeasuredPeers, i => i.Name.Contains(QosLayer, StringComparison.Ordinal));
+        Assert.DoesNotContain(MeasuredPeers, i => i.Name.Contains(NativeWifi, StringComparison.Ordinal));
+
+        // The third layer on that address still reaches the peer list: only its name says "Virtual",
+        // so the pairing rejects it as a peer rather than the enumeration as a layer.
+        Assert.Contains(MeasuredPeers, i => i.Name == $"WiFi-{VirtualWifi}" && i.IsVirtual);
+
+        // And why the leak was benign: on the dock address the scheduler clone is virtual, so the same
+        // one partner is left and the pairing names the same NIC either way.
+        Assert.Equal(
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, before)?.Name,
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers)?.Name);
+        Assert.Equal("Ethernet",
+            NetworkLocationService.ResolveBridgedPeer(BridgeAlias, BridgeDesc, PhysicalMac, MeasuredPeers)?.Name);
     }
 
     [Fact]

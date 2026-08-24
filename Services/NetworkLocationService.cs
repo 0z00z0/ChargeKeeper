@@ -435,10 +435,13 @@ internal static class NetworkLocationService
 
     // Markers of an NDIS filter pseudo-interface, which is a driver layer bound to an adapter rather
     // than an adapter of its own. Multiplexor is the Windows "Bridge Connections" adapter, a bridge
-    // over NICs rather than one of them.
+    // over NICs rather than one of them. The scheduler and the Native WiFi layer name themselves
+    // neither "-WFP " nor "LightWeight Filter", and measured they are classified non-virtual too, so
+    // nothing but this list keeps them out of the pairing below.
     private static readonly string[] FilterMarkers =
     [
         "-WFP ", "LightWeight Filter", "-NDIS ", "Multiplexor",
+        "-QoS Packet Scheduler-", "-Native WiFi Filter Driver-",
     ];
 
     /// <summary>
