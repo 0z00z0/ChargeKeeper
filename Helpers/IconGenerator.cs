@@ -49,6 +49,33 @@ internal static class IconGenerator
     /// when the display configuration changes.</summary>
     internal static void InvalidateSlotSizeCache() => _cachedSlotSize = null;
 
+    // Taskbar theme, cached alongside the slot size for the same reason: it is display state, not
+    // something that moves between two battery ticks.
+    private static bool? _cachedLightTaskbar;
+
+    /// <summary>Whether the taskbar is painted light, from the shell's own setting rather than
+    /// guessed from a colour.</summary>
+    internal static bool TaskbarUsesLightTheme() => _cachedLightTaskbar ??= ReadSystemUsesLightTheme();
+
+    /// <summary>Drops the cached taskbar theme so the next render re-reads it.</summary>
+    internal static void InvalidateThemeCache() => _cachedLightTaskbar = null;
+
+    private static bool ReadSystemUsesLightTheme()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is int light && light != 0;
+        }
+        catch
+        {
+            // A missing or unreadable key is not worth failing a repaint over; dark is both the
+            // Windows default and the background the fixed palette was chosen against.
+            return false;
+        }
+    }
+
     // Brand-mark palette, read from GaugePalette so the tray icon and the dashboard cannot drift.
     // The GEOMETRY is not shared that way — see RenderMarkBitmap. The interior fill is not here: it
     // is the charge tier, from FillFor, like every other style's.
@@ -63,6 +90,27 @@ internal static class IconGenerator
     private static readonly Color FillCharging = FromPacked(GaugePalette.SteelBlue);   // on AC
 
     private static Color FromPacked(uint argb) => Color.FromArgb(unchecked((int)argb));
+
+    /// <summary>
+    /// How hard the glyph's edge has to be drawn, and how visible the arc's empty track is. The tier
+    /// colours all sit mid-luminance, so one setting cannot serve both taskbars: on a dark taskbar
+    /// the background does the separating and a soft shadow is enough, on a light one the rim is the
+    /// only thing there is.
+    /// </summary>
+    internal readonly record struct IconContrast(
+        Color Outline, float OutlineFraction, float OutlineFloor, Color Track)
+    {
+        internal static IconContrast For(bool lightTaskbar) => lightTaskbar
+            ? new(Color.FromArgb(190, 0, 0, 0), 0.09f, 2.0f, Color.FromArgb(150,  90,  90,  90))
+            : new(Color.FromArgb( 90, 0, 0, 0), 0.06f, 1.5f, Color.FromArgb(160, 140, 140, 140));
+
+        /// <summary>How much wider than the stroke it sits under the halo is drawn, at
+        /// <paramref name="size"/> px. Floored so it survives the 16 px frame.</summary>
+        internal float ExtraWidth(float size) => Math.Max(OutlineFloor, size * OutlineFraction);
+    }
+
+    /// <summary>The contrast for the taskbar as it is painted now.</summary>
+    private static IconContrast CurrentContrast() => IconContrast.For(TaskbarUsesLightTheme());
 
     // Shared by both tray renderers so the arc and numeric modes cannot drift on tiers.
     private static Color FillFor(int percent, bool charging) => charging
@@ -98,18 +146,24 @@ internal static class IconGenerator
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc)
     {
-        Bitmap Render(int size) => mode switch
-        {
-            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
-            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging),
-            _                      => RenderBatteryBitmap(size, percent, charging),
-        };
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, charging, mode);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
         ms.Position = 0;
         return new System.Drawing.Icon(ms);
     }
+
+    /// <summary>One frame of the selected style at <paramref name="size"/> px. Split out from
+    /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
+    /// live tray slot happens to be.</summary>
+    internal static Bitmap RenderStyleBitmap(int size, int percent, bool charging, TrayIconMode mode) =>
+        mode switch
+        {
+            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
+            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging),
+            _                      => RenderBatteryBitmap(size, percent, charging),
+        };
 
     /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
     private static Bitmap RenderNumericBitmap(int size, int percent, bool charging)
@@ -157,10 +211,26 @@ internal static class IconGenerator
     // Brand-mark geometry on the 256-unit reference canvas. The interior band is where the charge
     // fill lives: 0 % is its left edge, 100 % its right, and the guard line sits at a percentage on
     // the same scale.
+    //
+    // The vertical figures are the SVG's scaled 1.6x about the centre line: the mark's proportions
+    // are landscape and the tray slot is square, so it used to be a letterbox with 48 % of the frame
+    // height in use. The horizontal figures are untouched — they already spanned 91 %.
     private const float MarkInteriorLeft  = 36f;
     private const float MarkInteriorRight = 185f;
-    private const float MarkInteriorTop    = 101f;
-    private const float MarkInteriorBottom = 156f;
+    private const float MarkInteriorTop    = 72f;
+    private const float MarkInteriorBottom = 185f;
+
+    // Body, cap and the guard line's vertical extent. The guard overhangs the body top and bottom,
+    // so its extent is the mark's full ink height.
+    private const float MarkBodyTop    = 51f;
+    private const float MarkBodyBottom = 205f;
+    private const float MarkCapTop     = 93f;
+    private const float MarkCapBottom  = 163f;
+    internal const float MarkInkTop    = 29f;
+    internal const float MarkInkBottom = 227f;
+
+    /// <summary>The reference canvas the mark's figures are expressed on.</summary>
+    internal const float MarkCanvas = 256f;
 
     // The charge level and guard position that reproduce brand\chargekeeper-icon.svg's fixed fill
     // rect and guard line. 76 % rather than the exact 74 % the rect measures, because 74 lands in
@@ -193,17 +263,18 @@ internal static class IconGenerator
         g.PixelOffsetMode   = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        float s = size / 256f;
+        float s = size / MarkCanvas;
 
         // Battery body outline.
-        var bodyRect = new RectangleF(15 * s, 80 * s, 191 * s, 96 * s);
+        var bodyRect = RectangleF.FromLTRB(15 * s, MarkBodyTop * s, 206 * s, MarkBodyBottom * s);
         using (var bodyPath = BuildRoundedRectPath(bodyRect, 6 * s))
         using (var bodyPen  = new System.Drawing.Pen(MarkSteel, Math.Max(13 * s, 1.6f))
                                    { LineJoin = LineJoin.Round })
             g.DrawPath(bodyPen, bodyPath);
 
         // Battery cap (positive terminal).
-        using (var capPath = BuildRoundedRectPath(new RectangleF(221 * s, 106 * s, 20 * s, 44 * s), 3 * s))
+        using (var capPath = BuildRoundedRectPath(
+                   RectangleF.FromLTRB(221 * s, MarkCapTop * s, 241 * s, MarkCapBottom * s), 3 * s))
         using (var cap     = new SolidBrush(MarkSteel))
             g.FillPath(cap, capPath);
 
@@ -219,15 +290,32 @@ internal static class IconGenerator
             g.FillPath(fillBrush, fillPath);
         }
 
-        // Guard line crossing the body — flat caps, clamped to ≥2 px so it survives the 16 px frame.
-        using (var limitPen = new System.Drawing.Pen(MarkTerracotta, Math.Max(9 * s, 2f)))
-        {
-            limitPen.StartCap = limitPen.EndCap = LineCap.Flat;
-            float x = MarkInteriorX(MarkCanonicalGuard) * s;
-            g.DrawLine(limitPen, x, 66 * s, x, 190 * s);
-        }
+        DrawMarkLine(g, size, MarkCanonicalGuard, MarkTerracotta, CurrentContrast());
 
         return bmp;
+    }
+
+    /// <summary>Draws one vertical line across the mark's interior at <paramref name="percent"/> — the
+    /// guard line, and the threshold marks that sit on the same scale. A halo goes down first: at
+    /// 16 px the line itself is two pixels of a mid-tone, which on a light taskbar is nothing.</summary>
+    private static void DrawMarkLine(Graphics g, int size, int percent, Color color, IconContrast contrast)
+    {
+        float s      = size / MarkCanvas;
+        float x      = MarkInteriorX(percent) * s;
+        float top    = MarkInkTop    * s;
+        float bottom = MarkInkBottom * s;
+        // Flat caps and a ≥2 px floor, so the line survives the 16 px frame without overhanging.
+        float width  = Math.Max(9 * s, 2f);
+
+        using (var haloPen = new System.Drawing.Pen(contrast.Outline, width + contrast.ExtraWidth(size)))
+        {
+            haloPen.StartCap = haloPen.EndCap = LineCap.Flat;
+            g.DrawLine(haloPen, x, top, x, bottom);
+        }
+
+        using var pen = new System.Drawing.Pen(color, width);
+        pen.StartCap = pen.EndCap = LineCap.Flat;
+        g.DrawLine(pen, x, top, x, bottom);
     }
 
     /// <summary>The mark in its canonical brand proportions, for the static on-disk .ico: the same
@@ -255,8 +343,10 @@ internal static class IconGenerator
         float cy     = size / 2f;
         float r      = cx - stroke / 2f - 1f;          // outer edge = cx + r + stroke/2 ≈ size-1
 
-        // Track: translucent mid-grey, so it blends readably against both a dark and a light taskbar.
-        using var trackPen = new System.Drawing.Pen(Color.FromArgb(160, 140, 140, 140), stroke);
+        // Track and halo are chosen from the taskbar theme: one setting cannot read on both.
+        var contrast = CurrentContrast();
+
+        using var trackPen = new System.Drawing.Pen(contrast.Track, stroke);
         trackPen.StartCap = trackPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
         DrawArc(g, trackPen, cx, cy, r, 135f, 270f);
 
@@ -266,7 +356,7 @@ internal static class IconGenerator
 
             // Wider dark stroke drawn first, as a halo: without it the arc has no crisp edge on a
             // light taskbar.
-            using (var haloPen = new System.Drawing.Pen(Color.FromArgb(90, 0, 0, 0), stroke + Math.Max(1.5f, size * 0.06f)))
+            using (var haloPen = new System.Drawing.Pen(contrast.Outline, stroke + contrast.ExtraWidth(size)))
             {
                 haloPen.StartCap = haloPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
                 DrawArc(g, haloPen, cx, cy, r, 135f, 270f * percent / 100f);

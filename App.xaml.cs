@@ -679,11 +679,14 @@ public partial class App : Application
 
     /// <summary>
     /// The tray slot size is DPI-dependent, so a display topology or DPI change drops the cached
-    /// slot size and repaints the icon at the new resolution.
+    /// slot size and repaints the icon at the new resolution. The taskbar's light/dark setting is
+    /// dropped on the same event: it decides the glyph's outline strength, and this is the display
+    /// notification the shell does raise.
     /// </summary>
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
         Helpers.IconGenerator.InvalidateSlotSizeCache();
+        Helpers.IconGenerator.InvalidateThemeCache();
         ForceIconRefresh();
     }
 
