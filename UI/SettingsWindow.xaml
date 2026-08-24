@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="ChargeKeeper.UI.SettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -500,7 +500,7 @@
                                            Style="{StaticResource MqttStatusLabelStyle}"/>
                                 <local:InfoIcon Grid.Row="0" Grid.Column="2"
                                                 Subject="how the connection was found"
-                                                Info="Where the broker settings in force came from. A port and transport left on Automatic are found by probing the host, and the answer is remembered against that host and user name. Setting either by hand pins it, and nothing is probed around it."/>
+                                                Info="Where the broker settings in force came from, and whether the live link is encrypted. A port, transport or encryption left on Automatic is found by probing the host, and the answer is remembered against that host and user name. Setting one by hand pins it, and nothing is probed around it. Automatic can end up in clear text on its own, which is why this row says which it is."/>
                                 <TextBlock x:Name="HaDetectText" Grid.Row="0" Grid.Column="3" Text="—"
                                            Style="{StaticResource MqttStatusValueStyle}"/>
 
@@ -583,7 +583,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="Broker" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
                             <local:InfoIcon Subject="the broker section"
-                                            Info="These fields are staged locally and take effect on Apply, so the connection is remade once per edit session rather than once per keystroke. Port and transport left on Automatic are found by probing."/>
+                                            Info="These fields are staged locally and take effect on Apply, so the connection is remade once per edit session rather than once per keystroke. Port, transport and encryption left on Automatic are found by probing, which happens when one of these fields settles and when Test connection or Apply is pressed — never merely on opening the page."/>
                         </StackPanel>
 
                         <controls:SettingsExpander x:Name="MqttBrokerExpander" IsExpanded="False">
@@ -645,15 +645,22 @@
                                 </controls:SettingsCard>
 
                                 <!-- Renamed away from the acronym, and silent about ports: the port is
-                                     its own setting now and may be anything the broker is served on. -->
+                                     its own setting now and may be anything the broker is served on.
+                                     Three-state like Port and Transport, and for the same reason —
+                                     whether a broker serves a port in cipher is the broker's business,
+                                     so Automatic is first and is the default selection. -->
                                 <controls:SettingsCard Header="Encrypted connection">
                                     <controls:SettingsCard.Description>
                                         <TextBlock Text="Encrypts everything sent to and from the broker." Style="{StaticResource SettingHintStyle}"/>
                                     </controls:SettingsCard.Description>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <local:InfoIcon Subject="the encrypted connection"
-                                                        Info="Required by a broker that accepts encrypted clients only. A broker reached over WebSocket through a public front door is encrypted by its address rather than by this switch, so leaving it off changes nothing there. The certificate is checked against the machine's own trust store."/>
-                                        <ToggleSwitch x:Name="HaTlsToggle" OnContent="On" OffContent="Off"/>
+                                                        Info="Automatic tries each endpoint encrypted first and only then in clear text, then remembers which one answered and starts there next time. A broker that answers and refuses the credentials ends the search, so a wrong password never causes a retry in clear text — only an endpoint that could not be reached encrypted at all is retried plain. An explicit choice is never reached around. A broker reached over WebSocket through a public front door is encrypted by its address rather than by this setting. The certificate is checked against the machine's own trust store."/>
+                                        <ComboBox x:Name="HaEncryptionCombo" Style="{StaticResource MqttComboFieldStyle}">
+                                            <ComboBoxItem Content="Automatic"/>
+                                            <ComboBoxItem Content="On"/>
+                                            <ComboBoxItem Content="Off"/>
+                                        </ComboBox>
                                     </StackPanel>
                                 </controls:SettingsCard>
 

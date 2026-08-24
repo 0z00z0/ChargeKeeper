@@ -253,6 +253,10 @@ public partial class App : Application
         // Before the publisher reads the port: an upgraded install carries the old 1883 default, and
         // connecting on it once would remember it as the endpoint that works.
         SettingsService.RetireTheDefaultMqttPort();
+        // Before it reads the encryption too: the old two-state switch has to become a pinned choice
+        // rather than be read as an absent one, which would put an install that said "off" onto a
+        // setting that negotiates.
+        SettingsService.MigrateMqttEncryption();
 
         // Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled and a broker host are set.
         _ha = new HomeAssistantService(AppInfo.Version);

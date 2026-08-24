@@ -1,4 +1,4 @@
-using CommunityToolkit.WinUI.Controls;
+﻿using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -1632,9 +1632,9 @@ internal sealed partial class SettingsWindow : Window
             HaHostBox.Text         = s.MqttBrokerHost;
             HaUsernameBox.Text     = s.MqttUsername;
             HaPasswordBox.Password = s.MqttPassword;   // PasswordBox.Password has no XAML binding — set directly
-            HaTlsToggle.IsOn       = s.MqttUseTls;
             HaPrefixBox.Text       = s.MqttDiscoveryPrefix;
-            HaTransportCombo.SelectedIndex = (int)s.MqttTransportMode;
+            HaTransportCombo.SelectedIndex  = (int)s.MqttTransportMode;
+            HaEncryptionCombo.SelectedIndex = (int)s.MqttEncryption;
             SelectStagedPort(s.MqttBrokerPort);
             // Blank means "use the machine-derived default", so show it as a placeholder rather
             // than pre-filling it — an untouched field must keep meaning "default".
@@ -1710,7 +1710,7 @@ internal sealed partial class SettingsWindow : Window
         HaUsernameBox.TextChanged         += (_, _) => Restage();
         HaPasswordBox.PasswordChanged     += (_, _) => Restage();
         HaPrefixBox.TextChanged           += (_, _) => Restage();
-        HaTlsToggle.Toggled               += (_, _) => Restage();
+        HaEncryptionCombo.SelectionChanged += (_, _) => Restage();
         HaTransportCombo.SelectionChanged += (_, _) => Restage();
         HaPortCustomBox.TextChanged       += (_, _) => { RefreshPortEntry(); Restage(); };
 
@@ -1748,7 +1748,7 @@ internal sealed partial class SettingsWindow : Window
         int?   port   = StagedPort();
         string user   = HaUsernameBox.Text?.Trim() ?? "";
         string pass   = HaPasswordBox.Password ?? "";
-        bool   tls    = HaTlsToggle.IsOn;
+        var    enc    = StagedEncryption();
         var    trans  = StagedTransport();
         string prefix = string.IsNullOrWhiteSpace(HaPrefixBox.Text) ? "homeassistant" : HaPrefixBox.Text.Trim();
 
@@ -1758,7 +1758,7 @@ internal sealed partial class SettingsWindow : Window
             s.MqttBrokerPort       = port;
             s.MqttUsername         = user;
             s.MqttPassword         = pass;
-            s.MqttUseTls           = tls;
+            s.MqttEncryptionMode   = enc;
             s.MqttTransportMode    = trans;
             s.MqttDiscoveryPrefix  = prefix;
             s.MqttDeviceName       = device;
@@ -1864,10 +1864,24 @@ internal sealed partial class SettingsWindow : Window
         ? MqttTransportSetting.Auto
         : (MqttTransportSetting)HaTransportCombo.SelectedIndex;
 
+    /// <summary>The staged encryption choice, read the same way as the transport.</summary>
+    private MqttEncryptionSetting StagedEncryption() => HaEncryptionCombo.SelectedIndex < 0
+        ? MqttEncryptionSetting.Auto
+        : (MqttEncryptionSetting)HaEncryptionCombo.SelectedIndex;
+
     /// <summary>The staged fields as the pure plan reads them. The password is deliberately absent:
     /// nothing the plan decides depends on it.</summary>
     private MqttEndpointRequest StagedRequest() => new(
-        HaHostBox.Text?.Trim() ?? "", HaUsernameBox.Text?.Trim() ?? "", StagedPort(), StagedTransport());
+        HaHostBox.Text?.Trim() ?? "", HaUsernameBox.Text?.Trim() ?? "", StagedPort(),
+        StagedTransport(), StagedEncryption());
+
+    /// <summary>The saved fields as the pure plan reads them — what the live connection is using, as
+    /// against what is staged in the boxes. The two differ until Apply.</summary>
+    private static MqttEndpointRequest SavedRequest()
+    {
+        var s = SettingsService.Current;
+        return new(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort, s.MqttTransportMode, s.MqttEncryption);
+    }
 
     /// <summary>Writes one Status row: the trimmed line on screen, the whole string on the hover tip,
     /// and the colour. The single writer for the block, because the fixed height only holds if every
@@ -1881,13 +1895,7 @@ internal sealed partial class SettingsWindow : Window
     }
 
     private void RefreshHaBrokerStatusText() => SetStatusValue(HaBrokerStatusText,
-        MqttStatusFormatter.DescribeBroker(
-            new MqttEndpointRequest(
-                SettingsService.Current.MqttBrokerHost,
-                SettingsService.Current.MqttUsername,
-                SettingsService.Current.MqttBrokerPort,
-                SettingsService.Current.MqttTransportMode),
-            SettingsService.Current.MqttLastGoodEndpoint));
+        MqttStatusFormatter.DescribeBroker(SavedRequest(), SettingsService.Current.MqttLastGoodEndpoint));
 
     /// <summary>Tests the staged broker values — whatever is in the fields, applied or not, since
     /// the point of the button is to check before committing.</summary>
@@ -1904,12 +1912,12 @@ internal sealed partial class SettingsWindow : Window
         Port:     request.Port,
         Username: request.Username,
         Password: HaPasswordBox.Password ?? "",
-        UseTls:   HaTlsToggle.IsOn,
         ClientId: MqttConnectionProbe.ProbeClientId(EffectiveNodeId()),
         // The cache too, so the search starts where the broker answered last rather than sweeping
         // from scratch on every visit to this page.
-        Transport: request.Transport,
-        Memory:    SettingsService.Current.MqttLastGoodEndpoint);
+        Transport:  request.Transport,
+        Encryption: request.Encryption,
+        Memory:     SettingsService.Current.MqttLastGoodEndpoint);
 
     /// <summary>Records where the broker answered, against the host and user name it answered for.
     /// The password is never part of the entry.</summary>
@@ -1917,7 +1925,8 @@ internal sealed partial class SettingsWindow : Window
     {
         if (!report.Succeeded) return;
         var found = new MqttEndpointMemory(
-            request.Host.Trim(), request.Username.Trim(), report.Candidate.Port, report.Candidate.Transport);
+            request.Host.Trim(), request.Username.Trim(),
+            report.Candidate.Port, report.Candidate.Transport, report.Candidate.Encrypted);
         SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
     }
 
@@ -2030,10 +2039,10 @@ internal sealed partial class SettingsWindow : Window
     /// buttons that cause them, and a failed sweep leaves this saying what the settings still are.</summary>
     private void RefreshHaDetectText()
     {
-        var request = StagedRequest();
+        var request = SavedRequest();
         SetStatusValue(HaDetectText, string.IsNullOrWhiteSpace(request.Host)
             ? "No broker host set"
-            : MqttTransportPlan.DescribeProvenance(request));
+            : MqttTransportPlan.DescribeProvenance(request, SettingsService.Current.MqttLastGoodEndpoint));
     }
 
     /// <summary>Re-reads the two live-connection facts on page-show and after an Apply, not on a timer.</summary>

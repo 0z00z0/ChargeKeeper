@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.Sockets;
 using System.Threading;
 using ChargeKeeper.Services;
@@ -48,7 +48,7 @@ public class MqttStatusFormatterTests
     [Fact]
     public void Broker_ReportsPinnedValuesAndFoundOnesAlike()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket, Encrypted: true);
 
         Assert.Equal("mq.laget.no:443 over WebSocket", MqttStatusFormatter.DescribeBroker(
             new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Auto), memory));
@@ -66,7 +66,7 @@ public class MqttStatusFormatterTests
     [Fact]
     public void Broker_WithNothingPinnedAndNothingFoundHere_SaysSoRatherThanGuessing()
     {
-        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket, Encrypted: true);
 
         Assert.Equal("10.0.20.22 — not connected yet", MqttStatusFormatter.DescribeBroker(
             new MqttEndpointRequest("10.0.20.22", "ck", null, MqttTransportSetting.Auto), elsewhere));

@@ -1,4 +1,4 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using MQTTnet;
 using MQTTnet.Protocol;
 
@@ -29,13 +29,15 @@ internal sealed class HomeAssistantService : IDisposable
     /// <remarks>Options are built per candidate rather than up front: port and transport together
     /// decide how the broker is addressed, and the sweep can hold eight of them.</remarks>
     private sealed record ConnectionOptions(
-        MqttEndpointRequest Request, string Password, bool UseTls,
+        MqttEndpointRequest Request, string Password,
         string ClientId, string AvailabilityTopic)
     {
         public MqttClientOptions For(MqttEndpointCandidate candidate)
         {
             var ob = new MqttClientOptionsBuilder()
-                .WithTransport(candidate.Transport, Request.Host, candidate.Port, UseTls)
+                // Encryption comes off the candidate, not off the snapshot: under Automatic it is
+                // one of the things the sweep is finding, and it can differ between candidates.
+                .WithTransport(candidate.Transport, Request.Host, candidate.Port, candidate.Encrypted)
                 .WithClientId(ClientId)
                 .WithCleanSession()
                 // MQTTnet pings within this period on an idle link, so the broker won't drop a quiet
@@ -191,8 +193,9 @@ internal sealed class HomeAssistantService : IDisposable
             // Snapshotted on this thread, so the maintain loop never reads the topic and identity
             // fields the next ApplySettings may already be rewriting.
             _options = new ConnectionOptions(
-                new MqttEndpointRequest(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort, s.MqttTransportMode),
-                s.MqttPassword, s.MqttUseTls, _nodeId, _availTopic);
+                new MqttEndpointRequest(s.MqttBrokerHost, s.MqttUsername, s.MqttBrokerPort,
+                                        s.MqttTransportMode, s.MqttEncryption),
+                s.MqttPassword, _nodeId, _availTopic);
             Memory = s.MqttLastGoodEndpoint;
 
             bool wasRunning = _enabled;
@@ -269,7 +272,8 @@ internal sealed class HomeAssistantService : IDisposable
     private void RememberEndpoint(MqttEndpointRequest request, MqttEndpointCandidate candidate)
     {
         var found = new MqttEndpointMemory(
-            (request.Host ?? "").Trim(), (request.Username ?? "").Trim(), candidate.Port, candidate.Transport);
+            (request.Host ?? "").Trim(), (request.Username ?? "").Trim(),
+            candidate.Port, candidate.Transport, candidate.Encrypted);
         if (found == Memory) return;
         Memory = found;
         SettingsService.Update(s => s.MqttLastGoodEndpoint = found);
@@ -396,8 +400,11 @@ internal sealed class HomeAssistantService : IDisposable
 
     private async Task OnConnectedAsync(CancellationToken ct)
     {
+        // The encryption is named because Automatic can fall back to plain with nobody choosing it,
+        // and a downgrade that leaves no trace is one nobody can notice afterwards.
         AppLog.Info(Memory is { } found
-            ? $"HomeAssistant: connected over {MqttConnectionProbe.Name(found.Transport)} on port {found.Port}; " +
+            ? $"HomeAssistant: connected over {MqttConnectionProbe.Name(found.Transport)} on port {found.Port}, " +
+              $"{(found.Encrypted == true ? "encrypted" : "not encrypted")}; " +
               $"publishing discovery for '{_nodeId}'."
             : $"HomeAssistant: connected; publishing discovery for '{_nodeId}'.");
         // Evict a superseded node id first, so HA never sees both devices at once.

@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using MQTTnet;
 
 namespace ChargeKeeper.Services;
@@ -24,13 +24,14 @@ internal readonly record struct MqttProbeResult(MqttProbeOutcome Outcome, string
 /// connection does, so the button's verdict is about the connection that will actually be made.
 /// A null <see cref="Port"/> means the port is to be found rather than assumed.</summary>
 internal readonly record struct MqttProbeTarget(
-    string Host, int? Port, string Username, string Password, bool UseTls, string ClientId,
+    string Host, int? Port, string Username, string Password, string ClientId,
     MqttTransportSetting Transport = MqttTransportSetting.Auto,
+    MqttEncryptionSetting Encryption = MqttEncryptionSetting.Auto,
     MqttEndpointMemory? Memory = null)
 {
     /// <summary>The staged choices as the pure plan reads them. The password never crosses this
     /// line: nothing the plan decides depends on it.</summary>
-    public MqttEndpointRequest Request => new(Host, Username, Port, Transport);
+    public MqttEndpointRequest Request => new(Host, Username, Port, Transport, Encryption);
 }
 
 /// <summary>Every endpoint the probe got as far as trying, in order. The last attempt is the
@@ -115,7 +116,7 @@ internal static class MqttConnectionProbe
         IProgress<MqttDetectProgress>? progress, CancellationToken budget, CancellationToken ct)
     {
         var (host, port) = MqttTransportEndpoint.Reachability(
-            target.Host, candidate.Port, candidate.Transport, target.UseTls);
+            target.Host, candidate.Port, candidate.Transport, candidate.Encrypted);
 
         progress?.Report(new(MqttDetectStage.Port, port, candidate.Transport));
         if (await ProbeTcpAsync(host, port, budget, ct).ConfigureAwait(false) is { } closed)
@@ -156,7 +157,7 @@ internal static class MqttConnectionProbe
             // included, so a passing probe says something about the connection the publisher will
             // make. Minus the will/retain machinery: this session must leave no trace on the broker.
             var ob = new MqttClientOptionsBuilder()
-                .WithTransport(candidate.Transport, target.Host, candidate.Port, target.UseTls)
+                .WithTransport(candidate.Transport, target.Host, candidate.Port, candidate.Encrypted)
                 .WithClientId(target.ClientId)
                 .WithCleanSession()
                 .WithTimeout(Timeout);

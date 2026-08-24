@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using ChargeKeeper.Services;
 using MQTTnet;
 using Xunit;
@@ -12,8 +12,16 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class MqttTransportPlanTests
 {
-    private static MqttEndpointRequest Auto(int? port = null, string host = "mq.laget.no", string user = "ck") =>
-        new(host, user, port, MqttTransportSetting.Auto);
+    private static MqttEndpointRequest Auto(int? port = null, string host = "mq.laget.no", string user = "ck",
+        MqttEncryptionSetting encryption = MqttEncryptionSetting.Auto) =>
+        new(host, user, port, MqttTransportSetting.Auto, encryption);
+
+    /// <summary>A cache entry, complete. 443 is a WebSocket front door, so what was found there was
+    /// encrypted whatever anyone asked for.</summary>
+    private static MqttEndpointMemory Found(
+        int port = 443, MqttTransport transport = MqttTransport.WebSocket, bool? encrypted = true,
+        string host = "mq.laget.no", string user = "ck") =>
+        new(host, user, port, transport, encrypted);
 
     private static MqttEndpointCandidate? First(
         MqttEndpointRequest request, MqttEndpointMemory? memory = null) =>
@@ -23,8 +31,16 @@ public class MqttTransportPlanTests
         MqttEndpointRequest request, MqttEndpointMemory? memory, params MqttEndpointAttempt[] attempts) =>
         MqttTransportPlan.NextEndpoint(request, memory, attempts);
 
-    private static MqttEndpointAttempt Failed(int port, MqttTransport transport, MqttProbeOutcome outcome) =>
-        new(new MqttEndpointCandidate(port, transport), outcome);
+    private static MqttEndpointAttempt Failed(
+        int port, MqttTransport transport, MqttProbeOutcome outcome, bool encrypted = false) =>
+        new(new MqttEndpointCandidate(port, transport, encrypted), outcome);
+
+    /// <summary>Every candidate on one transport, as attempts that reached nothing.</summary>
+    private static MqttEndpointAttempt[] AllFailedOn(
+        MqttTransport transport, MqttEndpointRequest request, MqttEndpointMemory? memory = null) =>
+        [.. MqttTransportPlan.Sweep(request, memory)
+             .Where(c => c.Transport == transport)
+             .Select(c => new MqttEndpointAttempt(c, MqttProbeOutcome.Unreachable))];
 
     /// <summary>Everything a full sweep would try, as attempts that all failed to reach anything.</summary>
     private static MqttEndpointAttempt[] AllFailed(
@@ -41,8 +57,11 @@ public class MqttTransportPlanTests
             MqttTransportPlan.Order(MqttTransportSetting.Auto, null));
 
         var sweep = MqttTransportPlan.Sweep(Auto(), null);
-        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp), sweep[0]);
-        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp), First(Auto()));
+        // Encrypted leads within the pair, and the plain retry for that same port comes before the
+        // next port is touched at all.
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: true),  sweep[0]);
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false), sweep[1]);
+        Assert.Equal(sweep[0], First(Auto()));
 
         int firstWebSocket = sweep.ToList().FindIndex(c => c.Transport == MqttTransport.WebSocket);
         Assert.All(sweep.Take(firstWebSocket), c => Assert.Equal(MqttTransport.Tcp, c.Transport));
@@ -52,10 +71,7 @@ public class MqttTransportPlanTests
     [Fact]
     public void Auto_AfterEveryTcpPortFails_FallsBackToWebSocket()
     {
-        var tcpDead = MqttTransportPlan.Ports(MqttTransport.Tcp)
-            .Select(p => Failed(p, MqttTransport.Tcp, MqttProbeOutcome.Unreachable)).ToArray();
-
-        var next = After(Auto(), null, tcpDead);
+        var next = After(Auto(), null, AllFailedOn(MqttTransport.Tcp, Auto()));
         Assert.Equal(MqttTransport.WebSocket, next!.Value.Transport);
         Assert.Equal(443, next.Value.Port);
     }
@@ -72,9 +88,10 @@ public class MqttTransportPlanTests
     [Fact]
     public void Auto_StartsWithTheRememberedEndpoint()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = Found();
 
-        Assert.Equal(new MqttEndpointCandidate(443, MqttTransport.WebSocket), First(Auto(), memory));
+        Assert.Equal(new MqttEndpointCandidate(443, MqttTransport.WebSocket, Encrypted: true),
+            First(Auto(), memory));
         // …and the transport it found leads the rest of the order, for the move back.
         Assert.Equal([MqttTransport.WebSocket, MqttTransport.Tcp],
             MqttTransportPlan.Order(MqttTransportSetting.Auto, MqttTransport.WebSocket));
@@ -85,11 +102,12 @@ public class MqttTransportPlanTests
     [Fact]
     public void CacheForADifferentHost_IsNeverReused()
     {
-        var elsewhere = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var elsewhere = Found();
         var request   = Auto(host: "10.0.20.22");
 
         Assert.Null(MqttTransportPlan.Reusable(request, elsewhere));
-        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp), First(request, elsewhere));
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: true),
+            First(request, elsewhere));
     }
 
     // A broker commonly fronts a separate listener per account, so the entry belongs to the user name
@@ -97,17 +115,18 @@ public class MqttTransportPlanTests
     [Fact]
     public void CacheForADifferentUsername_IsNeverReused()
     {
-        var other = new MqttEndpointMemory("mq.laget.no", "someone-else", 443, MqttTransport.WebSocket);
+        var other = Found(user: "someone-else");
 
         Assert.Null(MqttTransportPlan.Reusable(Auto(), other));
-        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp), First(Auto(), other));
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: true),
+            First(Auto(), other));
     }
 
     // Host names are case-insensitive and get pasted with stray spaces; neither may cost a cache hit.
     [Fact]
     public void CacheMatching_IgnoresCaseAndSurroundingSpace()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = Found();
         Assert.NotNull(MqttTransportPlan.Reusable(Auto(host: "  MQ.Laget.NO "), memory));
     }
 
@@ -116,16 +135,16 @@ public class MqttTransportPlanTests
     [Fact]
     public void ACachedAnswerThatStopsWorking_FallsThroughToAFreshSweep()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
-        var stale  = Failed(443, MqttTransport.WebSocket, MqttProbeOutcome.Unreachable);
+        var memory = Found();
+        var stale  = Failed(443, MqttTransport.WebSocket, MqttProbeOutcome.Unreachable, encrypted: true);
 
         var next = After(Auto(), memory, stale);
         Assert.NotNull(next);
-        Assert.NotEqual(new MqttEndpointCandidate(443, MqttTransport.WebSocket), next!.Value);
+        Assert.NotEqual(new MqttEndpointCandidate(443, MqttTransport.WebSocket, Encrypted: true), next!.Value);
 
         // …and the sweep behind it still reaches every candidate, the internal path included.
         var sweep = MqttTransportPlan.Sweep(Auto(), memory);
-        Assert.Contains(new MqttEndpointCandidate(1883, MqttTransport.Tcp), sweep);
+        Assert.Contains(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false), sweep);
         Assert.Equal(MqttTransportPlan.Sweep(Auto(), null).Count, sweep.Count);
     }
 
@@ -134,7 +153,7 @@ public class MqttTransportPlanTests
     [Fact]
     public void ExplicitChoice_IsHonouredEvenWhenTheOtherOneLastWorked()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = Found();
         var pinned = new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Tcp);
 
         Assert.All(MqttTransportPlan.Sweep(pinned, memory),
@@ -156,20 +175,30 @@ public class MqttTransportPlanTests
     [Fact]
     public void ExplicitPort_IsTheOnlyPortTried()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = Found();
         var pinned = Auto(port: 12345);
 
         Assert.All(MqttTransportPlan.Sweep(pinned, memory), c => Assert.Equal(12345, c.Port));
         Assert.Equal(12345, First(pinned, memory)!.Value.Port);
-        // Both transports are still in play — pinning the port says nothing about the transport.
-        Assert.Equal(2, MqttTransportPlan.Sweep(pinned, null).Count);
+        // Both transports and both schemes are still in play — pinning the port says nothing about
+        // either of them.
+        Assert.Equal(4, MqttTransportPlan.Sweep(pinned, null).Count);
     }
 
     [Fact]
-    public void ExplicitPortAndTransport_LeaveExactlyOneCandidate()
+    public void EveryHalfPinned_LeavesExactlyOneCandidate()
     {
-        var pinned = new MqttEndpointRequest("mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp);
-        Assert.Equal([new MqttEndpointCandidate(8883, MqttTransport.Tcp)], MqttTransportPlan.Sweep(pinned, null));
+        var pinned = new MqttEndpointRequest(
+            "mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp, MqttEncryptionSetting.On);
+        Assert.Equal([new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: true)],
+            MqttTransportPlan.Sweep(pinned, null));
+
+        // Leaving the encryption on Automatic leaves the one thing still to find.
+        var half = new MqttEndpointRequest("mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp);
+        Assert.Equal(
+            [new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: true),
+             new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: false)],
+            MqttTransportPlan.Sweep(half, null));
     }
 
     // A broker that answered is the same broker at the next candidate: trying on would spend the
@@ -193,7 +222,7 @@ public class MqttTransportPlanTests
     [Fact]
     public void TheSweep_HasNoRepeats()
     {
-        var memory = new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket);
+        var memory = Found();
         foreach (var sweep in new[] { MqttTransportPlan.Sweep(Auto(), null), MqttTransportPlan.Sweep(Auto(), memory) })
             Assert.Equal(sweep.Count, sweep.Distinct().Count());
     }
@@ -242,9 +271,8 @@ public class MqttTransportPlanTests
     {
         Assert.True(MqttTransportPlan.ShouldProbe(
             MqttProbeTrigger.BrokerSettingChanged, publishingEnabled: true, "mq.laget.no"));
-        Assert.Equal(
-            new MqttEndpointCandidate(443, MqttTransport.WebSocket),
-            First(Auto(), new MqttEndpointMemory("mq.laget.no", "ck", 443, MqttTransport.WebSocket)));
+        Assert.Equal(new MqttEndpointCandidate(443, MqttTransport.WebSocket, Encrypted: true),
+            First(Auto(), Found()));
     }
 
     [Fact]
@@ -253,14 +281,165 @@ public class MqttTransportPlanTests
         Assert.Equal("Automatically detected", MqttTransportPlan.AutomaticallyDetected);
         Assert.Equal("Set manually",           MqttTransportPlan.SetManually);
 
-        Assert.Equal(MqttTransportPlan.SetManually, MqttTransportPlan.DescribeProvenance(
-            new MqttEndpointRequest("mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp)));
+        var pinned = new MqttEndpointRequest(
+            "mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp, MqttEncryptionSetting.On);
+        Assert.StartsWith(MqttTransportPlan.SetManually,
+            MqttTransportPlan.DescribeProvenance(pinned, null));
 
-        // Either half left to the sweep makes the answer a found one.
-        Assert.Equal(MqttTransportPlan.AutomaticallyDetected, MqttTransportPlan.DescribeProvenance(Auto()));
-        Assert.Equal(MqttTransportPlan.AutomaticallyDetected, MqttTransportPlan.DescribeProvenance(Auto(port: 8883)));
-        Assert.Equal(MqttTransportPlan.AutomaticallyDetected, MqttTransportPlan.DescribeProvenance(
-            new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Tcp)));
+        // Any part left to the sweep makes the answer a found one.
+        foreach (var request in new[]
+        {
+            Auto(),
+            Auto(port: 8883),
+            new MqttEndpointRequest("mq.laget.no", "ck", null, MqttTransportSetting.Tcp),
+            // Port and transport pinned, encryption still to find.
+            new MqttEndpointRequest("mq.laget.no", "ck", 8883, MqttTransportSetting.Tcp),
+        })
+            Assert.StartsWith(MqttTransportPlan.AutomaticallyDetected,
+                MqttTransportPlan.DescribeProvenance(request, null));
+    }
+
+    // Automatic can fall back to clear text with nobody choosing it, so the row that says where the
+    // settings came from also has to say what is on the wire.
+    [Fact]
+    public void Provenance_StatesWhetherTheLinkIsEncrypted()
+    {
+        // Nothing settled yet: the clause is left off rather than guessed at.
+        Assert.Equal(MqttTransportPlan.AutomaticallyDetected,
+            MqttTransportPlan.DescribeProvenance(Auto(), null));
+
+        // What actually connected is the answer, whichever way it went.
+        Assert.Equal("Automatically detected — encrypted",
+            MqttTransportPlan.DescribeProvenance(Auto(), Found(8883, MqttTransport.Tcp, encrypted: true)));
+        Assert.Equal("Automatically detected — not encrypted",
+            MqttTransportPlan.DescribeProvenance(Auto(), Found(1883, MqttTransport.Tcp, encrypted: false)));
+
+        // With nothing connected, an explicit choice answers for itself.
+        Assert.Equal("Automatically detected — encrypted",
+            MqttTransportPlan.DescribeProvenance(Auto(encryption: MqttEncryptionSetting.On), null));
+        Assert.Equal("Automatically detected — not encrypted",
+            MqttTransportPlan.DescribeProvenance(Auto(encryption: MqttEncryptionSetting.Off), null));
+
+        // …except on a WebSocket port whose scheme is fixed, where "off" cannot make it clear text
+        // and saying so would put a false statement about the wire on the page.
+        var frontDoor = new MqttEndpointRequest(
+            "mq.laget.no", "ck", 443, MqttTransportSetting.WebSocket, MqttEncryptionSetting.Off);
+        Assert.Equal("Set manually — encrypted", MqttTransportPlan.DescribeProvenance(frontDoor, null));
+    }
+
+    // The user's decision, taken knowing what it costs: cipher first everywhere, plain only after.
+    [Fact]
+    public void Auto_AsksForEncryptionFirstAndFallsBackToPlain()
+    {
+        Assert.Equal([true, false], MqttTransportPlan.EncryptionOrder(MqttEncryptionSetting.Auto));
+        Assert.Equal([true],        MqttTransportPlan.EncryptionOrder(MqttEncryptionSetting.On));
+        Assert.Equal([false],       MqttTransportPlan.EncryptionOrder(MqttEncryptionSetting.Off));
+
+        // Per endpoint, not per sweep: the plain retry for a port beats the encrypted attempt on the
+        // next one, or the ordinary internal broker would sit behind the whole encrypted list.
+        var tcp = MqttTransportPlan.Sweep(Auto(), null).Where(c => c.Transport == MqttTransport.Tcp).ToList();
+        Assert.Equal(
+            [new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: true),
+             new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false),
+             new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: true),
+             new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: false)],
+            tcp);
+    }
+
+    // The whole point of the two-stage probe. A broker that answered and said no to the credentials
+    // is the same broker without encryption, so retrying in clear text would put the password on the
+    // wire and still fail.
+    [Fact]
+    public void AnAuthRefusalOverAnEncryptedLink_NeverRetriesInClearText()
+    {
+        var refused = Failed(8883, MqttTransport.Tcp, MqttProbeOutcome.AuthRejected, encrypted: true);
+        Assert.Null(After(Auto(), null, refused));
+
+        // Same for any other refusal the broker itself issued.
+        Assert.Null(After(Auto(), null,
+            Failed(8883, MqttTransport.Tcp, MqttProbeOutcome.Rejected, encrypted: true)));
+
+        // A transport failure is the opposite case: nothing was reached, so the plain retry is what
+        // the fallback is for, and it is the very next candidate on the same port.
+        var handshake = Failed(1883, MqttTransport.Tcp, MqttProbeOutcome.Failed, encrypted: true);
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false),
+            After(Auto(), null, handshake));
+    }
+
+    // An explicit choice pins the scheme exactly as it pins the port and the transport.
+    [Fact]
+    public void ExplicitEncryption_IsNeverProbedAround()
+    {
+        var on  = Auto(encryption: MqttEncryptionSetting.On);
+        var off = Auto(encryption: MqttEncryptionSetting.Off);
+
+        Assert.All(MqttTransportPlan.Sweep(on, null), c => Assert.True(c.Encrypted));
+        Assert.Null(After(on, null, AllFailed(on)));
+
+        // Off is plain everywhere it can be. The exception is a WebSocket port whose scheme the
+        // address fixes: excluding it would leave that port unreachable for everyone upgrading from
+        // the old switch set to off, and this setting cannot make it clear text anyway.
+        foreach (var candidate in MqttTransportPlan.Sweep(off, null))
+            Assert.Equal(
+                MqttTransportEndpoint.Encrypts(candidate.Transport, candidate.Port, requested: false),
+                candidate.Encrypted);
+        Assert.Contains(new MqttEndpointCandidate(443, MqttTransport.WebSocket, Encrypted: true),
+            MqttTransportPlan.Sweep(off, null));
+        Assert.Contains(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false),
+            MqttTransportPlan.Sweep(off, null));
+    }
+
+    // The cache records what worked, not what was chosen, so an entry can disagree with a pin set
+    // after it. The pin wins, or "On" would quietly mean "on, unless clear text worked once".
+    [Fact]
+    public void ARememberedSchemeThatContradictsThePin_IsNotUsed()
+    {
+        var plainFound     = Found(1883, MqttTransport.Tcp, encrypted: false);
+        var encryptedFound = Found(8883, MqttTransport.Tcp, encrypted: true);
+
+        var on = Auto(encryption: MqttEncryptionSetting.On);
+        Assert.DoesNotContain(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false),
+            MqttTransportPlan.Sweep(on, plainFound));
+        Assert.All(MqttTransportPlan.Sweep(on, plainFound), c => Assert.True(c.Encrypted));
+
+        var off = Auto(encryption: MqttEncryptionSetting.Off);
+        Assert.DoesNotContain(new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: true),
+            MqttTransportPlan.Sweep(off, encryptedFound));
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: false),
+            First(off, encryptedFound));
+    }
+
+    // A cached encrypted endpoint has to lead, or Automatic pays the full sweep on every connect.
+    [Fact]
+    public void ACachedEncryptedEndpoint_LeadsTheSweep()
+    {
+        var memory = Found(8883, MqttTransport.Tcp, encrypted: true);
+
+        Assert.Equal(new MqttEndpointCandidate(8883, MqttTransport.Tcp, Encrypted: true),
+            First(Auto(), memory));
+        // …and one attempt is all it costs when it has stopped working.
+        var next = After(Auto(), memory,
+            Failed(8883, MqttTransport.Tcp, MqttProbeOutcome.Unreachable, encrypted: true));
+        Assert.Equal(new MqttEndpointCandidate(1883, MqttTransport.Tcp, Encrypted: true), next);
+    }
+
+    // An entry written before the encryption was recorded says nothing about it. Read as plain it
+    // would pin Automatic to clear text for good on the strength of a struct default, so under
+    // Automatic it is re-probed once and rewritten complete.
+    [Fact]
+    public void ACachedEntryWithNoEncryptionRecorded_IsNotReadAsPlain()
+    {
+        var legacy = Found(443, MqttTransport.WebSocket, encrypted: null);
+
+        Assert.Null(MqttTransportPlan.Reusable(Auto(), legacy));
+        Assert.Equal(MqttTransportPlan.Sweep(Auto(), null), MqttTransportPlan.Sweep(Auto(), legacy));
+
+        // Under an explicit choice it still applies: nothing is being asked about encryption there,
+        // and the setting is what fills the gap rather than a bare false.
+        var on = Auto(encryption: MqttEncryptionSetting.On);
+        Assert.NotNull(MqttTransportPlan.Reusable(on, legacy));
+        Assert.Equal(new MqttEndpointCandidate(443, MqttTransport.WebSocket, Encrypted: true),
+            First(on, legacy));
     }
 }
 
