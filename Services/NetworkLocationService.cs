@@ -91,6 +91,15 @@ internal sealed record BridgePeer(string Name, string? Mac, bool IsVirtual, Oper
                                   string? Description = null);
 
 /// <summary>
+/// One adapter Windows records as carrying a Hyper-V external switch — a row of
+/// <c>MSFT_NetAdapterBindingSettingData</c> where <c>vms_pp</c> is bound and enabled. Supplied to the
+/// resolution below rather than read by it, so the decision stays pure; <see cref="HyperVUplinkBindings"/>
+/// does the reading. <see cref="Name"/> is the connection alias and <see cref="InterfaceDescription"/>
+/// the hardware name, so a row can name a <see cref="BridgePeer"/> by either half.
+/// </summary>
+internal sealed record UplinkBinding(string Name, string InterfaceDescription);
+
+/// <summary>
 /// How the resolved adapter describes itself: the Windows connection alias, the address it holds, and
 /// the hardware name. Not part of the location key — a rule never matches on any of it — so it can
 /// change without re-firing a location change.
@@ -278,7 +287,8 @@ internal static class NetworkLocationService
             // The enumerations must stay INSIDE the try: they touch adapter properties, which throw
             // during the dock/undock race this catch exists for, and the synchronous UI caller has no
             // guard of its own.
-            return DetectDetailed(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(), TryGetWifiSsid);
+            return DetectDetailed(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(),
+                                  TryGetWifiSsid, HyperVUplinkBindings.Read);
         }
         catch
         {
@@ -297,18 +307,25 @@ internal static class NetworkLocationService
         IReadOnlyList<AdapterCandidate> candidates,
         IReadOnlyList<BridgePeer> peers,
         uint bestIndex,
-        Func<string?> readSsid) => DetectDetailed(candidates, peers, bestIndex, readSsid).Location;
+        Func<string?> readSsid,
+        Func<IReadOnlyList<UplinkBinding>>? readUplinks = null) =>
+        DetectDetailed(candidates, peers, bestIndex, readSsid, readUplinks).Location;
 
     /// <summary>The detection above, also returning how the resolved adapter describes itself. One
     /// resolution feeds both, so the description can never belong to a different adapter from the one
     /// the key identifies.</summary>
+    /// <param name="readUplinks">Windows' own record of which adapters carry a Hyper-V external
+    /// switch, read lazily. Omitted, the walk-back is the MAC pairing alone, which is what every
+    /// machine without Hyper-V gets.</param>
     internal static (NetworkLocation Location, NetworkAdapterInfo Adapter) DetectDetailed(
         IReadOnlyList<AdapterCandidate> candidates,
         IReadOnlyList<BridgePeer> peers,
         uint bestIndex,
-        Func<string?> readSsid)
+        Func<string?> readSsid,
+        Func<IReadOnlyList<UplinkBinding>>? readUplinks = null)
     {
-        if (ResolvePhysical(SelectPrimary(candidates, bestIndex), candidates, peers) is not { } route)
+        var uplinks = ReadUplinks(candidates, readUplinks);
+        if (ResolvePhysical(SelectPrimary(candidates, bestIndex), candidates, peers, uplinks) is not { } route)
             return (default, default);
 
         bool mobile  = IsMobile(route.Carrier.Type);
@@ -317,6 +334,19 @@ internal static class NetworkLocationService
         var location = Compose(route.Carrier.Mac ?? "", route.Carrier.IpCidr, wired, route.Bridged,
                                SuggestDisplayHint(wired, route.Carrier.Name, route.Bridged, ssid), mobile);
         return (location, ComposeAdapter(route));
+    }
+
+    // The binding read is a WMI round trip costing 300-650 ms, so it is paid only when a switch
+    // port is actually among the candidates — a machine without Hyper-V never touches it. It can never
+    // become the reason a location fails to resolve either: this runs on every network change, and the
+    // reader logs its own failure once, so there is nothing to add here.
+    private static IReadOnlyList<UplinkBinding> ReadUplinks(
+        IReadOnlyList<AdapterCandidate> candidates, Func<IReadOnlyList<UplinkBinding>>? readUplinks)
+    {
+        if (readUplinks is null) return [];
+        if (!candidates.Any(c => LooksLikeHyperVSwitchPort(c.Name, c.Description))) return [];
+        try { return readUplinks() ?? []; }
+        catch { return []; }
     }
 
     /// <summary>
@@ -435,10 +465,13 @@ internal static class NetworkLocationService
 
     // Markers of an NDIS filter pseudo-interface, which is a driver layer bound to an adapter rather
     // than an adapter of its own. Multiplexor is the Windows "Bridge Connections" adapter, a bridge
-    // over NICs rather than one of them.
+    // over NICs rather than one of them. The scheduler and the Native WiFi layer name themselves
+    // neither "-WFP " nor "LightWeight Filter", and measured they are classified non-virtual too, so
+    // nothing but this list keeps them out of the pairing below.
     private static readonly string[] FilterMarkers =
     [
         "-WFP ", "LightWeight Filter", "-NDIS ", "Multiplexor",
+        "-QoS Packet Scheduler-", "-Native WiFi Filter Driver-",
     ];
 
     /// <summary>
@@ -469,11 +502,13 @@ internal static class NetworkLocationService
     /// what separates a dock from a simultaneously-connected Wi-Fi radio. Null when nothing resolves.
     /// </summary>
     internal static PhysicalRoute? ResolvePhysical(
-        AdapterCandidate? routed, IReadOnlyList<AdapterCandidate> candidates, IReadOnlyList<BridgePeer> peers)
+        AdapterCandidate? routed, IReadOnlyList<AdapterCandidate> candidates, IReadOnlyList<BridgePeer> peers,
+        IReadOnlyList<UplinkBinding>? uplinks = null)
     {
+        uplinks ??= [];
         if (routed is not null)
         {
-            if (ResolveCarrier(routed, peers) is { } direct) return direct;
+            if (ResolveCarrier(routed, peers, uplinks) is { } direct) return direct;
 
             // A switch port carries one specific NIC's traffic, so failing to name that NIC means the
             // name is unknown — not that some other adapter carries it. Scanning on from here keyed a
@@ -489,14 +524,15 @@ internal static class NetworkLocationService
             // adapter list always yields the same answer.
             .ThenBy(c => c.Type == NetworkInterfaceType.Wireless80211)
             .ThenBy(c => c.IPv4Index)
-            .Select(c => ResolveCarrier(c, peers))
+            .Select(c => ResolveCarrier(c, peers, uplinks))
             .FirstOrDefault(r => r is not null);
     }
 
-    private static PhysicalRoute? ResolveCarrier(AdapterCandidate candidate, IReadOnlyList<BridgePeer> peers)
+    private static PhysicalRoute? ResolveCarrier(
+        AdapterCandidate candidate, IReadOnlyList<BridgePeer> peers, IReadOnlyList<UplinkBinding> uplinks)
     {
         if (IsPhysical(candidate)) return new PhysicalRoute(candidate, null);
-        var bridged = ResolveBridgedPeer(candidate.Name, candidate.Description, candidate.Mac, peers);
+        var bridged = ResolveSwitchUplink(candidate.Name, candidate.Description, candidate.Mac, peers, uplinks);
         return bridged is { Mac.Length: > 0 }
             ? new PhysicalRoute(candidate, bridged)
             : DegradeSwitchPort(candidate, peers);
@@ -563,6 +599,43 @@ internal static class NetworkLocationService
     internal static bool LooksLikeHyperVSwitchPort(string? name, string? description) =>
         description?.StartsWith("Hyper-V Virtual Ethernet", StringComparison.OrdinalIgnoreCase) == true ||
         name?.StartsWith("vEthernet (", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// The NIC behind an external switch: Windows' own binding record where that is unambiguous, and
+    /// the MAC pairing otherwise. The order is never the reverse — one is what Windows was told, the
+    /// other is inferred from an address the switch is only conventionally expected to clone.
+    /// </summary>
+    internal static BridgePeer? ResolveSwitchUplink(
+        string? alias, string? description, string? switchPortMac,
+        IReadOnlyList<BridgePeer> peers, IReadOnlyList<UplinkBinding> uplinks) =>
+        ResolveBoundUplink(alias, description, peers, uplinks)
+        ?? ResolveBridgedPeer(alias, description, switchPortMac, peers);
+
+    /// <summary>
+    /// The uplink named rather than inferred: exactly one adapter has the Hyper-V switch protocol bound
+    /// and enabled, so that adapter carries the switch whatever address the vNIC wears. Null — leaving
+    /// the MAC pairing to decide — when the record says nothing usable: no enabled binding; several,
+    /// because <c>vms_pp</c> records that an adapter carries AN external switch and not which one, so
+    /// with two switches the per-switch MAC is the only discriminator left; or a row naming no
+    /// non-virtual peer with a hardware address, the vNICs themselves being among the rows.
+    /// </summary>
+    internal static BridgePeer? ResolveBoundUplink(
+        string? alias, string? description, IReadOnlyList<BridgePeer> peers,
+        IReadOnlyList<UplinkBinding> uplinks)
+    {
+        if (!LooksLikeHyperVSwitchPort(alias, description)) return null;
+        if (uplinks.Count != 1) return null;
+
+        var bound = uplinks[0];
+        return peers.FirstOrDefault(p => !p.IsVirtual && p.Mac is { Length: > 0 } && Names(p, bound));
+    }
+
+    // Either half is enough: the alias is user-editable and the two are read from different tables,
+    // so a renamed connection must still match on the hardware name.
+    private static bool Names(BridgePeer peer, UplinkBinding bound) =>
+        (bound.Name.Length > 0 && string.Equals(peer.Name, bound.Name, StringComparison.Ordinal)) ||
+        (bound.InterfaceDescription.Length > 0 &&
+         string.Equals(peer.Description, bound.InterfaceDescription, StringComparison.Ordinal));
 
     /// <summary>
     /// Pairing is by MAC, since an external switch's host vNIC inherits the bound adapter's hardware
