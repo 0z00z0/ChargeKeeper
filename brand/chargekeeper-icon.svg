@@ -9,10 +9,9 @@
   background plate — scaled to fill the canvas (matching modern Windows 11 icon conventions,
   where the shell supplies its own rounded-square mask/backdrop rather than the app baking one in).
 
-  Proportions: the vertical figures are sized so the ink spans 77 % of the 256-unit canvas with the
-  guard line and 65 % on the body alone. The mark is drawn into a square tray slot, so a landscape
-  letterbox wastes most of the frame. Body, cap and guard are centred on y = 128; the interior band
-  is the body's inner rect inset by ~14 units on every side.
+  Proportions: landscape. Body, cap and guard are centred on y = 128; the ink spans 48 % of the
+  256-unit canvas with the guard line and 37 % on the body alone, against 91 % of its width. The
+  interior band is the body's inner rect inset by ~14 units on every side.
 
   This file is the authoritative vector. There is no SVG rasteriser on the build machine, so nothing
   consumes it directly; it is transcribed into GDI+ geometry in two places, and a change here is not
@@ -21,30 +20,38 @@
     scripts\BatteryGlyph.ps1    — shared by scripts\make-appicon.ps1 (Assets\AppIcon.ico/.png,
                                   Assets\SetupIcon.ico) and installer\make-wizard-images.ps1
                                   (the wizard banners). Re-run both after editing.
-    Helpers\IconGenerator.cs    — redraws it at runtime for the tray icon. Separate copy by
-                                  necessity (in-process C#); see its RenderMarkBitmap remarks.
+    Helpers\IconGenerator.cs    — redraws it at runtime, as MarkHeights.AppIconHeights. Separate
+                                  copy by necessity (in-process C#); see its RenderMarkBitmap remarks.
 
-  Tests\BrandMarkGeometryTests.cs pins this file to IconGenerator and to BatteryGlyph.ps1, so the
-  three can no longer drift silently. It parses the attributes below — keep every figure a literal
-  number on the element it belongs to rather than folding it into a transform or a path.
+  The LIVE TRAY ICON does not use these proportions. Its slot is square and as little as 16 px
+  across, where a landscape mark letterboxes away half the frame, so IconGenerator carries a second
+  height set — TraySlotHeights — with the vertical figures scaled 1.6x about y = 128. That set is
+  the tray's alone; propagating it back here is what made the app, setup and wizard marks chubby.
+
+  Tests\BrandMarkGeometryTests.cs pins this file to IconGenerator's AppIconHeights and to
+  BatteryGlyph.ps1, and separately pins TraySlotHeights, so neither the three representations nor
+  the two height sets can drift or be re-merged silently. It parses the attributes below — keep
+  every figure a literal number on the element it belongs to rather than folding it into a transform
+  or a path.
 
   The runtime renderer also lays a soft dark halo under the guard line, widening with the taskbar's
   light/dark setting so a 16 px frame keeps a readable edge. That is a small-size legibility device,
   not part of the mark, and is deliberately absent here.
 -->
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <!-- Battery body outline: flat SteelBlue, round line-join. Outer edge y 44.5..211.5. -->
-  <rect x="15" y="51" width="191" height="154" rx="6"
+  <!-- Battery body outline: flat SteelBlue, round line-join. Outer edge y 73.5..182.5. -->
+  <rect x="15" y="80" width="191" height="96" rx="6"
         fill="none" stroke="#7FA8B8" stroke-width="13" stroke-linejoin="round"/>
 
   <!-- Battery cap (positive terminal): solid SteelBlue -->
-  <rect x="221" y="93" width="20" height="70" rx="3" fill="#7FA8B8"/>
+  <rect x="221" y="106" width="20" height="44" rx="3" fill="#7FA8B8"/>
 
   <!-- Interior charge fill: Sage green at alpha 230/255. The interior band runs x 36..185; this
-       rect ends at 149.24, i.e. 76 % across it — the canonical charge level the static icon uses. -->
-  <rect x="36" y="72" width="113.24" height="113" rx="3" fill="#7AB88F" opacity="0.902"/>
+       rect ends at 149.24, i.e. 76 % across it — the canonical charge level the static icon uses.
+       76 rather than the 74 the band's midpoint would give: 74 falls in the amber tier. -->
+  <rect x="36" y="101" width="113.24" height="55" rx="3" fill="#7AB88F" opacity="0.902"/>
 
   <!-- Terracotta guard line crossing the body (flat/butt caps), at 84 % across the interior band.
-       It overhangs the body top and bottom, so y 29..227 is the mark's full ink height. -->
-  <line x1="161.16" y1="29" x2="161.16" y2="227" stroke="#C9926B" stroke-width="9"/>
+       It overhangs the body top and bottom, so y 66..190 is the mark's full ink height. -->
+  <line x1="161.16" y1="66" x2="161.16" y2="190" stroke="#C9926B" stroke-width="9"/>
 </svg>

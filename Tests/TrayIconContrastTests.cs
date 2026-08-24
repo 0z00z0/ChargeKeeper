@@ -111,20 +111,24 @@ public class TrayIconContrastTests
 
     // Frame usage
 
+    // Frame usage is a property of the TRAY set alone — the static app-icon set keeps the brand's
+    // landscape proportions on purpose, and is covered by BrandMarkGeometryTests instead.
+
     [Fact]
     public void TheMarksInkStaysInsideTheFrame_AndOnItsCentreLine()
     {
-        Assert.True(IconGenerator.MarkInkTop >= 0f);
-        Assert.True(IconGenerator.MarkInkBottom <= IconGenerator.MarkCanvas);
-        Assert.Equal(IconGenerator.MarkCanvas / 2f,
-                     (IconGenerator.MarkInkTop + IconGenerator.MarkInkBottom) / 2f, 1.0);
+        var tray = IconGenerator.TraySlotHeights;
+        Assert.True(tray.InkTop >= 0f);
+        Assert.True(tray.InkBottom <= IconGenerator.MarkCanvas);
+        Assert.Equal(IconGenerator.MarkCanvas / 2f, (tray.InkTop + tray.InkBottom) / 2f, 1.0);
     }
 
     [Fact]
     public void TheMarkUsesMostOfTheFrameHeight()
     {
         // It used 48 % — y 66..190 of 256 — which left roughly 66 units dead at each end.
-        float used = (IconGenerator.MarkInkBottom - IconGenerator.MarkInkTop) / IconGenerator.MarkCanvas;
+        var tray   = IconGenerator.TraySlotHeights;
+        float used = (tray.InkBottom - tray.InkTop) / IconGenerator.MarkCanvas;
         Assert.True(used >= 0.70f, $"the mark occupies {used:P0} of the frame height.");
     }
 

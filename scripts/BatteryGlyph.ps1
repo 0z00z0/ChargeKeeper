@@ -23,6 +23,10 @@
     the SVG's attributes, and probes IconGenerator's own render. Representation 4 is a design
     reference that nothing generates from, and no test covers it.
 
+    Representation 3 carries a SECOND height set for the live tray icon (TraySlotHeights), taller
+    than the brand's so a 16 px square slot is not half empty. That set is the tray's alone — this
+    file and the vector state the brand's own proportions, and the same test pins the two apart.
+
     Callers own their own surface (plates, backgrounds, banners, text). This file owns the glyph
     and the palettes, nothing else.
 
@@ -79,33 +83,35 @@ $BatteryGlyphPalettes = @{
 # and fails loudly rather than silently passing.
 #
 # Body, cap and guard share the centre line y = 128; the fill band is the body's inner rect inset
-# by ~14 units on every side. The ink spans y 29..227, i.e. 77 % of the canvas.
+# by ~14 units on every side. The ink spans y 66..190, i.e. 48 % of the canvas — the mark is
+# landscape, and every surface this file feeds gives it room around it. The live tray icon uses a
+# taller set of its own (IconGenerator's TraySlotHeights); it does not belong here.
 $BatteryGlyphGeometry = @{
     Canvas      = 256.0
 
     BodyX       = 15.0
-    BodyY       = 51.0
+    BodyY       = 80.0
     BodyW       = 191.0
-    BodyH       = 154.0
+    BodyH       = 96.0
     BodyRadius  = 6.0
     BodyPen     = 13.0
 
     CapX        = 221.0
-    CapY        = 93.0
+    CapY        = 106.0
     CapW        = 20.0
-    CapH        = 70.0
+    CapH        = 44.0
     CapRadius   = 3.0
 
     FillX       = 36.0
-    FillY       = 72.0
+    FillY       = 101.0
     FillW       = 113.24
-    FillH       = 113.0
+    FillH       = 55.0
     FillRadius  = 3.0
     FillAlpha   = 230.0
 
     GuardX      = 161.16
-    GuardTop    = 29.0
-    GuardBottom = 227.0
+    GuardTop    = 66.0
+    GuardBottom = 190.0
     GuardPen    = 9.0
 }
 
