@@ -122,4 +122,59 @@ public class WindowFitTests
         // DIPs are doubles and the window height is an int; rounding down would clip the last line.
         Assert.Equal(371, WindowFit.HeightForContent(660, contentHeight: 330.2, viewportHeight: 620, minHeight: 320));
     }
+
+    // The resize floor. The live values are the Settings window's own: a 320 DIP nav pane, seven nav
+    // items, and the ScrollViewer's 20,8,20,12 padding.
+
+    private const double NavPane      = 320;
+    private const int    NavItems     = 7;
+    private const double PaddingH     = 40;
+    private const double PaddingV     = 20;
+
+    [Fact]
+    public void MinimumWidthDip_IsTheNavPanePlusTheContentColumnsFixedParts()
+    {
+        // 320 pane + 40 scroller padding + 16 scrollbar + 32 card padding + 220 widest control.
+        Assert.Equal(628, WindowFit.MinimumWidthDip(NavPane, PaddingH));
+    }
+
+    [Fact]
+    public void MinimumSizeDip_LeavesRoomBelowTheDefaultOpeningSize()
+    {
+        // A minimum at or above the opening size would make the window unresizable rather than
+        // merely bounded. DefaultWidth/DefaultHeight in SettingsWindow are 1200x750 DIPs.
+        Assert.True(WindowFit.MinimumWidthDip(NavPane, PaddingH) < 1200);
+        Assert.True(WindowFit.MinimumHeightDip(NavItems, PaddingV) < 750);
+    }
+
+    [Fact]
+    public void MinimumHeightDip_IsGovernedByTheNavPane_NotTheScrollingContent()
+    {
+        // 32 title bar + 48 pane header + 7x40 items + 69 footer. The content side is far shorter,
+        // and it scrolls anyway.
+        Assert.Equal(429, WindowFit.MinimumHeightDip(NavItems, PaddingV));
+        Assert.Equal(429, WindowFit.MinimumHeightDip(NavItems, scrollerPadding: 200));
+    }
+
+    [Fact]
+    public void MinimumHeightDip_GrowsWithTheNavItems_SoANewPageIsNotCutOff()
+    {
+        Assert.Equal(469, WindowFit.MinimumHeightDip(NavItems + 1, PaddingV));
+    }
+
+    [Fact]
+    public void ToPhysicalPixels_ScalesByTheRasterizationScale()
+    {
+        // The 175 % laptop panel. Passing the DIP figure straight through would let the window be
+        // dragged to 57 % of its intended floor there.
+        Assert.Equal(628,  WindowFit.ToPhysicalPixels(628, 1.0));
+        Assert.Equal(1099, WindowFit.ToPhysicalPixels(628, 1.75));
+    }
+
+    [Fact]
+    public void ToPhysicalPixels_UnreadableScale_FallsBackTo100Percent()
+    {
+        // XamlRoot is null before the first layout; 0 must not collapse the minimum to nothing.
+        Assert.Equal(628, WindowFit.ToPhysicalPixels(628, 0));
+    }
 }

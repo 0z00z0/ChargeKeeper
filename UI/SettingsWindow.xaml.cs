@@ -139,8 +139,29 @@ internal sealed partial class SettingsWindow : Window
         ContentScroller.Loaded -= OnContentScrollerLoaded;
         if (_fittedToContent) return;
         _fittedToContent = true;
+        try { ApplyMinimumSize(); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.ApplyMinimumSize", ex); }
         try { FitWindowToContent(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.FitWindowToContent", ex); }
+    }
+
+    /// <summary>Stops the window being dragged below its navigation pane and its widest fixed
+    /// control. Set here rather than in <see cref="ConfigureWindowChrome"/>: the rasterisation scale
+    /// the DIP arithmetic has to be converted with is only readable once the tree has laid out.</summary>
+    private void ApplyMinimumSize()
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+
+        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
+        int width  = WindowFit.MinimumWidthDip(Nav.OpenPaneLength,
+                                               ContentScroller.Padding.Left + ContentScroller.Padding.Right);
+        int height = WindowFit.MinimumHeightDip(Nav.MenuItems.Count,
+                                                ContentScroller.Padding.Top + ContentScroller.Padding.Bottom);
+
+        presenter.PreferredMinimumWidth  = WindowFit.ToPhysicalPixels(width,  scale);
+        presenter.PreferredMinimumHeight = WindowFit.ToPhysicalPixels(height, scale);
+        AppLog.Info($"SettingsWindow minimum size: {width}x{height} DIP at scale {scale} -> "
+                  + $"{presenter.PreferredMinimumWidth}x{presenter.PreferredMinimumHeight} px.");
     }
 
     /// <summary>Grows the window so the tallest page fits without a scrollbar, then re-clamps it to

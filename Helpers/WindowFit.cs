@@ -50,4 +50,44 @@ internal static class WindowFit
     internal static int HeightForContent(double currentHeight, double contentHeight,
                                          double viewportHeight, int minHeight)
         => Math.Max(minHeight, (int)Math.Ceiling(currentHeight + contentHeight - viewportHeight));
+
+    // The Settings window's furniture that does not reflow, in DIPs. Everything else on the page —
+    // the SettingsCard header text above all — wraps, so it sets no floor of its own.
+    private const double ScrollBarGutterDip   = 16;   // the expanded vertical scrollbar
+    private const double CardPaddingDip       = 32;   // SettingsCard's own 16 either side
+    private const double WidestCardControlDip = 220;  // the widest MinWidth any card content carries
+    private const double CardRowDip           = 52;   // the SettingsCardMinHeight the page overrides to
+    private const double NavItemHeightDip     = 40;   // NavigationViewItemOnLeftMinHeight
+    private const double NavPaneHeaderDip     = 48;   // the pane's toggle-button row
+    private const double NavPaneFooterDip     = 69;   // divider, margins and the 36 DIP brand row
+    private const double TitleBarDip          = 32;
+
+    /// <summary>
+    /// The narrowest the Settings window stays usable at, in DIPs: the navigation pane, which keeps
+    /// its width whatever the window does, plus the content column's own fixed parts — the scroller's
+    /// padding and scrollbar gutter, a card's padding, and the widest fixed-width control a card
+    /// carries. Added up rather than picked round, so a chrome change moves it.
+    /// </summary>
+    internal static int MinimumWidthDip(double navPaneLength, double scrollerPadding) =>
+        (int)Math.Ceiling(navPaneLength + scrollerPadding
+                          + ScrollBarGutterDip + CardPaddingDip + WidestCardControlDip);
+
+    /// <summary>
+    /// The shortest it stays usable at, in DIPs. The navigation pane governs, not the content: the
+    /// content scrolls, while every nav item and the pinned brand footer have to stay reachable.
+    /// </summary>
+    internal static int MinimumHeightDip(int navItemCount, double scrollerPadding) =>
+        (int)Math.Ceiling(TitleBarDip + Math.Max(
+            NavPaneHeaderDip + navItemCount * NavItemHeightDip + NavPaneFooterDip,
+            scrollerPadding + CardRowDip));
+
+    /// <summary>
+    /// DIPs to physical pixels. <c>AppWindow</c> and its presenter are sized in physical pixels while
+    /// XAML lays out in DIPs, so a minimum passed through unscaled is 43 % short on a 175 % panel.
+    /// <para>The scale must come from the window's own <c>XamlRoot.RasterizationScale</c>.
+    /// <c>GetDpiForSystem</c> returns 96 from a process that is not per-monitor aware, which reads as
+    /// 100 % on every display and would quietly disable the scaling.</para>
+    /// </summary>
+    internal static int ToPhysicalPixels(int dip, double rasterizationScale) =>
+        (int)Math.Ceiling(dip * (rasterizationScale > 0 ? rasterizationScale : 1.0));
 }
