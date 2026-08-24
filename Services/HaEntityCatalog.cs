@@ -154,7 +154,7 @@ internal static class HaEntityCatalog
 
     /// <summary>The tray icon styles, spelled as the enum so a round trip needs no lookup table.</summary>
     public static readonly string[] IconModeOptions =
-        [nameof(TrayIconMode.Arc), nameof(TrayIconMode.Numeric)];
+        [nameof(TrayIconMode.Arc), nameof(TrayIconMode.Numeric), nameof(TrayIconMode.BrandMark)];
 
     // Deliberately absent, because the value means nothing outside this process: the Settings window's
     // saved placement, the last-selected graph scale, the travel override's revert pair (the override

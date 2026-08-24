@@ -19,7 +19,9 @@ internal sealed class ThresholdPreset
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-internal enum TrayIconMode { Arc, Numeric }
+// APPEND new members, never insert: SettingsWindow casts between the ComboBox's SelectedIndex and
+// this enum by position, so the two orders have to stay in lockstep.
+internal enum TrayIconMode { Arc, Numeric, BrandMark }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum GraphTimeScale { FifteenMinutes, OneHour, SixHours, TwelveHours, OneDay, OneWeek, FourteenDays }

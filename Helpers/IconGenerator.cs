@@ -7,7 +7,8 @@ namespace ChargeKeeper.Helpers;
 
 /// <summary>
 /// Renders the ChargeKeeper tray icon: the static "0z0 steel battery" brand mark, written once to a
-/// multi-size .ico on disk, and the live arc/numeric battery icon built in memory per state change.
+/// multi-size .ico on disk, and the live battery icon — arc, numeric or the mark itself — built in
+/// memory per state change.
 /// The on-disk file lets H.NotifyIcon reload the icon if it is recreated, and avoids the GDI handle
 /// leak <c>Bitmap.GetHicon()</c> introduces.
 /// </summary>
@@ -49,9 +50,9 @@ internal static class IconGenerator
     internal static void InvalidateSlotSizeCache() => _cachedSlotSize = null;
 
     // Brand-mark palette, read from GaugePalette so the tray icon and the dashboard cannot drift.
-    // The GEOMETRY is not shared that way — see RenderIconBitmap.
+    // The GEOMETRY is not shared that way — see RenderMarkBitmap. The interior fill is not here: it
+    // is the charge tier, from FillFor, like every other style's.
     private static readonly Color MarkSteel      = FromPacked(GaugePalette.SteelBlue);  // body outline + cap
-    private static readonly Color MarkSage       = FromPacked(GaugePalette.SageGreen);  // interior fill
     private static readonly Color MarkTerracotta = FromPacked(GaugePalette.Terracotta); // guard line
 
     // Arc fill colours by charge state. System.Drawing shares no type with WinUI's Windows.UI.Color,
@@ -75,7 +76,7 @@ internal static class IconGenerator
 
     // Stamped into the filename so an in-place app update regenerates the icon rather than serving
     // the previous version's cached file. Bump on any change to the mark.
-    private const string IconVersion = "v7";
+    private const string IconVersion = "v8";
 
     /// <summary>Generates the multi-size ICO file and returns its path, or returns the cached path
     /// when it already exists.</summary>
@@ -91,16 +92,18 @@ internal static class IconGenerator
 
     /// <summary>
     /// Renders the live battery icon as a single-frame <see cref="System.Drawing.Icon"/> at the
-    /// current tray-slot size — an arc gauge, or a large percentage number when
-    /// <paramref name="mode"/> is <see cref="TrayIconMode.Numeric"/>. The returned icon owns an
-    /// independent, data-backed handle, so the caller may dispose it once a newer icon replaces it.
+    /// current tray-slot size, in the style <paramref name="mode"/> selects. The returned icon owns
+    /// an independent, data-backed handle, so the caller may dispose it once a newer icon replaces it.
     /// </summary>
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc)
     {
-        Bitmap Render(int size) => mode == TrayIconMode.Numeric
-            ? RenderNumericBitmap(size, percent, charging)
-            : RenderBatteryBitmap(size, percent, charging);
+        Bitmap Render(int size) => mode switch
+        {
+            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
+            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging),
+            _                      => RenderBatteryBitmap(size, percent, charging),
+        };
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -151,10 +154,30 @@ internal static class IconGenerator
         return bmp;
     }
 
+    // Brand-mark geometry on the 256-unit reference canvas. The interior band is where the charge
+    // fill lives: 0 % is its left edge, 100 % its right, and the guard line sits at a percentage on
+    // the same scale.
+    private const float MarkInteriorLeft  = 36f;
+    private const float MarkInteriorRight = 185f;
+    private const float MarkInteriorTop    = 101f;
+    private const float MarkInteriorBottom = 156f;
+
+    // The charge level and guard position that reproduce brand\chargekeeper-icon.svg's fixed fill
+    // rect and guard line. 76 % rather than the exact 74 % the rect measures, because 74 lands in
+    // the amber tier and the mark's interior is sage.
+    internal const int MarkCanonicalPercent = 76;
+    internal const int MarkCanonicalGuard   = 84;
+
+    /// <summary>The x on the reference canvas where <paramref name="percent"/> falls in the mark's
+    /// interior band.</summary>
+    internal static float MarkInteriorX(int percent) =>
+        MarkInteriorLeft + (MarkInteriorRight - MarkInteriorLeft) * Math.Clamp(percent, 0, 100) / 100f;
+
     /// <summary>
     /// Renders the "0z0 steel battery" mark on a transparent background: a SteelBlue outline and cap,
-    /// a Sage interior fill and a Terracotta guard line, expressed on a 256-unit reference canvas
-    /// scaled to <paramref name="size"/> with stroke floors that keep it legible at 16 px.
+    /// an interior fill in the charge tier's colour at <paramref name="percent"/>, and a Terracotta
+    /// guard line, expressed on a 256-unit reference canvas scaled to <paramref name="size"/> with
+    /// stroke floors that keep it legible at 16 px.
     /// </summary>
     /// <remarks>
     /// A deliberate hand-maintained third copy of the geometry: the two build-time generators share
@@ -162,7 +185,7 @@ internal static class IconGenerator
     /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative — change it,
     /// then BatteryGlyph.ps1, then here. No test catches the three drifting apart.
     /// </remarks>
-    private static Bitmap RenderIconBitmap(int size)
+    private static Bitmap RenderMarkBitmap(int size, int percent, bool charging)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -184,21 +207,34 @@ internal static class IconGenerator
         using (var cap     = new SolidBrush(MarkSteel))
             g.FillPath(cap, capPath);
 
-        // Interior charge fill, at ~90 % opacity.
-        var fillRect = new RectangleF(36 * s, 101 * s, 110 * s, 55 * s);
-        using (var fillPath  = BuildRoundedRectPath(fillRect, 3 * s))
-        using (var fillBrush = new SolidBrush(Color.FromArgb(230, MarkSage)))
+        // Interior charge fill, at ~90 % opacity. A reading of 0 % draws an empty body rather than a
+        // hairline at the left edge.
+        float fillRight = MarkInteriorX(percent);
+        if (fillRight > MarkInteriorLeft)
+        {
+            var fillRect = RectangleF.FromLTRB(MarkInteriorLeft * s, MarkInteriorTop * s,
+                                               fillRight * s, MarkInteriorBottom * s);
+            using var fillPath  = BuildRoundedRectPath(fillRect, 3 * s);
+            using var fillBrush = new SolidBrush(Color.FromArgb(230, FillFor(percent, charging)));
             g.FillPath(fillBrush, fillPath);
+        }
 
         // Guard line crossing the body — flat caps, clamped to ≥2 px so it survives the 16 px frame.
         using (var limitPen = new System.Drawing.Pen(MarkTerracotta, Math.Max(9 * s, 2f)))
         {
             limitPen.StartCap = limitPen.EndCap = LineCap.Flat;
-            g.DrawLine(limitPen, 161 * s, 66 * s, 161 * s, 190 * s);
+            float x = MarkInteriorX(MarkCanonicalGuard) * s;
+            g.DrawLine(limitPen, x, 66 * s, x, 190 * s);
         }
 
         return bmp;
     }
+
+    /// <summary>The mark in its canonical brand proportions, for the static on-disk .ico: the same
+    /// renderer as the live style, fed the charge level and guard position that land where
+    /// brand\chargekeeper-icon.svg puts them, so the file and the style cannot drift.</summary>
+    private static Bitmap RenderIconBitmap(int size) =>
+        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false);
 
     /// <summary>
     /// Renders the battery arc icon: a 100-unit virtual canvas mapped to <paramref name="size"/> px,
