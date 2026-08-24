@@ -327,6 +327,10 @@ public partial class App : Application
         // The tray slot size is DPI-dependent and the render is gated on battery ticks, so without
         // this the arc stays rescaled until the next battery event.
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        // A light/dark flip is NOT a display event — the shell broadcasts WM_SETTINGCHANGE
+        // ("ImmersiveColorSet"), which SystemEvents files under UserPreferenceChanged. Without this
+        // the icon keeps the old outline strength until a display change or a restart.
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's own
         // state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
@@ -693,6 +697,25 @@ public partial class App : Application
         ForceIconRefresh();
     }
 
+    /// <summary>
+    /// Repaints the tray icon when the shell's light/dark setting flips, which decides the glyph's
+    /// outline strength and the arc's empty track. Three categories can carry it: General is where
+    /// WM_SETTINGCHANGE "ImmersiveColorSet" lands (no SPI code, so it falls to the default), Color
+    /// comes from WM_SYSCOLORCHANGE and VisualStyle from WM_THEMECHANGED. General is also the
+    /// catch-all for every unmapped setting, so the repaint is gated on the theme value having
+    /// actually moved rather than on the event arriving.
+    /// </summary>
+    private void OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (!Helpers.IconGenerator.CategoryCanCarryThemeChange(e.Category)) return;
+        if (!Helpers.IconGenerator.RefreshThemeCacheIfChanged()) return;
+
+        // SystemEvents raises on its own hidden-window thread, so the repaint has to be marshalled.
+        // RunOnUi and never a bare TryEnqueue: a throw inside a raw dispatcher callback does not
+        // reach Application.UnhandledException and kills the process as a stowed 0xC000027B.
+        RunOnUi(ForceIconRefresh);
+    }
+
     /// <summary>Forces an immediate tray icon re-render from the last known battery state, or from
     /// the unknown state when no battery report has arrived yet — the style change, the slot-size
     /// change and the tray recreate that call this all have to show without waiting for a tick.</summary>
@@ -990,6 +1013,9 @@ public partial class App : Application
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        // SystemEvents holds its handlers in a static list, so an app that forgets this one stays
+        // rooted for the life of the process.
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
