@@ -52,30 +52,22 @@
                     <Color x:Key="SystemAccentColorDark2">#546F79</Color>
                     <Color x:Key="SystemAccentColorDark3">#40545C</Color>
 
-                    <!-- The shared MQTT panel's whole theming surface: five keys, and no knob per
-                         element. The module merges its own defaults — the stock WinUI theme — into
-                         Application.Resources.MergedDictionaries, and a theme dictionary declared
-                         here is consulted first, so these win.
-
-                         The values are the same ones the six pages beside it resolve, so the panel
-                         reads as one of them: teal headings from the studio palette, the two text
-                         tiers above, the steel accent that marks a live value, and the card ground
-                         every SettingsCard on the window already paints.
-
-                         Only the Default (dark) dictionary, because the Application pins
-                         RequestedTheme to Dark, exactly as for the chrome overrides above.
-
-                         Type face is NOT one of these five keys: they are brushes. Cascadia Mono
-                         reaches the panel by property inheritance instead — SettingsWindow.xaml sets
-                         FontFamily on the panel element, and every TextBlock inside whose style does
-                         not name a face inherits it. -->
-                    <SolidColorBrush x:Key="MqttPanelHeadingBrush"        Color="#27e0c8"/>
-                    <SolidColorBrush x:Key="MqttPanelBodyBrush"           Color="#dde6f4"/>
-                    <SolidColorBrush x:Key="MqttPanelSecondaryBrush"      Color="#93a4bb"/>
-                    <SolidColorBrush x:Key="MqttPanelAccentBrush"         Color="#7FA8B8"/>
-                    <SolidColorBrush x:Key="MqttPanelCardBackgroundBrush" Color="#0e1620"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+
+            <!-- The MQTT panel's five theme keys. Declared HERE, directly in Application.Resources,
+                 and not inside ThemeDictionaries: the module resolves them from the application's own
+                 resource scope, and a key one level deeper in a theme dictionary is not found. Measured
+                 — from a theme dictionary all five fall back to the module's stock brushes and the panel
+                 renders in white beside this application's teal headings.
+
+                 The type face is not one of these five. It arrives because the module's font key
+                 defaults to ContentControlThemeFontFamily, which this file overrides directly below. -->
+            <SolidColorBrush x:Key="MqttPanelHeadingBrush"        Color="#27e0c8"/>
+            <SolidColorBrush x:Key="MqttPanelBodyBrush"           Color="#dde6f4"/>
+            <SolidColorBrush x:Key="MqttPanelSecondaryBrush"      Color="#93a4bb"/>
+            <SolidColorBrush x:Key="MqttPanelAccentBrush"         Color="#7FA8B8"/>
+            <SolidColorBrush x:Key="MqttPanelCardBackgroundBrush" Color="#0e1620"/>
 
             <!-- The studio palette as named brushes, for chrome XAML that names a colour directly. -->
             <SolidColorBrush x:Key="BrandBgBrush"     Color="#0a0f17"/>
