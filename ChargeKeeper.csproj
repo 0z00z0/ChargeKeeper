@@ -255,13 +255,6 @@
     <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Mqtt.WinUI\ZeroZero.Mqtt.WinUI.csproj">
       <UndefineProperties>WindowsAppSDKSelfContained</UndefineProperties>
     </ProjectReference>
-    <!--
-      The entity and document layer. A SECOND reference is required, contrary to the guide's
-      "a consumer takes one project reference": ZeroZero.Mqtt.WinUI references ZeroZero.Mqtt and
-      ZeroZero.Brand.WinUI only, so the panel alone brings no entity vocabulary and every
-      Discovery type fails to resolve with CS0234. Measured against v0.1.0.
-    -->
-    <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Mqtt.Discovery\ZeroZero.Mqtt.Discovery.csproj" />
   </ItemGroup>
 
   <!--
