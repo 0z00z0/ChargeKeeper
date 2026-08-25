@@ -81,7 +81,7 @@ public class MqttSettingsMigrationTests
 
     [Fact]
     public void TheNodeId_BecomesTheDeviceIdUnchanged() =>
-        // It is the unique_id stem. Anything but an exact carry-over renames all forty entities.
+        // It is the unique_id stem. Anything but an exact carry-over renames all forty-one entities.
         Assert.Equal("chargekeeper_office_x1",
                      Migrated("""{"MqttNodeId":"chargekeeper_office_x1"}""").DeviceId);
 

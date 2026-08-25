@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the forty entity ids, the component each is announced
+/// The published surface as a declaration: the forty-one entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -56,6 +56,8 @@ public class MqttEntityCatalogTests
         new(MqttEntityCatalog.CapacityDesign, "sensor", "Design capacity",
             MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic,
             DeviceClass: "energy_storage", Unit: "Wh"),
+        new(MqttEntityCatalog.LowPowerMode, "binary_sensor", "Low power mode",
+            MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic, Icon: "mdi:leaf"),
 
         new(MqttEntityCatalog.SmartCharge, "switch", "Smart Charge",
             MqttPublishGroups.SmartCharge, MqttEntityCategory.Primary, Icon: "mdi:battery-heart-variant"),
@@ -141,13 +143,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFortyEntitiesTheAppHasAlwaysPublished() =>
+    public void TheTable_HoldsExactlyTheFortyOneEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsFourteenSensorsTenSwitchesEightNumbersThreeBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsFourteenSensorsTenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -157,7 +159,7 @@ public class MqttEntityCatalogTests
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["sensor"] = 14, ["switch"] = 10, ["number"] = 8,
-                ["binary_sensor"] = 3, ["select"] = 3, ["button"] = 1, ["text"] = 1,
+                ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
     }
@@ -200,6 +202,32 @@ public class MqttEntityCatalogTests
                      MqttTopics.Channel(MqttPublisher.TopicRoot, deviceId, entityId));
         Assert.Equal($"chargekeeper/{deviceId}/cmd/{entityId}",
                      MqttTopics.Command(MqttPublisher.TopicRoot, deviceId, entityId));
+    }
+
+    [Fact]
+    public void LowPowerMode_IsABinarySensorOnTheSameTopicConventionAsTheRest()
+    {
+        const string deviceId = "chargekeeper_office_x1";
+        var entity = MqttTestBed.Declared().Find(MqttEntityCatalog.LowPowerMode);
+
+        Assert.NotNull(entity);
+        Assert.Equal("binary_sensor", entity.Platform);
+        Assert.Equal("low_power_mode", entity.EntityId);
+        Assert.Equal($"chargekeeper/{deviceId}/low_power_mode",
+                     MqttTopics.Channel(MqttPublisher.TopicRoot, deviceId, entity.EntityId));
+    }
+
+    [Fact]
+    public void LowPowerMode_ReportsTheEnergySaverFlagTheLiveSnapshotCarries()
+    {
+        // Read-only: Windows owns Energy Saver, so the entity reflects the flag and takes no command.
+        static string? Read(bool on) =>
+            MqttTestBed.Build(MqttTestBed.Live(lowPowerMode: on), MqttTestBed.Surface())
+                       .Find(MqttEntityCatalog.LowPowerMode)!.ReadState();
+
+        Assert.Equal(MqttPayload.On, Read(true));
+        Assert.Equal(MqttPayload.Off, Read(false));
+        Assert.False(MqttTestBed.Declared().Find(MqttEntityCatalog.LowPowerMode)!.IsCommand);
     }
 
     [Fact]
@@ -405,11 +433,13 @@ public class MqttEntityCatalogTests
             MqttTestBed.Declared(), MqttEntityCatalog.Retired, MqttEntityCatalog.Migrating));
 
     [Fact]
-    public void TheMigratingList_IsExactlyTheFortyEntitiesAndTheirOwnComponents() =>
+    public void TheMigratingList_IsTheFortyPreDocumentEntitiesAndNothingDeclaredSince() =>
         // The handover names the single-component config each entity already has on the broker, so a
-        // pair that does not match a live entity would empty a topic nothing ever wrote to.
+        // pair that does not match a live entity would empty a topic nothing ever wrote to. An entity
+        // declared after the document was adopted never had one, so it is absent here by design.
         Assert.Equal(
             MqttTestBed.Declared().All
+                .Where(e => e.EntityId != MqttEntityCatalog.LowPowerMode)
                 .Select(e => (e.Platform, e.EntityId)).Order(),
             MqttEntityCatalog.Migrating
                 .Select(m => (m.Component, m.EntityId)).Order());

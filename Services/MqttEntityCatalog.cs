@@ -27,7 +27,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: forty entities, their groups, their capability gates and the
+/// ChargeKeeper's published surface: forty-one entities, their groups, their capability gates and the
 /// domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -49,6 +49,7 @@ internal static class MqttEntityCatalog
     public const string AdapterWatts        = "adapter_watts";
     public const string CapacityFull        = "capacity_full";
     public const string CapacityDesign      = "capacity_design";
+    public const string LowPowerMode        = "low_power_mode";
 
     public const string SmartCharge     = "smart_charge";
     public const string ChargeStart     = "charge_start";
@@ -241,6 +242,15 @@ internal static class MqttEntityCatalog
                 EntityId = CapacityDesign, Name = "Design capacity", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "energy_storage", Unit = "Wh",
                 Read = () => MqttPayload.Number(LiveStateBuilder.WattHours(live()?.DesignMwh)),
+            },
+            new MqttBinarySensor
+            {
+                // Windows Energy Saver, read-only: the OS owns the switch. No device class fits it,
+                // so the icon carries the meaning. Not in Migrating — an earlier version carried this
+                // as a json_attributes key on battery_state, never as a config topic of its own.
+                EntityId = LowPowerMode, Name = "Low power mode", Group = MqttPublishGroups.BatteryStatus,
+                Category = MqttEntityCategory.Diagnostic, Icon = "mdi:leaf",
+                Read = () => live()?.LowPowerMode,
             },
 
             // ── Smart Charge ─────────────────────────────────────────────────────────────────────
