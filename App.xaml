@@ -59,6 +59,52 @@
             <Color x:Key="SystemAccentColorDark1">#698B99</Color>
             <Color x:Key="SystemAccentColorDark2">#546F79</Color>
             <Color x:Key="SystemAccentColorDark3">#40545C</Color>
+            <!-- ComboBox paints from its own control-part keys, and every one of them is a
+                 StaticResource alias declared inside the toolkit dictionary: ComboBoxBackground to
+                 ControlFillColorDefaultBrush, ComboBoxForeground to TextFillColorPrimaryBrush,
+                 ComboBoxBorderBrush to the ControlElevationBorderBrush gradient, whose stops bind
+                 ControlStrokeColorDefault and ControlStrokeColorSecondary as StaticResource
+                 colours. An alias and a StaticResource colour both bind inside the dictionary that
+                 declares them, so an override of the shared brush or of its paired colour never
+                 reaches the control: measured, the value text renders #FFFFFF while
+                 TextFillColorPrimaryBrush carries #dde6f4. Declaring the ComboBox keys is the only
+                 route that lands, and it reaches ComboBox alone — Button, TextBox, ToggleSwitch and
+                 Expander each resolve their own alias set and are untouched.
+
+                 Fill and border track the studio ground ramp, keeping the lift the stock control
+                 has over a card: 1.13:1 at rest against #0e1620 where the stock fill gives 1.16:1.
+                 Text against the fill of the state that paints it measures 12.8:1 at rest, 11.3:1
+                 pointer-over and 13.9:1 pressed; placeholder and drop-down glyph 6.3:1 and 5.6:1;
+                 pressed placeholder 5.0:1. Disabled text measures 2.3:1 and is exempt under WCAG
+                 1.4.3. The drop-down flyout and its rows keep the stock theme. -->
+            <SolidColorBrush x:Key="ComboBoxBackground"                       Color="#152231"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused"              Color="#152231"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundFocused"                Color="#152231"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver"            Color="#1b2c40"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundPressed"                Color="#101a26"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundDisabled"               Color="#101a26"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrush"                      Color="#1a2840"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver"           Color="#233656"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushPressed"               Color="#1a2840"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled"              Color="#1a2840"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushUnfocused"   Color="#1a2840"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused"     Color="#7FA8B8"/>
+            <SolidColorBrush x:Key="ComboBoxForeground"                       Color="#dde6f4"/>
+            <SolidColorBrush x:Key="ComboBoxForegroundPointerOver"            Color="#dde6f4"/>
+            <SolidColorBrush x:Key="ComboBoxForegroundPressed"                Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxForegroundFocused"                Color="#dde6f4"/>
+            <SolidColorBrush x:Key="ComboBoxForegroundFocusedPressed"         Color="#dde6f4"/>
+            <SolidColorBrush x:Key="ComboBoxForegroundDisabled"               Color="#45566a"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground"            Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundPointerOver" Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundPressed"     Color="#748ba5"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocused"     Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocusedPressed" Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundDisabled"    Color="#45566a"/>
+            <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground"          Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocused"   Color="#93a4bb"/>
+            <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocusedPressed" Color="#dde6f4"/>
+            <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundDisabled"  Color="#45566a"/>
 
             <!-- The MQTT panel's five theme keys, declared at the same level and for the same reason
                  as the palette above; the module resolves them from the application's own resource
