@@ -391,11 +391,10 @@
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                    <!-- FontFamily, not a theme key: the five keys the panel exposes are brushes, and
-                         its own keyed TextBlock styles opt out of the application's implicit one. A
-                         face set here is inherited by every TextBlock inside that does not name one,
-                         which is the whole of them. -->
-                    <mqtt:MqttSettingsPanel x:Name="MqttPanel" FontFamily="{StaticResource BrandFont}"/>
+                    <!-- No face set here. Every panel text style names the module's own font key,
+                         so an inherited FontFamily reaches nothing. The face arrives because that key
+                         defaults to ContentControlThemeFontFamily, which App.xaml overrides. -->
+                    <mqtt:MqttSettingsPanel x:Name="MqttPanel"/>
                 </StackPanel>
 
                 <!-- The shared BrandAboutControl is hosted inline rather than behind a button that
