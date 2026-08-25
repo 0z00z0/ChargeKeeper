@@ -24,6 +24,10 @@
     <Copyright>Copyright © 2026 ZeroZero Software</Copyright>
     <RepositoryUrl>https://github.com/0z00z0/ChargeKeeper</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <!-- The neutral language of every resource the app ships. Stated rather than generated:
+         Package.appxmanifest carries the template's x-generate, which resolves to the build
+         machine's own language and is how en-US reaches a shipped package. -->
+    <DefaultLanguage>en-GB</DefaultLanguage>
 
     <!-- InvariantGlobalization is left OFF (default). It was briefly suspected of causing the
          dashboard's "Failed to assign to property RangeBase.Minimum" XamlParseException, but that
