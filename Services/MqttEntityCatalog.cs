@@ -104,6 +104,18 @@ internal static class MqttEntityCatalog
         new("sensor",        "charge_stop"),  // → number/charge_stop
     ];
 
+    /// <summary>The two value topics an earlier version published its shared JSON payloads on. One
+    /// bare topic per entity replaced them, so nothing composes these any more and the retained
+    /// payloads would stand on the broker indefinitely. The module empties each once per identity and
+    /// records the composed topic in the ledger.</summary>
+    /// <remarks>Declared in source and kept indefinitely, as <see cref="Retired"/> is: an installation
+    /// upgrading from before an entry was added still carries the payload it empties.</remarks>
+    public static IReadOnlyList<RetiredChannel> RetiredChannels { get; } =
+    [
+        new("state"),
+        new("status"),
+    ];
+
     /// <summary>
     /// The forty entities as they stood on the broker before the device document existed: one
     /// retained single-component config each. The handover keeps every one of them — name, entity id,

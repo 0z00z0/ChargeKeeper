@@ -426,11 +426,15 @@ public class MqttEntityCatalogTests
             Assert.IsType<MqttSelect>(MqttTestBed.Declared().Find(MqttEntityCatalog.IconMode)).Options());
 
     [Fact]
-    public void TheRetiredList_NamesNoLiveComponentAndEntityPair() =>
+    public void TheDeclarations_NameNoLiveTopicTheyWouldEmpty() =>
         // Retiring a live entity's own config topic would delete and recreate it on every pass, and
-        // lose the user's chosen entity id outright if anything claimed it in the gap.
+        // lose the user's chosen entity id outright if anything claimed it in the gap. A retired
+        // channel key is the same failure one subtree along: there is no component segment to keep it
+        // off a live entity's state topic, so the key alone decides it. The publisher validates all
+        // three at construction, where the only symptom is a throw at start-up.
         Assert.Null(DiscoveryDeclaration.Validate(
-            MqttTestBed.Declared(), MqttEntityCatalog.Retired, MqttEntityCatalog.Migrating));
+            MqttTestBed.Declared(), MqttEntityCatalog.Retired, MqttEntityCatalog.Migrating,
+            MqttEntityCatalog.RetiredChannels));
 
     [Fact]
     public void TheMigratingList_IsTheFortyPreDocumentEntitiesAndNothingDeclaredSince() =>

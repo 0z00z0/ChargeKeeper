@@ -143,11 +143,6 @@ internal sealed class AppSettings
     /// successful connect look like a settings change, and this app re-applies the connection on one.</remarks>
     public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
 
-    /// <summary>Set once the two shared-payload topics the previous MQTT implementation left retained
-    /// have been emptied. Nothing composes those topics any more, so neither the module nor its ledger
-    /// can know about them; this is the only record that the one-off clear happened.</summary>
-    public bool MqttLegacyPayloadTopicsCleared { get; set; }
-
     /// <summary>Placement in physical pixels, null until the window has been closed once. Not WinUIEx's
     /// PersistenceId, which needs the ApplicationData this unpackaged app lacks.</summary>
     public int? SettingsWindowX      { get; set; }

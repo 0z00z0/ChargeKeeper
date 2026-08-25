@@ -19,11 +19,6 @@ internal sealed class MqttPublisher : IDisposable
     /// installation, so it is as permanent as an entity id.</summary>
     public const string TopicRoot = "chargekeeper";
 
-    /// <summary>The two topics an earlier ChargeKeeper published its shared JSON payloads on. One bare
-    /// topic per entity replaced them, so nothing composes these any more and the retained payloads
-    /// would sit on the broker for ever.</summary>
-    private static readonly string[] _legacyPayloadKeys = ["state", "status"];
-
     private readonly string _appVersion;
     private readonly MqttSettingsFile _settings;
     private readonly PublishGroupSet _groups;
@@ -95,6 +90,7 @@ internal sealed class MqttPublisher : IDisposable
             Groups            = _groups,
             Retired           = MqttEntityCatalog.Retired,
             Migrating         = MqttEntityCatalog.Migrating,
+            RetiredChannels   = MqttEntityCatalog.RetiredChannels,
             SetChannelsAsync  = (channels, ct) => connection!.SetChannelsAsync(channels, ct),
             SetCommandTargets = targets => connection!.SetCommandTargets(targets),
             Log               = log,
@@ -114,8 +110,6 @@ internal sealed class MqttPublisher : IDisposable
             Log               = log,
         });
         _connection = connection;
-
-        _connection.StateChanged += OnConnectionStateChanged;
 
         // A write from an inbound command reflects at once rather than waiting for a battery tick.
         if (_ownSettingsActions is { } own) own.Changed += PublishSurfaceNow;
@@ -215,7 +209,6 @@ internal sealed class MqttPublisher : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
         _settings.Changed -= OnSettingsChanged;
-        _connection.StateChanged -= OnConnectionStateChanged;
         if (_ownSettingsActions is { } own) own.Changed -= PublishSurfaceNow;
 
         // Teardown is synchronous, bounded and idempotent, and publishes offline before the socket goes.
@@ -236,37 +229,6 @@ internal sealed class MqttPublisher : IDisposable
     private void OnCommandRefused(MqttCommandRefusal refusal) =>
         AppLog.Info($"MQTT: {Entities.NameOf(refusal.EntityId)} refused ({refusal.Outcome})"
                   + (refusal.Detail is { Length: > 0 } detail ? $": {detail}" : "."));
-
-    /// <summary>Empties the two topics the shared-payload implementation left retained, once per
-    /// connect that finds them still recorded as uncleared. Nothing composes them any more, so the
-    /// module cannot know about them and the ledger has never heard of them.</summary>
-    private void OnConnectionStateChanged(MqttConnectionState state)
-    {
-        if (state != MqttConnectionState.Connected) return;
-        if (SettingsService.Current.MqttLegacyPayloadTopicsCleared) return;
-
-        _ = ClearLegacyPayloadTopicsAsync();
-    }
-
-    private async Task ClearLegacyPayloadTopicsAsync()
-    {
-        try
-        {
-            string deviceId = _connection.DeviceId;
-            if (deviceId.Length == 0) return;
-
-            bool cleared = await _connection.PublishAsync(
-                _legacyPayloadKeys.Select(
-                    key => MqttMessage.Empty(MqttTopics.Channel(TopicRoot, deviceId, key)))).ConfigureAwait(false);
-
-            // Only recorded once the broker took every one of them: a half-landed pass has to be
-            // retried on the next connect rather than written off.
-            if (!cleared) return;
-            SettingsService.Update(s => s.MqttLegacyPayloadTopicsCleared = true);
-            AppLog.Info("MQTT: the shared-payload topics from the previous implementation were emptied.");
-        }
-        catch (Exception ex) { AppLog.Error("MqttPublisher.ClearLegacyPayloadTopics", ex); }
-    }
 
     /// <summary>The charge thresholds the last battery tick saw, for a single-bound number-set to
     /// combine against. Null when there is no reading yet, which falls back to a live device read.</summary>
