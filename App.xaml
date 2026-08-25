@@ -18,48 +18,47 @@
                  Chrome only: the product colours in Helpers/AppColors.cs and GaugePalette.cs are
                  ChargeKeeper's own identity and are not touched here.
 
-                 Only the Default (dark) dictionary exists, because the Application pins
-                 RequestedTheme to Dark and the studio palette is dark by design. -->
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Default">
-                    <!-- Text -->
-                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush"   Color="#dde6f4"/>
-                    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#93a4bb"/>
-                    <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#64788f"/>
-                    <SolidColorBrush x:Key="TextFillColorDisabledBrush"  Color="#45566a"/>
-                    <!-- Hairlines / dividers / strokes -->
-                    <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush"  Color="#1a2840"/>
-                    <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush"  Color="#1a2840"/>
-                    <SolidColorBrush x:Key="CardStrokeColorDefaultBrush"     Color="#1a2840"/>
-                    <!-- Card / panel surfaces (SettingsCard, BatteryHealthPanel) -->
-                    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
-                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
-                    <!-- The paired *Color* keys and the SystemAccentColor ramp below must agree with
-                         these brushes: several control visual-states resolve the accent COLOR rather
-                         than the AccentFill brush, and would otherwise paint the OS accent. -->
-                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#7FA8B8"/>
-                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E67FA8B8"/>
-                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC7FA8B8"/>
-                    <Color x:Key="AccentFillColorDefaultColor">#7FA8B8</Color>
-                    <Color x:Key="AccentFillColorSecondaryColor">#E67FA8B8</Color>
-                    <Color x:Key="AccentFillColorTertiaryColor">#CC7FA8B8</Color>
-                    <Color x:Key="AccentTextFillColorPrimaryColor">#7FA8B8</Color>
-                    <Color x:Key="SystemAccentColor">#7FA8B8</Color>
-                    <Color x:Key="SystemAccentColorLight1">#9BBBC8</Color>
-                    <Color x:Key="SystemAccentColorLight2">#B7CED7</Color>
-                    <Color x:Key="SystemAccentColorLight3">#D4E1E7</Color>
-                    <Color x:Key="SystemAccentColorDark1">#698B99</Color>
-                    <Color x:Key="SystemAccentColorDark2">#546F79</Color>
-                    <Color x:Key="SystemAccentColorDark3">#40545C</Color>
+                 Every override in this file is an immediate child of Application.Resources, never a
+                 ThemeDictionaries entry and never a merged dictionary. Only a dictionary's own
+                 entries outrank what it merges, and a key one level deeper in a theme dictionary is
+                 not reached at all. Measured: from a theme dictionary these keys fall back to the
+                 stock WinUI brushes with no error and no warning, so cards render Mica grey beside
+                 surfaces carrying the studio palette. A per-theme dictionary would buy nothing in
+                 any case — the Application pins RequestedTheme to Dark and the palette is dark by
+                 design. -->
+            <!-- Text -->
+            <SolidColorBrush x:Key="TextFillColorPrimaryBrush"   Color="#dde6f4"/>
+            <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#93a4bb"/>
+            <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#64788f"/>
+            <SolidColorBrush x:Key="TextFillColorDisabledBrush"  Color="#45566a"/>
+            <!-- Hairlines / dividers / strokes -->
+            <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush"  Color="#1a2840"/>
+            <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush"  Color="#1a2840"/>
+            <SolidColorBrush x:Key="CardStrokeColorDefaultBrush"     Color="#1a2840"/>
+            <!-- Card / panel surfaces (SettingsCard, BatteryHealthPanel) -->
+            <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush"   Color="#0e1620"/>
+            <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#101a26"/>
+            <!-- The paired *Color* keys and the SystemAccentColor ramp below must agree with
+                 these brushes: several control visual-states resolve the accent COLOR rather
+                 than the AccentFill brush, and would otherwise paint the OS accent. -->
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush"   Color="#7FA8B8"/>
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E67FA8B8"/>
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#CC7FA8B8"/>
+            <Color x:Key="AccentFillColorDefaultColor">#7FA8B8</Color>
+            <Color x:Key="AccentFillColorSecondaryColor">#E67FA8B8</Color>
+            <Color x:Key="AccentFillColorTertiaryColor">#CC7FA8B8</Color>
+            <Color x:Key="AccentTextFillColorPrimaryColor">#7FA8B8</Color>
+            <Color x:Key="SystemAccentColor">#7FA8B8</Color>
+            <Color x:Key="SystemAccentColorLight1">#9BBBC8</Color>
+            <Color x:Key="SystemAccentColorLight2">#B7CED7</Color>
+            <Color x:Key="SystemAccentColorLight3">#D4E1E7</Color>
+            <Color x:Key="SystemAccentColorDark1">#698B99</Color>
+            <Color x:Key="SystemAccentColorDark2">#546F79</Color>
+            <Color x:Key="SystemAccentColorDark3">#40545C</Color>
 
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
-
-            <!-- The MQTT panel's five theme keys. Declared HERE, directly in Application.Resources,
-                 and not inside ThemeDictionaries: the module resolves them from the application's own
-                 resource scope, and a key one level deeper in a theme dictionary is not found. Measured
-                 — from a theme dictionary all five fall back to the module's stock brushes and the panel
-                 renders in white beside this application's teal headings.
+            <!-- The MQTT panel's five theme keys, declared at the same level and for the same reason
+                 as the palette above; the module resolves them from the application's own resource
+                 scope.
 
                  The type face is not one of these five. It arrives because the module's font key
                  defaults to ContentControlThemeFontFamily, which this file overrides directly below. -->
