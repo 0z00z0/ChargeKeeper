@@ -1,16 +1,21 @@
-# Pinned 0z0-shared (ZeroZeroBrand) commit that BOTH ci.yml and release.yml check
-# out as the sibling ../0z0-shared dependency. SINGLE SOURCE OF TRUTH — bump the SHA
-# here only; both workflows read this file, so the two pins can no longer drift.
+# Pinned 0z0-shared ref that BOTH ci.yml and release.yml check out as the sibling
+# ../0z0-shared dependency. SINGLE SOURCE OF TRUTH — bump it here only; both workflows
+# read this file, so the two pins can no longer drift.
 #
-# To bump: sync the local sibling clone, re-run build + tests + the About window, then
-# replace the SHA below with `git -C ..\0z0-shared rev-parse origin/main`.
-# Lines starting with '#' and blank lines are ignored; the first non-comment line is
-# the ref. Once 0z0-shared publishes versioned tags, pin a tag string here instead.
+# A TAG, not a raw SHA. 0z0-shared releases every consumer-visible API change under a
+# v-prefixed tag whose notes state what it breaks, so a pin bump is a legible diff and a
+# reviewable decision. Read the notes for the tag being adopted before raising this.
+#
+# To bump: sync the local sibling clone to the new tag, re-run build + tests + the About
+# window, then replace the tag below. Lines starting with '#' and blank lines are ignored;
+# the first non-comment line is the ref. Both workflows do a full `git clone` followed by
+# `git checkout --detach <ref>`, which resolves a tag; a shallow clone would not, and would
+# need `--branch <tag>` alongside `--depth 1`.
 #
 # ⚠ ADOPTING A NEW SHARED TYPE? BUMP THIS IN THE SAME PR. Local dev builds against the LIVE
 # sibling checkout, so a new type resolves fine on the dev machine while CI — which clones the
-# PINNED commit — fails with CS0234 "type does not exist in namespace ZeroZero.Brand.WinUI".
+# PINNED ref — fails with CS0234 "type does not exist in namespace ZeroZero.Brand.WinUI".
 # That is exactly what happened: #59 adopted BrandAboutControl but left this pinned at
 # 2d89d105 (which only had BrandAboutWindow), and CI stayed red from 2026-07-15 until 1.6.2.
 # A green local build proves nothing about this pin.
-72b3360b6b0ae345281dd3935c63d33e859e0666
+v0.1.0

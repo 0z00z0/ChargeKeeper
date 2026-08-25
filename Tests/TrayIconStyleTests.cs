@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Text.RegularExpressions;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
@@ -61,18 +61,7 @@ public class TrayIconStyleTests
 
     [Fact]
     public void MqttSelectOptions_MatchTheEnumOrder() =>
-        Assert.Equal(Styles.Select(s => s.Mode), HaEntityCatalog.IconModeOptions);
-
-    [Fact]
-    public void EveryAdvertisedOption_ParsesBackToItsOwnMode()
-    {
-        foreach (string option in HaEntityCatalog.IconModeOptions)
-        {
-            Assert.True(HaCommand.TryParse(HaEntityCatalog.IconMode, option, out var cmd),
-                        $"The select advertises '{option}' but the parser refuses it.");
-            Assert.Equal(option, ((TrayIconMode)cmd.IntValue).ToString());
-        }
-    }
+        Assert.Equal(Styles.Select(s => s.Mode), MqttEntityCatalog.IconModeOptions);
 
     // The brand mark's interior band, which the charge fill and (from #113) the threshold marks are
     // placed on. The canonical values reproduce brand\chargekeeper-icon.svg's fixed geometry.

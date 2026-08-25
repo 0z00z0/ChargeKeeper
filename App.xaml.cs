@@ -1,4 +1,4 @@
-using H.NotifyIcon;
+﻿using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
@@ -250,49 +250,40 @@ public partial class App : Application
         // previous run died with it still overridden.
         LidDelayService.Start();
 
-        // Before the publisher reads the port: an upgraded install carries the old 1883 default, and
-        // connecting on it once would remember it as the endpoint that works.
-        SettingsService.RetireTheDefaultMqttPort();
-        // Before it reads the encryption too: the old two-state switch has to become a pinned choice
-        // rather than be read as an absent one, which would put an install that said "off" onto a
-        // setting that negotiates.
-        SettingsService.MigrateMqttEncryption();
-
-        // Home Assistant MQTT publisher. Inert unless HomeAssistantEnabled and a broker host are set.
-        _ha = new HomeAssistantService(AppInfo.Version);
-        // Publishes live values on every (re)connect. Set BEFORE ApplySettings, which may start
-        // connecting — and invoke this — right away. Runs on the MQTT thread, so the fields are
-        // snapshotted under the lock; the caller publishes outside this call.
-        _ha.CurrentStateProvider = () =>
+        // The MQTT publisher. Inert unless the module's own settings say publishing is on and a
+        // broker host is set; the move of that block out of settings.json runs inside the ctor,
+        // before anything reads it.
+        //
+        // The live snapshot is read on the MQTT threads, so the fields are taken under the battery
+        // lock; the caller publishes outside this call. Null means no reading yet, which the entities
+        // publish as "unknown" rather than as a fabricated zero.
+        _mqtt = new MqttPublisher(AppInfo.Version, () =>
         {
             using (_batteryReportLock.EnterScope())
             {
-                if (_lastIconState.Pct < 0) return null;   // no reading yet — publish nothing
-                return HaStateBuilder.Build(
+                if (_lastIconState.Pct < 0) return null;
+                return LiveStateBuilder.Build(
                     _lastIconState.Pct, _lastRateMW, _lastIconState.Charging, _lastBatteryStatus, _lastThresholdState,
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
             }
-        };
-        // The settings, network and diagnostic snapshot, and the vendor gates the announcement is
-        // filtered through. Both run on the MQTT threads.
-        _ha.CurrentSurfaceProvider = () => HaSurfaceReader.Read(AppInfo.Version);
-        _ha.CapabilityProvider     = HaSurfaceReader.Capabilities;
-        _ha.ApplySettings(SettingsService.Current);
-        // "Reload settings from disk" must reach the live MQTT client too — the Settings window's
-        // reload only refreshes what it displays.
-        SettingsService.Reloaded += () => _ha?.ApplySettings(SettingsService.Current);
-        // The settings payload has no battery tick of its own, so every source that can move one of
-        // its values publishes it. Unchanged payloads are deduped, so a redundant signal costs nothing.
-        SettingsService.Changed             += () => _ha?.PublishSurfaceNow();
+        });
+        // The settings surface has no battery tick of its own, so every source that can move one of
+        // its values signals it. Unchanged payloads are deduped, so a redundant signal costs nothing.
+        // A broker setting is not one of these: it lives in the module's own file, whose store raises
+        // its own change event straight at the connection.
+        SettingsService.Changed             += () => _mqtt?.PublishSurfaceNow();
         // The tray style is one of those values, and an icon-mode command from Home Assistant has no
         // battery tick of its own. The latch carries the style, so this repaints only when it moved.
         SettingsService.Changed             += RepaintTrayIconFromLastReading;
-        KeepAwakeService.StateChanged       += () => _ha?.PublishSurfaceNow();
-        NetworkLocationService.LocationChanged += _ => _ha?.PublishSurfaceNow();
+        KeepAwakeService.StateChanged       += () => _mqtt?.PublishSurfaceNow();
+        NetworkLocationService.LocationChanged += _ => _mqtt?.PublishSurfaceNow();
+        // "Reload settings from disk" replaces the whole document, so every published setting may
+        // have moved at once. It cannot move a broker setting — those are not in that file.
+        SettingsService.Reloaded            += () => _mqtt?.PublishSurfaceNow();
     }
 
-    private HomeAssistantService? _ha;
+    private MqttPublisher? _mqtt;
 
     private void InitTrayIcon()
     {
@@ -453,7 +444,7 @@ public partial class App : Application
 
         // The socket can survive the OS suspend while the broker already dropped us via keep-alive,
         // flipping every sensor to "unavailable" — reconnect rather than wait out the backoff.
-        _ha?.OnPowerResume();
+        _mqtt?.OnPowerResume();
 
         // A keep-awake expiry that elapsed while suspended never fires: the timer's due time passes
         // in suspended wall-clock time.
@@ -502,7 +493,7 @@ public partial class App : Application
             // Critical section: a coherent edge-detect and _last* publish, so no reader sees a torn
             // mix of two ticks. It spans no vendor RPC and never blocks — the toasts and the MQTT
             // publish are deferred to after the lock releases.
-            HaState haSnapshot;
+            LiveState liveSnapshot;
             bool fireLowBattery = false;
             int? highBatteryWarnAtPct = null;   // the configured level, carried out of the lock
             bool fireChargingStarted = false;
@@ -575,7 +566,7 @@ public partial class App : Application
                 UpdateTooltip(pct, _lastRemainingMwh, _lastFullMwh);
 
                 // Built here for a coherent _last* view; published below, outside the lock.
-                haSnapshot = HaStateBuilder.Build(
+                liveSnapshot = LiveStateBuilder.Build(
                     pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
                     _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
@@ -617,7 +608,7 @@ public partial class App : Application
             if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop);
             if (fireChargingStarted)               ToastService.NotifyChargingStarted();
 
-            _ha?.PublishState(haSnapshot);
+            _mqtt?.PublishState(liveSnapshot);
         }
         catch (Exception ex)
         {
@@ -995,12 +986,7 @@ public partial class App : Application
                 return;
             }
 
-            _settings = new SettingsWindow(_menu!,
-                onHomeAssistantChanged: () => _ha?.ApplySettings(SettingsService.Current),
-                onDiscoveryChanged: () => _ha?.RepublishDiscovery(),
-                isBrokerConnected: () => _ha?.IsConnected ?? false,
-                // State only: the current values on their own topics, no discovery config rewritten.
-                onPublishNow: () => _ha?.PublishCurrentStateAsync() ?? Task.FromResult(false));
+            _settings = new SettingsWindow(_menu!, _mqtt);
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
         }
@@ -1027,7 +1013,7 @@ public partial class App : Application
         TravelOverrideService.StateChanged -= RefreshTooltip;
         NetworkLocationService.Stop();
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
-        _ha?.Dispose();           // goes offline in HA but keeps the retained discovery
+        _mqtt?.Dispose();         // publishes offline, and leaves the document standing
         _currentBatteryIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();

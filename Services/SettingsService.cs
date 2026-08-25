@@ -1,5 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using ZeroZero.Mqtt;
 
 namespace ChargeKeeper.Services;
 
@@ -134,84 +135,18 @@ internal sealed class AppSettings
     public NetworkLocationRule? FindNetworkRule(NetworkLocation location) =>
         NetworkLocationRules.FirstOrDefault(r => r.Matches(location));
 
-    /// <summary>Inert until this is on AND a broker host is set — ChargeKeeper never touches the network otherwise.</summary>
-    public bool HomeAssistantEnabled { get; set; } = false;
-
-    public string MqttBrokerHost { get; set; } = "";
-
-    /// <summary>The broker port, or null to find it. Null by default: the port a broker answers on
-    /// depends on the transport and on what fronts it, so assuming 1883 is wrong everywhere except
-    /// the plain internal case.</summary>
-    public int? MqttBrokerPort { get; set; }
-
-    /// <summary>Set once the port inherited from the days when 1883 was the default has been turned
-    /// back into Automatic. Persisted, because a 1883 chosen after that is a choice, not a leftover.</summary>
-    public bool MqttPortDefaultRetiredForAutomatic { get; set; }
-
-    public string MqttUsername { get; set; } = "";
-    public string MqttPassword { get; set; } = "";
-
-    /// <summary>
-    /// The two-state encryption switch <see cref="MqttEncryptionMode"/> replaced, read once to
-    /// migrate and then cleared. Three-valued on purpose: null means the key was absent, which is a
-    /// file older than the setting or a brand-new one, and reads as "nothing was chosen" — an absent
-    /// key is not a false, and must never be taken for one. An explicit value is a choice and is
-    /// carried across exactly, so an upgrade cannot start negotiating what was pinned.
-    /// </summary>
-    public bool? MqttUseTls { get; set; }
-
-    /// <summary>Whether the link to the broker is encrypted. Automatic tries encrypted first and
-    /// falls back to plain; an explicit choice is never probed around, exactly as for the port and
-    /// the transport. Null means the migration from <see cref="MqttUseTls"/> has not run.</summary>
-    public MqttEncryptionSetting? MqttEncryptionMode { get; set; }
-
-    /// <summary>The setting as everything downstream reads it. Automatic until the migration has run,
-    /// which is also what a file carrying neither key means.</summary>
-    [JsonIgnore]
-    public MqttEncryptionSetting MqttEncryption => MqttEncryptionMode ?? MqttEncryptionSetting.Auto;
-
-    /// <summary>Which transport the broker is reached over. Auto probes; an explicit choice is never
-    /// overridden, so a machine pinned to one path fails loudly rather than connecting another way.
-    /// The port applies to both transports — see <see cref="MqttTransportEndpoint"/>.</summary>
-    public MqttTransportSetting MqttTransportMode { get; set; } = MqttTransportSetting.Auto;
-
     /// <summary>Where the broker answered last. State rather than a setting: it records where the
     /// machine turned out to be, so a reconnect starts with what worked, and it never changes what
     /// the user chose. Null until something connects, and never a password.</summary>
+    /// <remarks>It lives here rather than in the module's own <c>mqtt.json</c> because the module
+    /// deliberately keeps it out of its settings record: persisting it as a setting would make a
+    /// successful connect look like a settings change, and this app re-applies the connection on one.</remarks>
     public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
 
-    /// <summary>Must match HA's own prefix, or discovery configs land where nothing reads them.</summary>
-    public string MqttDiscoveryPrefix { get; set; } = "homeassistant";
-
-    /// <summary>Empty = "ChargeKeeper (&lt;machine name&gt;)".</summary>
-    public string MqttDeviceName { get; set; } = "";
-
-    /// <summary>The MQTT client id, the <c>unique_id</c> stem, the device identifier and every topic
-    /// segment. Empty = derived from the machine name; changing it evicts the old id's retained topics
-    /// so HA deletes the previous device instead of ghosting it.</summary>
-    public string MqttNodeId { get; set; } = "";
-
-    /// <summary>Which groups of entities are announced. The feature groups are on by default — the
-    /// surface is the point of the feature, and a group is switched off to reduce it, never to opt
-    /// into it. Turning one off removes its entities from the consumer rather than leaving them
-    /// unavailable; see <see cref="HaDiscovery.RemovalTopics"/>.</summary>
-    public bool MqttPublishBatteryStatus  { get; set; } = true;
-    public bool MqttPublishSmartCharge    { get; set; } = true;
-    public bool MqttPublishKeepAwake      { get; set; } = true;
-    public bool MqttPublishLidClose       { get; set; } = true;
-    public bool MqttPublishNotifications  { get; set; } = true;
-    public bool MqttPublishNetwork        { get; set; } = true;
-
-    /// <summary>Off, unlike the feature groups above: diagnostics describe ChargeKeeper rather than
-    /// the battery, so they are what an operator opts into rather than what a new install starts
-    /// announcing. Existing installs keep whatever they were saved with.</summary>
-    public bool MqttPublishAppDiagnostics { get; set; } = false;
-
-    /// <summary>The group toggles as the publisher's pure input.</summary>
-    [JsonIgnore]
-    public HaCategorySet MqttCategories => new(
-        MqttPublishBatteryStatus, MqttPublishSmartCharge, MqttPublishKeepAwake,
-        MqttPublishLidClose, MqttPublishNotifications, MqttPublishNetwork, MqttPublishAppDiagnostics);
+    /// <summary>Set once the two shared-payload topics the previous MQTT implementation left retained
+    /// have been emptied. Nothing composes those topics any more, so neither the module nor its ledger
+    /// can know about them; this is the only record that the one-off clear happened.</summary>
+    public bool MqttLegacyPayloadTopicsCleared { get; set; }
 
     /// <summary>Placement in physical pixels, null until the window has been closed once. Not WinUIEx's
     /// PersistenceId, which needs the ApplicationData this unpackaged app lacks.</summary>
@@ -396,95 +331,6 @@ internal static class SettingsService
         foreach (var rule in doomed) settings.NetworkLocationRules.Remove(rule);
         settings.NetworkRulesKeyedOnPhysicalAdapter = true;
         return doomed.Count;
-    }
-
-    /// <summary>The port the broker setting defaulted to before Automatic existed. A settings.json
-    /// written by an older build carries it forward, where it reads as a pinned port.</summary>
-    internal const int RetiredDefaultMqttPort = 1883;
-
-    /// <summary>
-    /// Turns the inherited 1883 back into Automatic, so an upgraded install gets the detection the
-    /// setting was added for instead of staying pinned to the old default. Runs once, and touches
-    /// nothing else in settings.
-    /// </summary>
-    /// <remarks>
-    /// settings.json is deliberately not copied aside first. The rule clear above destroys data; this
-    /// changes one value that Automatic tries first anyway, so being wrong costs a connect attempt.
-    /// </remarks>
-    public static void RetireTheDefaultMqttPort()
-    {
-        lock (_lock)
-        {
-            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
-            if (RetireDefaultMqttPort(settings) is not { } retired) return;
-
-            Save();
-            if (retired)
-                AppLog.Info($"MQTT broker port {RetiredDefaultMqttPort} was the old default and is now Automatic, "
-                          + $"which tries TCP {RetiredDefaultMqttPort} first.");
-        }
-    }
-
-    /// <summary>The decision behind <see cref="RetireTheDefaultMqttPort"/>, separated so the once-only
-    /// guard is testable: true when the port was cleared, false when there was nothing to clear, null
-    /// when the migration has already run and must not run again.</summary>
-    /// <remarks>
-    /// A deliberately pinned 1883 is indistinguishable from the inherited default, so both are cleared.
-    /// Safe because Automatic sweeps TCP <see cref="RetiredDefaultMqttPort"/> as its first candidate —
-    /// a broker genuinely there still answers on the first attempt.
-    /// </remarks>
-    internal static bool? RetireDefaultMqttPort(AppSettings settings)
-    {
-        if (settings.MqttPortDefaultRetiredForAutomatic) return null;
-        settings.MqttPortDefaultRetiredForAutomatic = true;
-
-        if (settings.MqttBrokerPort != RetiredDefaultMqttPort) return false;
-        settings.MqttBrokerPort = null;
-        return true;
-    }
-
-    /// <summary>
-    /// Turns the old two-state encryption switch into the three-state setting. Runs once, and
-    /// touches nothing else in settings.
-    /// </summary>
-    /// <remarks>
-    /// settings.json is deliberately not copied aside first: nothing is destroyed, one key is read
-    /// and one written, and being wrong costs a connect attempt.
-    /// </remarks>
-    public static void MigrateMqttEncryption()
-    {
-        lock (_lock)
-        {
-            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
-            if (MigrateEncryptionMode(settings) is not { } chosen) return;
-
-            Save();
-            AppLog.Info($"MQTT encrypted connection carried over from the old switch as {chosen}.");
-        }
-    }
-
-    /// <summary>The decision behind <see cref="MigrateMqttEncryption"/>, separated so the once-only
-    /// guard is testable: the setting chosen, or null when the migration has already run and must
-    /// not run again.</summary>
-    /// <remarks>
-    /// An explicit switch becomes an explicit setting — true stays encrypted, false stays plain —
-    /// because an upgrade must not turn either into something that negotiates. Only a file that never
-    /// carried the key at all defaults to Automatic. This is the rule the network-rule migration had
-    /// to learn: an absent key is not a false, and must not select the branch that changes behaviour.
-    /// The old key is cleared on the way through, so the file never holds two answers at once.
-    /// </remarks>
-    internal static MqttEncryptionSetting? MigrateEncryptionMode(AppSettings settings)
-    {
-        if (settings.MqttEncryptionMode is not null) return null;
-
-        settings.MqttEncryptionMode = settings.MqttUseTls switch
-        {
-            true  => MqttEncryptionSetting.On,
-            false => MqttEncryptionSetting.Off,
-            null  => MqttEncryptionSetting.Auto,
-        };
-        settings.MqttUseTls = null;
-        return settings.MqttEncryptionMode;
     }
 
     /// <summary>Re-reads settings.json into <see cref="Current"/>, discarding unsaved changes, so an
