@@ -29,7 +29,11 @@
             <!-- Text -->
             <SolidColorBrush x:Key="TextFillColorPrimaryBrush"   Color="#dde6f4"/>
             <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#93a4bb"/>
-            <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#64788f"/>
+            <!-- The tertiary tier carries text on the darkest studio grounds: the Settings pane
+                 footer version line and the history graph axis labels. Its value is set by the
+                 4.5:1 floor against those grounds, and measures 5.47:1 on #0a0f17, 5.18:1 on
+                 #0e1620 and 4.99:1 on #101a26. A darker shade of the same hue fails the floor. -->
+            <SolidColorBrush x:Key="TextFillColorTertiaryBrush"  Color="#748ba5"/>
             <SolidColorBrush x:Key="TextFillColorDisabledBrush"  Color="#45566a"/>
             <!-- Hairlines / dividers / strokes -->
             <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush"  Color="#1a2840"/>
@@ -74,7 +78,7 @@
             <SolidColorBrush x:Key="BrandBg3Brush"    Color="#101a26"/>
             <SolidColorBrush x:Key="BrandBorderBrush" Color="#1a2840"/>
             <SolidColorBrush x:Key="BrandTextBrush"   Color="#dde6f4"/>
-            <SolidColorBrush x:Key="BrandMutedBrush"  Color="#64788f"/>
+            <SolidColorBrush x:Key="BrandMutedBrush"  Color="#748ba5"/>
             <SolidColorBrush x:Key="BrandTealBrush"   Color="#27e0c8"/>
             <SolidColorBrush x:Key="BrandBlueBrush"   Color="#11a9d6"/>
             <SolidColorBrush x:Key="BrandPurpleBrush" Color="#7b8cff"/>
