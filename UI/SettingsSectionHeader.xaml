@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ChargeKeeper.UI.SettingsSectionHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:ChargeKeeper.UI"
+    HorizontalContentAlignment="Stretch"
+    mc:Ignorable="d">
+
+    <!-- Spacing matches the page panels this sits in, so the gap between the rule and the heading is
+         the same whether the two are page siblings or nested here. -->
+    <StackPanel Spacing="4">
+        <Border Style="{StaticResource SectionDividerStyle}"/>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock x:Name="HeadingText"
+                       Style="{StaticResource SubHeaderStyle}"
+                       VerticalAlignment="Center"/>
+            <local:InfoIcon x:Name="Explanation" Visibility="Collapsed"/>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

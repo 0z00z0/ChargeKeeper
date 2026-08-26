@@ -21,25 +21,11 @@ public class TrayIconStyleTests
         (nameof(TrayIconMode.BrandMark), "Brand mark"),
     ];
 
-    /// <summary>Probes upwards for the repo marker rather than hard-coding the test output's depth.</summary>
-    private static string FindRepoFile(string relativePath)
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            string candidate = Path.Combine(dir.FullName, relativePath);
-            if (File.Exists(candidate) && File.Exists(Path.Combine(dir.FullName, "ChargeKeeper.csproj")))
-                return candidate;
-        }
-
-        throw new FileNotFoundException(
-            $"Could not locate '{relativePath}' walking up from '{AppContext.BaseDirectory}'.");
-    }
-
     /// <summary>The ComboBoxItem labels inside the IconModeCombo block of SettingsWindow.xaml, in
     /// markup order.</summary>
     private static string[] ReadComboBoxLabels()
     {
-        string xaml  = File.ReadAllText(FindRepoFile(Path.Combine("UI", "SettingsWindow.xaml")));
+        string xaml  = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "SettingsWindow.xaml")));
         int    start = xaml.IndexOf("x:Name=\"IconModeCombo\"", StringComparison.Ordinal);
         Assert.True(start >= 0, "IconModeCombo is no longer declared in SettingsWindow.xaml.");
         int end = xaml.IndexOf("</ComboBox>", start, StringComparison.Ordinal);

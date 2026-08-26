@@ -101,6 +101,10 @@
                      it also reaches the rows built in code below. -->
                 <Grid.Resources>
                     <x:Double x:Key="SettingsCardMinHeight">52</x:Double>
+
+                    <!-- One label for the two pages that offer the same action on the same rule
+                         set, so the wording cannot drift between them. -->
+                    <x:String x:Key="AddNetworkProfileLabel">Add profile for this network…</x:String>
                 </Grid.Resources>
 
                 <StackPanel x:Name="GeneralPanel" Spacing="4">
@@ -146,8 +150,7 @@
                                   SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
 
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <TextBlock Text="Advanced" Style="{StaticResource SubHeaderStyle}"/>
+                    <local:SettingsSectionHeader Heading="Advanced"/>
                     <controls:SettingsCard Header="Settings file"
                                             Description="ChargeKeeper stores its configuration in settings.json.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -176,7 +179,7 @@
                          preset would collapse to the same on/off. The text is set in code-behind
                          because the cap figure comes from the vendor. -->
                     <StackPanel x:Name="FixedModeSettings" Spacing="4" Visibility="Collapsed">
-                        <TextBlock Text="Charge limit" Style="{StaticResource SubHeaderStyle}"/>
+                        <local:SettingsSectionHeader Heading="Charge limit"/>
 
                         <!-- Built in code-behind from the vendor's modes, so the firmware owns the
                              option list and its order. A radio group rather than a toggle: a
@@ -194,12 +197,11 @@
                     <!-- Grouped so both hide together on fixed-mode hardware, where neither can be
                          expressed. -->
                     <StackPanel x:Name="NumericThresholdSettings" Spacing="4">
-                    <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}"/>
+                    <local:SettingsSectionHeader Heading="Presets"/>
                     <StackPanel x:Name="PresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddPresetBtn" Content="Add preset" Click="OnAddPreset" Margin="0,4,0,12"/>
 
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <TextBlock Text="Network profiles" Style="{StaticResource SubHeaderStyle}"/>
+                    <local:SettingsSectionHeader Heading="Network profiles"/>
 
                     <controls:SettingsCard Header="Enable network profiles"
                                             Description="Applies a preset automatically when the detected network location changes.">
@@ -210,17 +212,11 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Current network">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="the current network"
-                                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
-                            <TextBlock x:Name="CurrentNetworkText" Text="—" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                    </controls:SettingsCard>
+                    <local:CurrentNetworkCard x:Name="SmartChargeCurrentNetwork"/>
 
                     <StackPanel x:Name="NetworkRulesListPanel" Spacing="4"/>
-                    <Button x:Name="AddNetworkRuleBtn" Content="Add profile for this network…" Click="OnAddNetworkRule" Margin="0,4,0,12"/>
+                    <Button x:Name="AddNetworkRuleBtn" Content="{StaticResource AddNetworkProfileLabel}"
+                            Click="OnAddNetworkRule" Margin="0,4,0,12"/>
 
                     <controls:SettingsCard Header="Unknown-network preset"
                                             Description="Preset applied when network profiles are on and the current network matches none of the profiles above.">
@@ -272,12 +268,8 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Presets" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="keep-awake presets"
-                                        Info="One “Expires” field defines both the kind and the value: a duration (3h, 90m, 1h30) or a clock time (17:00). The first preset is the one the tray toggle and the dashboard switch use."/>
-                    </StackPanel>
+                    <local:SettingsSectionHeader Heading="Presets" Subject="keep-awake presets"
+                                                 Info="One “Expires” field defines both the kind and the value: a duration (3h, 90m, 1h30) or a clock time (17:00). The first preset is the one the tray toggle and the dashboard switch use."/>
                     <StackPanel x:Name="KeepAwakePresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddKeepAwakePresetBtn" Content="Add preset" Click="OnAddKeepAwakePreset" Margin="0,4,0,12"/>
 
@@ -285,24 +277,13 @@
                          repeated here because that page's rows sit inside NumericThresholdSettings,
                          which collapses entirely on fixed-mode hardware where keep-awake-per-network
                          still has to work. -->
-                    <Border Style="{StaticResource SectionDividerStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="Networks" Style="{StaticResource SubHeaderStyle}" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="keep-awake networks"
-                                        Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side and that page sets the preset. “Enable network profiles” must be on there for them to act, and deleting a rule removes it from both pages."/>
-                    </StackPanel>
+                    <local:SettingsSectionHeader Heading="Networks" Subject="keep-awake networks"
+                                                 Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side and that page sets the preset. “Enable network profiles” must be on there for them to act, and deleting a rule removes it from both pages."/>
 
-                    <controls:SettingsCard Header="Current network">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="the current network"
-                                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
-                            <TextBlock x:Name="KeepAwakeCurrentNetworkText" Text="—" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                    </controls:SettingsCard>
+                    <local:CurrentNetworkCard x:Name="KeepAwakeCurrentNetwork"/>
 
                     <StackPanel x:Name="KeepAwakeNetworkRulesListPanel" Spacing="4"/>
-                    <Button x:Name="AddKeepAwakeNetworkRuleBtn" Content="Add profile for this network…"
+                    <Button x:Name="AddKeepAwakeNetworkRuleBtn" Content="{StaticResource AddNetworkProfileLabel}"
                             Click="OnAddKeepAwakeNetworkRule" Margin="0,4,0,12"/>
                 </StackPanel>
                 <!-- The only setting in the app that changes a Windows setting outside it, so the
@@ -314,6 +295,8 @@
                         <local:InfoIcon Subject="lid close"
                                         Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
                     </StackPanel>
+
+                    <local:SettingsSectionHeader Heading="Sleep delay"/>
 
                     <controls:SettingsCard Header="Delay sleep after the lid closes"
                                             Description="Waits before sleeping when the lid closes, instead of sleeping at once.">
@@ -328,6 +311,8 @@
                                             Description="How long to stay awake with the lid closed before sleeping.">
                         <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
                     </controls:SettingsCard>
+
+                    <local:SettingsSectionHeader Heading="Locking"/>
 
                     <!-- On by default, and disabled rather than hidden while the delay is off: the
                          delay parks the Windows lid-close action on "do nothing", which also removes

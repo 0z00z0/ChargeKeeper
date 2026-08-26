@@ -48,24 +48,9 @@ public class BrandMarkGeometryTests
 
     // ── Locating the files ────────────────────────────────────────────────────
 
-    /// <summary>Walks up from the test assembly to the repo root, probing for the marker file
-    /// rather than hard-coding the output depth.</summary>
-    private static string FindRepoFile(string relativePath)
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            string candidate = Path.Combine(dir.FullName, relativePath);
-            if (File.Exists(candidate) && File.Exists(Path.Combine(dir.FullName, "ChargeKeeper.csproj")))
-                return candidate;
-        }
-
-        throw new FileNotFoundException(
-            $"Could not locate '{relativePath}' walking up from '{AppContext.BaseDirectory}'.");
-    }
-
     // ── The vector ────────────────────────────────────────────────────────────
 
-    private static XElement SvgRoot() => XDocument.Load(FindRepoFile(@"brand\chargekeeper-icon.svg")).Root!;
+    private static XElement SvgRoot() => XDocument.Load(RepoFiles.Find(@"brand\chargekeeper-icon.svg")).Root!;
 
     private static double Attr(XElement e, string name)
     {
@@ -161,7 +146,7 @@ public class BrandMarkGeometryTests
     /// figures are the whole of what has to agree.</summary>
     private static MarkGeometry ReadGlyphScript()
     {
-        string script = File.ReadAllText(FindRepoFile(@"scripts\BatteryGlyph.ps1"));
+        string script = File.ReadAllText(RepoFiles.Find(@"scripts\BatteryGlyph.ps1"));
 
         int start = script.IndexOf("$BatteryGlyphGeometry = @{", StringComparison.Ordinal);
         Assert.True(start >= 0, @"scripts\BatteryGlyph.ps1 declares no $BatteryGlyphGeometry table.");

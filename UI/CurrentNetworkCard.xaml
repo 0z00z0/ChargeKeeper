@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ChargeKeeper.UI.CurrentNetworkCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:local="using:ChargeKeeper.UI"
+    HorizontalContentAlignment="Stretch"
+    mc:Ignorable="d">
+
+    <!-- The Smart Charge and Keep Awake pages both report the same network from the same service, so
+         the card, its explanation and its placeholder are declared here rather than on each page. -->
+    <controls:SettingsCard Header="Current network">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <local:InfoIcon Subject="the current network"
+                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
+            <TextBlock x:Name="ValueText" Text="—" VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+    </controls:SettingsCard>
+</UserControl>
