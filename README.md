@@ -255,9 +255,9 @@ discovery sets the receiver floor at Home Assistant **2024.11.0**.
 It is **off by default** and never touches the network until you both enable it and set a broker
 host. Configure it from the tray icon → **Settings…** → **MQTT**: the master switch, the device name
 and the publish-group toggles apply immediately, and the broker host, port, transport, encryption,
-username, password and discovery prefix commit as a batch behind an **Apply** button, so the
-connection is remade once per edit session rather than once per keystroke. The password is never
-logged and never leaves the machine except to the broker it authenticates to.
+username, password and discovery prefix commit together behind an **Apply** button, taking effect
+only when it is pressed rather than while typing. The password is never logged and never leaves the
+machine except to the broker it authenticates to.
 
 ### Where the settings live
 
@@ -270,7 +270,7 @@ carries over with its name, area, labels and automations intact.
 {
   "Enabled": true,
   "Host": "homeassistant.local",   // or the broker IP
-  "Port": 1883,                    // or null to find the port by probing
+  "Port": 1883,                    // or null to find the port by trying the broker
   "Username": "your-mqtt-user",
   "Password": "your-mqtt-password", // stored locally, same as any MQTT client
   "TransportMode": "Auto",          // Auto | Tcp | WebSocket
