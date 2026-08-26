@@ -955,7 +955,7 @@ internal sealed partial class SettingsWindow : Window
     }
 
     private void RefreshCurrentNetworkText() =>
-        CurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
+        SmartChargeCurrentNetwork.Value = NetworkLocationService.DescribeCurrentLocation();
 
     /// <summary>Rebuilds both pages' renderings of the one
     /// <see cref="AppSettings.NetworkLocationRules"/> list, always together, so neither is left
@@ -1537,7 +1537,7 @@ internal sealed partial class SettingsWindow : Window
     // preset facet of the same rules; neither page owns the list.
 
     private void RefreshKeepAwakeCurrentNetworkText() =>
-        KeepAwakeCurrentNetworkText.Text = NetworkLocationService.DescribeCurrentLocation();
+        KeepAwakeCurrentNetwork.Value = NetworkLocationService.DescribeCurrentLocation();
 
     private void RebuildKeepAwakeNetworkRows()
     {
