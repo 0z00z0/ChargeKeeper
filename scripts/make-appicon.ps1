@@ -9,7 +9,8 @@
     means 256). PNG-compressed frames are supported by Windows Vista and later.
 
     A single 256x256 transparent PNG (Assets\AppIcon.png) is also emitted alongside the
-    .ico for in-app use (the Settings pane-footer image references ms-appx:///Assets/AppIcon.png).
+    .ico as a general-purpose brand export. The app does not ship or reference it: every
+    in-app surface draws the mark natively through Helpers\BrandMarkImage.
 
     The glyph itself — geometry and palettes — comes from scripts\BatteryGlyph.ps1, shared with
     installer\make-wizard-images.ps1; see that file for the list of representations that must stay
@@ -218,9 +219,10 @@ foreach ($check in 256, 48, 16) {
 }
 Write-Host "==> ICO verified OK." -ForegroundColor Green
 
-# ── Also emit a 256x256 transparent PNG for in-app use ────────────────────────
-# The Settings pane-footer <Image> references ms-appx:///Assets/AppIcon.png; the .ico can't be
-# bound directly there. Same 256-unit geometry, single frame. Skipped with -HighContrast (that run
+# ── Also emit a 256x256 transparent PNG as a brand export ─────────────────────
+# Nothing in the app consumes this — ChargeKeeper.csproj keeps it out of Content — but a plain PNG
+# of the mark is what other surfaces ask for. Same 256-unit geometry, single frame. Skipped with
+# -HighContrast (that run
 # only produces the dense SetupIcon.ico and must not overwrite the app's product-palette PNG).
 if (-not $HighContrast) {
     $pngPath = Join-Path (Split-Path $OutPath -Parent) "AppIcon.png"

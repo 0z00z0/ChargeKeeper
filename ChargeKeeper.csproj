@@ -168,12 +168,15 @@
          .png and friends reach the output too. Deleting an explicit Include is therefore NOT
          sufficient to keep a file out; this Remove is what does it. -->
     <Content Remove="Assets\SetupIcon.ico" />
-    <!-- Ship the PNG icon too so ms-appx:///Assets/AppIcon.png resolves at runtime
-         (Settings pane footer + Dashboard header). Without CopyToOutputDirectory the
-         PNG is stripped from the output and the image renders blank. -->
-    <Content Include="Assets\AppIcon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <!-- AppIcon.png has no consumer: the Settings pane footer and the Dashboard header both draw
+         the mark natively through Helpers\BrandMarkImage, so no ms-appx:///Assets/AppIcon.png URI
+         resolves anywhere in the app, the installer reads only the two .ico files, and no test
+         asserts the PNG. Removed rather than merely un-Included for the reason the SetupIcon.ico
+         note above gives: the WinUI image glob picks the file up regardless, so dropping the
+         explicit Include would leave it shipping and indexed into ChargeKeeper.pri. The file stays
+         in the repo — scripts\make-appicon.ps1 emits it alongside the .ico as a general-purpose
+         brand export. -->
+    <Content Remove="Assets\AppIcon.png" />
     <!-- #52: bespoke two-tone Settings nav icons (steel + sage + terracotta). Shipped as SVG
          assets so ms-appx:///Assets/nav/*.svg resolves for the NavigationView ImageIcons. -->
     <Content Include="Assets\nav\*.svg">
