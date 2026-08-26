@@ -18,4 +18,4 @@
 # That is exactly what happened: #59 adopted BrandAboutControl but left this pinned at
 # 2d89d105 (which only had BrandAboutWindow), and CI stayed red from 2026-07-15 until 1.6.2.
 # A green local build proves nothing about this pin.
-v0.3.2
+v0.5.0
