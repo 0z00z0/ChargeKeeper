@@ -29,9 +29,16 @@ internal static class LidDelayService
 
     private static System.Threading.Timer? _timer;
     private static bool   _delayPending;
+    private static bool   _delayElapsed;   // the timer ran; only a discharge target can still hold
     private static bool   _lidSeeded;      // has the registration replay been consumed?
     private static long   _generation;     // bumped by anything that invalidates a queued suspend
     private static IntPtr _lidRegistration = IntPtr.Zero;
+
+    // The discharge target outstanding for the current lid close, and the newest battery reading.
+    // The reading is kept so arming can judge a machine that is already at its target, rather than
+    // holding until the level happens to move again.
+    private static readonly LidDischargeWatch _discharge = new();
+    private static (int Percent, bool Charging)? _lastBattery;
 
     // The override this process applied, and the values it displaced. Authoritative over
     // settings.json while it is set — see OnSettingsReloaded.
@@ -119,6 +126,65 @@ internal static class LidDelayService
             : "Lid-close delay off, but the Windows lid-close action could not be restored — retrying at next start",
             "the setting was turned off");
         return true;
+    }
+
+    /// <summary>
+    /// Turns the discharge target on or off. Paired with its runtime effect rather than left to a
+    /// plain settings write, for the same reason <see cref="SetEnabled"/> is: switching it off while
+    /// a target is outstanding must drop that target, or the hold outlives the feature.
+    /// </summary>
+    public static void SetDischargeEnabled(bool enable)
+    {
+        SettingsService.Update(s => s.LidDischargeEnabled = enable);
+        if (enable)
+        {
+            PowerLog.Event($"Lid-close discharge target on, {SettingsService.Current.LidDischargeTargetPercent} %",
+                           "the setting was turned on");
+            return;
+        }
+
+        bool wasWatching;
+        lock (_sync)
+        {
+            wasWatching = _discharge.IsWatching;
+            _discharge.Disarm();
+        }
+        PowerLog.Event("Lid-close discharge target off", "the setting was turned off");
+        if (wasWatching) Complete();
+    }
+
+    /// <summary>
+    /// Feeds the newest battery reading to an outstanding discharge target, and keeps it for the next
+    /// lid close. The stop condition is the charge level, never a "power is connected" reading:
+    /// connected power may deliver less than the machine draws, so the battery can drain while
+    /// plugged in, and a connectivity test would hold that machine awake indefinitely.
+    /// </summary>
+    public static void OnBatteryReport(int percent, bool isCharging)
+    {
+        LidDischargeDecision decision;
+        lock (_sync)
+        {
+            _lastBattery = (percent, isCharging);
+            decision = _discharge.OnReading(percent, isCharging);
+        }
+
+        switch (decision)
+        {
+            case LidDischargeDecision.TargetReached:
+                PowerLog.Event($"Battery reached its lid-close target at {percent} %",
+                               "the discharge target was met");
+                break;
+            case LidDischargeDecision.Charging:
+                PowerLog.Event($"Lid-close discharge target given up at {percent} %",
+                               "the battery is charging, so the target cannot be reached");
+                break;
+            default:
+                return;
+        }
+
+        // No-op while the wait itself is still running — the timer decides then, and finds the watch
+        // already released.
+        Complete();
     }
 
     /// <summary>Brings the power scheme and the lid subscription in line with the stored settings.
@@ -337,7 +403,9 @@ internal static class LidDelayService
 
     private static void StartDelay()
     {
-        var delay = LidDelayPolicy.DelayFor(SettingsService.Current.LidDelayMinutes);
+        var s = SettingsService.Current;
+        var delay = LidDelayPolicy.DelayFor(s.LidDelayMinutes);
+        int? watchingFor = null;
         lock (_sync)
         {
             // Re-checked under the lock: OnLidState decided and then released it, so two concurrent
@@ -346,23 +414,53 @@ internal static class LidDelayService
             if (_delayPending) return;
             EnsureHolder();
             _delayPending = true;
+            _delayElapsed = false;
+
+            // Armed only where a battery reading exists, and judged against it at once: a machine
+            // already at its target must not wait for a level that has no reason to move, and a
+            // machine with no battery at all could never release a watch once it held.
+            if (s.LidDischargeEnabled && _lastBattery is { } reading)
+            {
+                _discharge.Arm(s.LidDischargeTargetPercent);
+                if (_discharge.OnReading(reading.Percent, reading.Charging) == LidDischargeDecision.Hold)
+                    watchingFor = _discharge.Target;
+            }
+
             _holdRequests.Add(NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
             _timer?.Dispose();
             _timer = new System.Threading.Timer(_ => OnTimerFired(), null, delay, Timeout.InfiniteTimeSpan);
         }
         PowerLog.Event($"Lid-close delay armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
                        "lid closed with the lid-close delay on");
+        if (watchingFor is { } target)
+            PowerLog.Event($"Sleep also waits for the battery to reach {target} %",
+                           "lid closed with a discharge target set");
     }
 
     private static void OnTimerFired()
+    {
+        lock (_sync) _delayElapsed = true;
+        Complete();
+    }
+
+    /// <summary>
+    /// Decides what happens now the wait is over: suspend, hold on for an outstanding discharge
+    /// target, or release the hold without sleeping. Reached from the timer, and again from whatever
+    /// ends a hold — a battery reading or the target being switched off.
+    /// </summary>
+    private static void Complete()
     {
         LidDelayAction action;
         long gen;
         lock (_sync)
         {
+            // Before the wait is up the timer still owns the decision; suspending here would cut the
+            // delay short for a machine that merely reached its target early.
+            if (!_delayElapsed) return;
+
             action = LidDelayPolicy.OnTimerFired(SettingsService.Current.LidDelayEnabled, _delayPending,
-                                                 KeepAwakeService.Current is not null);
-            if (action != LidDelayAction.None) ClearLocked();
+                                                 KeepAwakeService.Current is not null, _discharge.IsWatching);
+            if (action is LidDelayAction.Suspend or LidDelayAction.Cancel) ClearLocked();
             gen = _generation;
         }
 
@@ -395,6 +493,10 @@ internal static class LidDelayService
                 PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
                                "a keep-awake session is holding it awake");
                 break;
+            case LidDelayAction.Hold:
+                PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
+                               "the battery has not drained to its target yet");
+                break;
         }
     }
 
@@ -403,6 +505,7 @@ internal static class LidDelayService
         lock (_sync)
         {
             _generation++;   // invalidates a suspend that was already decided on
+            _discharge.Disarm();
             if (!_delayPending) return;
             ClearLocked();
         }
@@ -412,6 +515,8 @@ internal static class LidDelayService
     private static void ClearLocked()
     {
         _delayPending = false;
+        _delayElapsed = false;
+        _discharge.Disarm();
         _timer?.Dispose();
         _timer = null;
         // Clearing must happen on the thread that made the request — post it, don't call it here.

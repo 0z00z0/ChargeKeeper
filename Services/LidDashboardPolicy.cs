@@ -43,11 +43,20 @@ internal static class LidDashboardPolicy
         _                        => $"{minutes / 60}h{minutes % 60}",
     };
 
-    /// <summary>The line under the title. Off names what applies instead, like the sections beside it:
-    /// the delay being off does not mean nothing happens, it means Windows handles the lid again.</summary>
-    public static string Describe(bool enabled, int minutes) => enabled
-        ? $"On — sleeps {ShortLabel(Clamp(minutes))} after the lid closes"
-        : "Off — the Windows lid setting applies";
+    /// <summary>
+    /// The line under the title. Off names what applies instead, like the sections beside it: the
+    /// delay being off does not mean nothing happens, it means Windows handles the lid again. With a
+    /// discharge target set, the wait is the earliest the machine may sleep rather than when it does,
+    /// so the line names both conditions instead of promising the clock alone.
+    /// </summary>
+    public static string Describe(bool enabled, int minutes, bool dischargeEnabled, int targetPercent)
+    {
+        if (!enabled) return "Off — the Windows lid setting applies";
+        string wait = $"On — sleeps {ShortLabel(Clamp(minutes))} after the lid closes";
+        return dischargeEnabled
+            ? $"{wait}, once the battery is down to {LidDischargeWatch.Clamp(targetPercent)} %"
+            : wait;
+    }
 
     /// <summary>
     /// Which chip is filled, or null for none. An off section still shows its chips — they are the

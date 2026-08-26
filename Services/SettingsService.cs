@@ -19,6 +19,11 @@ internal sealed class ThresholdPreset
     public static string FormatLabel(string name, int start, int stop) => $"{name}  ({start}–{stop} %)";
 }
 
+/// <summary>A lid-close discharge target: the charge level the machine drains to with the lid shut
+/// before sleep is allowed. <see cref="Name"/> labels a saved target and may be left unset, exactly
+/// as a keep-awake preset's may.</summary>
+internal sealed record LidDischargeTarget(int Percent, string? Name = null);
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 // APPEND new members, never insert: SettingsWindow casts between the ComboBox's SelectedIndex and
 // this enum by position, so the two orders have to stay in lockstep.
@@ -97,6 +102,23 @@ internal sealed class AppSettings
     /// the machine sits awake and unlocked with the lid shut, so the delay removes the sign-in prompt
     /// a lid close normally leads to.</summary>
     public bool LidDelayLockOnClose { get; set; } = true;
+
+    /// <summary>Off by default: the plain delay is bounded by <see cref="LidDelayPolicy.MaxMinutes"/>,
+    /// and a discharge target replaces that bound with the battery's own.</summary>
+    public bool LidDischargeEnabled { get; set; } = false;
+
+    /// <summary>The level the machine drains to with the lid shut before sleep is allowed. Held here
+    /// rather than as a flag on one of the targets below, so deleting the target in use cannot leave
+    /// the feature on with no level at all.</summary>
+    public int LidDischargeTargetPercent { get; set; } = 50;
+
+    /// <summary>The selectable discharge targets, edited on the Lid close page.</summary>
+    public List<LidDischargeTarget> LidDischargePresets { get; set; } =
+    [
+        new(70),
+        new(50),
+        new(30),
+    ];
 
     /// <summary>Saved so a restore works even after a crash. Nullable because "do nothing" is index 0
     /// and a legitimate choice, so only null can mean "untouched".</summary>

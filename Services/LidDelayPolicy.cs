@@ -1,4 +1,4 @@
-﻿namespace ChargeKeeper.Services;
+namespace ChargeKeeper.Services;
 
 internal enum LidState { Opened, Closed }
 
@@ -12,6 +12,9 @@ internal enum LidDelayAction
     Cancel,
     /// <summary>Release the OS hold, then suspend the machine.</summary>
     Suspend,
+    /// <summary>Keep the OS hold and stay pending: the wait is over but a discharge target is not
+    /// yet met, so the release comes from a battery reading rather than from the clock.</summary>
+    Hold,
 }
 
 /// <summary>The feature parks the user's own LIDACTION on "do nothing"; these are the four states
@@ -61,11 +64,17 @@ internal static class LidDelayPolicy
     /// <summary>
     /// A running keep-awake session vetoes the sleep — an explicit "do not sleep this machine" the
     /// user asked for by hand. The veto does not re-arm, so re-closing the lid starts a fresh delay.
+    /// <paramref name="dischargeHolding"/> makes the configured wait the earliest the machine may
+    /// sleep rather than the moment it does: with a discharge target outstanding the hold stands and
+    /// a later battery reading, not the clock, ends it. Both vetoes outrank it — a target that never
+    /// arrives must not keep the hold alive after the feature is switched off.
     /// </summary>
-    public static LidDelayAction OnTimerFired(bool enabled, bool delayPending, bool keepAwakeActive)
+    public static LidDelayAction OnTimerFired(bool enabled, bool delayPending, bool keepAwakeActive,
+                                              bool dischargeHolding)
     {
         if (!delayPending) return LidDelayAction.None;             // lid reopened; a stale tick
         if (!enabled || keepAwakeActive) return LidDelayAction.Cancel;
+        if (dischargeHolding) return LidDelayAction.Hold;
         return LidDelayAction.Suspend;
     }
 
