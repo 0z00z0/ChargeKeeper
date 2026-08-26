@@ -289,7 +289,8 @@ public partial class App : Application
     {
         _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
 
-        // Start with the static ChargeKeeper mark; the battery arc replaces it on the first event.
+        // Start with the seed mark, drawn on the tray's own maximised geometry so the slot does not
+        // change shape when the battery arc replaces it on the first event.
         // Guarded because nothing above this on the startup path catches: a disk fault would kill
         // the process before the tray icon exists, and the self-heal would relaunch into it again.
         try

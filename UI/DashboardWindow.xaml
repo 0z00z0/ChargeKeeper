@@ -33,7 +33,9 @@
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
                         VerticalAlignment="Center">
-                <Image Source="ms-appx:///Assets/AppIcon.png"
+                <!-- Sourced in code-behind by BrandMarkImage, which draws the mark at this Width
+                     times the rasterisation scale instead of resampling one asset. -->
+                <Image x:Name="BrandMark"
                        Width="18" Height="18" VerticalAlignment="Center"/>
                 <TextBlock Text="ChargeKeeper"
                            FontSize="13"
