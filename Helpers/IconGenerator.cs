@@ -7,11 +7,14 @@ using ChargeKeeper.Vendors;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// Renders the ChargeKeeper tray icon: the static "0z0 steel battery" brand mark, written once to a
+/// Renders the ChargeKeeper tray icon: the "0z0 steel battery" seed mark, written once to a
 /// multi-size .ico on disk, and the live battery icon — arc, numeric or the mark itself — built in
-/// memory per state change.
+/// memory per state change. Both carry the maximised tray geometry, so nothing the notification
+/// area shows changes shape between the seed and the first reading.
 /// The on-disk file lets H.NotifyIcon reload the icon if it is recreated, and avoids the GDI handle
 /// leak <c>Bitmap.GetHicon()</c> introduces.
+/// The mark in the brand's own classic proportions is <see cref="RenderAppIconBitmap"/>, for the
+/// in-window chrome; that one never reaches the tray.
 /// </summary>
 internal static class IconGenerator
 {
@@ -148,10 +151,13 @@ internal static class IconGenerator
 
     // Stamped into the filename so an in-place app update regenerates the icon rather than serving
     // the previous version's cached file. Bump on any change to the mark.
-    private const string IconVersion = "v9";
+    private const string IconVersion = "v10";
 
-    /// <summary>Generates the multi-size ICO file and returns its path, or returns the cached path
-    /// when it already exists.</summary>
+    /// <summary>Generates the multi-size ICO file the tray is seeded from and returns its path, or
+    /// returns the cached path when it already exists. The file is the notification area's alone —
+    /// it carries <see cref="TraySlotHeights"/>, so the seed and every later repaint are the same
+    /// shape, and a shell-driven reload of the file before the first battery event stays correct
+    /// too.</summary>
     internal static string GenerateAndSaveTrayIcon(string outputDirectory)
     {
         var icoPath = Path.Combine(outputDirectory, $"ChargeKeeper-{IconVersion}.ico");
@@ -383,13 +389,22 @@ internal static class IconGenerator
         g.DrawLine(pen, x, top, x, bottom);
     }
 
-    /// <summary>The mark in its canonical brand proportions, for the static on-disk .ico: the same
-    /// renderer as the live style but on <see cref="AppIconHeights"/>, fed the charge level and
-    /// guard position that land where brand\chargekeeper-icon.svg puts them, so the file and the
-    /// vector cannot drift.</summary>
+    /// <summary>The mark in its canonical brand proportions, drawn natively at
+    /// <paramref name="size"/> px: the same renderer as the live style but on
+    /// <see cref="AppIconHeights"/>, fed the charge level and guard position that land where
+    /// brand\chargekeeper-icon.svg puts them, so the pixels and the vector cannot drift. Serves the
+    /// in-window chrome marks, which get their own frame size rather than a resampled one.</summary>
     internal static Bitmap RenderAppIconBitmap(int size) =>
         RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold,
                          AppIconHeights);
+
+    /// <summary>The mark the tray is seeded with before the first battery report, at
+    /// <paramref name="size"/> px. Same canonical charge level and guard as the brand's own mark,
+    /// on <see cref="TraySlotHeights"/> — the seed occupies the notification-area slot, so it takes
+    /// the maximised geometry every later repaint of that slot uses.</summary>
+    internal static Bitmap RenderTraySeedBitmap(int size) =>
+        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold,
+                         TraySlotHeights);
 
     /// <summary>The threshold state that puts the mark's guard line where the brand puts it. Start is
     /// 0 — the brand has one line, and 0 is also what a mode-based vendor reports.</summary>
@@ -555,13 +570,13 @@ internal static class IconGenerator
         bw.Flush();
     }
 
-    /// <summary>Writes the static brand icon to disk. Renders to a temp file and moves it into place,
+    /// <summary>Writes the tray seed icon to disk. Renders to a temp file and moves it into place,
     /// so a launch killed mid-render leaves no half-written .ico for the existence check to serve.</summary>
     private static void SaveAsIco(string filePath)
     {
         var tmp = filePath + ".tmp";
         using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-            WriteIco(fs, RenderAppIconBitmap, IconSizes);
+            WriteIco(fs, RenderTraySeedBitmap, IconSizes);
         File.Move(tmp, filePath, overwrite: true);
     }
 }

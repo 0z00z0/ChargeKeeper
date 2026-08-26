@@ -15,8 +15,10 @@ namespace ChargeKeeper.Tests;
 /// an executable whose Explorer icon no longer matches the brand it is drawn from.
 /// <para>
 /// IconGenerator states the mark's heights TWICE, on purpose: AppIconHeights is the brand's own
-/// landscape shape, which the vector and the glyph script describe and every baked bitmap uses;
-/// TraySlotHeights is the same mark stretched to fill a square 16 px notification-area slot. Both
+/// landscape shape, which the vector and the glyph script describe and which the build-time bitmaps
+/// and the in-window chrome marks are drawn on; TraySlotHeights is the same mark stretched to fill a
+/// square 16 px notification-area slot, and covers everything that slot shows — the live icon and
+/// the seed .ico the tray starts from. Both
 /// are pinned below — the static set against the other two representations, the tray set against
 /// its own literals — and a further test holds them apart, so re-merging them cannot pass quietly.
 /// </para>
@@ -315,11 +317,11 @@ public class BrandMarkGeometryTests
 
     private static string Hex(uint packedArgb) => $"#{packedArgb & 0x00FFFFFF:X6}";
 
-    // ── Vector vs the pixels the static renderer actually produces ────────────
+    // ── Vector vs the pixels the classic renderer actually produces ───────────
     //
     // The declared figures agreeing is not the same as the render obeying them. These probe the
-    // bitmap the static .ico is written from, at the reference canvas size, where the vector says
-    // each shape is. A tray-set render substituted here would fail every one of them.
+    // bitmap the in-window chrome marks are drawn from, at the reference canvas size, where the
+    // vector says each shape is. A tray-set render substituted here would fail every one of them.
 
     private static Bitmap RenderCanonicalMark() =>
         IconGenerator.RenderAppIconBitmap((int)IconGenerator.MarkCanvas);
@@ -393,6 +395,128 @@ public class BrandMarkGeometryTests
         // Past the declared ink extent nothing is drawn, halo included.
         AssertTransparent(bmp, svg.GuardX, svg.GuardTop    - 6, "above the mark's ink");
         AssertTransparent(bmp, svg.GuardX, svg.GuardBottom + 6, "below the mark's ink");
+    }
+
+    // ── The tray seed ─────────────────────────────────────────────────────────
+    //
+    // #130: the .ico the notification area is seeded from carries TraySlotHeights, so the slot does
+    // not change shape when the first battery report repaints it. These probe the seed bitmap at the
+    // reference canvas size; a classic-set render substituted here fails all of them, exactly as a
+    // tray-set render substituted above fails the vector probes.
+
+    private static Bitmap RenderTraySeed() =>
+        IconGenerator.RenderTraySeedBitmap((int)IconGenerator.MarkCanvas);
+
+    [Fact]
+    public void TheTraySeedsBodyIsWhereTheTraySetPutsIt()
+    {
+        var svg  = ReadSvg();
+        var tray = IconGenerator.TraySlotHeights;
+        using var bmp = RenderTraySeed();
+
+        // Mid-span of the top and bottom edges, on the stroke's centre line, left of the guard line
+        // so its halo cannot be what is being measured.
+        double x = (svg.BodyX + svg.GuardX) / 2;
+        AssertOpaque(bmp, x, tray.BodyTop,    GaugePalette.SteelBlue, "the seed body's top edge");
+        AssertOpaque(bmp, x, tray.BodyBottom, GaugePalette.SteelBlue, "the seed body's bottom edge");
+
+        // Just outside the stroke's outer edge there is nothing — the classic body sits well inside
+        // this, so a classic-set seed shows here as an empty row where ink is expected instead.
+        AssertTransparent(bmp, x, tray.BodyTop    - svg.BodyPen, "above the seed body");
+        AssertTransparent(bmp, x, tray.BodyBottom + svg.BodyPen, "below the seed body");
+    }
+
+    [Fact]
+    public void TheTraySeedCarriesInkPastWhereTheClassicMarkStops()
+    {
+        // The discriminator between the two sets in pixels: the tray guard line overhangs beyond the
+        // classic mark's whole ink extent, so this band is empty in a classic-set render.
+        var svg  = ReadSvg();
+        var tray = IconGenerator.TraySlotHeights;
+        using var bmp = RenderTraySeed();
+
+        double above = (tray.InkTop    + svg.GuardTop)    / 2;
+        double below = (tray.InkBottom + svg.GuardBottom) / 2;
+        AssertOpaque(bmp, svg.GuardX, above, GaugePalette.Terracotta,
+                     "the seed's guard line above the classic mark's ink");
+        AssertOpaque(bmp, svg.GuardX, below, GaugePalette.Terracotta,
+                     "the seed's guard line below the classic mark's ink");
+
+        AssertTransparent(bmp, svg.GuardX, tray.InkTop    - 6, "above the seed's ink");
+        AssertTransparent(bmp, svg.GuardX, tray.InkBottom + 6, "below the seed's ink");
+    }
+
+    [Fact]
+    public void TheSeedFileTheTrayLoadsCarriesTheTraySetsShape()
+    {
+        // The seam the defect lived on: which renderer the on-disk .ico is written from. Measured
+        // from the file's own largest frame rather than from a renderer call, so wiring the wrong
+        // one back into SaveAsIco fails here even while both renderers stay correct.
+        // Ink extent rather than exact rows: the frame is 32 px, where antialiasing owns a whole row.
+        var dir = Directory.CreateTempSubdirectory("chargekeeper-tray-seed");
+        try
+        {
+            using var frame = LargestIcoFrame(IconGenerator.GenerateAndSaveTrayIcon(dir.FullName));
+            var appIcon = IconGenerator.AppIconHeights;
+            double unit = frame.Height / (double)IconGenerator.MarkCanvas;
+
+            var (top, bottom) = InkExtent(frame);
+            Assert.True(top < appIcon.InkTop * unit,
+                        $"the seed file's ink starts at row {top}, no higher than the classic mark's "
+                        + $"{appIcon.InkTop * unit:0.##} — it is drawn on the wrong height set.");
+            Assert.True(bottom > appIcon.InkBottom * unit,
+                        $"the seed file's ink ends at row {bottom}, no lower than the classic mark's "
+                        + $"{appIcon.InkBottom * unit:0.##} — it is drawn on the wrong height set.");
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Decodes the biggest frame out of an ICO written by <c>IconGenerator</c>. Its frames
+    /// are whole PNGs at the offsets the directory names, so each is decodable on its own — which
+    /// <c>Icon.ToBitmap</c> would flatten onto a background.</summary>
+    private static Bitmap LargestIcoFrame(string icoPath)
+    {
+        byte[] file  = File.ReadAllBytes(icoPath);
+        int    count = BitConverter.ToInt16(file, 4);
+        Assert.True(count > 0, $"'{icoPath}' declares no frames.");
+
+        int best = 0, bestSize = -1;
+        for (int i = 0; i < count; i++)
+        {
+            int entry = 6 + i * 16;
+            int width = file[entry] == 0 ? 256 : file[entry];   // 0 means 256 in an ICO directory
+            if (width <= bestSize) continue;
+            bestSize = width;
+            best     = entry;
+        }
+
+        int length = BitConverter.ToInt32(file, best + 8);
+        int offset = BitConverter.ToInt32(file, best + 12);
+        using var ms      = new MemoryStream(file, offset, length);
+        using var decoded = new Bitmap(ms);
+        // GDI+ keeps reading a stream-backed bitmap lazily, so the pixels are copied out before the
+        // stream goes.
+        return new Bitmap(decoded);
+    }
+
+    /// <summary>The first and last rows of <paramref name="bmp"/> carrying any ink at all.</summary>
+    private static (int Top, int Bottom) InkExtent(Bitmap bmp)
+    {
+        int top = -1, bottom = -1;
+        for (int y = 0; y < bmp.Height; y++)
+            for (int x = 0; x < bmp.Width; x++)
+                if (bmp.GetPixel(x, y).A > 0)
+                {
+                    if (top < 0) top = y;
+                    bottom = y;
+                    break;
+                }
+
+        Assert.True(top >= 0, "the rendered frame is entirely transparent.");
+        return (top, bottom);
     }
 
     // ── Pixel helpers ─────────────────────────────────────────────────────────
