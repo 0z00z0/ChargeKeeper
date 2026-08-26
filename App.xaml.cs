@@ -314,7 +314,11 @@ public partial class App : Application
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());
 
-        _trayIcon.ForceCreate();
+        // Passed explicitly: the parameter defaults to true, and H.NotifyIcon then puts the WHOLE
+        // process into IDLE_PRIORITY_CLASS plus EcoQoS throttling for the rest of its life —
+        // nothing reverses it. The tray icon's own left-click path hops through a threading timer,
+        // so under load the menu arrives seconds late or not at all.
+        _trayIcon.ForceCreate(enablesEfficiencyMode: false);
     }
 
     private void SubscribeBatteryEvents()
