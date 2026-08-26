@@ -18,19 +18,6 @@ public class NLogConfigTests
 {
     private const long TenMegabytes = 10L * 1024 * 1024;
 
-    /// <summary>Probes upwards for the repo marker rather than hard-coding the test output's depth.</summary>
-    private static string FindRepoFile(string name)
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            string candidate = Path.Combine(dir.FullName, name);
-            if (File.Exists(candidate) && File.Exists(Path.Combine(dir.FullName, "ChargeKeeper.csproj")))
-                return candidate;
-        }
-
-        throw new FileNotFoundException($"Could not locate '{name}' walking up from '{AppContext.BaseDirectory}'.");
-    }
-
     /// <summary>
     /// Loads the real nlog.config with <c>throwConfigExceptions</c> forced on. Under NLog's default
     /// a misspelled or stale-version attribute is silently ignored, leaving a config that reads
@@ -38,7 +25,7 @@ public class NLogConfigTests
     /// </summary>
     private static LoggingConfiguration LoadShippedConfigStrictly()
     {
-        var xml = File.ReadAllText(FindRepoFile("nlog.config"));
+        var xml = File.ReadAllText(RepoFiles.Find("nlog.config"));
         Assert.Contains("<nlog ", xml);
         return XmlLoggingConfiguration.CreateFromXmlString(
             xml.Replace("<nlog ", "<nlog throwConfigExceptions=\"true\" "));
@@ -108,7 +95,7 @@ public class NLogConfigTests
     {
         // Asserted on the text: NLog 6 has no FileTarget.concurrentWrites, so writing it here would
         // parse, do nothing, and still look like a concurrency setting.
-        var xml = File.ReadAllText(FindRepoFile("nlog.config"));
+        var xml = File.ReadAllText(RepoFiles.Find("nlog.config"));
         // The config's own comments discuss concurrentWrites to warn readers off it, so strip them.
         var settings = System.Text.RegularExpressions.Regex.Replace(
             xml, "<!--.*?-->", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
