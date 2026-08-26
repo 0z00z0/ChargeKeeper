@@ -818,7 +818,8 @@ public sealed partial class DashboardWindow : Window
         if (!visible) return;
 
         SetFeatureBadge(LidDelayBadge, LidDelayToggle, s.LidDelayEnabled);
-        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayMinutes);
+        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayMinutes,
+                                                             s.LidDischargeEnabled, s.LidDischargeTargetPercent);
 
         BuildLidDelayChips(s.LidDelayMinutes);
 

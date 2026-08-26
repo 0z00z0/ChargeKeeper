@@ -312,6 +312,20 @@
                         <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
                     </controls:SettingsCard>
 
+                    <local:SettingsSectionHeader Heading="Battery target" Subject="the battery target"
+                                                 Info="With the lid shut the computer stays awake until the battery has drained to the target, and only then sleeps. The wait above becomes the earliest it may sleep rather than when it does. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached."/>
+
+                    <!-- Disabled rather than hidden while the delay is off, like the lock switch:
+                         without the delay there is no period awake with the lid shut to hold on to. -->
+                    <controls:SettingsCard Header="Wait for the battery to drain to a target"
+                                            Description="Stays awake with the lid closed until the battery reaches the target in use below.">
+                        <ToggleSwitch x:Name="LidDischargeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDischargeToggled"/>
+                    </controls:SettingsCard>
+
+                    <StackPanel x:Name="LidDischargeTargetsListPanel" Spacing="4"/>
+                    <Button x:Name="AddLidDischargeTargetBtn" Content="Add target"
+                            Click="OnAddLidDischargeTarget" Margin="0,4,0,12"/>
+
                     <local:SettingsSectionHeader Heading="Locking"/>
 
                     <!-- On by default, and disabled rather than hidden while the delay is off: the

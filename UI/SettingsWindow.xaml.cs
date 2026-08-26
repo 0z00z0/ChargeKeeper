@@ -1228,11 +1228,14 @@ internal sealed partial class SettingsWindow : Window
             LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
             LidLockToggle.IsOn          = s.LidDelayLockOnClose;
             LidLockToggle.IsEnabled     = s.LidDelayEnabled;
+            LidDischargeToggle.IsOn     = s.LidDischargeEnabled;
+            LidDischargeToggle.IsEnabled = s.LidDelayEnabled;
         });
         RefreshKeepAwakeState();
         RefreshKeepAwakeCustomEcho();
         RebuildKeepAwakeChips();
         RebuildKeepAwakePresetRows();
+        RebuildLidDischargeTargetRows();
         RefreshKeepAwakeCurrentNetworkText();
         // The rule rows come from LoadNetwork() → RebuildNetworkRuleRows(), which rebuilds both
         // pages' renderings of the shared list.
@@ -1279,8 +1282,9 @@ internal sealed partial class SettingsWindow : Window
             WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
 
         // Read back from the toggle rather than from "wanted": an enable that was refused above has
-        // already put it back off, and the lock switch follows what the feature actually is.
-        LidLockToggle.IsEnabled = LidDelayToggle.IsOn;
+        // already put it back off, and the two dependent switches follow what the feature actually is.
+        LidLockToggle.IsEnabled      = LidDelayToggle.IsOn;
+        LidDischargeToggle.IsEnabled = LidDelayToggle.IsOn;
     }
 
     private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)
@@ -1291,6 +1295,172 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         bool on = LidLockToggle.IsOn;
         SettingsService.Update(s => s.LidDelayLockOnClose = on);
+    }
+
+    // The lid-close discharge target: a level the battery drains to with the lid shut before sleep is
+    // allowed. The rows are the same shell the keep-awake presets use, and the target in use is the
+    // one marked active.
+
+    private void OnLidDischargeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        // Through the service, which also drops an outstanding target when this goes off — a plain
+        // settings write would leave the machine held awake for a target no longer configured.
+        LidDelayService.SetDischargeEnabled(LidDischargeToggle.IsOn);
+    }
+
+    /// <summary>A saved target as its row header reads — its name when it has one, else the level.</summary>
+    private static string DescribeDischargeTarget(LidDischargeTarget t) =>
+        string.IsNullOrWhiteSpace(t.Name) ? DescribeDischargeLevel(t) : t.Name!;
+
+    /// <summary>The row's subtitle: the level, but only when the header isn't already showing it.</summary>
+    private static string DescribeDischargeSubtitle(LidDischargeTarget t) =>
+        string.IsNullOrWhiteSpace(t.Name) ? "" : DescribeDischargeLevel(t);
+
+    private static string DescribeDischargeLevel(LidDischargeTarget t) =>
+        $"Down to {LidDischargeWatch.Clamp(t.Percent)} %";
+
+    private void RebuildLidDischargeTargetRows()
+    {
+        LidDischargeTargetsListPanel.Children.Clear();
+        var targets = SettingsService.Current.LidDischargePresets;
+
+        PresetRows.ApplyActiveResources(LidDischargeTargetsListPanel);
+
+        if (targets.Count == 0)
+        {
+            LidDischargeTargetsListPanel.Children.Add(EmptyListText("No targets yet. Add one below."));
+            return;
+        }
+
+        for (int i = 0; i < targets.Count; i++)
+            LidDischargeTargetsListPanel.Children.Add(BuildLidDischargeTargetRow(i, targets[i]));
+
+        RefreshLidDischargeActivationStates();
+    }
+
+    /// <summary>Marks the row whose level is the configured target. Always visible: no hardware can
+    /// refuse a target the way fixed-mode firmware refuses thresholds.</summary>
+    private void RefreshLidDischargeActivationStates()
+    {
+        var s = SettingsService.Current;
+        int target = LidDischargeWatch.Clamp(s.LidDischargeTargetPercent);
+        // Matched on the clamped level rather than by position, so two rows at the same level both
+        // read as in use rather than one of them arbitrarily.
+        int active = s.LidDischargePresets.FindIndex(t => LidDischargeWatch.Clamp(t.Percent) == target);
+
+        PresetRows.RefreshActivation(
+            LidDischargeTargetsListPanel, active >= 0 ? active : null, Visibility.Visible,
+            "This is the level the lid-close wait drains to.",
+            "Makes this the level the lid-close wait drains to.");
+    }
+
+    /// <summary>One target's editor row — a name and the level, entered as a plain percentage.</summary>
+    private SettingsExpander BuildLidDischargeTargetRow(int index, LidDischargeTarget target)
+    {
+        var nameBox    = new TextBox { Text = target.Name ?? "", MinWidth = 220, PlaceholderText = DescribeDischargeLevel(target) };
+        // CurrentCulture on both sides, so what is shown is what parses back.
+        var percentBox = new TextBox
+        {
+            Text            = target.Percent.ToString(System.Globalization.CultureInfo.CurrentCulture),
+            MinWidth        = 220,
+            PlaceholderText = $"{LidDischargeWatch.MinPercent}–{LidDischargeWatch.MaxPercent}",
+        };
+
+        // Tagged by position, not by name: a target need not have one.
+        var row = PresetRows.Build(
+            DescribeDischargeTarget(target), DescribeDischargeSubtitle(target), index,
+            [
+                new SettingsCard { Header = "Name",  Description = "Optional — the level is shown when this is blank.", Content = nameBox },
+                new SettingsCard { Header = "Level", Description = "The charge level to drain to, as a percentage.",     Content = percentBox },
+            ],
+            CriticalBrush());
+
+        row.Activate.Click += (_, _) => ActivateLidDischargeTargetAt(index);
+
+        void Commit() => CommitLidDischargeTargetRow(index, nameBox, percentBox, row);
+        nameBox.LostFocus    += (_, _) => Commit();
+        nameBox.KeyDown      += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+        percentBox.LostFocus += (_, _) => Commit();
+        percentBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+
+        row.Delete.Click += (_, _) => DeleteLidDischargeTarget(index);
+
+        return row.Expander;
+    }
+
+    /// <summary>Validates and saves one target row, same reject-on-save contract as the preset lists
+    /// above it. A blank level keeps the stored one, so clearing the field cannot destroy a target.</summary>
+    private void CommitLidDischargeTargetRow(int index, TextBox nameBox, TextBox percentBox,
+        PresetRows.Parts row)
+    {
+        var targets = SettingsService.Current.LidDischargePresets;
+        if (index < 0 || index >= targets.Count) return;
+
+        int percent = targets[index].Percent;
+        string typed = percentBox.Text?.Trim() ?? "";
+        if (typed.Length > 0)
+        {
+            if (!int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.CurrentCulture, out int parsed))
+            {
+                ShowInlineError(row.Error, "Enter the level as a whole number, like 50.");
+                return;
+            }
+            // The same bounds a remote write is held to, rather than a second, looser set here.
+            if (SettingRanges.Validate(parsed, LidDischargeWatch.MinPercent, LidDischargeWatch.MaxPercent,
+                                       "The level") is { } error)
+            {
+                ShowInlineError(row.Error, error);
+                return;
+            }
+            percent = parsed;
+        }
+        row.Error.Visibility = Visibility.Collapsed;
+
+        string? name = nameBox.Text?.Trim() is { Length: > 0 } n ? n : null;
+        var updated = new LidDischargeTarget(percent, name);
+
+        SettingsService.Update(s =>
+        {
+            if (index < s.LidDischargePresets.Count) s.LidDischargePresets[index] = updated;
+        });
+
+        row.Header.Text          = DescribeDischargeTarget(updated);
+        row.Expander.Description = DescribeDischargeSubtitle(updated);
+        percentBox.Text          = updated.Percent.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        nameBox.PlaceholderText  = DescribeDischargeLevel(updated);
+
+        // An edited level may now be, or may no longer be, the one in use.
+        RefreshLidDischargeActivationStates();
+    }
+
+    /// <summary>Makes a saved target the one the lid-close wait drains to, re-read by position so an
+    /// edit committed since the row was built is the level that lands.</summary>
+    private void ActivateLidDischargeTargetAt(int index)
+    {
+        var targets = SettingsService.Current.LidDischargePresets;
+        if (index < 0 || index >= targets.Count) return;
+        int percent = LidDischargeWatch.Clamp(targets[index].Percent);
+        SettingsService.Update(s => s.LidDischargeTargetPercent = percent);
+        RefreshLidDischargeActivationStates();
+    }
+
+    private void DeleteLidDischargeTarget(int index)
+    {
+        SettingsService.Update(s =>
+        {
+            if (index < s.LidDischargePresets.Count) s.LidDischargePresets.RemoveAt(index);
+        });
+        RebuildLidDischargeTargetRows();
+    }
+
+    private void OnAddLidDischargeTarget(object sender, RoutedEventArgs e)
+    {
+        // Half charge is the least surprising starting figure; the point is that the row exists and
+        // is editable.
+        SettingsService.Update(s => s.LidDischargePresets.Add(new LidDischargeTarget(50)));
+        RebuildLidDischargeTargetRows();
     }
 
     // Three renderings of the same span, deliberately distinct: full words for display, the parser

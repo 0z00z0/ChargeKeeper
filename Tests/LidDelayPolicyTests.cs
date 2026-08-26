@@ -72,7 +72,7 @@ public class LidDelayPolicyTests
     public void OnTimerFired_WindowStillOpen_Suspends()
     {
         Assert.Equal(LidDelayAction.Suspend,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false));
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class LidDelayPolicyTests
     {
         // A stale tick: suspending here would sleep a machine the user is sitting in front of.
         Assert.Equal(LidDelayAction.None,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false));
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false, dischargeHolding: false));
     }
 
     [Fact]
@@ -89,14 +89,55 @@ public class LidDelayPolicyTests
         // A keep-awake session is an explicit request and outranks a background rule about lids:
         // closing the lid on a long build must not kill it.
         Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true));
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true, dischargeHolding: false));
     }
 
     [Fact]
     public void OnTimerFired_FeatureTurnedOffMidWindow_ReleasesTheHoldButDoesNotSleep()
     {
         Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false));
+            LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
+    }
+
+    [Fact]
+    public void OnTimerFired_DischargeTargetOutstanding_KeepsTheHoldInsteadOfSleeping()
+    {
+        // The configured wait becomes the earliest the machine may sleep, not the moment it does: a
+        // battery still above its target has to drain first, and a reading ends the hold, not the clock.
+        Assert.Equal(LidDelayAction.Hold,
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: true));
+    }
+
+    [Fact]
+    public void OnTimerFired_DischargeTargetAlreadyMet_SuspendsAsTheWaitAlwaysDid()
+    {
+        // A battery already at or below its target adds no condition, so the wait alone governs.
+        Assert.Equal(LidDelayAction.Suspend,
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
+    }
+
+    [Fact]
+    public void OnTimerFired_KeepAwakeOutranksAnOutstandingDischargeTarget()
+    {
+        // The hold is released either way; a target that may never arrive must not outlive the
+        // session that vetoed the sleep.
+        Assert.Equal(LidDelayAction.Cancel,
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true, dischargeHolding: true));
+    }
+
+    [Fact]
+    public void OnTimerFired_FeatureTurnedOffOutranksAnOutstandingDischargeTarget()
+    {
+        Assert.Equal(LidDelayAction.Cancel,
+            LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false, dischargeHolding: true));
+    }
+
+    [Fact]
+    public void OnTimerFired_LidReopenedWithADischargeTargetOutstanding_DoesNothing()
+    {
+        // A stale tick outranks everything: the machine the user reopened must not be held or slept.
+        Assert.Equal(LidDelayAction.None,
+            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false, dischargeHolding: true));
     }
 
     // DelayFor
@@ -203,6 +244,43 @@ public class LidDelayPolicyTests
         // into another.
         Assert.Equal(scheme, loaded.LidDelaySavedScheme);
         Assert.True(loaded.HasSavedLidAction);
+    }
+
+    [Fact]
+    public void DischargeTargets_AreOrdinarySettingsJson()
+    {
+        // Declared and stored exactly as the keep-awake presets are: a list on AppSettings, seeded in
+        // its initialiser and persisted with the rest of the file, not a store of their own.
+        var settings = new AppSettings
+        {
+            LidDischargeEnabled       = true,
+            LidDischargeTargetPercent = 40,
+            LidDischargePresets       = [new(40, "Storage"), new(60)],
+        };
+        var loaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.LidDischargeEnabled);
+        Assert.Equal(40, loaded.LidDischargeTargetPercent);
+        Assert.Equal(2, loaded.LidDischargePresets.Count);
+        Assert.Equal(new LidDischargeTarget(40, "Storage"), loaded.LidDischargePresets[0]);
+        Assert.Equal(new LidDischargeTarget(60), loaded.LidDischargePresets[1]);
+    }
+
+    [Fact]
+    public void DischargeTargets_AreSeededWithDefaults()
+    {
+        // A settings file written before the feature existed still opens the page on a usable list.
+        var seeded = new AppSettings().LidDischargePresets;
+        Assert.NotEmpty(seeded);
+        Assert.All(seeded, t => Assert.InRange(t.Percent, LidDischargeWatch.MinPercent, LidDischargeWatch.MaxPercent));
+    }
+
+    [Fact]
+    public void DischargeTarget_IsOffByDefault()
+    {
+        // On by default would change what a lid close does on every machine that upgrades.
+        Assert.False(new AppSettings().LidDischargeEnabled);
     }
 
     [Fact]

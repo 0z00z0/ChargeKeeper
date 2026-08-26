@@ -597,6 +597,10 @@ public partial class App : Application
                 _lastBatteryStatus = report.Status;
             }
 
+            // Outside the lock: an outstanding lid-close discharge target can end here, and ending it
+            // dispatches the suspend.
+            LidDelayService.OnBatteryReport(pct, report.Status == BatteryStatus.Charging);
+
             // Outside the lock for the same reason the toasts are: the log write is file I/O.
             if (powerSourceEdge is { } onAc)
                 PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",

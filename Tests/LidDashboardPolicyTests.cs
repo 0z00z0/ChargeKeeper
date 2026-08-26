@@ -87,7 +87,8 @@ public class LidDashboardPolicyTests
     [Fact]
     public void Describe_On_NamesTheDelay()
     {
-        Assert.Equal("On — sleeps 10m after the lid closes", LidDashboardPolicy.Describe(enabled: true, 10));
+        Assert.Equal("On — sleeps 10m after the lid closes",
+            LidDashboardPolicy.Describe(enabled: true, 10, dischargeEnabled: false, targetPercent: 50));
     }
 
     [Fact]
@@ -95,13 +96,39 @@ public class LidDashboardPolicyTests
     {
         // Off is not "nothing happens" — Windows handles the lid again, as the sections beside this
         // one also spell out.
-        Assert.Equal("Off — the Windows lid setting applies", LidDashboardPolicy.Describe(enabled: false, 10));
+        Assert.Equal("Off — the Windows lid setting applies",
+            LidDashboardPolicy.Describe(enabled: false, 10, dischargeEnabled: false, targetPercent: 50));
     }
 
     [Fact]
     public void Describe_ADelayOutsideTheAllowedRange_ReadsAsTheDelayThatWillActuallyRun()
     {
-        Assert.Equal("On — sleeps 1m after the lid closes", LidDashboardPolicy.Describe(enabled: true, 0));
+        Assert.Equal("On — sleeps 1m after the lid closes",
+            LidDashboardPolicy.Describe(enabled: true, 0, dischargeEnabled: false, targetPercent: 50));
+    }
+
+    [Fact]
+    public void Describe_OnWithADischargeTarget_NamesBothConditions()
+    {
+        // The wait becomes the earliest the machine may sleep rather than when it does, so a line
+        // promising the clock alone would be wrong while the battery sits above the target.
+        Assert.Equal("On — sleeps 10m after the lid closes, once the battery is down to 40 %",
+            LidDashboardPolicy.Describe(enabled: true, 10, dischargeEnabled: true, targetPercent: 40));
+    }
+
+    [Fact]
+    public void Describe_ATargetOutsideTheAllowedRange_ReadsAsTheTargetThatWillActuallyApply()
+    {
+        Assert.Equal("On — sleeps 10m after the lid closes, once the battery is down to 95 %",
+            LidDashboardPolicy.Describe(enabled: true, 10, dischargeEnabled: true, targetPercent: 100));
+    }
+
+    [Fact]
+    public void Describe_OffWithADischargeTarget_StillNamesTheWindowsSetting()
+    {
+        // With the delay off the app has handed the lid back to Windows, target or no target.
+        Assert.Equal("Off — the Windows lid setting applies",
+            LidDashboardPolicy.Describe(enabled: false, 10, dischargeEnabled: true, targetPercent: 40));
     }
 
     // ActiveChip
