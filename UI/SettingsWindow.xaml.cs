@@ -54,6 +54,7 @@ internal sealed partial class SettingsWindow : Window
         // window and calls Activate() once the ctor returns, so a throw here leaves an orphaned,
         // never-shown window and every later "Settings…" click leaks another.
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
+        SafeInit("AttachBrandMark", () => BrandMarkImage.Attach(BrandMark));
         // Before RefreshAllSections, which reloads the panel: an uninitialised one ignores a reload,
         // so the other order works only by accident.
         SafeInit(nameof(InitialiseMqttPanel), InitialiseMqttPanel);

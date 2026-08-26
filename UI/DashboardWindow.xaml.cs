@@ -89,6 +89,9 @@ public sealed partial class DashboardWindow : Window
         ConfigureThresholdRange();
         ConfigureWindowChrome();
 
+        // The header mark is drawn at its own frame size rather than resampled from one asset.
+        BrandMarkImage.Attach(BrandMark);
+
         // Track arc never changes — build it once here instead of every refresh tick.
         GaugeTrack.Data = BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
 
