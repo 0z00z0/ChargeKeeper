@@ -121,8 +121,10 @@ public sealed partial class DashboardWindow : Window
         ChargeControlService.StateChanged  += OnExternalStateChanged;
         TravelOverrideService.StateChanged += OnExternalStateChanged;
 
-        // Keep Awake has its own RPC-free reconcile; neither event above covers it.
+        // Keep Awake and Lid close each have their own RPC-free reconcile; neither event above covers
+        // them. The lid event carries the feature standing itself down after a lid close reached sleep.
         KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+        LidDelayService.StateChanged  += OnLidDelayStateChanged;
 
         // The panel's width is unknown when the buttons are built, and changes with the monitor's
         // DPI; the column count is recomputed from whatever it turns out to be.
@@ -140,6 +142,7 @@ public sealed partial class DashboardWindow : Window
             ChargeControlService.StateChanged  -= OnExternalStateChanged;
             TravelOverrideService.StateChanged -= OnExternalStateChanged;
             KeepAwakeService.StateChanged      -= OnKeepAwakeStateChanged;
+            LidDelayService.StateChanged       -= OnLidDelayStateChanged;
         };
     }
 
@@ -154,6 +157,10 @@ public sealed partial class DashboardWindow : Window
 
     /// <summary>A keep-awake session started, ended or expired. Reconciles unconditionally — no vendor RPC.</summary>
     private void OnKeepAwakeStateChanged() => RunOnUi(ApplyKeepAwakeBadge);
+
+    /// <summary>The lid-close delay was switched on or off, here or anywhere else. Reconciles
+    /// unconditionally — no vendor RPC.</summary>
+    private void OnLidDelayStateChanged() => RunOnUi(ApplyLidBadge);
 
     /// <summary>
     /// Destroys the window after a long idle spell rather than holding its XAML tree and composition

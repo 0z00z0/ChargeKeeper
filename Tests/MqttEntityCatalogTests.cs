@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the forty-two entity ids, the component each is announced
+/// The published surface as a declaration: the forty-three entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -89,6 +89,8 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:timer-outline", Unit: "min"),
         new(MqttEntityCatalog.LidDelayLock, "switch", "Lid-close lock",
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:lock"),
+        new(MqttEntityCatalog.LidDelayOffAfterSleep, "switch", "Lid-close off after sleeping",
+            MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:numeric-1-box-outline"),
         new(MqttEntityCatalog.SmartStandby, "switch", "Smart Standby",
             MqttPublishGroups.LidClose, MqttEntityCategory.Primary, Icon: "mdi:sleep"),
 
@@ -145,13 +147,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFortyTwoEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheFortyThreeEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsFifteenSensorsTenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsFifteenSensorsElevenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -160,7 +162,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 15, ["switch"] = 10, ["number"] = 8,
+                ["sensor"] = 15, ["switch"] = 11, ["number"] = 8,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
@@ -293,7 +295,7 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.ChargeToFull, MqttEntityCatalog.Preset,
             MqttEntityCatalog.KeepAwake, MqttEntityCatalog.KeepAwakeFor, MqttEntityCatalog.KeepAwakeDisplayOn,
             MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayMinutes, MqttEntityCatalog.LidDelayLock,
-            MqttEntityCatalog.SmartStandby,
+            MqttEntityCatalog.LidDelayOffAfterSleep, MqttEntityCatalog.SmartStandby,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
             MqttEntityCatalog.DrainWarning, MqttEntityCatalog.DrainRate,
@@ -463,7 +465,8 @@ public class MqttEntityCatalogTests
         // declared after the document was adopted never had one, so it is absent here by design.
         Assert.Equal(
             MqttTestBed.Declared().All
-                .Where(e => e.EntityId is not (MqttEntityCatalog.LowPowerMode or MqttEntityCatalog.PowerState))
+                .Where(e => e.EntityId is not (MqttEntityCatalog.LowPowerMode or MqttEntityCatalog.PowerState
+                                               or MqttEntityCatalog.LidDelayOffAfterSleep))
                 .Select(e => (e.Platform, e.EntityId)).Order(),
             MqttEntityCatalog.Migrating
                 .Select(m => (m.Component, m.EntityId)).Order());

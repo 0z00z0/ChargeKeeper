@@ -27,8 +27,8 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: forty-two entities, their groups, their capability gates and the
-/// domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
+/// ChargeKeeper's published surface: forty-three entities, their groups, their capability gates and
+/// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
 /// <remarks>An entity id is the <c>unique_id</c> stem after the device id, so it carries the entity
@@ -64,10 +64,11 @@ internal static class MqttEntityCatalog
     public const string KeepAwakeExpires   = "keep_awake_expires";
     public const string KeepAwakeDisplayOn = "keep_awake_display_on";
 
-    public const string LidDelay        = "lid_delay";
-    public const string LidDelayMinutes = "lid_delay_minutes";
-    public const string LidDelayLock    = "lid_delay_lock";
-    public const string SmartStandby    = "smart_standby";
+    public const string LidDelay              = "lid_delay";
+    public const string LidDelayMinutes       = "lid_delay_minutes";
+    public const string LidDelayLock          = "lid_delay_lock";
+    public const string LidDelayOffAfterSleep = "lid_delay_off_after_sleep";
+    public const string SmartStandby          = "smart_standby";
 
     public const string LowBatteryWarning  = "low_battery_warning";
     public const string LowBatteryLevel    = "low_battery_level";
@@ -411,6 +412,16 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayLockOnClose,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayLock(on)),
+            },
+            new MqttSwitch
+            {
+                EntityId = LidDelayOffAfterSleep, Name = "Lid-close off after sleeping",
+                Group = MqttPublishGroups.LidClose,
+                Category = MqttEntityCategory.Config, Icon = "mdi:numeric-1-box-outline",
+                Debounce = MqttConnection.ReflectDebounce,
+                Include = () => s.Capabilities().LidClose,
+                Read = () => surface()?.LidDelayOffAfterSleep,
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayOffAfterSleep(on)),
             },
             new MqttSwitch
             {

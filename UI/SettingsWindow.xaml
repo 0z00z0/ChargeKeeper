@@ -335,6 +335,17 @@
                         <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
                     </controls:SettingsCard>
 
+                    <!-- Disabled rather than hidden while the delay is off, like the two switches
+                         below it: with no delay there is no lid close for it to act on. -->
+                    <controls:SettingsCard Header="Switch off once the computer has slept"
+                                            Description="Turns the delay above off again after one lid close has run its course.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="switching the delay off after it has held"
+                                            Info="Only a lid close that ended in sleep counts. Opening the lid before the computer sleeps, or a keep-awake session suppressing the sleep, leaves the delay on for the next lid close."/>
+                            <ToggleSwitch x:Name="LidOffAfterSleepToggle" OnContent="On" OffContent="Off" Toggled="OnLidOffAfterSleepToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <local:SettingsSectionHeader Heading="Battery target" Subject="the battery target"
                                                  Info="With the lid shut the computer stays awake until the battery has drained to the target, and only then sleeps. The wait above becomes the earliest it may sleep rather than when it does. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached."/>
 

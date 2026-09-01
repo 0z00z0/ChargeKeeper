@@ -67,6 +67,7 @@ internal sealed class FakeSettingsActions : ISettingsActions
     public void SetLidDelay(bool on) => Calls.Add($"LidDelay={on}");
     public void SetLidDelayMinutes(int minutes) => Calls.Add($"LidDelayMinutes={minutes}");
     public void SetLidDelayLock(bool on) => Calls.Add($"LidDelayLock={on}");
+    public void SetLidDelayOffAfterSleep(bool on) => Calls.Add($"LidDelayOffAfterSleep={on}");
     public void SetSmartStandby(bool on) => Calls.Add($"SmartStandby={on}");
     public void SetLowBatteryWarning(bool on) => Calls.Add($"LowBatteryWarning={on}");
     public void SetLowBatteryLevel(int percent) => Calls.Add($"LowBatteryLevel={percent}");
@@ -100,6 +101,7 @@ internal static class MqttTestBed
         bool travelOverride = false, bool keepAwake = false, string keepAwakeFor = "1 h",
         DateTimeOffset? keepAwakeExpires = null, bool keepAwakeDisplayOn = false,
         bool lidDelay = true, int lidDelayMinutes = 10, bool lidDelayLock = true,
+        bool lidDelayOffAfterSleep = false,
         bool smartStandby = false, bool lowBatteryWarning = true, int lowBatteryLevel = 20,
         bool highBatteryWarning = false, int highBatteryLevel = 90, bool drainWarning = true,
         int drainRate = 3, bool networkProfiles = true, string? unknownNetworkPreset = null,
@@ -108,7 +110,8 @@ internal static class MqttTestBed
         string appVersion = "1.17.0", int startupDelay = 5,
         TrayIconMode iconMode = TrayIconMode.Arc, int downtimeGap = 15) =>
         new(travelOverride, keepAwake, keepAwakeFor, keepAwakeExpires, keepAwakeDisplayOn,
-            lidDelay, lidDelayMinutes, lidDelayLock, smartStandby, lowBatteryWarning, lowBatteryLevel,
+            lidDelay, lidDelayMinutes, lidDelayLock, lidDelayOffAfterSleep,
+            smartStandby, lowBatteryWarning, lowBatteryLevel,
             highBatteryWarning, highBatteryLevel, drainWarning, drainRate, networkProfiles,
             unknownNetworkPreset ?? PresetEditValidator.UnknownNetworkSentinel,
             networkAlias, networkIp, networkAdapter, matchedProfile, appVersion, startupDelay,

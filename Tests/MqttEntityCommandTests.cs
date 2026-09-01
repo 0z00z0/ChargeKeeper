@@ -56,6 +56,7 @@ public class MqttEntityCommandTests
             (MqttEntityCatalog.KeepAwakeDisplayOn,  "KeepAwakeDisplayOn=True"),
             (MqttEntityCatalog.LidDelay,            "LidDelay=True"),
             (MqttEntityCatalog.LidDelayLock,        "LidDelayLock=True"),
+            (MqttEntityCatalog.LidDelayOffAfterSleep, "LidDelayOffAfterSleep=True"),
             (MqttEntityCatalog.SmartStandby,        "SmartStandby=True"),
             (MqttEntityCatalog.LowBatteryWarning,   "LowBatteryWarning=True"),
             (MqttEntityCatalog.HighBatteryWarning,  "HighBatteryWarning=True"),

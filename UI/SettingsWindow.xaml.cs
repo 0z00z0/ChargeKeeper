@@ -282,6 +282,7 @@ internal sealed partial class SettingsWindow : Window
         // Static events, instance handlers: without these the closed window stays reachable from
         // the services for the process's life and keeps touching a torn-down UI tree.
         KeepAwakeService.StateChanged          -= OnKeepAwakeStateChanged;
+        LidDelayService.StateChanged           -= OnLidDelayStateChanged;
         NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
@@ -1239,6 +1240,7 @@ internal sealed partial class SettingsWindow : Window
     private void WireKeepAwakeHandlers()
     {
         KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
+        LidDelayService.StateChanged  += OnLidDelayStateChanged;
         _keepAwakeTicker.Tick += (_, _) => RefreshKeepAwakeState();
 
         // Echo the parser's reading as the user types, so "1h30" is confirmed as 1 h 30 m before
@@ -1259,13 +1261,12 @@ internal sealed partial class SettingsWindow : Window
         WithUpdatingSuppressed(() =>
         {
             KeepAwakeDisplayToggle.IsOn = s.KeepAwakeDisplayOn;
-            LidDelayToggle.IsOn         = s.LidDelayEnabled;
             LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
             LidLockToggle.IsOn          = s.LidDelayLockOnClose;
-            LidLockToggle.IsEnabled     = s.LidDelayEnabled;
             LidDischargeToggle.IsOn     = s.LidDischargeEnabled;
-            LidDischargeToggle.IsEnabled = s.LidDelayEnabled;
+            LidOffAfterSleepToggle.IsOn = s.LidDelayOffAfterSleep;
         });
+        RefreshLidDelayState();
         RefreshKeepAwakeState();
         RefreshKeepAwakeCustomEcho();
         RebuildKeepAwakeChips();
@@ -1306,20 +1307,39 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.KeepAwakeDisplayOn = on);
     }
 
+    // Raised off the UI thread by LidDelayService, including when the feature stands itself down
+    // after a lid close reached sleep — marshal before touching anything.
+    private void OnLidDelayStateChanged() => RunOnUi(RefreshLidDelayState);
+
+    /// <summary>Puts the switch and its three dependants where the setting is. Driven by the page
+    /// load, by the switch itself, and by <see cref="LidDelayService.StateChanged"/>, so a feature
+    /// that switches itself off shows here without the page being reopened.</summary>
+    private void RefreshLidDelayState()
+    {
+        // The setting rather than the toggle: an enable the power scheme refused never reached it,
+        // and the dependants follow what the feature actually is.
+        bool on = SettingsService.Current.LidDelayEnabled;
+        WithUpdatingSuppressed(() => LidDelayToggle.IsOn = on);
+        LidLockToggle.IsEnabled          = on;
+        LidDischargeToggle.IsEnabled     = on;
+        LidOffAfterSleepToggle.IsEnabled = on;
+    }
+
     private void OnLidDelayToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
         // LidDelayService owns the setting and the power-scheme write together, so the two cannot
-        // drift. Only enabling can fail visibly; the toggle then goes back rather than showing an
-        // on state the machine will not honour.
-        bool wanted = LidDelayToggle.IsOn;
-        if (!LidDelayService.SetEnabled(wanted) && wanted)
-            WithUpdatingSuppressed(() => LidDelayToggle.IsOn = false);
+        // drift. Only enabling can fail visibly; RefreshLidDelayState then puts the toggle back
+        // rather than showing an on state the machine will not honour.
+        LidDelayService.SetEnabled(LidDelayToggle.IsOn);
+        RefreshLidDelayState();
+    }
 
-        // Read back from the toggle rather than from "wanted": an enable that was refused above has
-        // already put it back off, and the two dependent switches follow what the feature actually is.
-        LidLockToggle.IsEnabled      = LidDelayToggle.IsOn;
-        LidDischargeToggle.IsEnabled = LidDelayToggle.IsOn;
+    private void OnLidOffAfterSleepToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = LidOffAfterSleepToggle.IsOn;
+        SettingsService.Update(s => s.LidDelayOffAfterSleep = on);
     }
 
     private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)

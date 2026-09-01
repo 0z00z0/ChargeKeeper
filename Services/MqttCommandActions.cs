@@ -35,6 +35,7 @@ internal interface ISettingsActions
     void SetLidDelay(bool on);
     void SetLidDelayMinutes(int minutes);
     void SetLidDelayLock(bool on);
+    void SetLidDelayOffAfterSleep(bool on);
     void SetSmartStandby(bool on);
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
@@ -169,6 +170,10 @@ internal sealed class SettingsActions : ISettingsActions
 
     public void SetLidDelayMinutes(int minutes) => Write(s => s.LidDelayMinutes = minutes);
     public void SetLidDelayLock(bool on)        => Write(s => s.LidDelayLockOnClose = on);
+
+    // A plain settings write: it changes what the end of the next lid close does, and nothing about
+    // the power scheme or a hold in flight.
+    public void SetLidDelayOffAfterSleep(bool on) => Write(s => s.LidDelayOffAfterSleep = on);
 
     public void SetSmartStandby(bool on)
     {
