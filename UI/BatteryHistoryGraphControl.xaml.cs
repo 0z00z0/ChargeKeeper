@@ -72,6 +72,10 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private IReadOnlyList<double>?        _hoverXs;
     private Func<double, double>?         _hoverProjectYPct;
 
+    // The charge line's fitted runs, so the hover dot can sit on the drawn curve. The line is fitted
+    // through one knot per level, not through every sample, so a raw reading is not on it.
+    private IReadOnlyList<RunFit>? _hoverCurves;
+
     // Reused across pointer moves; Render()'s Children.Clear() detaches them, hence _crosshairAttached.
     private Microsoft.UI.Xaml.Shapes.Line?    _crosshairLine;
     private Microsoft.UI.Xaml.Shapes.Ellipse? _crosshairDot;
@@ -156,7 +160,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         if (nearest == _lastHoverIndex && _crosshairAttached) return;
         _lastHoverIndex = nearest;
 
-        DrawCrosshair(samples[nearest], xs[nearest], projectY(samples[nearest].Soc));
+        // Dot on the drawn curve; the pill still reports the reading, which the curve need not pass
+        // through. Falling back to the reading covers a hover inside a collapsed gap, where the
+        // curve is broken and there is nothing to sit on.
+        double dotX = xs[nearest];
+        double dotY = CurveYAt(dotX) ?? projectY(samples[nearest].Soc);
+        DrawCrosshair(samples[nearest], dotX, dotY);
     }
 
     private void OnCanvasPointerExited(object sender, PointerRoutedEventArgs e) => ClearCrosshair();
@@ -327,6 +336,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             // otherwise trace a now-stale sample set against a blank canvas.
             _hoverSamples = null;
             _hoverXs      = null;
+            _hoverCurves  = null;
             ClearCrosshair();
             return;
         }
@@ -334,7 +344,14 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         // Canvas size is known once the element has been measured; guard against first render.
         double w = SparklineCanvas.ActualWidth;
         double h = SparklineCanvas.ActualHeight;
-        if (w < 4 || h < 4) { _hoverSamples = null; _hoverXs = null; ClearCrosshair(); return; }
+        if (w < 4 || h < 4)
+        {
+            _hoverSamples = null;
+            _hoverXs      = null;
+            _hoverCurves  = null;
+            ClearCrosshair();
+            return;
+        }
 
         // Downsample to ~one point per horizontal pixel. Gap detection runs against the ORIGINAL
         // timestamps: after reduction, ordinary stride spacing is indistinguishable from downtime.
@@ -388,9 +405,11 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         // SoC — the headline series. Drawn before limit/power so those sit on top where they cross.
         // The line takes the setting, per run because each run is its own path with its own bounding
         // box; the fade beneath it keeps the accent whatever the line does.
-        var socRuns = CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct);
+        var socRuns  = ThinToLevels(CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct), samples);
+        var socFits  = socRuns.Select(run => FitRun(run.Points)).ToList();
+        _hoverCurves = socFits;
         DrawSocFillAndLine(
-            socRuns,
+            socRuns, socFits,
             run => BuildSocLineBrush(lineMode, samples, xs, run.Indices),
             AppColors.HistorySocFillBrush, plotBottomY: h - pad, drawShading);
 
@@ -407,7 +426,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
                 if (gapBefore.Contains(i))
                     DrawGapBreak((xs[i - 1] + xs[i]) / 2, samples[i].AtUtc - samples[i - 1].AtUtc, w, h, pad);
 
-        DrawSparklineMarkers(samples, w, xs, ProjectYPct);
+        // Marked on the knots, not on every sample: a marker placed at a dropped sample's x would
+        // float off the line. Thinning keeps every distinct level, so the extremes are unchanged.
+        DrawSparklineMarkers(samples, socRuns.SelectMany(run => run.Indices).ToList(), w, xs, ProjectYPct);
 
         if (ShowStressHeatmap)
             DrawStressHeatmap(samples, xs, w);
@@ -581,7 +602,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             else
             {
                 var geo = new PathGeometry();
-                geo.Figures.Add(BuildMonotoneFigure(pts, MonotoneTangentsFor(pts)));
+                geo.Figures.Add(BuildMonotoneFigure(pts, FitRun(pts).Tangents));
                 shape = new Microsoft.UI.Xaml.Shapes.Path { Data = geo };
             }
 
@@ -623,55 +644,58 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return figure;
     }
 
-    /// <summary>Fritsch-Carlson monotone cubic Hermite tangents for (xs[i], ys[i]). The final clamping
-    /// pass caps every tangent so no segment can rise or fall past its own two endpoints.</summary>
-    private static double[] MonotoneTangents(IReadOnlyList<double> xs, IReadOnlyList<double> ys)
-    {
-        int n = xs.Count;
-        var m = new double[n];
-        if (n < 2) return m;
+    /// <summary>One run's knot coordinates and its monotone tangents, kept together so the hover dot
+    /// can be evaluated on the same fit the line was drawn from.</summary>
+    private readonly record struct RunFit(double[] Xs, double[] Ys, double[] Tangents);
 
-        var d = new double[n - 1];
-        for (int k = 0; k < n - 1; k++)
-        {
-            double dx = xs[k + 1] - xs[k];
-            d[k] = dx > 0 ? (ys[k + 1] - ys[k]) / dx : 0;
-        }
-
-        static int Sign(double v) => v > 0 ? 1 : v < 0 ? -1 : 0;
-
-        m[0]     = d[0];
-        m[n - 1] = d[n - 2];
-        for (int k = 1; k < n - 1; k++)
-        {
-            bool sameSign = d[k - 1] != 0 && Sign(d[k - 1]) == Sign(d[k]);
-            m[k] = sameSign ? (d[k - 1] + d[k]) / 2 : 0;
-        }
-
-        for (int k = 0; k < n - 1; k++)
-        {
-            if (d[k] == 0) { m[k] = 0; m[k + 1] = 0; continue; }
-            double alpha = m[k] / d[k];
-            double beta  = m[k + 1] / d[k];
-            if (alpha < 0) m[k] = 0;
-            if (beta  < 0) m[k + 1] = 0;
-            double s = alpha * alpha + beta * beta;
-            if (s > 9)
-            {
-                double tau = 3 / Math.Sqrt(s);
-                m[k]     = tau * alpha * d[k];
-                m[k + 1] = tau * beta  * d[k];
-            }
-        }
-        return m;
-    }
-
-    private static double[] MonotoneTangentsFor(IReadOnlyList<Point> pts)
+    private static RunFit FitRun(IReadOnlyList<Point> pts)
     {
         var xs = new double[pts.Count];
         var ys = new double[pts.Count];
         for (int i = 0; i < pts.Count; i++) { xs[i] = pts[i].X; ys[i] = pts[i].Y; }
-        return MonotoneTangents(xs, ys);
+        return new RunFit(xs, ys, MonotoneCubic.Tangents(xs, ys));
+    }
+
+    /// <summary>The drawn charge line's y at canvas <paramref name="x"/>, or null where no run covers
+    /// it — inside a collapsed gap, or beyond the first and last knot.</summary>
+    private double? CurveYAt(double x)
+    {
+        if (_hoverCurves is not { } fits) return null;
+        foreach (var fit in fits)
+        {
+            if (fit.Xs.Length < 2) continue;
+            if (x < fit.Xs[0] || x > fit.Xs[^1]) continue;
+            return MonotoneCubic.Evaluate(fit.Xs, fit.Ys, fit.Tangents, x);
+        }
+        return null;
+    }
+
+    /// <summary>Reduces each charge-line run to one knot per level, giving the fit room to spread a
+    /// single-percent step across the time that level held. Both sides of a power-state change are
+    /// held back: <see cref="GraphColouring"/> keys the line's colour on the state as well as the
+    /// level, and a state that flips mid-plateau would otherwise be thinned away.</summary>
+    private static List<SeriesRun> ThinToLevels(
+        IReadOnlyList<SeriesRun> runs, IReadOnlyList<BatterySample> samples)
+    {
+        var thinned = new List<SeriesRun>(runs.Count);
+        foreach (var run in runs)
+        {
+            var ys = new double[run.Points.Count];
+            for (int i = 0; i < ys.Length; i++) ys[i] = run.Points[i].Y;
+
+            bool StateChangesAt(int i) =>
+                i > 0 && samples[run.Indices[i]].State != samples[run.Indices[i - 1]].State;
+
+            // Both sides of a change, so the gradient keeps a stop in each of the two colours.
+            var keep = PlateauKnots.Select(
+                ys, i => StateChangesAt(i) || (i + 1 < ys.Length && StateChangesAt(i + 1)));
+
+            var points  = new List<Point>(keep.Length);
+            var indices = new List<int>(keep.Length);
+            foreach (int k in keep) { points.Add(run.Points[k]); indices.Add(run.Indices[k]); }
+            thinned.Add(new SeriesRun(points, indices));
+        }
+        return thinned;
     }
 
     /// <summary>Draws the SoC series as a gradient fill plus the line on top, from one runs+tangents
@@ -680,15 +704,16 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     /// <paramref name="lineBrushFor"/> is asked per run: a relative-mapped gradient is bound to the
     /// path it paints, so runs cannot share one.</summary>
     private void DrawSocFillAndLine(
-        IReadOnlyList<SeriesRun> runs, Func<SeriesRun, Brush> lineBrushFor, LinearGradientBrush fillBrush,
-        double plotBottomY, bool drawShading)
+        IReadOnlyList<SeriesRun> runs, IReadOnlyList<RunFit> fits, Func<SeriesRun, Brush> lineBrushFor,
+        LinearGradientBrush fillBrush, double plotBottomY, bool drawShading)
     {
-        foreach (var run in runs)
+        for (int r = 0; r < runs.Count; r++)
         {
+            var run = runs[r];
             var pts = run.Points;
             if (pts.Count < 2) continue; // a lone point has nothing to connect to
 
-            var m = MonotoneTangentsFor(pts);
+            var m = fits[r].Tangents;
 
             if (drawShading)
             {
@@ -781,13 +806,17 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         return $"{(int)Math.Round(gap.TotalDays / 7, MidpointRounding.AwayFromZero)}w";
     }
 
-    /// <summary>Marks the highest and lowest points with a dot and a percentage pill; no-op when flat.</summary>
+    /// <summary>Marks the highest and lowest points with a dot and a percentage pill; no-op when flat.
+    /// <paramref name="candidates"/> are the charge line's knots, so a marker lands on the drawn
+    /// curve; thinning keeps every distinct level, so the extremes it finds are the data's own.</summary>
     private void DrawSparklineMarkers(
-        IReadOnlyList<BatterySample> samples, double canvasWidth,
+        IReadOnlyList<BatterySample> samples, IReadOnlyList<int> candidates, double canvasWidth,
         IReadOnlyList<double> xs, Func<double, double> projectY)
     {
-        int maxPct = int.MinValue, minPct = int.MaxValue, maxIdx = 0, minIdx = 0;
-        for (int i = 0; i < samples.Count; i++)
+        if (candidates.Count == 0) return;
+
+        int maxPct = int.MinValue, minPct = int.MaxValue, maxIdx = candidates[0], minIdx = candidates[0];
+        foreach (int i in candidates)
         {
             if (samples[i].Soc > maxPct) { maxPct = samples[i].Soc; maxIdx = i; }
             if (samples[i].Soc < minPct) { minPct = samples[i].Soc; minIdx = i; }
