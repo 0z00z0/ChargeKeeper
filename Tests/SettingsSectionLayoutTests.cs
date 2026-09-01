@@ -97,6 +97,63 @@ public class SettingsSectionLayoutTests
             Assert.Contains($"x:Name=\"{name}\"", page, StringComparison.Ordinal);
     }
 
+    /// <summary>The markup of the SettingsCard whose content declares <paramref name="toggleName"/>.</summary>
+    private static string CardHolding(string panelName, string toggleName)
+    {
+        string page   = Page(panelName);
+        int    toggle = page.IndexOf($"x:Name=\"{toggleName}\"", StringComparison.Ordinal);
+        Assert.True(toggle >= 0, $"{toggleName} is no longer declared on {panelName}.");
+
+        int start = page.LastIndexOf("<controls:SettingsCard", toggle, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{toggleName} does not sit inside a SettingsCard.");
+
+        int end = page.IndexOf("</controls:SettingsCard>", start, StringComparison.Ordinal);
+        Assert.True(end > start, $"the SettingsCard holding {toggleName} is not closed.");
+        return page[start..end];
+    }
+
+    private static string DescriptionOf(string panelName, string toggleName)
+    {
+        var match = Regex.Match(CardHolding(panelName, toggleName), @"Description=""(?<text>[^""]*)""");
+        Assert.True(match.Success, $"the card holding {toggleName} carries no Description.");
+        return match.Groups["text"].Value;
+    }
+
+    // Lid close ends its wait on whichever condition arrives first. Both group switches once
+    // described their value as "one of the conditions for sleeping", which reads as a conjunction —
+    // the behaviour the redesign removed — and contradicted the master switch's own bubble one level
+    // up. The wording is the only place a user learns the rule, so it is asserted rather than left to
+    // review.
+
+    [Theory]
+    [InlineData("LidDelayTimeToggle",  "battery target is reached first")]
+    [InlineData("LidDischargeToggle",  "delay runs out first")]
+    public void EachLidClosePresetGroupSwitchNamesTheRaceItLosesTo(string toggle, string race)
+    {
+        string description = DescriptionOf("LidClosePanel", toggle);
+
+        Assert.Contains(race, description, StringComparison.Ordinal);
+        Assert.DoesNotContain("one of the conditions", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>No user-visible string anywhere may describe a lid-close condition as one of several
+    /// that have to hold. The phrasing survived one sweep already by sitting on a second card.</summary>
+    [Fact]
+    public void NoLidCloseStringDescribesItsConditionsAsAConjunction() =>
+        Assert.DoesNotContain("one of the conditions for", SettingsMarkup(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Every switch in the Lid close top block carries an info bubble. Each of the three
+    /// turns on behaviour whose reason does not fit the one-line description — the master switch
+    /// changes a Windows setting, switching off after sleeping counts only sleeps, and locking exists
+    /// because handling the lid removes the sign-in prompt. A row without one strands its reason in a
+    /// source comment no user reads.</summary>
+    [Theory]
+    [InlineData("LidDelayToggle")]
+    [InlineData("LidOffAfterSleepToggle")]
+    [InlineData("LidLockToggle")]
+    public void EveryLidCloseTopBlockSwitchCarriesAnInfoBubble(string toggle) =>
+        Assert.Contains("<local:InfoIcon", CardHolding("LidClosePanel", toggle), StringComparison.Ordinal);
+
     [Fact]
     public void TheSectionStylesAreDrawnFromOnePlaceOnly()
     {

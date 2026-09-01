@@ -347,14 +347,18 @@
                          to. This puts it back. -->
                     <controls:SettingsCard Header="Lock the computer when the lid closes"
                                             Description="Locks the computer as soon as the lid closes.">
-                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="locking at lid close"
+                                            Info="Handling the lid parks the Windows lid-close action on “Do nothing”, which also removes the sign-in prompt a lid close normally leads to. This puts it back. The lock happens as the lid closes, not when the computer finally sleeps, so the wait runs behind a locked screen. It applies only while lid handling is on, and is on by default for that reason."/>
+                            <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
+                        </StackPanel>
                     </controls:SettingsCard>
 
                     <local:SettingsSectionHeader Heading="Sleep after a time" Subject="the sleep delay"
-                                                 Info="The computer stays awake with the lid shut for the delay in use below, then sleeps. Opening the lid before it is up cancels the wait."/>
+                                                 Info="The computer stays awake with the lid shut for the delay in use below, then sleeps. Opening the lid before it is up cancels the wait. With a battery target set as well, whichever of the two arrives first ends the wait, so the delay is an upper bound rather than a promise."/>
 
                     <controls:SettingsCard Header="Sleep once a delay has run out"
-                                            Description="Uses the delay marked in use below as one of the conditions for sleeping.">
+                                            Description="Sleeps when the delay marked in use below runs out, unless the battery target is reached first.">
                         <ToggleSwitch x:Name="LidDelayTimeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayTimeToggled"/>
                     </controls:SettingsCard>
 
@@ -363,10 +367,10 @@
                             Click="OnAddLidDelayPreset" Margin="0,4,0,12"/>
 
                     <local:SettingsSectionHeader Heading="Sleep at a battery level" Subject="the battery target"
-                                                 Info="The computer stays awake with the lid shut until the battery has drained to the target in use below, then sleeps. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached."/>
+                                                 Info="The computer stays awake with the lid shut until the battery has drained to the target in use below, then sleeps. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached. With a delay set as well, whichever of the two arrives first ends the wait, so the computer can sleep above the target."/>
 
                     <controls:SettingsCard Header="Sleep once the battery reaches a level"
-                                            Description="Uses the target marked in use below as one of the conditions for sleeping.">
+                                            Description="Sleeps when the battery reaches the target marked in use below, unless the delay runs out first.">
                         <ToggleSwitch x:Name="LidDischargeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDischargeToggled"/>
                     </controls:SettingsCard>
 
