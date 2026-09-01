@@ -42,4 +42,46 @@ internal static class GraphColouring
     /// deliberately not read: the two controls are independent, and the fade keeps the accent
     /// whatever the line is coloured by.</summary>
     internal static bool ShouldShade(GraphLineColouring mode, bool shadingEnabled) => shadingEnabled;
+
+    /// <summary>One gradient stop along the charge line, renderer-free: an offset in 0–1 and a packed
+    /// 0xAARRGGBB colour.</summary>
+    internal readonly record struct LineStop(double Offset, uint Argb);
+
+    /// <summary>
+    /// The gradient stops for one continuous run of the charge line. <paramref name="indices"/> names
+    /// the run's points within <paramref name="samples"/> and <paramref name="xs"/>, in order.
+    /// Offsets are normalised across the run's own x extent, because the brush paints that run's path
+    /// and is mapped to the path's bounding box: normalising against the whole plot instead leaves
+    /// the gradient spanning far more than the stroke, which draws the line in its first stop's
+    /// colour alone. Stops are strided to <paramref name="maxStops"/>, always closing on the run's
+    /// final point so striding cannot leave the right edge on an extrapolated colour.
+    /// </summary>
+    internal static IReadOnlyList<LineStop> LineStops(
+        GraphLineColouring mode, IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs,
+        IReadOnlyList<int> indices, uint accent, int maxStops)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        ArgumentNullException.ThrowIfNull(xs);
+        ArgumentNullException.ThrowIfNull(indices);
+        if (indices.Count == 0) return [];
+
+        double first = xs[indices[0]];
+        double span  = xs[indices[^1]] - first;
+
+        var stops = new List<LineStop>();
+        int step = Math.Max(1, indices.Count / Math.Max(1, maxStops));
+        for (int k = 0; k < indices.Count; k += step) stops.Add(StopAt(k));
+        int last = indices.Count - 1;
+        if (last % step != 0) stops.Add(StopAt(last));
+        return stops;
+
+        // A run pinned to one instant has no extent to spread across, so every stop sits at 0 and the
+        // renderer takes the last one; still a valid single-colour brush.
+        LineStop StopAt(int k)
+        {
+            int i = indices[k];
+            return new(span > 0 ? Math.Clamp((xs[i] - first) / span, 0, 1) : 0,
+                       LineColourFor(mode, samples[i].Soc, samples[i].State, accent));
+        }
+    }
 }
