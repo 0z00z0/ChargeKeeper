@@ -231,7 +231,7 @@ internal static class MqttEntityCatalog
                 // own: a pack held at a charge limit reads off and on. Read-only — the state is what
                 // the firmware is doing, and no command changes it. Derived like health is, so it is
                 // a diagnostic rather than a sixth uncategorised reading.
-                EntityId = PowerState, Name = "Power state", Group = MqttPublishGroups.BatteryStatus,
+                EntityId = PowerState, Name = "Battery power state", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:power-plug-battery",
                 Read = () => live() is { } v
                     ? Helpers.PowerStates.Label(Helpers.PowerStates.From(v.IsCharging, v.OnAc))
@@ -245,7 +245,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSensor
             {
-                EntityId = RemainingChargeTime, Name = "Remaining charge time",
+                EntityId = RemainingChargeTime, Name = "Battery remaining charge time",
                 Group = MqttPublishGroups.BatteryStatus, Category = MqttEntityCategory.Diagnostic,
                 DeviceClass = "duration", Unit = "min", Icon = "mdi:timer-sand",
                 Read = () => MqttPayload.Number((long?)live()?.RemainingMinutes),
@@ -258,13 +258,13 @@ internal static class MqttEntityCatalog
             },
             new MqttSensor
             {
-                EntityId = CapacityFull, Name = "Full-charge capacity", Group = MqttPublishGroups.BatteryStatus,
+                EntityId = CapacityFull, Name = "Battery full-charge capacity", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "energy_storage", Unit = "Wh",
                 Read = () => MqttPayload.Number(LiveStateBuilder.WattHours(live()?.FullMwh)),
             },
             new MqttSensor
             {
-                EntityId = CapacityDesign, Name = "Design capacity", Group = MqttPublishGroups.BatteryStatus,
+                EntityId = CapacityDesign, Name = "Battery design capacity", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "energy_storage", Unit = "Wh",
                 Read = () => MqttPayload.Number(LiveStateBuilder.WattHours(live()?.DesignMwh)),
             },
@@ -338,7 +338,7 @@ internal static class MqttEntityCatalog
             },
             new MqttBinarySensor
             {
-                EntityId = TravelOverride, Name = "Charging to full once", Group = MqttPublishGroups.SmartCharge,
+                EntityId = TravelOverride, Name = "Charge to full in progress", Group = MqttPublishGroups.SmartCharge,
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:airplane",
                 Include = () => SmartChargeGate(s, TravelOverride),
                 Read = () => surface()?.TravelOverrideActive,
@@ -405,7 +405,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = LidDelayLock, Name = "Lock on lid close", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDelayLock, Name = "Lid-close lock", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:lock",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -424,7 +424,7 @@ internal static class MqttEntityCatalog
             // ── Notifications ────────────────────────────────────────────────────────────────────
             new MqttSwitch
             {
-                EntityId = LowBatteryWarning, Name = "Low battery warning", Group = MqttPublishGroups.Notifications,
+                EntityId = LowBatteryWarning, Name = "Notify low battery", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-alert",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.LowBatteryWarning,
@@ -432,7 +432,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = LowBatteryLevel, Name = "Low battery level", Group = MqttPublishGroups.Notifications,
+                EntityId = LowBatteryLevel, Name = "Notify low battery level", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-low",
                 Min = SettingRanges.LowBatteryMin, Max = SettingRanges.LowBatteryMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -441,7 +441,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = HighBatteryWarning, Name = "High battery warning", Group = MqttPublishGroups.Notifications,
+                EntityId = HighBatteryWarning, Name = "Notify high battery", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-alert-variant",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.HighBatteryWarning,
@@ -449,7 +449,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = HighBatteryLevel, Name = "High battery level", Group = MqttPublishGroups.Notifications,
+                EntityId = HighBatteryLevel, Name = "Notify high battery level", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-high",
                 Min = SettingRanges.HighBatteryMin, Max = SettingRanges.HighBatteryMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -458,7 +458,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = DrainWarning, Name = "Standby drain warning", Group = MqttPublishGroups.Notifications,
+                EntityId = DrainWarning, Name = "Notify standby drain", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-clock",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.DrainWarning,
@@ -466,7 +466,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = DrainRate, Name = "Standby drain rate", Group = MqttPublishGroups.Notifications,
+                EntityId = DrainRate, Name = "Notify standby drain rate", Group = MqttPublishGroups.Notifications,
                 Category = MqttEntityCategory.Config, Unit = "%/h", Icon = "mdi:speedometer-slow",
                 Min = SettingRanges.DrainRateMin, Max = SettingRanges.DrainRateMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -487,7 +487,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSelect
             {
-                EntityId = UnknownNetworkPreset, Name = "Preset on an unknown network",
+                EntityId = UnknownNetworkPreset, Name = "Network fallback preset",
                 Group = MqttPublishGroups.Network, Category = MqttEntityCategory.Config,
                 Icon = "mdi:map-marker-question", Debounce = MqttConnection.ReflectDebounce,
                 // The sentinel leads, so the picker always has at least one option and "stay put"
@@ -532,13 +532,13 @@ internal static class MqttEntityCatalog
             // rather than only how a window looks.
             new MqttSensor
             {
-                EntityId = AppVersion, Name = "Version", Group = MqttPublishGroups.AppDiagnostics,
+                EntityId = AppVersion, Name = "App version", Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:tag-outline",
                 Read = () => surface()?.AppVersion,
             },
             new MqttNumber
             {
-                EntityId = StartupDelay, Name = "Startup delay", Group = MqttPublishGroups.AppDiagnostics,
+                EntityId = StartupDelay, Name = "App startup delay", Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Config, Unit = "s", Icon = "mdi:clock-start",
                 Min = SettingRanges.StartupDelayMin, Max = SettingRanges.StartupDelayMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -547,7 +547,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSelect
             {
-                EntityId = IconMode, Name = "Tray icon style", Group = MqttPublishGroups.AppDiagnostics,
+                EntityId = IconMode, Name = "App tray icon style", Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Config, Icon = "mdi:image-outline",
                 Debounce = MqttConnection.ReflectDebounce,
                 Options = () => IconModeOptions,
@@ -561,7 +561,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = DowntimeGap, Name = "Downtime gap threshold", Group = MqttPublishGroups.AppDiagnostics,
+                EntityId = DowntimeGap, Name = "App downtime gap threshold", Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Config, Unit = "min", Icon = "mdi:chart-timeline-variant",
                 Min = SettingRanges.DowntimeGapMin, Max = SettingRanges.DowntimeGapMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
