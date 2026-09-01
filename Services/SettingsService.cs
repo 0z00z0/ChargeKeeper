@@ -305,17 +305,30 @@ internal static class SettingsService
     /// the two silently drops the write.</summary>
     public static void Update(Action<AppSettings> mutate)
     {
+        string before, after;
         lock (_lock)
         {
-            mutate(_current ??= ReadFrom(_path) ?? new AppSettings());
+            var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
+            before = SettingsChangeClassifier.Snapshot(settings);
+            mutate(settings);
             Save();   // re-entrant on the same Lock, so nesting does not deadlock
+            after = SettingsChangeClassifier.Snapshot(settings);
         }
-        Changed?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT publish)
+        // Outside the lock — a subscriber may do real work (an MQTT publish).
+        Changed?.Invoke();
+        ChangeCommitted?.Invoke(new SettingsChange(SettingsChangeClassifier.IsMaterial(before, after)));
     }
 
-    /// <summary>Raised after any committed change. Services that mirror a setting outwards subscribe
-    /// here rather than to each caller, so a new Settings control needs no new notification.</summary>
+    /// <summary>Raised after any committed change, whatever moved. Subscribe here only where every
+    /// change genuinely counts; anything redoing an outward surface belongs on
+    /// <see cref="ChangeCommitted"/>.</summary>
     public static event Action? Changed;
+
+    /// <summary>Raised after any committed change and after a <see cref="Reload"/>, carrying whether
+    /// the change reached anything outside this process. Services that mirror a setting outwards
+    /// subscribe here rather than to each caller, so a new Settings control needs no new
+    /// notification and a change that moves nothing costs nothing.</summary>
+    public static event Action<SettingsChange>? ChangeCommitted;
 
     /// <summary>Deserialises settings JSON, or null when there is nothing usable. Reads both the
     /// grouped shape and the flat one written before <see cref="SettingsFile"/> existed. A
@@ -489,8 +502,21 @@ internal static class SettingsService
     public static bool Reload()
     {
         if (ReadFrom(_path) is not { } loaded) return false;
-        lock (_lock) { _current = loaded; }
-        Reloaded?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT reconnect)
+
+        string? before;
+        lock (_lock)
+        {
+            // Null means nothing has read settings yet, so there is no earlier state to compare and
+            // the reload counts as mattering.
+            before   = _current is null ? null : SettingsChangeClassifier.Snapshot(_current);
+            _current = loaded;
+        }
+        bool material = before is null
+                     || SettingsChangeClassifier.IsMaterial(before, SettingsChangeClassifier.Snapshot(loaded));
+
+        // Outside the lock — a subscriber may do real work (an MQTT reconnect).
+        Reloaded?.Invoke();
+        ChangeCommitted?.Invoke(new SettingsChange(material));
         return true;
     }
 
