@@ -1,9 +1,14 @@
 using System.Globalization;
+using ChargeKeeper.Helpers;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>One recorded battery reading. Power is stored in milliwatts (positive = charging).</summary>
-internal readonly record struct BatterySample(DateTime AtUtc, int Soc, int? LimitPct, int PowerMw);
+/// <summary>One recorded battery reading. Power is stored in milliwatts (positive = charging).
+/// <paramref name="State"/> is null for rows written before the state was recorded: the sign of
+/// <paramref name="PowerMw"/> cannot tell mains-with-no-flow from battery-with-no-drain, so an
+/// unrecorded state stays unknown rather than being guessed at.</summary>
+internal readonly record struct BatterySample(
+    DateTime AtUtc, int Soc, int? LimitPct, int PowerMw, PowerState? State = null);
 
 /// <summary>
 /// Reported when a sample lands after a gap large enough to plausibly be downtime.
@@ -66,8 +71,9 @@ internal static class BatteryHistoryService
         "# ChargeKeeper battery-level history — one row per ~20 s sample. " +
         "timestamp = ISO 8601 with local UTC offset; soc_percent = state of charge; " +
         "charge_limit_percent = Smart Charge limit (blank if off); " +
-        "power_mw = charge power in milliwatts (negative = discharging).";
-    internal const string HeaderColumns = "timestamp,soc_percent,charge_limit_percent,power_mw";
+        "power_mw = charge power in milliwatts (negative = discharging); " +
+        "power_state = Discharging, Charging or IdleOnMains (blank in rows written before it was recorded).";
+    internal const string HeaderColumns = "timestamp,soc_percent,charge_limit_percent,power_mw,power_state";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
     private static readonly CsvSampleStore _store = new("battery-level-history.csv", Header);
@@ -114,9 +120,9 @@ internal static class BatteryHistoryService
     /// <see cref="AnomalyGapThreshold"/> after the previous one; the caller owns the anomaly-rate
     /// threshold and the decision to warn.
     /// </summary>
-    public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw)
+    public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw, PowerState? state = null)
     {
-        var sample = new BatterySample(DateTime.UtcNow, soc, limitPct, powerMw);
+        var sample = new BatterySample(DateTime.UtcNow, soc, limitPct, powerMw, state);
         DowntimeGapInfo? gapInfo = null;
 
         lock (_lock)
@@ -285,23 +291,30 @@ internal static class BatteryHistoryService
         }
     }
 
-    // CSV row: timestamp,soc_percent,charge_limit_percent,power_mw. The timestamp is ISO 8601 with the
-    // machine's local UTC offset (AtUtc itself is always Kind=Utc; the offset is for readability and
-    // round-trips the same instant), and the limit column is blank when Smart Charge is off.
+    // CSV row: timestamp,soc_percent,charge_limit_percent,power_mw,power_state. The timestamp is ISO
+    // 8601 with the machine's local UTC offset (AtUtc itself is always Kind=Utc; the offset is for
+    // readability and round-trips the same instant), the limit column is blank when Smart Charge is
+    // off, and the state column is the PowerState member name, blank when it is unknown.
     internal static string Format(BatterySample s) => string.Create(CultureInfo.InvariantCulture,
-        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw}");
+        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw},{s.State?.ToString() ?? ""}");
 
     internal static bool TryParse(string line, out BatterySample sample)
     {
         sample = default;
         var p = line.Split(',');
+        // Four columns still parse: every row written before the state column carries only those.
         if (p.Length < 4) return false;
         var ci = CultureInfo.InvariantCulture;
         if (!DateTimeOffset.TryParse(p[0], ci, DateTimeStyles.RoundtripKind, out var dto)) return false;
         if (!int.TryParse (p[1], NumberStyles.Integer, ci, out var soc)) return false;
         int? limit = int.TryParse(p[2], NumberStyles.Integer, ci, out var l) ? l : null;
         if (!int.TryParse (p[3], NumberStyles.Integer, ci, out var pw))  return false;
-        sample = new BatterySample(dto.UtcDateTime, soc, limit, pw);
+        // Enum.TryParse also accepts integer text, so IsDefined is what rejects a number outside the
+        // enum rather than storing a state that does not exist.
+        PowerState? state = p.Length > 4
+                         && Enum.TryParse<PowerState>(p[4], ignoreCase: true, out var st)
+                         && Enum.IsDefined(st) ? st : null;
+        sample = new BatterySample(dto.UtcDateTime, soc, limit, pw, state);
         return true;
     }
 }

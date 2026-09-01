@@ -388,16 +388,17 @@ public partial class App : Application
             // Runs on a timer pool thread, so snapshot the fields together — a row must not pair
             // this tick's SoC with the previous tick's limit and power. Record does disk I/O and
             // must stay outside the lock.
-            int pct; int? limit; int rate;
+            int pct; int? limit; int rate; PowerState state;
             using (_batteryReportLock.EnterScope())
             {
                 if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
                 pct   = _lastIconState.Pct;
                 limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
                 rate  = _lastRateMW;
+                state = _lastIconState.State;
             }
 
-            var gap = BatteryHistoryService.Record(pct, limit, rate);
+            var gap = BatteryHistoryService.Record(pct, limit, rate, state);
             if (gap is { } g) CheckDrainAnomaly(g);
         }
         catch (Exception ex)

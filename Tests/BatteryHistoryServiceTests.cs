@@ -1,3 +1,4 @@
+using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using Xunit;
 
@@ -58,6 +59,54 @@ public class BatteryHistoryServiceTests : IDisposable
     public void TryParse_RejectsMalformedLine(string line)
     {
         Assert.False(BatteryHistoryService.TryParse(line, out _));
+    }
+
+    [Fact]
+    public void FormatThenParse_RoundTripsTheRecordedPowerState()
+    {
+        foreach (var state in Enum.GetValues<PowerState>())
+        {
+            var sample = new BatterySample(new DateTime(2026, 3, 4, 9, 0, 0, DateTimeKind.Utc), 55, null, 0, state);
+            var line   = BatteryHistoryService.Format(sample);
+
+            Assert.EndsWith($",{state}", line);
+            Assert.True(BatteryHistoryService.TryParse(line, out var parsed));
+            Assert.Equal(state, parsed.State);
+        }
+    }
+
+    [Fact]
+    public void FormatThenParse_LeavesAnUnrecordedStateNull()
+    {
+        // The column is written empty rather than defaulted to a state: the sign of power_mw cannot
+        // separate mains-with-no-flow from battery-with-no-drain, so nothing is guessed.
+        var line = BatteryHistoryService.Format(new BatterySample(DateTime.UtcNow, 55, null, 0));
+
+        Assert.EndsWith(",", line);
+        Assert.True(BatteryHistoryService.TryParse(line, out var parsed));
+        Assert.Null(parsed.State);
+    }
+
+    [Theory]
+    [InlineData("2026-01-01T12:00:00+00:00,75,80,4500")]           // four columns — written before the state
+    [InlineData("2026-01-01T12:00:00+00:00,75,80,4500,")]          // the column present and empty
+    [InlineData("2026-01-01T12:00:00+00:00,75,80,4500,9")]         // a number outside the enum
+    [InlineData("2026-01-01T12:00:00+00:00,75,80,4500,Sunshine")]  // a name that is not a state
+    public void TryParse_LeavesAnUnreadableStateNull_WithoutLosingTheRow(string line)
+    {
+        Assert.True(BatteryHistoryService.TryParse(line, out var parsed));
+        Assert.Equal(75, parsed.Soc);
+        Assert.Equal(4500, parsed.PowerMw);
+        Assert.Null(parsed.State);
+    }
+
+    [Fact]
+    public void Record_StoresTheStateItWasGiven()
+    {
+        BatteryHistoryService.Record(60, 80, 3000, PowerState.IdleOnMains);
+
+        var loaded = BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
+        Assert.Equal(PowerState.IdleOnMains, Assert.Single(loaded).State);
     }
 
     [Fact]
