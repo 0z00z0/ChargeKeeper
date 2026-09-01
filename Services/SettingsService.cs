@@ -261,10 +261,17 @@ internal static class SettingsService
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (IsFromANewerBuild(path))
+            {
+                AppLog.Error("settings.json was written by a newer build; refusing to overwrite it.",
+                             new NotSupportedException(path));
+                return false;
+            }
+            BackUpFlatFile(path);
             // Atomic write: serialise to a temp file, then replace the target, so a crash mid-write
             // cannot truncate the existing settings.json.
             var tmp = path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(settings, _opts));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(SettingsFile.From(settings), _opts));
             File.Move(tmp, path, overwrite: true);
             return true;
         }
@@ -292,17 +299,44 @@ internal static class SettingsService
     /// here rather than to each caller, so a new Settings control needs no new notification.</summary>
     public static event Action? Changed;
 
-    /// <summary>Deserialises settings JSON, or null when there is nothing usable. A present-but-unreadable
-    /// file is copied aside first, or the next <see cref="Save"/> overwrites the user's presets, network
-    /// rules and MQTT credentials with defaults.</summary>
+    /// <summary>Deserialises settings JSON, or null when there is nothing usable. Reads both the
+    /// grouped shape and the flat one written before <see cref="SettingsFile"/> existed. A
+    /// present-but-unreadable file is copied aside first, or the next <see cref="Save"/> overwrites
+    /// the user's presets, network rules and MQTT credentials with defaults.</summary>
     internal static AppSettings? ReadFrom(string path)
     {
         if (!File.Exists(path)) return null;
 
         try
         {
-            if (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), _opts) is { } loaded)
-                return loaded;
+            string text = File.ReadAllText(path);
+            using var doc = JsonDocument.Parse(text);
+            int? version = SettingsFile.ReadVersion(doc.RootElement);
+
+            if (version > SettingsFile.CurrentVersion)
+            {
+                // Deliberately not the unreadable branch: that copies the file aside and lets the
+                // next save write defaults over it. WriteTo refuses to overwrite this file, so the
+                // settings stay as they are and the app runs on defaults until the build catches up.
+                AppLog.Error($"settings.json declares version {version}, newer than this build reads "
+                           + $"(version {SettingsFile.CurrentVersion}). It is left untouched and not written to.",
+                             new NotSupportedException($"settings.json version {version}"));
+                return null;
+            }
+
+            if (version is not null)
+            {
+                if (JsonSerializer.Deserialize<SettingsFile>(text, _opts) is { } grouped)
+                    return grouped.ToSettings();
+            }
+            // No version key: the flat shape, valid input rather than corruption, and what every
+            // installation carries until the first save rewrites it grouped. Falling through to the
+            // unreadable branch here would load defaults over the user's presets and rules.
+            else if (JsonSerializer.Deserialize<AppSettings>(text, _opts) is { } flat)
+            {
+                return flat;
+            }
+
             PreserveUnreadable(path, "the file contains no settings object");
         }
         catch (Exception ex)
@@ -310,6 +344,45 @@ internal static class SettingsService
             PreserveUnreadable(path, $"{ex.GetType().Name}: {ex.Message}");
         }
         return null;
+    }
+
+    /// <summary>Whether the file on disk declares a version this build does not read. Overwriting it
+    /// would replace settings written by a newer build with whatever this one could not load.</summary>
+    private static bool IsFromANewerBuild(string path)
+    {
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            return SettingsFile.ReadVersion(doc.RootElement) > SettingsFile.CurrentVersion;
+        }
+        catch
+        {
+            return false;   // unreadable: not a newer file, and ReadFrom has already copied it aside
+        }
+    }
+
+    /// <summary>Copies a flat settings.json aside once, before the first grouped write replaces it.
+    /// The copy is a record, never a source: nothing reads or restores it.</summary>
+    internal static void BackUpFlatFile(string path)
+    {
+        if (!File.Exists(path)) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
+            if (SettingsFile.ReadVersion(doc.RootElement) is not null) return;
+            // An empty object carries nothing worth keeping.
+            if (!doc.RootElement.EnumerateObject().Any()) return;
+        }
+        catch
+        {
+            return;   // unreadable: ReadFrom has already copied it aside under its own tag
+        }
+
+        PreserveCopy(path, "pre-grouping-backup",
+                     "regrouped into per-page objects; the copy is kept for reference and nothing restores it");
     }
 
     private static void PreserveUnreadable(string path, string reason) =>

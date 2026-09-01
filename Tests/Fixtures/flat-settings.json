@@ -1,0 +1,123 @@
+{
+  "Presets": [
+    {
+      "Name": "Desk",
+      "Start": 50,
+      "Stop": 55
+    },
+    {
+      "Name": "Away",
+      "Start": 80,
+      "Stop": 95
+    },
+    {
+      "Name": "Standard",
+      "Start": 60,
+      "Stop": 80
+    }
+  ],
+  "TravelOverrideActive": false,
+  "TravelOverrideRevertStart": null,
+  "TravelOverrideRevertStop": null,
+  "LowBatteryWarningEnabled": true,
+  "LowBatteryWarningPct": 40,
+  "HighBatteryWarningEnabled": true,
+  "HighBatteryWarningPct": 80,
+  "DrainAnomalyWarningEnabled": true,
+  "DrainAnomalyPercentPerHour": 3,
+  "StartupDelaySeconds": 10,
+  "IconMode": "Arc",
+  "GraphTimeScale": "SixHours",
+  "DowntimeGapMinutes": 1,
+  "GraphLineColouring": "ByLevelAndState",
+  "GraphShadingEnabled": true,
+  "KeepAwakePresets": [
+    {
+      "Kind": "Duration",
+      "Duration": "00:30:00",
+      "Until": null,
+      "Name": null
+    },
+    {
+      "Kind": "Duration",
+      "Duration": "03:00:00",
+      "Until": null,
+      "Name": null
+    },
+    {
+      "Kind": "UntilTime",
+      "Duration": null,
+      "Until": "17:00:00",
+      "Name": null
+    },
+    {
+      "Kind": "UntilTime",
+      "Duration": null,
+      "Until": "09:00:00",
+      "Name": "Until 09:00"
+    }
+  ],
+  "KeepAwakeDisplayOn": false,
+  "LidDelayEnabled": true,
+  "LidDelayMinutes": 30,
+  "LidDelayLockOnClose": false,
+  "LidDischargeEnabled": false,
+  "LidDischargeTargetPercent": 50,
+  "LidDischargePresets": [
+    {
+      "Percent": 50,
+      "Name": null
+    },
+    {
+      "Percent": 15,
+      "Name": null
+    }
+  ],
+  "LidDelaySavedAcAction": null,
+  "LidDelaySavedDcAction": null,
+  "LidDelaySavedScheme": null,
+  "NetworkProfilesEnabled": true,
+  "NetworkLocationRules": [
+    {
+      "Name": "Mobile",
+      "AdapterMac": "00:00:5E:00:53:01",
+      "IpCidr": "192.0.2.0/24",
+      "PresetName": "Away",
+      "KeepAwakeHere": false
+    },
+    {
+      "Name": "Office",
+      "AdapterMac": "00:00:5E:00:53:02",
+      "IpCidr": "198.51.100.0/24",
+      "PresetName": "Desk",
+      "KeepAwakeHere": true
+    },
+    {
+      "Name": "Second home",
+      "AdapterMac": "00:00:5E:00:53:03",
+      "IpCidr": "203.0.113.0/24",
+      "PresetName": "Desk",
+      "KeepAwakeHere": false
+    },
+    {
+      "Name": "Home",
+      "AdapterMac": "00:00:5E:00:53:04",
+      "IpCidr": "192.0.2.128/25",
+      "PresetName": "Desk",
+      "KeepAwakeHere": false
+    }
+  ],
+  "NetworkRulesKeyedOnPhysicalAdapter": true,
+  "UnknownNetworkPresetName": "Standard",
+  "MqttLastGoodEndpoint": {
+    "Host": "broker.example.invalid",
+    "Username": "mqtt",
+    "Port": 443,
+    "Transport": "WebSocket",
+    "Encrypted": true
+  },
+  "SettingsWindowX": 620,
+  "SettingsWindowY": 72,
+  "SettingsWindowWidth": 2600,
+  "SettingsWindowHeight": 2244
+}

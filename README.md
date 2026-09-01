@@ -51,6 +51,10 @@ number.
   (tray icon → **Open settings folder**); an out-of-band edit to that file can be picked up without
   restarting via tray icon → **Reload settings from file**. Settings are portable across machines by
   copying this file; automatic cloud sync is not yet implemented.
+  The file opens with a `version` key and then one object per Settings page, in the order the pages
+  run and the rows appear, so a setting is found where it sits on screen. A file written before the
+  grouping — a flat list of keys, no `version` — is read as it stands and rewritten grouped on the
+  next save, with the original kept beside it as `settings.json.pre-grouping-backup-<timestamp>`.
 
 > ### ⚠️ 100% vibe coded
 > This project was written **entirely by an AI assistant ("vibe coded")** through natural-language
