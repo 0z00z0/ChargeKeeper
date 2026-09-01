@@ -273,15 +273,17 @@ public partial class App : Application
         // its values signals it. Unchanged payloads are deduped, so a redundant signal costs nothing.
         // A broker setting is not one of these: it lives in the module's own file, whose store raises
         // its own change event straight at the connection.
-        SettingsService.Changed             += () => _mqtt?.PublishSurfaceNow();
+        //
+        // Both handlers below redo a whole surface, so both ask whether the change reached one first;
+        // the broker's remembered endpoint alone is written back on every successful connect. A
+        // reload raises the same event, so "reload settings from disk" needs no subscription of its
+        // own even though it can move every published setting at once.
+        SettingsService.ChangeCommitted     += c => { if (c.IsMaterial) _mqtt?.PublishSurfaceNow(); };
         // The tray style is one of those values, and an icon-mode command from Home Assistant has no
         // battery tick of its own. The latch carries the style, so this repaints only when it moved.
-        SettingsService.Changed             += RepaintTrayIconFromLastReading;
+        SettingsService.ChangeCommitted     += c => { if (c.IsMaterial) RepaintTrayIconFromLastReading(); };
         KeepAwakeService.StateChanged       += () => _mqtt?.PublishSurfaceNow();
         NetworkLocationService.LocationChanged += _ => _mqtt?.PublishSurfaceNow();
-        // "Reload settings from disk" replaces the whole document, so every published setting may
-        // have moved at once. It cannot move a broker setting — those are not in that file.
-        SettingsService.Reloaded            += () => _mqtt?.PublishSurfaceNow();
     }
 
     private MqttPublisher? _mqtt;
