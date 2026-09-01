@@ -169,9 +169,9 @@ internal static class IconGenerator
     /// </summary>
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, PowerState state, TrayIconMode mode = TrayIconMode.Arc,
-        ChargeThresholdState? threshold = null)
+        ChargeThresholdState? threshold = null, PowerFlow? flow = null)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold);
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -183,13 +183,17 @@ internal static class IconGenerator
     /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
     /// live tray slot happens to be.</summary>
     internal static Bitmap RenderStyleBitmap(int size, int percent, PowerState state, TrayIconMode mode,
-                                             ChargeThresholdState? threshold = null) =>
+                                             ChargeThresholdState? threshold = null, PowerFlow? flow = null) =>
         mode switch
         {
+            // Only the arc carries the flow mark. Numeric's frame is already spent on the digits, and
+            // every placement tried clipped them at 16 px. The brand mark's payload IS its interior
+            // fill band, and the moat that keeps the mark legible erases the band it sits on. Both
+            // keep the power state in their colour, as before.
             TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, state),
             TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, FillFor(percent, state), threshold,
                                                       TraySlotHeights),
-            _                      => RenderBatteryBitmap(size, percent, state, threshold),
+            _                      => RenderBatteryBitmap(size, percent, state, threshold, flow),
         };
 
     /// <summary>
@@ -412,7 +416,7 @@ internal static class IconGenerator
     /// The background is transparent, so the ring has to read on any taskbar colour by itself.
     /// </summary>
     private static Bitmap RenderBatteryBitmap(int size, int percent, PowerState state,
-                                              ChargeThresholdState? threshold)
+                                              ChargeThresholdState? threshold, PowerFlow? flow = null)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -456,7 +460,72 @@ internal static class IconGenerator
         if (start is { } startPct) DrawArcMark(g, size, cx, cy, r, stroke, startPct, contrast, minor: true);
         if (stop  is { } stopPct)  DrawArcMark(g, size, cx, cy, r, stroke, stopPct,  contrast, minor: false);
 
+        // Last: the mark clears a gap in whatever it overlaps, so anything drawn after it would
+        // fill that gap back in.
+        if (flow is { } f)
+            DrawFlowMark(g, size, cx, cy, FlowMarkBox(r, stroke), f, FillFor(percent, state));
+
         return bmp;
+    }
+
+    /// <summary>The mark's bounding box inside the ring, from the transparent centre's diameter.
+    /// Sized to leave room for the moat: a mark filling the hole fuses with the ring at 16 px.</summary>
+    internal static float FlowMarkBox(float r, float stroke) => 2f * (r - stroke / 2f) * FlowMarkFraction;
+
+    /// <summary>How much of the ring's empty centre the flow mark spans. Chosen so the mark plus its
+    /// moat still fits the 16 px hole: wider and the moat bites a notch out of the ring, which reads
+    /// as a broken gauge.</summary>
+    internal const float FlowMarkFraction = 0.70f;
+
+    /// <summary>Width of the transparent gap punched around the flow mark. Floored so it survives the
+    /// 16 px frame, where a fraction of the size alone rounds away to nothing.</summary>
+    internal static float FlowMarkMoatWidth(float size) => Math.Max(1.2f, size * 0.085f);
+
+    /// <summary>
+    /// Draws the flow mark: ▲ gaining charge, ▼ losing it, ● at rest — the dashboard's own status
+    /// glyphs, as geometry. A transparent moat is punched first, because at 16 px the mark and the
+    /// ring are barely a pixel apart and would otherwise read as one blob.
+    /// </summary>
+    private static void DrawFlowMark(Graphics g, int size, float cx, float cy, float box,
+                                     PowerFlow flow, Color fill)
+    {
+        using var path = FlowMarkPath(cx, cy, box, flow);
+
+        // SourceCopy writes the alpha rather than blending it, so a transparent pen clears a gap.
+        var previous = g.CompositingMode;
+        g.CompositingMode = CompositingMode.SourceCopy;
+        using (var moat = new System.Drawing.Pen(Color.Transparent, FlowMarkMoatWidth(size))
+                              { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
+            g.DrawPath(moat, path);
+        g.CompositingMode = previous;
+
+        using var brush = new SolidBrush(fill);
+        g.FillPath(brush, path);
+    }
+
+    /// <summary>The mark's outline, centred on <paramref name="cx"/>/<paramref name="cy"/> within a
+    /// <paramref name="box"/>-wide square.</summary>
+    internal static GraphicsPath FlowMarkPath(float cx, float cy, float box, PowerFlow flow)
+    {
+        var path = new GraphicsPath();
+        if (flow == PowerFlow.Rest)
+        {
+            float d = box * 0.52f;
+            path.AddEllipse(cx - d / 2f, cy - d / 2f, d, d);
+            return path;
+        }
+
+        // y grows downward, so gaining charge puts the apex ABOVE the centre.
+        float dir = flow == PowerFlow.In ? 1f : -1f;
+        float w   = box;
+        float h   = box * 0.86f;
+        path.AddPolygon(
+        [
+            new PointF(cx,          cy - dir * h / 2f),
+            new PointF(cx - w / 2f, cy + dir * h / 2f),
+            new PointF(cx + w / 2f, cy + dir * h / 2f),
+        ]);
+        return path;
     }
 
     /// <summary>Draws one threshold tick radially across the ring at <paramref name="percent"/> on

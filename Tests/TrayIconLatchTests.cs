@@ -92,19 +92,22 @@ public class TrayIconLatchTests
     }
 
     [Fact]
-    public void BeforeTheFirstBatteryReport_AForcedRepaintDrawsTheUnknownState()
+    public void BeforeTheFirstBatteryReport_AForcedRepaintDrawsTheUnknownStateAndNoFlow()
     {
         // -1 is the "not yet read" seed. Returning it unchanged is what made a style change in
-        // Settings do visibly nothing until the first tick arrived.
-        Assert.Equal((0, PowerState.Discharging),
-                     TrayIconLatch.ReadingOrUnknown((-1, PowerState.Discharging)));
+        // Settings do visibly nothing until the first tick arrived. The flow goes with it: there is
+        // no reading to draw a direction from, so the icon must carry no mark rather than a guess.
+        Assert.Equal((0, PowerState.Discharging, (PowerFlow?)null),
+                     TrayIconLatch.ReadingOrUnknown((-1, PowerState.Discharging, PowerFlow.In)));
     }
 
     [Fact]
-    public void AfterTheFirstBatteryReport_AForcedRepaintDrawsThatReading()
+    public void AfterTheFirstBatteryReport_AForcedRepaintDrawsThatReadingAndItsFlow()
     {
-        Assert.Equal((80, PowerState.Charging), TrayIconLatch.ReadingOrUnknown((80, PowerState.Charging)));
-        // 0 % is a real reading.
-        Assert.Equal((0, PowerState.IdleOnMains), TrayIconLatch.ReadingOrUnknown((0, PowerState.IdleOnMains)));
+        Assert.Equal((80, PowerState.Charging, (PowerFlow?)PowerFlow.In),
+                     TrayIconLatch.ReadingOrUnknown((80, PowerState.Charging, PowerFlow.In)));
+        // 0 % is a real reading, and so is a real reading of no flow.
+        Assert.Equal((0, PowerState.IdleOnMains, (PowerFlow?)PowerFlow.Rest),
+                     TrayIconLatch.ReadingOrUnknown((0, PowerState.IdleOnMains, PowerFlow.Rest)));
     }
 }

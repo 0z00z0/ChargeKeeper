@@ -39,7 +39,7 @@ public partial class App : Application
 
     // Cached tray icon state; Pct = -1 means not yet read. This is the last READING, which the MQTT
     // snapshot and the tooltip also depend on — never the record of what the icon is showing.
-    private (int Pct, PowerState State) _lastIconState = (-1, PowerState.Discharging);
+    private (int Pct, PowerState State, PowerFlow? Flow) _lastIconState = (-1, PowerState.Discharging, null);
 
     // What the tray icon is actually showing. Kept apart from _lastIconState so a repaint that never
     // landed cannot be recorded as applied and dedupe every later tick at the same reading away.
@@ -263,7 +263,7 @@ public partial class App : Application
             {
                 if (_lastIconState.Pct < 0) return null;
                 return LiveStateBuilder.Build(
-                    _lastIconState.Pct, _lastRateMW, _lastIconState.State != PowerState.Discharging,
+                    _lastIconState.Pct, _lastRateMw ?? 0, _lastIconState.State != PowerState.Discharging,
                     _lastBatteryStatus, _lastThresholdState,
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
@@ -394,7 +394,7 @@ public partial class App : Application
                 if (_lastIconState.Pct < 0) return;   // no battery reading yet — nothing to log
                 pct   = _lastIconState.Pct;
                 limit = _lastThresholdState is { Enabled: true, Stop: > 0 } t ? t.Stop : null;
-                rate  = _lastRateMW;
+                rate  = _lastRateMw ?? 0;
                 state = _lastIconState.State;
             }
 
@@ -512,10 +512,16 @@ public partial class App : Application
             bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
             using (_batteryReportLock.EnterScope())
             {
-                _lastIconState = (pct, powerState);
+                // The rate is taken here rather than with the other _last* fields further down: the
+                // icon is painted from it on the next line, and a rate assigned after that would
+                // paint the previous tick's flow.
+                _lastRateMw = report.ChargeRateInMilliwatts;
+                var flow = PowerFlows.From(_lastRateMw);
+
+                _lastIconState = (pct, powerState, flow);
                 // Still gated to avoid GDI churn on every tick, but inside UpdateTrayIcon and against
                 // what was last PAINTED — a repaint that never landed leaves the gate open.
-                UpdateTrayIcon(pct, powerState);
+                UpdateTrayIcon(pct, powerState, flow);
 
                 // Refresh the open dashboard at once rather than waiting for its own 5 s timer.
                 if (_dashboard is not null)
@@ -568,7 +574,6 @@ public partial class App : Application
                 // EC revert on its own background Task.
                 TravelOverrideService.OnBatteryReport(pct, report.Status);
 
-                _lastRateMW         = report.ChargeRateInMilliwatts ?? 0;
                 _lastThresholdState = thresholdState;                          // hoisted read above
                 _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
                 _lastFullMwh        = report.FullChargeCapacityInMilliwattHours;
@@ -578,7 +583,7 @@ public partial class App : Application
 
                 // Built here for a coherent _last* view; published below, outside the lock.
                 liveSnapshot = LiveStateBuilder.Build(
-                    pct, _lastRateMW, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
+                    pct, _lastRateMw ?? 0, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
                     _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
 
@@ -638,20 +643,22 @@ public partial class App : Application
 
     private string  _lastTooltip             = "";
     private string? _updateAvailableVersion;
-    private int     _lastRateMW;   // milliwatts; positive = charging, negative = draining
+    // Milliwatts; positive = charging, negative = draining. Nullable because an absent reading is
+    // not a rate of zero: the tray's flow mark must draw nothing rather than claim "at rest".
+    private int?    _lastRateMw;
     private int?    _lastRemainingMwh;   // cached so RefreshTooltip can rebuild without a battery event
     private int?    _lastFullMwh;
     private int?    _lastDesignMwh;      // design capacity — the battery-health denominator
     private bool    _lastLowPowerMode;   // Windows Energy Saver active
     private ChargeThresholdState? _lastThresholdState;
 
-    private void UpdateTrayIcon(int pct, PowerState state)
+    private void UpdateTrayIcon(int pct, PowerState state, PowerFlow? flow)
     {
         // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
         // style and the thresholds in force now rather than the ones set when it was posted. The
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
         var request = new TrayIconRequest(pct, state, SettingsService.Current.IconMode,
-                                          _lastThresholdState);
+                                          _lastThresholdState, flow);
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -661,7 +668,7 @@ public partial class App : Application
         {
             // A refused enqueue is a repaint that will never happen; the latch is untouched either
             // way, so the next tick tries again rather than deduping against an icon that never moved.
-            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, state)))
+            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, state, flow)))
                 AppLog.Error("UpdateTrayIcon.Enqueue", new InvalidOperationException(
                     "The dispatcher queue refused the tray-icon repaint; the icon still shows the previous state."));
             return;
@@ -670,7 +677,7 @@ public partial class App : Application
         try
         {
             var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.State, request.Mode,
-                                                          request.Threshold);
+                                                          request.Threshold, request.Flow);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
@@ -690,8 +697,8 @@ public partial class App : Application
     /// battery event of their own. Deduped by the latch, so an unrelated change costs nothing.</summary>
     private void RepaintTrayIconFromLastReading()
     {
-        var (pct, state) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
-        UpdateTrayIcon(pct, state);
+        var (pct, state, flow) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
+        UpdateTrayIcon(pct, state, flow);
     }
 
     /// <summary>
@@ -795,13 +802,14 @@ public partial class App : Application
         lines.Append(onAc
             ? $"\n{chargeIcon} {acLabel} · {pct}%"
             : $"\n{chargeIcon} {pct}%");
-        string? rate = (onAc && _lastRateMW > 0) || (!onAc && _lastRateMW < 0)
-            ? PowerFormat.SignedRate(_lastRateMW)
+        int rateMw = _lastRateMw ?? 0;
+        string? rate = (onAc && rateMw > 0) || (!onAc && rateMw < 0)
+            ? PowerFormat.SignedRate(rateMw)
             : null;
         if (rate is not null)
             lines.Append($"  ·  {rate}");
 
-        string timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMW, remainingMwh, fullMwh);
+        string timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMw, remainingMwh, fullMwh);
         if (timeText != "—")
             lines.Append($"\n⏱ {timeText}");
 

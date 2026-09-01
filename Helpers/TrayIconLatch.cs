@@ -9,9 +9,11 @@ namespace ChargeKeeper.Helpers;
 /// silently never repaints.
 /// </summary>
 /// <remarks>The power state is here in full, not as an on-AC flag: charging and idle-on-mains are
-/// painted from different scales, so an edge between them at an unchanged level must repaint.</remarks>
+/// painted from different scales, so an edge between them at an unchanged level must repaint. The
+/// flow is separate from the state and moves independently of it — a machine drawing more than its
+/// adapter supplies turns the flow round while the state and the level stand still.</remarks>
 internal readonly record struct TrayIconRequest(
-    int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold);
+    int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold, PowerFlow? Flow = null);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the
@@ -49,6 +51,7 @@ internal sealed class TrayIconLatch
     /// <summary>The reading a forced repaint draws. Before the first battery report there is none,
     /// and 0 % stands in: no-opping instead leaves a style, slot-size or tray-recreate change
     /// invisible until the next tick, which on AC at a stop threshold does not arrive for hours.</summary>
-    internal static (int Pct, PowerState State) ReadingOrUnknown((int Pct, PowerState State) lastReading) =>
-        lastReading.Pct >= 0 ? lastReading : (0, PowerState.Discharging);
+    internal static (int Pct, PowerState State, PowerFlow? Flow) ReadingOrUnknown(
+        (int Pct, PowerState State, PowerFlow? Flow) lastReading) =>
+        lastReading.Pct >= 0 ? lastReading : (0, PowerState.Discharging, null);
 }
