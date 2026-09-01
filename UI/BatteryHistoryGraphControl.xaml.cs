@@ -385,13 +385,14 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         var lineMode   = settings.GraphLineColouring;
         bool drawShading = GraphColouring.ShouldShade(lineMode, settings.GraphShadingEnabled);
 
-        // The line takes the setting; the fade beneath it keeps the accent whatever the line does.
-        var socBrush     = BuildSocLineBrush(lineMode, samples, xs, w);
-        var socFillBrush = AppColors.HistorySocFillBrush;
-
         // SoC — the headline series. Drawn before limit/power so those sit on top where they cross.
+        // The line takes the setting, per run because each run is its own path with its own bounding
+        // box; the fade beneath it keeps the accent whatever the line does.
         var socRuns = CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct);
-        DrawSocFillAndLine(socRuns, socBrush, socFillBrush, plotBottomY: h - pad, drawShading);
+        DrawSocFillAndLine(
+            socRuns,
+            run => BuildSocLineBrush(lineMode, samples, xs, run.Indices),
+            AppColors.HistorySocFillBrush, plotBottomY: h - pad, drawShading);
 
         // Charge limit (Smart Charge Stop threshold), left axis; null while Smart Charge is off.
         // Stepped because the threshold only jumps — a ramp would suggest it drifted between samples.
@@ -412,40 +413,33 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             DrawStressHeatmap(samples, xs, w);
     }
 
-    /// <summary>The charge line's brush: the fixed accent, or — where the setting colours the line —
-    /// a gradient carrying one stop per sample, strided to the same cap the stress strip uses. Mapped
-    /// in canvas coordinates because the line's own bounding box is the drawn path, not the plot.</summary>
+    /// <summary>The charge line's brush for one run: the fixed accent, or — where the setting colours
+    /// the line — a gradient over that run's own points. Mapped relative to the painted path's
+    /// bounding box, as every other gradient in the app is; a stroke's absolute coordinate space is
+    /// the shape's, not the plot's, so an absolute axis spanning the plot leaves the whole stroke on
+    /// one stop. Stops come from <see cref="GraphColouring.LineStops"/> so the colour decision has one
+    /// home.</summary>
     private static Brush BuildSocLineBrush(
-        GraphLineColouring mode, IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs, double w)
+        GraphLineColouring mode, IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs,
+        IReadOnlyList<int> runIndices)
     {
         if (!GraphColouring.VariesByPoint(mode)) return AppColors.HistorySocBrush;
 
         // The colour a point falls back to, taken from the accent brush itself so the two cannot drift.
         uint accent = AppColors.ToPacked(AppColors.HistorySocBrush.Color);
 
-        const int MaxStops = 200;
-        int step = Math.Max(1, samples.Count / MaxStops);
-
-        var brush = new LinearGradientBrush
-        {
-            MappingMode = BrushMappingMode.Absolute,
-            StartPoint  = new Point(0, 0),
-            EndPoint    = new Point(w, 0),
-        };
-        for (int i = 0; i < samples.Count; i += step)
-            brush.GradientStops.Add(StopAt(i));
-        // Close at the final sample so striding can't leave the right edge on an extrapolated colour.
-        if (step > 1 && (samples.Count - 1) % step != 0)
-            brush.GradientStops.Add(StopAt(samples.Count - 1));
+        var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        foreach (var stop in GraphColouring.LineStops(mode, samples, xs, runIndices, accent, MaxLineStops))
+            brush.GradientStops.Add(new GradientStop
+            {
+                Offset = stop.Offset,
+                Color  = AppColors.FromPacked(stop.Argb),
+            });
         return brush;
-
-        GradientStop StopAt(int i) => new()
-        {
-            Offset = Math.Clamp(xs[i] / w, 0, 1),
-            Color  = AppColors.FromPacked(
-                GraphColouring.LineColourFor(mode, samples[i].Soc, samples[i].State, accent)),
-        };
     }
+
+    /// <summary>Cap on gradient stops per run, matching the stress strip's.</summary>
+    private const int MaxLineStops = 200;
 
     /// <summary>Fills the stress strip with a gradient whose stops sit at the same x as the SoC line's
     /// points, so it can't drift out of alignment. Stops are strided to a cap.</summary>
@@ -522,23 +516,35 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     private static string FormatWatts(double watts) =>
         $"{Math.Round(watts, MidpointRounding.AwayFromZero):0}W";
 
+    /// <summary>One continuous stretch of a series: the projected points and, in step with them, the
+    /// index each came from. The indices let a caller colour a run point by point without re-deriving
+    /// which samples survived the run split.</summary>
+    private readonly record struct SeriesRun(List<Point> Points, List<int> Indices);
+
     /// <summary>Splits a series into continuous runs of projected points, breaking at timeline gaps
     /// (by index — a Δt check would misfire on ordinary stride spacing) and at null values. Shared by
     /// the line and its fill so the two can't disagree about where a run starts or ends.</summary>
-    private static List<List<Point>> CollectRuns(
+    private static List<SeriesRun> CollectRuns(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, Func<BatterySample, double?> select,
         IReadOnlyList<double> xs, Func<double, double> projectY)
     {
-        var runs = new List<List<Point>>();
-        List<Point>? current = null;
+        var runs = new List<SeriesRun>();
+        List<Point>? points  = null;
+        List<int>?   indices = null;
         for (int i = 0; i < samples.Count; i++)
         {
             bool gap = i > 0 && gapBefore.Contains(i);
             var value = select(samples[i]);
-            if (gap || value is null) { current = null; continue; }
+            if (gap || value is null) { points = null; indices = null; continue; }
 
-            if (current is null) { current = []; runs.Add(current); }
-            current.Add(new Point(xs[i], projectY(value.Value)));
+            if (points is null || indices is null)
+            {
+                points  = [];
+                indices = [];
+                runs.Add(new SeriesRun(points, indices));
+            }
+            points.Add(new Point(xs[i], projectY(value.Value)));
+            indices.Add(i);
         }
         return runs;
     }
@@ -553,8 +559,9 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     {
         const double strokeThickness = SecondaryStrokeWidth;
 
-        foreach (var pts in CollectRuns(samples, gapBefore, select, xs, projectY))
+        foreach (var run in CollectRuns(samples, gapBefore, select, xs, projectY))
         {
+            var pts = run.Points;
             if (pts.Count < 2) continue; // a lone point has nothing to connect to
 
             Microsoft.UI.Xaml.Shapes.Shape shape;
@@ -669,13 +676,16 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
     /// <summary>Draws the SoC series as a gradient fill plus the line on top, from one runs+tangents
     /// computation so their edges match exactly. <paramref name="drawShading"/> omits the fill;
-    /// <paramref name="fillBrush"/> is the accent fade in every case, never the line's colour.</summary>
+    /// <paramref name="fillBrush"/> is the accent fade in every case, never the line's colour.
+    /// <paramref name="lineBrushFor"/> is asked per run: a relative-mapped gradient is bound to the
+    /// path it paints, so runs cannot share one.</summary>
     private void DrawSocFillAndLine(
-        IReadOnlyList<List<Point>> runs, Brush lineBrush, LinearGradientBrush fillBrush, double plotBottomY,
-        bool drawShading)
+        IReadOnlyList<SeriesRun> runs, Func<SeriesRun, Brush> lineBrushFor, LinearGradientBrush fillBrush,
+        double plotBottomY, bool drawShading)
     {
-        foreach (var pts in runs)
+        foreach (var run in runs)
         {
+            var pts = run.Points;
             if (pts.Count < 2) continue; // a lone point has nothing to connect to
 
             var m = MonotoneTangentsFor(pts);
@@ -696,7 +706,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
                 StrokeLineJoin    = PenLineJoin.Round,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap  = PenLineCap.Round,
-                Stroke            = lineBrush,
+                Stroke            = lineBrushFor(run),
             });
         }
     }
