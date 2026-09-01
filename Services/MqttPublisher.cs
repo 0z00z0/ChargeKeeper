@@ -239,9 +239,9 @@ internal sealed class MqttPublisher : IDisposable
     /// One value, read at most once per window however many entities ask for it.
     /// </summary>
     /// <remarks>
-    /// <para>An announcement pass asks forty-one entities in turn and a publish pass asks them again,
+    /// <para>An announcement pass asks forty-six entities in turn and a publish pass asks them again,
     /// and two of the three sources behind them reach a vendor interface. Without this, one pass is
-    /// forty-one EC or WMI calls.</para>
+    /// forty-six EC or WMI calls.</para>
     /// <para>A failure is held for the window too, and rethrown. The alternative is to retry the call
     /// that just failed once per entity, which is the worst thing to do to an interface that is not
     /// answering — and a resume from standby is when that happens.</para>

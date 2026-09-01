@@ -106,7 +106,7 @@ internal static class MqttSettingsMigration
         if (Text(root, "MqttDiscoveryPrefix") is { } prefix) target.DiscoveryPrefix = prefix;
         if (Text(root, "MqttDeviceName") is { } deviceName) target.DeviceName = deviceName;
         // The node id is the device id under its old name, and it is the unique_id stem: carrying it
-        // unchanged is what keeps every existing entity rather than announcing forty-one new ones.
+        // unchanged is what keeps every existing entity rather than announcing forty-six new ones.
         if (Text(root, "MqttNodeId") is { } deviceId) target.DeviceId = deviceId;
 
         if (Enum<MqttTransportMode>(root, "MqttTransportMode") is { } transport)

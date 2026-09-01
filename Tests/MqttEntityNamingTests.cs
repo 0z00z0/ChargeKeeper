@@ -138,7 +138,7 @@ public class MqttEntityNamingTests
 
         new() { Group = MqttPublishGroups.KeepAwake, Word = "Keep" },
 
-        // Smart Standby is a Control while the other three are Configuration, so it can never sort
+        // Smart Standby is a Control while the other seven are Configuration, so it can never sort
         // with them whatever it is called.
         new()
         {

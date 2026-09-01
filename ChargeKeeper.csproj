@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.28.1</Version>
+    <Version>1.28.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -232,10 +232,9 @@
 
   <!-- Shared ZeroZero Software branding: the About window comes from here instead of a
        hand-rolled UI/AboutWindow. Plain sibling-folder ProjectReference (no NuGet feed yet) — the
-       CI workflows git-clone 0z00z0/0z0-shared beside this repo, PINNED to an exact commit
-       (SHARED_REF in ci.yml/release.yml), so builds are reproducible; local dev uses the live
-       sibling folder. (The repo/folder was renamed ZeroZeroBrand → 0z0-shared 2026-07-13; project
-       name ZeroZero.Brand.WinUI is unchanged.) Integration contract documented in README. -->
+       CI workflows git-clone 0z00z0/0z0-shared beside this repo at its default branch, so a build
+       resolves the library as it currently stands; local dev uses the live sibling folder. Project
+       name ZeroZero.Brand.WinUI. Integration contract documented in README. -->
   <PropertyGroup>
     <ZeroZeroSharedDir Condition="'$(ZeroZeroSharedDir)' == ''">..\0z0-shared</ZeroZeroSharedDir>
   </PropertyGroup>
@@ -259,23 +258,6 @@
       <UndefineProperties>WindowsAppSDKSelfContained</UndefineProperties>
     </ProjectReference>
   </ItemGroup>
-
-  <!--
-    Guard the pin above. Local dev builds against the LIVE sibling folder while CI clones the
-    commit pinned in .github/0z0-shared-ref, so adopting a new shared type builds green here
-    and fails CI with CS0234 (that is #59: CI red 2026-07-15 → 1.6.2). The ref file warns that
-    "a green local build proves nothing about this pin" — this makes it a build-time check.
-    Warning, never error, and skipped entirely when the ref file or sibling clone is absent,
-    so a docs-only checkout or a machine without git is unaffected.
-  -->
-  <Target Name="CheckSharedPin" BeforeTargets="Build"
-          Condition="Exists('$(MSBuildProjectDirectory)\.github\0z0-shared-ref') And Exists('$(MSBuildProjectDirectory)\..\0z0-shared\.git')">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\check-shared-pin.ps1&quot; -RefFile &quot;$(MSBuildProjectDirectory)\.github\0z0-shared-ref&quot; -SharedPath &quot;$(MSBuildProjectDirectory)\..\0z0-shared&quot;"
-          ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true" StandardOutputImportance="low">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_SharedPinMessage" />
-    </Exec>
-    <Warning Condition="'$(_SharedPinMessage)' != ''" Code="ZZ0001" Text="$(_SharedPinMessage)" />
-  </Target>
 
   <!--
     Authenticode-sign the produced executable on Release builds.
