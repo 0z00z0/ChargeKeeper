@@ -109,12 +109,10 @@ internal static class IconGenerator
     private static readonly Color MarkSteel      = FromPacked(GaugePalette.SteelBlue);  // body outline + cap
     private static readonly Color MarkTerracotta = FromPacked(GaugePalette.Terracotta); // guard line
 
-    // Arc fill colours by charge state. System.Drawing shares no type with WinUI's Windows.UI.Color,
-    // but the packed ARGB bytes in GaugePalette cross that divide.
-    private static readonly Color FillGreen    = FromPacked(GaugePalette.SageGreen);   // > GreenAbovePct
-    private static readonly Color FillYellow   = FromPacked(GaugePalette.Amber);       // middle tier
-    private static readonly Color FillOrange   = FromPacked(GaugePalette.Terracotta);  // ≤ LowAtOrBelowPct
-    private static readonly Color FillCharging = FromPacked(GaugePalette.SteelBlue);   // on AC
+    /// <summary>The brand mark's own interior colour, fixed. The canonical renders draw a level that
+    /// never moves, so they take the brand's sage rather than sampling a live gauge scale that would
+    /// drift the mark away from brand\chargekeeper-icon.svg.</summary>
+    private static readonly Color MarkSage = FromPacked(GaugePalette.SageGreen);
 
     private static Color FromPacked(uint argb) => Color.FromArgb(unchecked((int)argb));
 
@@ -139,15 +137,10 @@ internal static class IconGenerator
     /// <summary>The contrast for the taskbar as it is painted now.</summary>
     private static IconContrast CurrentContrast() => IconContrast.For(TaskbarUsesLightTheme());
 
-    // Shared by both tray renderers so the arc and numeric modes cannot drift on tiers.
-    private static Color FillFor(int percent, bool charging) => charging
-        ? FillCharging
-        : percent switch
-        {
-            > GaugePalette.GreenAbovePct   => FillGreen,
-            > GaugePalette.LowAtOrBelowPct => FillYellow,
-            _                              => FillOrange,
-        };
+    // Shared by every tray renderer, and by the dashboard gauge through GaugePalette itself, so no
+    // two surfaces can drift on the scales.
+    private static Color FillFor(int percent, PowerState state) =>
+        FromPacked(GaugePalette.FillFor(percent, state));
 
     // Stamped into the filename so an in-place app update regenerates the icon rather than serving
     // the previous version's cached file. Bump on any change to the mark.
@@ -175,10 +168,10 @@ internal static class IconGenerator
     /// <paramref name="threshold"/> adds the start and stop marks; null draws none.
     /// </summary>
     internal static System.Drawing.Icon RenderBatteryIcon(
-        int percent, bool charging, TrayIconMode mode = TrayIconMode.Arc,
+        int percent, PowerState state, TrayIconMode mode = TrayIconMode.Arc,
         ChargeThresholdState? threshold = null)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, charging, mode, threshold);
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -189,13 +182,14 @@ internal static class IconGenerator
     /// <summary>One frame of the selected style at <paramref name="size"/> px. Split out from
     /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
     /// live tray slot happens to be.</summary>
-    internal static Bitmap RenderStyleBitmap(int size, int percent, bool charging, TrayIconMode mode,
+    internal static Bitmap RenderStyleBitmap(int size, int percent, PowerState state, TrayIconMode mode,
                                              ChargeThresholdState? threshold = null) =>
         mode switch
         {
-            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, charging),
-            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, charging, threshold, TraySlotHeights),
-            _                      => RenderBatteryBitmap(size, percent, charging, threshold),
+            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, state),
+            TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, FillFor(percent, state), threshold,
+                                                      TraySlotHeights),
+            _                      => RenderBatteryBitmap(size, percent, state, threshold),
         };
 
     /// <summary>
@@ -209,7 +203,7 @@ internal static class IconGenerator
             : (state.Stop, state.HasStartThreshold ? state.Start : null);
 
     /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
-    private static Bitmap RenderNumericBitmap(int size, int percent, bool charging)
+    private static Bitmap RenderNumericBitmap(int size, int percent, PowerState state)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -217,7 +211,7 @@ internal static class IconGenerator
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        Color bg = FillFor(percent, charging);
+        Color bg = FillFor(percent, state);
 
         int margin = Math.Max(1, (int)Math.Round(size * MarginFraction));
         var rect   = new Rectangle(margin, margin, size - margin * 2 - 1, size - margin * 2 - 1);
@@ -293,8 +287,8 @@ internal static class IconGenerator
         InkTop:       29f, InkBottom:      227f);
 
     // The charge level and guard position that reproduce brand\chargekeeper-icon.svg's fixed fill
-    // rect and guard line. 76 % rather than the exact 74 % the rect measures, because 74 lands in
-    // the amber tier and the mark's interior is sage.
+    // rect and guard line. Geometry only: the canonical renders take MarkSage, so this level no
+    // longer decides the mark's colour.
     internal const int MarkCanonicalPercent = 76;
     internal const int MarkCanonicalGuard   = 84;
 
@@ -305,20 +299,23 @@ internal static class IconGenerator
 
     /// <summary>
     /// Renders the "0z0 steel battery" mark on a transparent background: a SteelBlue outline and cap,
-    /// an interior fill in the charge tier's colour at <paramref name="percent"/>, and the Terracotta
-    /// threshold lines <paramref name="threshold"/> calls for, expressed on a 256-unit reference
-    /// canvas scaled to <paramref name="size"/> with stroke floors that keep it legible at 16 px.
-    /// <paramref name="heights"/> picks the proportions: <see cref="TraySlotHeights"/> for the live
-    /// tray icon, <see cref="AppIconHeights"/> for everything drawn in the brand's own shape.
+    /// an interior band filled to <paramref name="percent"/> in <paramref name="fill"/>, and the
+    /// Terracotta threshold lines <paramref name="threshold"/> calls for, expressed on a 256-unit
+    /// reference canvas scaled to <paramref name="size"/> with stroke floors that keep it legible at
+    /// 16 px. <paramref name="heights"/> picks the proportions: <see cref="TraySlotHeights"/> for the
+    /// live tray icon, <see cref="AppIconHeights"/> for everything drawn in the brand's own shape.
     /// </summary>
     /// <remarks>
+    /// The fill is passed rather than sampled: the live tray style takes the gauge scale at the
+    /// reading, while the canonical renders take the brand's fixed sage at a level that never moves.
+    ///
     /// A deliberate hand-maintained third copy of the geometry: the two build-time generators share
     /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process and cannot shell out to
     /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative for
     /// <see cref="AppIconHeights"/> — change it, then BatteryGlyph.ps1, then here.
     /// Tests\BrandMarkGeometryTests.cs pins the three together, and pins the two height sets apart.
     /// </remarks>
-    private static Bitmap RenderMarkBitmap(int size, int percent, bool charging,
+    private static Bitmap RenderMarkBitmap(int size, int percent, Color fill,
                                            ChargeThresholdState? threshold, MarkHeights heights)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
@@ -350,7 +347,7 @@ internal static class IconGenerator
             var fillRect = RectangleF.FromLTRB(MarkInteriorLeft * s, heights.InteriorTop * s,
                                                fillRight * s, heights.InteriorBottom * s);
             using var fillPath  = BuildRoundedRectPath(fillRect, 3 * s);
-            using var fillBrush = new SolidBrush(Color.FromArgb(230, FillFor(percent, charging)));
+            using var fillBrush = new SolidBrush(Color.FromArgb(230, fill));
             g.FillPath(fillBrush, fillPath);
         }
 
@@ -395,16 +392,14 @@ internal static class IconGenerator
     /// brand\chargekeeper-icon.svg puts them, so the pixels and the vector cannot drift. Serves the
     /// in-window chrome marks, which get their own frame size rather than a resampled one.</summary>
     internal static Bitmap RenderAppIconBitmap(int size) =>
-        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold,
-                         AppIconHeights);
+        RenderMarkBitmap(size, MarkCanonicalPercent, MarkSage, MarkCanonicalThreshold, AppIconHeights);
 
     /// <summary>The mark the tray is seeded with before the first battery report, at
     /// <paramref name="size"/> px. Same canonical charge level and guard as the brand's own mark,
     /// on <see cref="TraySlotHeights"/> — the seed occupies the notification-area slot, so it takes
     /// the maximised geometry every later repaint of that slot uses.</summary>
     internal static Bitmap RenderTraySeedBitmap(int size) =>
-        RenderMarkBitmap(size, MarkCanonicalPercent, charging: false, MarkCanonicalThreshold,
-                         TraySlotHeights);
+        RenderMarkBitmap(size, MarkCanonicalPercent, MarkSage, MarkCanonicalThreshold, TraySlotHeights);
 
     /// <summary>The threshold state that puts the mark's guard line where the brand puts it. Start is
     /// 0 — the brand has one line, and 0 is also what a mode-based vendor reports.</summary>
@@ -416,7 +411,7 @@ internal static class IconGenerator
     /// centre 50/50, radius 33, 135° start, 270° sweep — the same proportions as the dashboard gauge.
     /// The background is transparent, so the ring has to read on any taskbar colour by itself.
     /// </summary>
-    private static Bitmap RenderBatteryBitmap(int size, int percent, bool charging,
+    private static Bitmap RenderBatteryBitmap(int size, int percent, PowerState state,
                                               ChargeThresholdState? threshold)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
@@ -440,7 +435,7 @@ internal static class IconGenerator
 
         if (percent > 0)
         {
-            Color fillColor = FillFor(percent, charging);
+            Color fillColor = FillFor(percent, state);
 
             // Wider dark stroke drawn first, as a halo: without it the arc has no crisp edge on a
             // light taskbar.

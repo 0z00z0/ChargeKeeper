@@ -280,14 +280,15 @@ public class BrandMarkGeometryTests
                      ReadSvg().FillRight, Tolerance);
 
     [Fact]
-    public void TheCanonicalPercentLandsInTheTierTheVectorIsPaintedIn()
+    public void TheCanonicalMarksInteriorIsFixed_NotSampledFromTheDrainingScale()
     {
-        // The vector's fill is sage. If MarkCanonicalPercent ever drops to the amber tier the static
-        // icon changes colour while the vector does not, which no coordinate check would catch.
-        Assert.True(IconGenerator.MarkCanonicalPercent > GaugePalette.GreenAbovePct,
-                    $"the canonical {IconGenerator.MarkCanonicalPercent} % is at or below the "
-                    + $"{GaugePalette.GreenAbovePct} % green threshold, so the mark renders amber, "
-                    + "not the sage the vector is drawn in.");
+        // The mark is brand, not a gauge: its canonical renders take the vector's own sage at a level
+        // that never moves. The draining scale at that same level sits a few units towards lavender,
+        // so wiring the mark back through the scale would drift the static icon off the vector —
+        // which no coordinate check would catch. The pixels themselves are probed by
+        // TheRenderedMarkHasItsChargeFillWhereTheVectorDrawsIt.
+        Assert.NotEqual(GaugePalette.SageGreen,
+                        GaugePalette.FillFor(IconGenerator.MarkCanonicalPercent, PowerState.Discharging));
     }
 
     [Fact]

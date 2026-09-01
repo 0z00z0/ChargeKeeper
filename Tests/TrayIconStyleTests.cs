@@ -73,21 +73,23 @@ public class TrayIconStyleTests
 
     [Fact]
     public void CanonicalFill_LandsWhereTheBrandSvgPutsIt() =>
-        // The SVG's fill rect ends at x 146; 76 % is the nearest level still in the sage tier.
+        // The SVG's fill rect ends at x 146. Geometry alone — the canonical renders take the brand's
+        // fixed sage, so this level no longer decides a colour.
         Assert.Equal(146f, IconGenerator.MarkInteriorX(IconGenerator.MarkCanonicalPercent), 4.0);
 
     [Fact]
-    public void EveryStyleRenders_AtEveryTierAndOnAc()
+    public void EveryStyleRenders_AtEveryLevelAndPowerState()
     {
         // Narrow smoke cover: the dispatch reaches a real renderer for each member, and no style
         // throws at the extremes. A tray-icon render failure is caught and logged in App, so a
         // broken new style would otherwise show only as an icon that never changes.
         foreach (var mode in Enum.GetValues<TrayIconMode>())
             foreach (int pct in new[] { 0, 10, 50, 100 })
-                foreach (bool charging in new[] { false, true })
+                foreach (var state in Enum.GetValues<PowerState>())
                 {
-                    using var icon = IconGenerator.RenderBatteryIcon(pct, charging, mode);
-                    Assert.True(icon.Width >= 16, $"{mode} at {pct} % rendered {icon.Width} px.");
+                    using var icon = IconGenerator.RenderBatteryIcon(pct, state, mode);
+                    Assert.True(icon.Width >= 16,
+                                $"{mode} at {pct} % {state} rendered {icon.Width} px.");
                 }
     }
 }

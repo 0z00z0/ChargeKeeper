@@ -69,9 +69,9 @@ public class TrayThresholdMarkTests
         var limiting    = new ChargeThresholdState(true, true, 60, 80);
         var notLimiting = new ChargeThresholdState(true, false, 60, 80);
 
-        using var bare      = IconGenerator.RenderStyleBitmap(64, 70, false, mode, null);
-        using var capped    = IconGenerator.RenderStyleBitmap(64, 70, false, mode, limiting);
-        using var uncapped  = IconGenerator.RenderStyleBitmap(64, 70, false, mode, notLimiting);
+        using var bare      = IconGenerator.RenderStyleBitmap(64, 70, PowerState.Discharging, mode, null);
+        using var capped    = IconGenerator.RenderStyleBitmap(64, 70, PowerState.Discharging, mode, limiting);
+        using var uncapped  = IconGenerator.RenderStyleBitmap(64, 70, PowerState.Discharging, mode, notLimiting);
 
         Assert.False(PixelsMatch(bare, capped),   $"{mode} renders identically with and without a cap.");
         Assert.True(PixelsMatch(bare, uncapped),  $"{mode} draws a mark while Smart Charge is off.");

@@ -327,9 +327,10 @@ public sealed partial class DashboardWindow : Window
 
             BatteryPercentText.Text = pct.HasValue ? $"{pct}%" : "--";
 
-            // The same call the tray icon path uses, so the two agree on when to show blue.
-            bool onAC = BatteryStatsFormatter.IsOnAC(report.Status);
-            UpdateGaugeArc(pct ?? 0, onAC);
+            // The same derivations the tray icon path uses, so the two cannot disagree on colour.
+            var  state = PowerStates.From(report.Status);
+            bool onAC  = BatteryStatsFormatter.IsOnAC(report.Status);
+            UpdateGaugeArc(pct ?? 0, state);
 
             // Wattage is pop-out only: "AC Power (60W charger) · +45 W" overflows the 340px card.
             PowerSourceText.Text = BatteryStatsFormatter.FormatPowerSource(
@@ -998,25 +999,23 @@ public sealed partial class DashboardWindow : Window
         Refresh();
     }
 
+    // Repainted rather than replaced: the arc colour is continuous, so a brush per reading would
+    // allocate on every refresh.
+    private readonly Microsoft.UI.Xaml.Media.SolidColorBrush _gaugeFillBrush = new();
+
     /// <summary>
-    /// Colours the arc by charge level, with <paramref name="onAC"/> forcing blue. Thresholds and
-    /// colours come from <see cref="GaugePalette"/>, as the tray icon's arc does.
+    /// Colours the arc for <paramref name="state"/> at <paramref name="percent"/>, sampling the same
+    /// <see cref="GaugePalette"/> scales the tray icon's arc does.
     /// </summary>
-    private void UpdateGaugeArc(int percent, bool onAC)
+    private void UpdateGaugeArc(int percent, PowerState state)
     {
         // Track geometry is constant and set in the constructor — only fill changes here.
         GaugeFill.Data = percent > 0
             ? BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep * percent / 100.0)
             : null;
 
-        GaugeFill.Stroke = onAC
-            ? AppColors.GaugeChargingBrush
-            : percent switch
-            {
-                > GaugePalette.GreenAbovePct   => AppColors.GaugeGreenBrush,
-                > GaugePalette.LowAtOrBelowPct => AppColors.GaugeMedBrush,
-                _                              => AppColors.GaugeLowBrush
-            };
+        _gaugeFillBrush.Color = AppColors.FromPacked(GaugePalette.FillFor(percent, state));
+        GaugeFill.Stroke      = _gaugeFillBrush;
     }
 
     /// <summary>Short radial tick mark on the gauge arc at the given clock-face angle.</summary>

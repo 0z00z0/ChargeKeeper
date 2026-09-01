@@ -19,7 +19,8 @@ Two power features, without opening the slow Lenovo Vantage app:
 Left-click the tray icon for a battery dashboard (arc gauge with live % and charge-rate, threshold
 tick markers, adjustable start/stop sliders); right-click for quick toggles, presets, and
 **Settings…** (opens the full configuration window). The tray icon itself shows a live
-battery-level arc, colour-coded green/orange/red — or, optionally, the battery percentage as a
+battery-level arc, coloured on a continuous scale that follows both the level and the power state —
+on battery, charging, or connected and holding — or, optionally, the battery percentage as a
 number.
 
 ### Features

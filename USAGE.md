@@ -92,14 +92,17 @@ forever.
 ## Dashboard popup
 Appears bottom-right above the taskbar.  Closes on focus loss.  Refreshes every 5 s.
 
-- Circular arc gauge: charge %, colour-coded green > 50 %, orange ≤ 50 %, red ≤ 20 %
+- Circular arc gauge: charge %, coloured on a continuous scale that depends on the power state —
+  on battery it runs ember → terracotta → sage → lavender, while charging it runs steel blue →
+  lavender, and connected but not charging it runs steel blue → orchid, so a pack held high on
+  mains reads differently from one still filling
 - Amber tick marks on the arc at the Smart Charge start% and stop% positions (visible when Smart
   Charge is enabled with valid thresholds)
 - Power source (AC / Battery) and charge/drain rate in watts
 - **TIME stat** — time-to-full when charging, time-remaining when discharging; shows **—** when the
   charge rate is negligible
-- **Battery % history graph** — a graph of battery level over a selectable time span,
-  colour-coded like the gauge, persisted across restarts
+- **Battery % history graph** — a graph of battery level over a selectable time span, one fixed
+  accent per series rather than the gauge's level-dependent colour, persisted across restarts
 - **Smart Charge badge** — shows current thresholds; expands to reveal Start/Stop sliders when
   Smart Charge is enabled. Sliders are constrained (≥ 5% gap); **Apply** writes the new thresholds
   immediately via `LenSetChargeThreshold`

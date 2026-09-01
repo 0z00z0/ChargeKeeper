@@ -152,7 +152,8 @@ public class TrayIconContrastTests
 
     private static void AssertFillsFrame(ChargeThresholdState? threshold, float atLeast)
     {
-        using var bmp = IconGenerator.RenderStyleBitmap(64, 80, false, TrayIconMode.BrandMark, threshold);
+        using var bmp = IconGenerator.RenderStyleBitmap(64, 80, PowerState.Discharging,
+                                                        TrayIconMode.BrandMark, threshold);
         var (top, bottom) = InkRows(bmp);
 
         Assert.True(top >= 0, "the mark renders no ink at all.");

@@ -39,7 +39,7 @@ public partial class App : Application
 
     // Cached tray icon state; Pct = -1 means not yet read. This is the last READING, which the MQTT
     // snapshot and the tooltip also depend on — never the record of what the icon is showing.
-    private (int Pct, bool Charging) _lastIconState = (-1, false);
+    private (int Pct, PowerState State) _lastIconState = (-1, PowerState.Discharging);
 
     // What the tray icon is actually showing. Kept apart from _lastIconState so a repaint that never
     // landed cannot be recorded as applied and dedupe every later tick at the same reading away.
@@ -263,7 +263,8 @@ public partial class App : Application
             {
                 if (_lastIconState.Pct < 0) return null;
                 return LiveStateBuilder.Build(
-                    _lastIconState.Pct, _lastRateMW, _lastIconState.Charging, _lastBatteryStatus, _lastThresholdState,
+                    _lastIconState.Pct, _lastRateMW, _lastIconState.State != PowerState.Discharging,
+                    _lastBatteryStatus, _lastThresholdState,
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
             }
@@ -302,7 +303,7 @@ public partial class App : Application
         {
             AppLog.Error("InitTrayIcon.BrandIcon", ex);
             // The in-memory renderer needs no disk at all.
-            try { _trayIcon.Icon = IconGenerator.RenderBatteryIcon(0, false, SettingsService.Current.IconMode); }
+            try { _trayIcon.Icon = IconGenerator.RenderBatteryIcon(0, PowerState.Discharging, SettingsService.Current.IconMode); }
             catch (Exception fallbackEx) { AppLog.Error("InitTrayIcon.FallbackIcon", fallbackEx); }
         }
 
@@ -482,7 +483,11 @@ public partial class App : Application
                 pct = Math.Clamp((int)Math.Round(100.0 * remaining / full), 0, 100);
             }
 
-            bool charging = BatteryStatsFormatter.IsOnAC(report.Status);
+            // Windows separates the two mains states itself: Charging is taking charge, Idle is
+            // connected and not. The gauge is painted from all three; the on-AC flag stays for
+            // everything that only asks which power source is in use.
+            var  powerState = PowerStates.From(report.Status);
+            bool charging   = BatteryStatsFormatter.IsOnAC(report.Status);
 
             // SoC history rides _historyTimer's fixed cadence instead, which is what makes downtime
             // show as a gap. Capacity history touches none of the _last* fields, so it stays outside
@@ -506,10 +511,10 @@ public partial class App : Application
             bool? powerSourceEdge = null;   // true = now on AC; logged outside the lock
             using (_batteryReportLock.EnterScope())
             {
-                _lastIconState = (pct, charging);
+                _lastIconState = (pct, powerState);
                 // Still gated to avoid GDI churn on every tick, but inside UpdateTrayIcon and against
                 // what was last PAINTED — a repaint that never landed leaves the gate open.
-                UpdateTrayIcon(pct, charging);
+                UpdateTrayIcon(pct, powerState);
 
                 // Refresh the open dashboard at once rather than waiting for its own 5 s timer.
                 if (_dashboard is not null)
@@ -639,12 +644,12 @@ public partial class App : Application
     private bool    _lastLowPowerMode;   // Windows Energy Saver active
     private ChargeThresholdState? _lastThresholdState;
 
-    private void UpdateTrayIcon(int pct, bool charging)
+    private void UpdateTrayIcon(int pct, PowerState state)
     {
         // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
         // style and the thresholds in force now rather than the ones set when it was posted. The
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
-        var request = new TrayIconRequest(pct, charging, SettingsService.Current.IconMode,
+        var request = new TrayIconRequest(pct, state, SettingsService.Current.IconMode,
                                           _lastThresholdState);
         if (!_iconLatch.NeedsRepaint(request)) return;
 
@@ -655,7 +660,7 @@ public partial class App : Application
         {
             // A refused enqueue is a repaint that will never happen; the latch is untouched either
             // way, so the next tick tries again rather than deduping against an icon that never moved.
-            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, charging)))
+            if (!dq.TryEnqueue(() => UpdateTrayIcon(pct, state)))
                 AppLog.Error("UpdateTrayIcon.Enqueue", new InvalidOperationException(
                     "The dispatcher queue refused the tray-icon repaint; the icon still shows the previous state."));
             return;
@@ -663,7 +668,7 @@ public partial class App : Application
 
         try
         {
-            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.Charging, request.Mode,
+            var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.State, request.Mode,
                                                           request.Threshold);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
@@ -684,8 +689,8 @@ public partial class App : Application
     /// battery event of their own. Deduped by the latch, so an unrelated change costs nothing.</summary>
     private void RepaintTrayIconFromLastReading()
     {
-        var (pct, charging) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
-        UpdateTrayIcon(pct, charging);
+        var (pct, state) = TrayIconLatch.ReadingOrUnknown(_lastIconState);
+        UpdateTrayIcon(pct, state);
     }
 
     /// <summary>
@@ -781,14 +786,15 @@ public partial class App : Application
 
         // U+FE0E forces the bolt to its text/outline form, so it renders bright like the ⚙/⏱/⬆
         // outlines rather than as a dark colour emoji on the dark tooltip background.
-        string chargeIcon = _lastIconState.Charging ? "⚡︎" : "🔋";
+        bool onAc = _lastIconState.State != PowerState.Discharging;
+        string chargeIcon = onAc ? "⚡︎" : "🔋";
         // Adapter wattage rides the "AC" label — it is a property of the power source, not a new
         // stat — and only shows on AC, where the cache is warm.
         string acLabel = ChargerInfoService.CachedWattage is { } watts ? $"AC ({watts}W)" : "AC";
-        lines.Append(_lastIconState.Charging
+        lines.Append(onAc
             ? $"\n{chargeIcon} {acLabel} · {pct}%"
             : $"\n{chargeIcon} {pct}%");
-        string? rate = (_lastIconState.Charging && _lastRateMW > 0) || (!_lastIconState.Charging && _lastRateMW < 0)
+        string? rate = (onAc && _lastRateMW > 0) || (!onAc && _lastRateMW < 0)
             ? PowerFormat.SignedRate(_lastRateMW)
             : null;
         if (rate is not null)

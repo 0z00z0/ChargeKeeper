@@ -11,7 +11,7 @@ namespace ChargeKeeper.Helpers;
 internal static class AppColors
 {
     // SteelBlue is the app's primary "active/positive" accent: charging glyph, active badges,
-    // selected controls, the history graph's SoC line. The gauge-tier bytes live in GaugePalette,
+    // selected controls, the history graph's SoC line. The gauge palette bytes live in GaugePalette,
     // shared with the GDI+ tray-icon renderer, which cannot use Windows.UI.Color.
     internal static readonly Color SteelBlue   = FromPacked(GaugePalette.SteelBlue);
     internal static readonly Color Orange      = Color.FromArgb(255, 0xFF, 0x8C, 0x00);
@@ -19,7 +19,8 @@ internal static class AppColors
     internal static readonly Color Amber       = FromPacked(GaugePalette.Amber);   // brand amber
     internal static readonly Color Blue        = Color.FromArgb(255, 0x36, 0xB0, 0xE6);  // brand blue (idle)
 
-    private static Color FromPacked(uint argb) => Color.FromArgb(
+    /// <summary>A packed 0xAARRGGBB value from <see cref="GaugePalette"/> as a WinUI colour.</summary>
+    internal static Color FromPacked(uint argb) => Color.FromArgb(
         (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
 
     // Battery status glyph (gauge centre).
@@ -45,21 +46,16 @@ internal static class AppColors
     internal static readonly SolidColorBrush AccentBrush   = new(SteelBlue);
     internal static readonly SolidColorBrush OnAccentBrush = new(Microsoft.UI.Colors.Black);
 
-    // Arc gauge fills by battery level. Muted tones rather than a vivid traffic light, and the
-    // yellow/orange tiers reuse Amber and Terracotta rather than adding near-duplicates.
-    internal static readonly Color SageGreen  = FromPacked(GaugePalette.SageGreen);   // dusty sage green
+    // The charge-limit tone the chrome reuses. The gauge arc itself takes no brush from here: its
+    // colour is continuous, so the dashboard samples GaugePalette and repaints one owned brush.
     internal static readonly Color Terracotta = FromPacked(GaugePalette.Terracotta);  // dusty terracotta
-    internal static readonly SolidColorBrush GaugeGreenBrush    = new(SageGreen);  // > 75 %
-    internal static readonly SolidColorBrush GaugeMedBrush      = new(Amber);      // 26-75 % ("yellow")
-    internal static readonly SolidColorBrush GaugeLowBrush      = new(Terracotta); // ≤ 25 % ("orange") — matches HistoryLimitBrush
-    internal static readonly SolidColorBrush GaugeChargingBrush = new(SteelBlue);  // charging/on-AC override, any %
 
     // History graph series: one fixed accent each, not a level-based switch, which read as a
     // traffic light next to the red/green min-max markers. SoC and Limit reuse the dashboard's own
     // SteelBlue and Terracotta.
     internal static readonly SolidColorBrush HistorySocBrush   = new(SteelBlue);
     internal static readonly SolidColorBrush HistoryLimitBrush = new(Terracotta);
-    internal static readonly SolidColorBrush HistoryPowerBrush = new(Color.FromArgb(255, 0x9C, 0x8F, 0xBD));  // muted lavender
+    internal static readonly SolidColorBrush HistoryPowerBrush = new(FromPacked(GaugePalette.Lavender));
 
     // Terracotta, not the vivid Orange, so the pop-out trigger matches the dashboard's orange tint.
     internal static readonly SolidColorBrush ExpandGlyphBrush = new(Terracotta);
