@@ -364,9 +364,9 @@ public sealed partial class DashboardWindow : Window
     {
         (string glyph, var brush, string tip) = status switch
         {
-            BatteryStatus.Charging    => ("▲", AppColors.StatusChargingBrush,    "Charging"),
-            BatteryStatus.Discharging => ("▼", AppColors.StatusDischargingBrush, "Discharging"),
-            BatteryStatus.Idle        => ("●", AppColors.StatusIdleBrush,        "Full / Idle"),
+            BatteryStatus.Charging    => (PowerFlows.GlyphIn,   AppColors.StatusChargingBrush,    "Charging"),
+            BatteryStatus.Discharging => (PowerFlows.GlyphOut,  AppColors.StatusDischargingBrush, "Discharging"),
+            BatteryStatus.Idle        => (PowerFlows.GlyphRest, AppColors.StatusIdleBrush,        "Full / Idle"),
             BatteryStatus.NotPresent  => ("—", AppColors.StatusUnknownBrush,     "No battery"),
             _                         => ("—", AppColors.StatusUnknownBrush,     ""),
         };

@@ -33,7 +33,7 @@ internal static class BatteryStatsFormatter
     /// "battery time left".</summary>
     public static string FormatTimeRemaining(int? chargeRateMw, int? remainingMwh, int? fullChargeMwh)
     {
-        if (chargeRateMw is not { } rate || Math.Abs(rate) < 100) return "—";
+        if (chargeRateMw is not { } rate || PowerFlows.From(rate) is null or PowerFlow.Rest) return "—";
         if (remainingMwh is not { } remaining) return "—";
 
         if (rate > 0)
@@ -44,12 +44,12 @@ internal static class BatteryStatsFormatter
         return "—";
     }
 
-    /// <summary>Hours until full while charging at a meaningful (&gt;=100 mW) rate; null otherwise.
-    /// Shared with the Home Assistant <c>remaining_charge_time</c> sensor so the two cannot drift on
-    /// the rate guard.</summary>
+    /// <summary>Hours until full while charging at a meaningful rate; null otherwise. The rate guard
+    /// is <see cref="PowerFlows.RestBandMw"/>, shared with the tray's flow mark and the Home Assistant
+    /// <c>remaining_charge_time</c> sensor so no two surfaces can drift on what counts as flow.</summary>
     internal static double? HoursToFull(int chargeRateMw, int? remainingMwh, int? fullChargeMwh)
     {
-        if (chargeRateMw < 100) return null;
+        if (chargeRateMw < PowerFlows.RestBandMw) return null;
         if (remainingMwh is not { } remaining || fullChargeMwh is not > 0) return null;
         double h = (fullChargeMwh.Value - remaining) / (double)chargeRateMw;
         if (h <= 0 || double.IsInfinity(h) || double.IsNaN(h)) return null;
