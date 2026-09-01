@@ -17,6 +17,20 @@ internal enum LidDelayAction
     Hold,
 }
 
+/// <summary>How a lid close finished, for the one decision that has to tell an expiry from an
+/// interruption.</summary>
+internal enum LidDelayOutcome
+{
+    /// <summary>The wait ran its course — the delay elapsed, any discharge target was met, and the
+    /// machine was suspended.</summary>
+    Slept,
+    /// <summary>The lid was reopened before the machine slept.</summary>
+    LidReopened,
+    /// <summary>The wait ended without sleeping: the feature was switched off, a keep-awake session
+    /// vetoed the sleep, or Windows refused the suspend.</summary>
+    StoppedShort,
+}
+
 /// <summary>The feature parks the user's own LIDACTION on "do nothing"; these are the four states
 /// that pairing can be found in.</summary>
 internal enum LidActionOverride
@@ -77,6 +91,20 @@ internal static class LidDelayPolicy
         if (dischargeHolding) return LidDelayAction.Hold;
         return LidDelayAction.Suspend;
     }
+
+    /// <summary>
+    /// Whether the delay switches itself off now this lid close is over, leaving Windows' own
+    /// lid-close action back in charge of the next one.
+    /// </summary>
+    /// <remarks>
+    /// Only <see cref="LidDelayOutcome.Slept"/> qualifies: the feature stands down when it did its
+    /// job, not when it was stopped short. A lid reopened before the machine slept expired nothing —
+    /// the delay is still owed its chance — and neither the keep-awake veto, a refused suspend, nor
+    /// switching the feature off by hand is a wait that ran its course. Reading a cancellation as an
+    /// expiry would retire the feature on the one lid close it never got to serve.
+    /// </remarks>
+    public static bool ShouldTurnOffAfterLidClose(bool offAfterSleep, LidDelayOutcome outcome) =>
+        offAfterSleep && outcome == LidDelayOutcome.Slept;
 
     /// <summary>
     /// Whether a lid close should lock the workstation. <paramref name="keepAwakeActive"/> is taken

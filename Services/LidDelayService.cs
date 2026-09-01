@@ -52,6 +52,11 @@ internal static class LidDelayService
     // Hardware, so it is asked once: the dashboard reconciles its Lid close section every refresh.
     private static bool? _lidPresent;
 
+    /// <summary>Raised (off the UI thread) whenever the feature is switched on or off, including when
+    /// it stands itself down after a lid close reached sleep. Every surface showing the switch follows
+    /// this one signal rather than reading the setting on a timer.</summary>
+    public static event Action? StateChanged;
+
     /// <summary>
     /// Whether this machine has a lid to delay. A failed capability query counts as present — hiding
     /// the feature on a laptop is worse than offering it on a machine that will never close a lid.
@@ -101,7 +106,9 @@ internal static class LidDelayService
     /// setting was left off rather than promising a delay the machine will not honour. Disabling
     /// always returns true; a failed restore stays owed to the next <see cref="Start"/>.
     /// </summary>
-    public static bool SetEnabled(bool enable)
+    /// <param name="cause">Why it was switched off, for the power trail; the enable path names its own.
+    /// Defaults to the user, because every entry point but <see cref="TurnOffIfDue"/> is one.</param>
+    public static bool SetEnabled(bool enable, string cause = "the setting was turned off")
     {
         if (enable)
         {
@@ -115,6 +122,7 @@ internal static class LidDelayService
             Subscribe();
             PowerLog.Event($"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min",
                            "the setting was turned on");
+            RaiseStateChanged();
             return true;
         }
 
@@ -124,8 +132,32 @@ internal static class LidDelayService
         PowerLog.Event(RestoreSavedAction()
             ? "Lid-close delay off, the Windows lid-close action is back to its own value"
             : "Lid-close delay off, but the Windows lid-close action could not be restored — retrying at next start",
-            "the setting was turned off");
+            cause);
+        RaiseStateChanged();
         return true;
+    }
+
+    /// <summary>
+    /// Stands the feature down now a lid close is over, when the user asked for a one-off delay and
+    /// this close is one that counts. <see cref="LidDelayPolicy.ShouldTurnOffAfterLidClose"/> holds the
+    /// expiry-versus-interruption rule; this only supplies the outcome and performs the write.
+    /// </summary>
+    /// <remarks>Never called from the lid-switch callback: <see cref="SetEnabled"/> unsubscribes, and
+    /// unregistering from inside a callback deadlocks against the callback still running.</remarks>
+    private static void TurnOffIfDue(LidDelayOutcome outcome)
+    {
+        if (!LidDelayPolicy.ShouldTurnOffAfterLidClose(SettingsService.Current.LidDelayOffAfterSleep, outcome))
+            return;
+
+        SetEnabled(false, "the delay was set to run once and the machine slept");
+    }
+
+    // Never let a subscriber's failure escape: one raise site sits on the suspend task, where an
+    // escaped exception terminates the process, and the window subscribers touch the UI.
+    private static void RaiseStateChanged()
+    {
+        try { StateChanged?.Invoke(); }
+        catch (Exception ex) { AppLog.Error("LidDelayService.StateChanged", ex); }
     }
 
     /// <summary>
@@ -474,24 +506,29 @@ internal static class LidDelayService
                 {
                     // The lid can be opened between the decision above and this running, by which
                     // point _delayPending is false and nothing else would stop the suspend.
-                    lock (_sync)
+                    bool abandoned;
+                    lock (_sync) abandoned = _generation != gen;
+                    if (abandoned)
                     {
-                        if (_generation != gen)
-                        {
-                            PowerLog.Event("Suspend abandoned", "the lid was opened before it ran");
-                            return;
-                        }
+                        PowerLog.Event("Suspend abandoned", "the lid was opened before it ran");
+                        TurnOffIfDue(LidDelayOutcome.LidReopened);
+                        return;
                     }
+                    // Returns on resume, so the stand-down lands after the machine has actually slept.
                     if (!NativeMethods.Suspend())
                     {
                         PowerLog.Event("Suspend was refused by Windows", "SetSuspendState returned false");
                         AppLog.Error("LidDelayService.Suspend failed", null);
+                        TurnOffIfDue(LidDelayOutcome.StoppedShort);
+                        return;
                     }
+                    TurnOffIfDue(LidDelayOutcome.Slept);
                 });
                 break;
             case LidDelayAction.Cancel:
                 PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
                                "a keep-awake session is holding it awake");
+                TurnOffIfDue(LidDelayOutcome.StoppedShort);
                 break;
             case LidDelayAction.Hold:
                 PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",

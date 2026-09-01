@@ -313,6 +313,84 @@ public class LidDelayPolicyTests
         Assert.True(new AppSettings { LidDelaySavedDcAction = 1 }.HasSavedLidAction);
     }
 
+    // ── ShouldTurnOffAfterLidClose ─────────────────────────────────────
+    // The whole option turns on telling an expiry from an interruption: the delay stands down when it
+    // did its job, never when it was stopped short.
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_TheDelayElapsedAndTheMachineSlept_SwitchesOff()
+    {
+        // The one outcome that counts. A discharge target met after the wait reaches the same
+        // suspend, so both routes arrive here as Slept.
+        Assert.True(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: true, LidDelayOutcome.Slept));
+    }
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_OptionOff_LeavesTheFeatureOnEvenAfterSleeping()
+    {
+        // Off by default, so an upgrading install keeps a standing delay standing.
+        Assert.False(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: false, LidDelayOutcome.Slept));
+    }
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_LidReopenedBeforeSleeping_LeavesTheFeatureOn()
+    {
+        // Nothing expired: the machine never slept, so the delay has not yet served the lid close it
+        // was turned on for. Retiring it here would cost the user the very next one.
+        Assert.False(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: true, LidDelayOutcome.LidReopened));
+    }
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_StoppedShort_LeavesTheFeatureOn()
+    {
+        // A keep-awake session vetoing the sleep, a suspend Windows refused, and the feature switched
+        // off by hand all end the wait without it running its course.
+        Assert.False(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: true, LidDelayOutcome.StoppedShort));
+    }
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_AnInterruptionNeverSwitchesOff_WhicheverWayTheOptionIsSet()
+    {
+        // The boundary the option rests on, pinned from both sides: every interruption is inert, so
+        // reading one as an expiry can only show up as a failure here.
+        foreach (var outcome in new[] { LidDelayOutcome.LidReopened, LidDelayOutcome.StoppedShort })
+        {
+            Assert.False(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: true, outcome));
+            Assert.False(LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: false, outcome));
+        }
+    }
+
+    [Fact]
+    public void ShouldTurnOffAfterLidClose_SleepingIsTheOnlyOutcomeThatQualifies() =>
+        // Exhaustive over the enum, so an outcome added later has to be judged rather than inheriting
+        // whatever the expression happens to do with it.
+        Assert.Equal(
+            [LidDelayOutcome.Slept],
+            Enum.GetValues<LidDelayOutcome>()
+                .Where(o => LidDelayPolicy.ShouldTurnOffAfterLidClose(offAfterSleep: true, o)));
+
+    [Fact]
+    public void OffAfterSleep_IsOffByDefault_IncludingForASettingsFileWrittenBeforeIt()
+    {
+        // On by default would silently retire a delay every existing install relies on standing.
+        Assert.False(new AppSettings().LidDelayOffAfterSleep);
+
+        var loaded = JsonSerializer.Deserialize<AppSettings>("""{"LidDelayEnabled":true}""");
+
+        Assert.NotNull(loaded);
+        Assert.False(loaded!.LidDelayOffAfterSleep);
+    }
+
+    [Fact]
+    public void OffAfterSleep_SurvivesSettingsJson()
+    {
+        var loaded = JsonSerializer.Deserialize<AppSettings>(
+            JsonSerializer.Serialize(new AppSettings { LidDelayOffAfterSleep = true }));
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.LidDelayOffAfterSleep);
+    }
+
     // ── ShouldLockOnLidClose ───────────────────────────────────────────
     // Never calls LockWorkStation: the decision is pure, and a test that actually locked would lock
     // the machine running the suite.

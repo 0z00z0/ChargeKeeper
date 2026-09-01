@@ -131,6 +131,11 @@ internal sealed class AppSettings
     /// a lid close normally leads to.</summary>
     public bool LidDelayLockOnClose { get; set; } = true;
 
+    /// <summary>Switches <see cref="LidDelayEnabled"/> off once a lid close has actually reached sleep,
+    /// so the delay is a one-off rather than a standing change to what closing the lid does. Off by
+    /// default, which leaves the feature standing as it always did.</summary>
+    public bool LidDelayOffAfterSleep { get; set; } = false;
+
     /// <summary>Off by default: the plain delay is bounded by <see cref="LidDelayPolicy.MaxMinutes"/>,
     /// and a discharge target replaces that bound with the battery's own.</summary>
     public bool LidDischargeEnabled { get; set; } = false;
