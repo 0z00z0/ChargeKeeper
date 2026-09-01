@@ -14,7 +14,13 @@
 
     <!-- The same graph control at full size. ShowExpandButton is off: this window is where
          expanding leads. -->
-    <Grid Padding="20,16,20,20" RowSpacing="12">
+    <Grid x:Name="RootGrid" Padding="20,16,20,20" RowSpacing="12">
+        <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
+             sits; nothing in this window wants the key for itself. -->
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked"/>
+        </Grid.KeyboardAccelerators>
+
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- stats -->
             <RowDefinition Height="*"/>     <!-- graph -->

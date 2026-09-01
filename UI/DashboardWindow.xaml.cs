@@ -278,6 +278,14 @@ public sealed partial class DashboardWindow : Window
         AppWindow.Hide();
     }
 
+    /// <summary>Escape dismisses as clicking away does — a hide, not a close, so the tray's next
+    /// click re-shows the same window and the idle timer still reclaims it.</summary>
+    private void OnEscapeInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        HideWindow();
+    }
+
     private void ConfigureWindowChrome()
     {
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);

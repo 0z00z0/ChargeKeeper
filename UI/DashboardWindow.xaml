@@ -16,6 +16,12 @@
     <!-- No fixed size: the window is measured from this grid, so rows can appear and disappear
          without hard-coded height constants. -->
     <Grid x:Name="RootGrid" Padding="20,16,20,12">
+        <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
+             sits; nothing in this window wants the key for itself. -->
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked"/>
+        </Grid.KeyboardAccelerators>
+
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- header -->
             <RowDefinition Height="Auto"/>  <!-- gauge and stats -->

@@ -1,5 +1,6 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Windows.Devices.Power;
 using Windows.Graphics;
 using Windows.System.Power;
@@ -89,23 +90,7 @@ public sealed partial class BatteryHistoryWindow : Window
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
             if (!_everActivated) return;   // spurious pre-activation deactivate — see field doc
-            if (_closing || _dismissing) return;
-            _dismissing = true;
-
-            // Close, not Hide: App's singleton recreates it cheaply, and with no title bar clicking
-            // away is the only dismissal.
-            if (_originRect is { } origin)
-            {
-                // Retract from wherever the window currently is — it's resizable, so not _finalRect.
-                var current = new RectInt32(
-                    AppWindow.Position.X, AppWindow.Position.Y,
-                    AppWindow.Size.Width, AppWindow.Size.Height);
-                AnimateRect(current, origin, Close);
-            }
-            else
-            {
-                Close();
-            }
+            Dismiss();
             return;
         }
 
@@ -116,6 +101,36 @@ public sealed partial class BatteryHistoryWindow : Window
         {
             _animStarted = true;
             AnimateRect(openOrigin, _finalRect, HistoryGraph.Render);
+        }
+    }
+
+    /// <summary>Escape takes the same path as clicking away, so the key introduces no third
+    /// behaviour of its own.</summary>
+    private void OnEscapeInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        Dismiss();
+    }
+
+    /// <summary>Retracts into the origin rect, then closes. Close, not Hide: App's singleton recreates
+    /// the window cheaply, and with no title bar there is no other dismissal. Latched, because the
+    /// window can deactivate again during its own retract.</summary>
+    private void Dismiss()
+    {
+        if (_closing || _dismissing) return;
+        _dismissing = true;
+
+        if (_originRect is { } origin)
+        {
+            // Retract from wherever the window currently is — it's resizable, so not _finalRect.
+            var current = new RectInt32(
+                AppWindow.Position.X, AppWindow.Position.Y,
+                AppWindow.Size.Width, AppWindow.Size.Height);
+            AnimateRect(current, origin, Close);
+        }
+        else
+        {
+            Close();
         }
     }
 
