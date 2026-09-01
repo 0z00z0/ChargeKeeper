@@ -223,7 +223,7 @@ internal static class SettingsService
 
     public static AppSettings Current
     {
-        get { lock (_lock) { return _current ??= ReadFile(_path) ?? new AppSettings(); } }
+        get { lock (_lock) { return _current ??= ReadFrom(_path) ?? new AppSettings(); } }
     }
 
     public static string FilePath => _path;
@@ -233,7 +233,7 @@ internal static class SettingsService
     /// reader can throw "collection was modified".</summary>
     public static T Read<T>(Func<AppSettings, T> project)
     {
-        lock (_lock) { return project(_current ??= ReadFile(_path) ?? new AppSettings()); }
+        lock (_lock) { return project(_current ??= ReadFrom(_path) ?? new AppSettings()); }
     }
 
     /// <summary>Serialises <see cref="Current"/> to disk. Safe to call from any thread.</summary>
@@ -241,28 +241,37 @@ internal static class SettingsService
     {
         lock (_lock)
         {
-            try
-            {
-                var settings = _current ?? new AppSettings();
-                // Stamps the migration marker on the way out, so a file written before the key
-                // existed is recorded as needing nothing rather than being read as "not yet
-                // migrated" on every later start. Never overwrites an explicit false: that is a
-                // pending migration, and the stamp must not pre-empt it.
-                settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
+            var settings = _current ?? new AppSettings();
+            // Stamps the migration marker on the way out, so a file written before the key existed
+            // is recorded as needing nothing rather than being read as "not yet migrated" on every
+            // later start. Never overwrites an explicit false: that is a pending migration, and the
+            // stamp must not pre-empt it.
+            settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
+            WriteTo(settings, _path);
+        }
+    }
 
-                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                // Atomic write: serialise to a temp file, then replace the target, so a crash
-                // mid-write cannot truncate the existing settings.json.
-                var tmp = _path + ".tmp";
-                File.WriteAllText(tmp, JsonSerializer.Serialize(settings, _opts));
-                File.Move(tmp, _path, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                // Never throws — callers have no return value to check, so this log is the only
-                // trace of a setting that did not reach disk.
-                AppLog.Error("SettingsService.Save", ex);
-            }
+    /// <summary>Writes one settings object to one file, atomically, and reports whether it landed.
+    /// Separated from <see cref="Save"/> so the write can be exercised against a real file without
+    /// touching the installed <c>settings.json</c> — <see cref="_path"/> is fixed, and a test that
+    /// swapped it would race every other test reading <see cref="Current"/>.</summary>
+    /// <remarks>Never throws: callers are settings handlers with nothing to unwind.</remarks>
+    internal static bool WriteTo(AppSettings settings, string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            // Atomic write: serialise to a temp file, then replace the target, so a crash mid-write
+            // cannot truncate the existing settings.json.
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(settings, _opts));
+            File.Move(tmp, path, overwrite: true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("SettingsService.Save", ex);
+            return false;
         }
     }
 
@@ -273,7 +282,7 @@ internal static class SettingsService
     {
         lock (_lock)
         {
-            mutate(_current ??= ReadFile(_path) ?? new AppSettings());
+            mutate(_current ??= ReadFrom(_path) ?? new AppSettings());
             Save();   // re-entrant on the same Lock, so nesting does not deadlock
         }
         Changed?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT publish)
@@ -286,7 +295,7 @@ internal static class SettingsService
     /// <summary>Deserialises settings JSON, or null when there is nothing usable. A present-but-unreadable
     /// file is copied aside first, or the next <see cref="Save"/> overwrites the user's presets, network
     /// rules and MQTT credentials with defaults.</summary>
-    private static AppSettings? ReadFile(string path)
+    internal static AppSettings? ReadFrom(string path)
     {
         if (!File.Exists(path)) return null;
 
@@ -335,7 +344,7 @@ internal static class SettingsService
     {
         lock (_lock)
         {
-            var settings = _current ??= ReadFile(_path) ?? new AppSettings();
+            var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
             if (settings.NetworkRulesKeyedOnPhysicalAdapter is not false)
             {
                 // Absent key: stamp it rather than migrate, so the question is settled for good.
@@ -388,7 +397,7 @@ internal static class SettingsService
     /// untouched on a missing or invalid file; never writes back.</summary>
     public static bool Reload()
     {
-        if (ReadFile(_path) is not { } loaded) return false;
+        if (ReadFrom(_path) is not { } loaded) return false;
         lock (_lock) { _current = loaded; }
         Reloaded?.Invoke();   // outside the lock — a subscriber may do real work (an MQTT reconnect)
         return true;

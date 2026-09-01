@@ -100,13 +100,37 @@ public class BatteryHistoryServiceTests : IDisposable
         Assert.Null(parsed.State);
     }
 
+    // Every state the app can be in, not just the one that happens to be easy to reproduce: a write
+    // path carrying only the charging case looks correct on a machine left plugged in.
     [Fact]
-    public void Record_StoresTheStateItWasGiven()
+    public void Record_StoresEveryStateItCanBeGiven()
     {
-        BatteryHistoryService.Record(60, 80, 3000, PowerState.IdleOnMains);
+        foreach (var state in Enum.GetValues<PowerState>())
+        {
+            File.Delete(_testFile);   // a fresh file per state, so Single() means this state's row
+            BatteryHistoryService.UseTestPath(_testFile);
+            BatteryHistoryService.Record(60, 80, 3000, state);
 
-        var loaded = BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
-        Assert.Equal(PowerState.IdleOnMains, Assert.Single(loaded).State);
+            var loaded = BatteryHistoryService.LoadWindow(TimeSpan.FromHours(1));
+            Assert.Equal($"{state}", $"{Assert.Single(loaded).State}");
+        }
+    }
+
+    /// <summary>The state reaches the CSV as its own column, for every state. Reading it back is not
+    /// enough on its own: a writer that dropped the column would still round-trip through a parser
+    /// that treats an absent state as null.</summary>
+    [Fact]
+    public void Record_WritesEveryStateNameIntoTheFile()
+    {
+        foreach (var state in Enum.GetValues<PowerState>())
+        {
+            File.Delete(_testFile);   // a fresh file per state, so Single() means this state's row
+            BatteryHistoryService.UseTestPath(_testFile);
+            BatteryHistoryService.Record(60, 80, 3000, state);
+
+            var row = File.ReadAllLines(BatteryHistoryService.FilePath)[^1];
+            Assert.Equal($"{state}", row.Split(',')[^1]);
+        }
     }
 
     [Fact]
