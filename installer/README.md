@@ -1,8 +1,9 @@
 ﻿# Installer & distribution
 
 ChargeKeeper ships as a **per-user Inno Setup installer** (`%LocalAppData%`, no admin to
-install) and is distributed through **winget**. The app itself is elevated at runtime; the installer
-is not.
+install), published as an asset on each **GitHub release**, with winget manifests attached to the
+same release alongside it. It is not carried by any winget source — see the winget section below.
+The app itself is elevated at runtime; the installer is not.
 
 ## Build the installer
 
@@ -25,10 +26,19 @@ signs both the published exe and the installer exe (if a code-signing cert is pr
 compiles `ChargeKeeper.iss` into:
 
 ```
-installer\Output\ChargeKeeper-Setup.exe
+installer\Output\ChargeKeeper-Setup-<version>.exe
 ```
 
-The script prints the installer's **SHA256** — paste it into the winget manifest (below).
+The filename always carries the version: `ChargeKeeper.iss` sets
+`OutputBaseFilename=ChargeKeeper-Setup-{#AppVersion}`, and `build-installer.ps1` passes the version
+in as `/DAppVersion`. Version 1.28.0 therefore builds `ChargeKeeper-Setup-1.28.0.exe`, and that is
+the name the release asset carries. There is no unversioned `ChargeKeeper-Setup.exe`. The build
+script deletes any earlier `ChargeKeeper-Setup-*.exe` from `Output` before compiling, so the folder
+holds exactly one installer.
+
+The script then prints the installer's **SHA256**, computed after signing. A tagged release does not
+need that value — the workflow computes the hash itself and patches the manifests with it — so it
+serves a local manifest test.
 
 ### What the installer does
 - Installs per-user to `%LocalAppData%\Programs\ChargeKeeper` — **no admin prompt**.
@@ -59,8 +69,10 @@ installer over an existing Lenovo Power Tray install upgrades it in place:
   (Inno reuses the recorded install path); fresh installs go to `...\ChargeKeeper`. Cosmetic only.
 - The app migrates `%AppData%\LenovoPowerTray` → `%AppData%\ChargeKeeper` on first launch, so
   settings and battery history carry over.
-- The **winget identity is new** (`0z00z0.ChargeKeeper`) — the old package ID will not auto-upgrade
-  across the rename; users install the new ID once.
+- The **winget identity is new** (`0z00z0.ChargeKeeper`), and nothing upgrades through winget in
+  either direction: neither identity is carried by a winget source, so `winget install` and
+  `winget upgrade` find nothing for either one. The upgrade route is to run the ChargeKeeper
+  installer over the existing install.
 
 ## Installer visual design (wizard art & setup icon)
 
@@ -156,13 +168,14 @@ bitmaps `ChargeKeeper.iss` consumes. Keeping the SVGs honest is still a manual r
 
 ## Releasing
 
-### Automated release (recommended) — GitHub Actions
+### The only release route — GitHub Actions
 
-`.github/workflows/release.yml` builds, signs, and publishes everything automatically.
+`.github/workflows/release.yml` builds, signs and publishes everything on a `v*.*.*` tag push. It is
+the only way a release is created.
 
 **One-time setup: configure signing secrets**
 
-The workflow signs `ChargeKeeper.exe` and `ChargeKeeper-Setup.exe` with an Authenticode PFX.
+The workflow signs `ChargeKeeper.exe` and `ChargeKeeper-Setup-<version>.exe` with an Authenticode PFX.
 Add these two repository secrets (Settings → Secrets and variables → Actions → New repository secret):
 
 | Secret name          | Value                                                                 |
@@ -170,7 +183,9 @@ Add these two repository secrets (Settings → Secrets and variables → Actions
 | `CODE_SIGN_PFX`      | Base64-encoded PFX file (see below)                                   |
 | `CODE_SIGN_PASSWORD` | Password used when the PFX was exported                               |
 
-If either secret is absent the signing step is skipped and the rest of the workflow continues.
+With `CODE_SIGN_PFX` absent the signing step is skipped, and what happens next depends on the ref.
+A tag push fails the run outright rather than publishing an unsigned installer to users. Any other
+ref only warns, so a dry run stays useful.
 
 **How to export a PFX for CI**
 
@@ -190,7 +205,8 @@ Remove-Item codesign.pfx
 
 **How to cut a release**
 
-1. Bump the version in your code / `.iss` file as needed.
+1. Bump `<Version>` in `ChargeKeeper.csproj` — that is the single source, and the tag must match it.
+   `ChargeKeeper.iss` takes the version from the build (`/DAppVersion`) and holds none of its own.
 2. Push a tag:
    ```powershell
    git tag v1.2.3
@@ -205,45 +221,74 @@ Remove-Item codesign.pfx
      and winget manifest files attached.
    - Run `winget validate` against the patched manifests.
 
-You can also trigger the workflow manually (Actions → Release → Run workflow) and supply a
-version string if you want to build without pushing a tag.
+The workflow can also be triggered manually (Actions → Release → Run workflow) with a version
+string, to build and validate without pushing a tag. Such a run **publishes nothing**: the release
+step and the manifest-validation job are both gated on the ref being a tag.
 
-### Manual release
+### Building locally (not a release route)
+
+A release is published **only** by pushing a `v*.*.*` tag; the workflow above builds, signs,
+publishes and attaches everything. Creating a release by hand — `gh release create` or the web UI —
+is not part of the routine, and a hand-made release would carry neither the patched manifests nor
+the assertion that the manifests describe the build.
+
+A local build is for testing the installer itself:
 
 1. `build-installer.ps1 -Version X.Y.Z`.
-2. Create a GitHub Release tagged `vX.Y.Z` on `0z00z0/ChargeKeeper` and attach
-   `ChargeKeeper-Setup.exe`.
-3. Update `winget/` manifests: bump `PackageVersion`, set the `InstallerUrl` to the new asset, and
-   set `InstallerSha256` to the value the build script printed.
+2. The installer lands at `installer\Output\ChargeKeeper-Setup-X.Y.Z.exe`, and the script prints its
+   SHA256.
+3. The `winget\` manifests need no editing for a release — the workflow patches `PackageVersion`,
+   `InstallerUrl` and `InstallerSha256` in its own working copy on every tag. Edit them only to test
+   a manifest against a locally built installer.
 
 ## winget
 
-End users:
+**The package is in no winget source.** It is not in `microsoft/winget-pkgs` and not in any other
+repository winget searches, so `winget install 0z00z0.ChargeKeeper` and
+`winget upgrade 0z00z0.ChargeKeeper` fail with *No package found matching input criteria*. Getting
+the package accepted upstream is tracked as issue #15; until that lands, no winget command resolves
+the identifier by name.
 
-```powershell
-winget install 0z00z0.ChargeKeeper     # first install (per-user, silent, no admin)
-winget upgrade 0z00z0.ChargeKeeper      # update to a newer published version
+### Installing from the release manifests
+
+Three manifest files are attached as assets to every release:
+
+```
+0z00z0.ChargeKeeper.yaml
+0z00z0.ChargeKeeper.installer.yaml
+0z00z0.ChargeKeeper.locale.en-GB.yaml
 ```
 
-> The package is **not** in `microsoft/winget-pkgs`, so these commands find nothing until it is
-> submitted. The manifests ship as release assets so a local source can consume them.
+Downloading all three into one folder and installing from that folder works today:
 
-### Manifests (`winget/`)
-Three files target `0z00z0.ChargeKeeper`: `*.installer.yaml`, `*.locale.en-GB.yaml`, and the version
-manifest. Validate / test locally before publishing:
+```powershell
+winget settings --enable LocalManifestFiles   # one-time, needs admin
+winget install --manifest <folder>
+```
+
+The workflow patches the manifests for the release it is publishing, so they describe that build
+exactly: matching package identifier and version, an `InstallerUrl` pointing at that release's
+`ChargeKeeper-Setup-<version>.exe`, an `InstallerSha256` equal to that asset's hash, locale
+`en-GB`, installer type `inno`, scope `user`, and the silent-install switches. A later step in the
+workflow asserts those fields against the build rather than trusting the patch.
+
+Downloading the installer asset and running it is the simpler route and needs no winget at all.
+
+### Manifest source (`winget\`)
+
+`installer\winget\` holds the three manifests the release workflow patches before attaching them.
+It is the **maintainer's source** for those files, not an install route: the version, URL and hash
+committed there describe whichever build they were last edited for. Validate a change before
+committing it:
 
 ```powershell
 winget validate --manifest installer\winget
-winget install --manifest installer\winget    # local install test (enable local manifests once:
-                                               #   winget settings --enable LocalManifestFiles)
 ```
 
-Regenerating from a release with **wingetcreate** is convenient:
+Regenerating them from a published release with **wingetcreate** is convenient:
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate update 0z00z0.ChargeKeeper --version X.Y.Z --urls <Setup.exe URL> --out installer\winget
+wingetcreate update 0z00z0.ChargeKeeper --version X.Y.Z `
+  --urls <URL of the release's ChargeKeeper-Setup-X.Y.Z.exe> --out installer\winget
 ```
-
-Submitting to the public `microsoft/winget-pkgs` repo is **optional** — the manifests work with a
-local source (above) without any submission.

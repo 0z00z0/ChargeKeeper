@@ -66,8 +66,10 @@ number.
 
 ## Install
 
-Download `ChargeKeeper-Setup.exe` from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases)
-and run it. The installer is **per-user — no admin needed to install** — and offers one option:
+Download the installer from the
+[latest release](https://github.com/0z00z0/ChargeKeeper/releases/latest) and run it. The asset is
+named `ChargeKeeper-Setup-<version>.exe` — `ChargeKeeper-Setup-1.28.0.exe` for release v1.28.0. The
+installer is **per-user — no admin needed to install** — and offers one option:
 
 - **Run at startup** — auto-starts the app at sign-in. Ticking it asks for elevation once, to
   register a prompt-free elevated logon task.
@@ -76,11 +78,44 @@ Updates come from GitHub Releases. The app checks 30 seconds after start and onc
 and the tray menu's **Check for updates** asks on demand. A downloaded installer is verified before
 it is launched: intact digest, a present signature, and the signer `CN=ZeroZero Software`.
 
-winget manifests ship as release assets, but the package is not in `microsoft/winget-pkgs`, so
-`winget install 0z00z0.ChargeKeeper` finds nothing.
-
 The app itself shows a UAC prompt when it launches, since changing the charge threshold / standby
 service requires administrator rights.
+
+### Expect a SmartScreen warning on a first install
+
+The installer is Authenticode-signed with a **self-issued certificate** — subject and issuer are
+both `CN=ZeroZero Software` — rather than one chaining to a commercial certificate authority. A
+machine that has never seen that certificate treats the publisher as untrusted, so a first install
+shows two warnings, both expected:
+
+- SmartScreen's **"Windows protected your PC"** block — **More info → Run anyway** to continue;
+- an elevation prompt naming an **unknown publisher**.
+
+Because the warning appears either way, it cannot distinguish a genuine download from a tampered
+one. Two things can:
+
+- **The signature.** Right-click the installer → **Properties** → **Digital Signatures**. A genuine
+  build is signed by `CN=ZeroZero Software` and carries a timestamp. No signature, or a different
+  signer, means the file is not the published build.
+- **The hash.** Every release publishes the installer's SHA256. Compare it against the downloaded
+  file before running it.
+
+### Installing from the winget manifests
+
+`winget install 0z00z0.ChargeKeeper` finds nothing: the package is not in `microsoft/winget-pkgs`.
+Until it is accepted there (tracked as
+[issue #15](https://github.com/0z00z0/ChargeKeeper/issues/15)), the interim route is a local
+manifest install. Every release ships three manifest files as assets —
+`0z00z0.ChargeKeeper.yaml`, `0z00z0.ChargeKeeper.installer.yaml` and
+`0z00z0.ChargeKeeper.locale.en-GB.yaml`. Download all three into one folder, then:
+
+```powershell
+winget settings --enable LocalManifestFiles   # one-time
+winget install --manifest <folder>
+```
+
+The manifests name the release's own installer asset and carry its SHA256, so winget verifies what
+it downloads.
 
 ## Upgrading from Lenovo Power Tray
 
@@ -92,12 +127,11 @@ ChargeKeeper is the same app under a new name. Upgrading is safe and mostly auto
 - **The installer cleans up after the old version.** Running the ChargeKeeper installer over an
   existing Lenovo Power Tray install closes the old app, removes its old binaries and scheduled
   tasks, and upgrades in place.
-- **winget users: install the new ID once.** The package identity changed, so the old package will
-  not auto-upgrade across the rename. Run:
-  ```powershell
-  winget install 0z00z0.ChargeKeeper
-  ```
-  and Windows' Apps list will show ChargeKeeper replacing the old entry.
+- **winget is not an upgrade route.** The package identity changed with the rename, and the new
+  identity is not in `microsoft/winget-pkgs`, so `winget upgrade` has nothing to find. Take the
+  direct download from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases/latest)
+  instead, or use the release's winget manifests as described under
+  [Installing from the winget manifests](#installing-from-the-winget-manifests).
 
 ## Requirements
 
@@ -214,8 +248,9 @@ See **[USAGE.md](USAGE.md)** for full usage, code-signing, troubleshooting, and 
 
 ## Building the installer
 
-The per-user installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php) and distributed
-via winget. See **[installer/README.md](installer/README.md)** for the full release workflow:
+The per-user installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php) and published
+as a GitHub release asset, alongside the winget manifests that describe it. See
+**[installer/README.md](installer/README.md)** for the full release workflow:
 
 ```powershell
 winget install JRSoftware.InnoSetup     # one-time
@@ -306,15 +341,32 @@ integration works:
   (`OnBeforeExit` is therefore left unset).
 The **MQTT module** comes from the same repository — `ZeroZero.Mqtt` for the protocol,
 `ZeroZero.Mqtt.Discovery` for the entity and document layer, and `ZeroZero.Mqtt.WinUI` for the
-settings panel the MQTT page hosts. ChargeKeeper supplies the topic root, the forty-one entity
+settings panel the MQTT page hosts. ChargeKeeper supplies the topic root, the forty-six entity
 declarations, the seven publish groups and the copy saying what it publishes; everything else —
 the endpoint sweep, the encryption model, the retained document, the eviction ledger and every
 protocol sentence in the panel — belongs to the module.
 
-- CI clones the library **pinned to a release tag**, read from
-  [`.github/0z0-shared-ref`](.github/0z0-shared-ref) by both workflows so the two pins cannot drift.
-  Bump the pin deliberately, after reading that tag's release notes and validating locally; a
-  build-time guard warns when the sibling checkout has moved away from the pin.
+### Resolving the shared library
+
+**Resolution:** the default branch of 0z0-shared, unpinned — 2026-09-01.
+
+Both workflows clone the library without naming a ref, so a build resolves it as it currently
+stands. Two properties follow. A release does not rebuild identically at a later date, because the
+library it built against has moved on; the commit is logged by the clone step, which is the only
+record of what a given release was built from. And a change made in 0z0-shared can turn a build here
+red without anything in this repository changing.
+
+**Provisional.** Reconsider the arrangement when ChargeKeeper depends on materially more of
+0z0-shared than it does today. The exposure today is one library's worth of surface, and the cost of
+an unpinned build scales with how much of that surface a release depends on.
+
+**Notice before a structural change.** 0z0-shared gives notice before renaming or relocating
+anything reachable from ChargeKeeper's source reference. On notice, build against the proposed shape,
+report back what breaks here, and expect the change to land only after that report. Two structural
+changes stand proposed and undecided: moving the info bubble control out of `ZeroZero.Brand.WinUI`,
+and introducing a layer beneath that assembly. The first reaches further into this repository — the
+info bubble sits on several Settings pages, and the current release adds another instance of it — so
+it is the one to check use site by use site when notice arrives.
 
 ## Credits & acknowledgements
 
@@ -332,8 +384,8 @@ The `native/` bridge (`lenpower.c`) is a thin wrapper that exposes two flat expo
 interface for the managed app to P/Invoke; the interface definition itself is alandau's work.
 
 **Tooling:** the installer is built with **[Inno Setup](https://jrsoftware.org/isinfo.php)** by
-Jordan Russell & Martijn Laan (free, with attribution under its licence), and distributed via
-**[winget](https://github.com/microsoft/winget-cli)** (Microsoft, MIT).
+Jordan Russell & Martijn Laan (free, with attribution under its licence), and each release also
+publishes manifests for **[winget](https://github.com/microsoft/winget-cli)** (Microsoft, MIT).
 
 ## Licence
 
