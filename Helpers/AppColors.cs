@@ -23,6 +23,10 @@ internal static class AppColors
     internal static Color FromPacked(uint argb) => Color.FromArgb(
         (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
 
+    /// <summary>The reverse, for the palette maths that works in packed bytes.</summary>
+    internal static uint ToPacked(Color c) =>
+        ((uint)c.A << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+
     // Battery status glyph (gauge centre).
     internal static readonly SolidColorBrush StatusChargingBrush    = new(SteelBlue);  // charging  ▲
     internal static readonly SolidColorBrush StatusIdleBrush        = new(Blue);       // full/idle ●

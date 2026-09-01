@@ -47,6 +47,22 @@ internal static class GraphTimeScaleExtensions
     };
 }
 
+/// <summary>How the battery history graph's charge line takes its colour. Independent of the
+/// shading beneath it.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum GraphLineColouring
+{
+    /// <summary>The fixed accent, as the line has always been drawn.</summary>
+    OneColour,
+
+    /// <summary>The draining scale sampled at each point's own level.</summary>
+    ByLevel,
+
+    /// <summary>The scale matching the power state recorded at each point. Points recorded before
+    /// the state was stored fall back to the accent — see <see cref="BatterySample.State"/>.</summary>
+    ByLevelAndState,
+}
+
 /// <summary>Persisted application settings.</summary>
 internal sealed class AppSettings
 {
@@ -81,6 +97,18 @@ internal sealed class AppSettings
 
     /// <summary>Gap before a hole in the samples is drawn as an axis break. 0 = never, not zero minutes.</summary>
     public int DowntimeGapMinutes { get; set; } = 1;
+
+    // Neither of the two below is published over MQTT, deliberately unlike IconMode above: they
+    // decide how one window draws, so a remote value would change nothing another machine can see.
+    // Do not add entities for them for symmetry with the tray icon style.
+
+    /// <summary>How the history graph's charge line is coloured. Independent of
+    /// <see cref="GraphShadingEnabled"/>.</summary>
+    public GraphLineColouring GraphLineColouring { get; set; } = GraphLineColouring.OneColour;
+
+    /// <summary>Whether the accent fade is drawn beneath the history graph's charge line. The fade
+    /// keeps the accent whatever <see cref="GraphLineColouring"/> is set to.</summary>
+    public bool GraphShadingEnabled { get; set; } = true;
 
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =

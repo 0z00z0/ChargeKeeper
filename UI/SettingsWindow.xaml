@@ -144,6 +144,29 @@
                         </ComboBox>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="History graph line colour"
+                                            Description="How the charge line in the battery history graph is coloured.">
+                        <!-- Each item's Tag names its GraphLineColouring member and the load and save
+                             parse it, so item order carries no meaning here and inserting one is safe.
+                             The two combos above are coupled by position instead; leave them be. -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="GraphLineColouringCombo" MinWidth="180"
+                                      SelectionChanged="OnGraphLineColouringChanged">
+                                <ComboBoxItem Content="One colour"         Tag="OneColour"/>
+                                <ComboBoxItem Content="By level"           Tag="ByLevel"/>
+                                <ComboBoxItem Content="By level and state" Tag="ByLevelAndState"/>
+                            </ComboBox>
+                            <local:InfoIcon Subject="colouring by level and state"
+                                            Info="By level uses the on-battery scale at each point. By level and state also follows whether the machine was on battery, charging or held on mains at that moment. Samples recorded before ChargeKeeper stored the power state keep the plain accent, because what was happening then was never written down."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="History graph shading"
+                                            Description="Draws the accent fade beneath the charge line. Independent of the line colour, which the fade never follows.">
+                        <ToggleSwitch x:Name="GraphShadingToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnGraphShadingToggled"/>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="Downtime gap threshold"
                                             Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
                         <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"

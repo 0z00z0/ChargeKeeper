@@ -527,8 +527,24 @@ internal sealed partial class SettingsWindow : Window
             LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
             IconModeCombo.SelectedIndex   = (int)s.IconMode;
             GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
+            SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
+            GraphShadingToggle.IsOn       = s.GraphShadingEnabled;
             LoadPresetCombo(DowntimeGapCombo, DowntimeGapPresets, s.DowntimeGapMinutes, v => $"{v} min");
         });
+    }
+
+    /// <summary>Selects the item whose <c>Tag</c> is <paramref name="value"/>, falling back to the
+    /// first — a stored value naming no item still has to leave the combo showing a selection, and
+    /// the first item is the setting's own default.</summary>
+    private static void SelectComboByTag(ComboBox combo, string value)
+    {
+        for (int i = 0; i < combo.Items.Count; i++)
+            if (combo.Items[i] is ComboBoxItem { Tag: string tag } && tag == value)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        combo.SelectedIndex = 0;
     }
 
     private void OnStartupDelayChanged(object sender, SelectionChangedEventArgs e)
@@ -559,6 +575,25 @@ internal sealed partial class SettingsWindow : Window
             BatteryHistoryService.LoadWindow(scale.ToTimeSpan());
             AppLog.Info($"Time-scale changed to {scale}.");
         });
+    }
+
+    // Both graph hosts repaint on their own 5 s tick and read the settings fresh, so neither of the
+    // two below reloads history or forces a render.
+
+    private void OnGraphLineColouringChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || GraphLineColouringCombo.SelectedItem is not ComboBoxItem { Tag: string name }) return;
+        // Enum.TryParse also accepts integer text, so IsDefined is what rejects a Tag that names no
+        // member rather than saving a setting the graph would have to fall back from.
+        if (!Enum.TryParse<GraphLineColouring>(name, out var mode) || !Enum.IsDefined(mode)) return;
+        SettingsService.Update(s => s.GraphLineColouring = mode);
+    }
+
+    private void OnGraphShadingToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = GraphShadingToggle.IsOn;
+        SettingsService.Update(s => s.GraphShadingEnabled = on);
     }
 
     private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)

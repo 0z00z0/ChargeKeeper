@@ -379,13 +379,19 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         RightAxisBottomLabel.Text = FormatWatts(minW);
         RightAxisMidLabel.Text    = FormatWatts(minW + wRange / 2);
 
-        // Fixed accent, so the battery's current % can't recolour history that may be days old.
-        var socBrush     = AppColors.HistorySocBrush;
+        // Read once: SettingsService.Current can be swapped between reads, and the two settings are
+        // independent, so separate reads could pair one's old value with the other's new one.
+        var settings   = SettingsService.Current;
+        var lineMode   = settings.GraphLineColouring;
+        bool drawShading = GraphColouring.ShouldShade(lineMode, settings.GraphShadingEnabled);
+
+        // The line takes the setting; the fade beneath it keeps the accent whatever the line does.
+        var socBrush     = BuildSocLineBrush(lineMode, samples, xs, w);
         var socFillBrush = AppColors.HistorySocFillBrush;
 
         // SoC — the headline series. Drawn before limit/power so those sit on top where they cross.
         var socRuns = CollectRuns(samples, gapBefore, s => s.Soc, xs, ProjectYPct);
-        DrawSocFillAndLine(socRuns, socBrush, socFillBrush, plotBottomY: h - pad);
+        DrawSocFillAndLine(socRuns, socBrush, socFillBrush, plotBottomY: h - pad, drawShading);
 
         // Charge limit (Smart Charge Stop threshold), left axis; null while Smart Charge is off.
         // Stepped because the threshold only jumps — a ramp would suggest it drifted between samples.
@@ -404,6 +410,41 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
         if (ShowStressHeatmap)
             DrawStressHeatmap(samples, xs, w);
+    }
+
+    /// <summary>The charge line's brush: the fixed accent, or — where the setting colours the line —
+    /// a gradient carrying one stop per sample, strided to the same cap the stress strip uses. Mapped
+    /// in canvas coordinates because the line's own bounding box is the drawn path, not the plot.</summary>
+    private static Brush BuildSocLineBrush(
+        GraphLineColouring mode, IReadOnlyList<BatterySample> samples, IReadOnlyList<double> xs, double w)
+    {
+        if (!GraphColouring.VariesByPoint(mode)) return AppColors.HistorySocBrush;
+
+        // The colour a point falls back to, taken from the accent brush itself so the two cannot drift.
+        uint accent = AppColors.ToPacked(AppColors.HistorySocBrush.Color);
+
+        const int MaxStops = 200;
+        int step = Math.Max(1, samples.Count / MaxStops);
+
+        var brush = new LinearGradientBrush
+        {
+            MappingMode = BrushMappingMode.Absolute,
+            StartPoint  = new Point(0, 0),
+            EndPoint    = new Point(w, 0),
+        };
+        for (int i = 0; i < samples.Count; i += step)
+            brush.GradientStops.Add(StopAt(i));
+        // Close at the final sample so striding can't leave the right edge on an extrapolated colour.
+        if (step > 1 && (samples.Count - 1) % step != 0)
+            brush.GradientStops.Add(StopAt(samples.Count - 1));
+        return brush;
+
+        GradientStop StopAt(int i) => new()
+        {
+            Offset = Math.Clamp(xs[i] / w, 0, 1),
+            Color  = AppColors.FromPacked(
+                GraphColouring.LineColourFor(mode, samples[i].Soc, samples[i].State, accent)),
+        };
     }
 
     /// <summary>Fills the stress strip with a gradient whose stops sit at the same x as the SoC line's
@@ -627,9 +668,11 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     }
 
     /// <summary>Draws the SoC series as a gradient fill plus the line on top, from one runs+tangents
-    /// computation so their edges match exactly.</summary>
+    /// computation so their edges match exactly. <paramref name="drawShading"/> omits the fill;
+    /// <paramref name="fillBrush"/> is the accent fade in every case, never the line's colour.</summary>
     private void DrawSocFillAndLine(
-        IReadOnlyList<List<Point>> runs, Brush lineBrush, LinearGradientBrush fillBrush, double plotBottomY)
+        IReadOnlyList<List<Point>> runs, Brush lineBrush, LinearGradientBrush fillBrush, double plotBottomY,
+        bool drawShading)
     {
         foreach (var pts in runs)
         {
@@ -637,9 +680,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
             var m = MonotoneTangentsFor(pts);
 
-            var fillGeo = new PathGeometry();
-            fillGeo.Figures.Add(BuildMonotoneFigure(pts, m, closeAtY: plotBottomY));
-            SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = fillGeo, Fill = fillBrush });
+            if (drawShading)
+            {
+                var fillGeo = new PathGeometry();
+                fillGeo.Figures.Add(BuildMonotoneFigure(pts, m, closeAtY: plotBottomY));
+                SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = fillGeo, Fill = fillBrush });
+            }
 
             var lineGeo = new PathGeometry();
             lineGeo.Figures.Add(BuildMonotoneFigure(pts, m));
