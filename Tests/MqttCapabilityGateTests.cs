@@ -24,8 +24,9 @@ public class MqttCapabilityGateTests
 
     private static readonly string[] _lidCloseEntities =
     [
-        MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayMinutes, MqttEntityCatalog.LidDelayLock,
-        MqttEntityCatalog.LidDelayOffAfterSleep,
+        MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayTime, MqttEntityCatalog.LidDelayMinutes,
+        MqttEntityCatalog.LidDischarge, MqttEntityCatalog.LidDischargePercent,
+        MqttEntityCatalog.LidDelayLock, MqttEntityCatalog.LidDelayOffAfterSleep,
     ];
 
     private static MqttEntitySet WithCapabilities(PublishCapabilities capabilities) =>
@@ -35,7 +36,7 @@ public class MqttCapabilityGateTests
 
     [Fact]
     public void OnHardwareWithNumericThresholds_EveryEntityIsAnnounced() =>
-        Assert.Equal(43, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
+        Assert.Equal(46, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
 
     [Fact]
     public void OnHardwareWithNoChargeLimitInterface_NoSmartChargeEntityIsAnnounced()

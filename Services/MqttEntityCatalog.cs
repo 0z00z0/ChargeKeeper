@@ -65,9 +65,12 @@ internal static class MqttEntityCatalog
     public const string KeepAwakeDisplayOn = "keep_awake_display_on";
 
     public const string LidDelay              = "lid_delay";
+    public const string LidDelayTime          = "lid_delay_time";
     public const string LidDelayMinutes       = "lid_delay_minutes";
     public const string LidDelayLock          = "lid_delay_lock";
     public const string LidDelayOffAfterSleep = "lid_delay_off_after_sleep";
+    public const string LidDischarge          = "lid_discharge";
+    public const string LidDischargePercent   = "lid_discharge_percent";
     public const string SmartStandby          = "smart_standby";
 
     public const string LowBatteryWarning  = "low_battery_warning";
@@ -385,14 +388,26 @@ internal static class MqttEntityCatalog
             },
 
             // ── Lid close, and the standby scheduling the dashboard pairs with it ────────────────
+            // The master switch keeps its entity id: it is what "lid handling is on" has always meant
+            // to an installation, and moving it would discard every entity registration built on it.
+            // The clock it used to imply is now a condition of its own, on a new id.
             new MqttSwitch
             {
-                EntityId = LidDelay, Name = "Lid-close delay", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDelay, Name = "Lid-close active", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:laptop",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayEnabled,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelay(on)),
+            },
+            new MqttSwitch
+            {
+                EntityId = LidDelayTime, Name = "Lid-close delay", Group = MqttPublishGroups.LidClose,
+                Category = MqttEntityCategory.Config, Icon = "mdi:timer-outline",
+                Debounce = MqttConnection.ReflectDebounce,
+                Include = () => s.Capabilities().LidClose,
+                Read = () => surface()?.LidDelayTimeEnabled,
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayTime(on)),
             },
             new MqttNumber
             {
@@ -403,6 +418,26 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayMinutes,
                 Apply = value => MqttCommandVerdict.Accept(() => set.SetLidDelayMinutes(Whole(value))),
+            },
+            new MqttSwitch
+            {
+                EntityId = LidDischarge, Name = "Lid-close battery target", Group = MqttPublishGroups.LidClose,
+                Category = MqttEntityCategory.Config, Icon = "mdi:battery-arrow-down",
+                Debounce = MqttConnection.ReflectDebounce,
+                Include = () => s.Capabilities().LidClose,
+                Read = () => surface()?.LidDischargeEnabled,
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDischarge(on)),
+            },
+            new MqttNumber
+            {
+                EntityId = LidDischargePercent, Name = "Lid-close battery target level",
+                Group = MqttPublishGroups.LidClose,
+                Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-arrow-down",
+                Min = LidDischargeWatch.MinPercent, Max = LidDischargeWatch.MaxPercent,
+                Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
+                Include = () => s.Capabilities().LidClose,
+                Read = () => surface()?.LidDischargeTargetPercent,
+                Apply = value => MqttCommandVerdict.Accept(() => set.SetLidDischargePercent(Whole(value))),
             },
             new MqttSwitch
             {

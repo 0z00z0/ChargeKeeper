@@ -9,10 +9,19 @@ namespace ChargeKeeper.Services;
 internal static class LidDashboardPolicy
 {
     /// <summary>
-    /// The delays the chip row offers, in minutes. Shorter than the Settings list on purpose: the
-    /// dashboard is the quick surface, and the row has one popup width to spend.
+    /// Above this many presets in total the two groups need a full width each, so they stack. At or
+    /// below it they sit side by side, which keeps the popup short.
     /// </summary>
-    public static readonly int[] QuickMinutes = [5, 10, 30, 60];
+    public const int MaxPresetsSideBySide = 6;
+
+    /// <summary>
+    /// Whether the delay group and the battery-level group fit beside each other. Both a count rule
+    /// and a width rule: a narrow popup cannot hold two columns however few presets there are.
+    /// </summary>
+    public static bool GroupsSideBySide(int delayCount, int levelCount, double availableWidth,
+                                        double minGroupWidth)
+        => delayCount + levelCount <= MaxPresetsSideBySide
+           && availableWidth >= minGroupWidth * 2;
 
     /// <summary>
     /// A machine with no lid has nothing to delay, so the section would claim hardware it lacks. The
@@ -24,15 +33,27 @@ internal static class LidDashboardPolicy
         => lidPresent || enabled || hasSavedLidAction;
 
     /// <summary>
-    /// The quick delays ascending, with the configured delay folded in when it is not already one of
-    /// them — a value chosen in Settings must still be visible as the filled chip here. Clamped like
-    /// every other read of the setting, so a hand-edited file cannot put an unreachable delay on a
-    /// chip that then writes it back.
+    /// The saved delays as chips, with the configured delay folded in when no saved one carries it —
+    /// a value the page holds must still be visible as the filled chip here. Clamped like every other
+    /// read of the setting, so a hand-edited file cannot put an unreachable delay on a chip that then
+    /// writes it back.
     /// </summary>
-    public static IReadOnlyList<int> Chips(int currentMinutes)
+    public static IReadOnlyList<int> DelayChips(IEnumerable<int> savedMinutes, int currentMinutes)
     {
         int current = Clamp(currentMinutes);
-        return QuickMinutes.Contains(current) ? QuickMinutes : [.. QuickMinutes.Append(current).Order()];
+        var saved = savedMinutes.Select(Clamp).Distinct().Order().ToList();
+        if (!saved.Contains(current)) saved = [.. saved.Append(current).Order()];
+        return saved;
+    }
+
+    /// <summary>The saved battery targets as chips, with the configured target folded in on the same
+    /// terms as <see cref="DelayChips"/>.</summary>
+    public static IReadOnlyList<int> LevelChips(IEnumerable<int> savedPercent, int currentPercent)
+    {
+        int current = LidDischargeWatch.Clamp(currentPercent);
+        var saved = savedPercent.Select(LidDischargeWatch.Clamp).Distinct().Order().ToList();
+        if (!saved.Contains(current)) saved = [.. saved.Append(current).Order()];
+        return saved;
     }
 
     /// <summary>Chip-sized label — "5m", "30m", "1h", "1h30" — matching the keep-awake chips below it.</summary>
@@ -43,26 +64,43 @@ internal static class LidDashboardPolicy
         _                        => $"{minutes / 60}h{minutes % 60}",
     };
 
+    /// <summary>Chip-sized label for a battery target.</summary>
+    public static string LevelLabel(int percent) => $"{LidDischargeWatch.Clamp(percent)} %";
+
     /// <summary>
     /// The line under the title. Off names what applies instead, like the sections beside it: the
-    /// delay being off does not mean nothing happens, it means Windows handles the lid again. With a
-    /// discharge target set, the wait is the earliest the machine may sleep rather than when it does,
-    /// so the line names both conditions instead of promising the clock alone.
+    /// delay being off does not mean nothing happens, it means Windows handles the lid again. The two
+    /// conditions are alternatives, so with both set the line says which arrives first decides, and
+    /// with neither set it says the machine sleeps straight away.
     /// </summary>
-    public static string Describe(bool enabled, int minutes, bool dischargeEnabled, int targetPercent)
+    public static string Describe(bool enabled, bool timeEnabled, int minutes,
+                                  bool dischargeEnabled, int targetPercent)
     {
         if (!enabled) return "Off — the Windows lid setting applies";
-        string wait = $"On — sleeps {ShortLabel(Clamp(minutes))} after the lid closes";
-        return dischargeEnabled
-            ? $"{wait}, once the battery is down to {LidDischargeWatch.Clamp(targetPercent)} %"
-            : wait;
+
+        string time  = $"{ShortLabel(Clamp(minutes))} after the lid closes";
+        string level = $"at {LevelLabel(targetPercent)} battery";
+
+        return (timeEnabled, dischargeEnabled) switch
+        {
+            (true,  true ) => $"On — sleeps {time}, or {level}, whichever comes first",
+            (true,  false) => $"On — sleeps {time}",
+            (false, true ) => $"On — sleeps {level}",
+            (false, false) => "On — sleeps as soon as the lid closes",
+        };
     }
 
     /// <summary>
-    /// Which chip is filled, or null for none. An off section still shows its chips — they are the
-    /// quick way to turn it on — but none of them is filled, so the row cannot read as running.
+    /// Which delay chip is filled, or null for none. An off section still shows its chips — they are
+    /// the quick way to turn it on — but none of them is filled, so the row cannot read as running.
+    /// The clock being off leaves the row unfilled for the same reason.
     /// </summary>
-    public static int? ActiveChip(bool enabled, int minutes) => enabled ? Clamp(minutes) : null;
+    public static int? ActiveChip(bool enabled, bool timeEnabled, int minutes)
+        => enabled && timeEnabled ? Clamp(minutes) : null;
+
+    /// <summary>Which battery-level chip is filled, on the same terms as <see cref="ActiveChip"/>.</summary>
+    public static int? ActiveLevelChip(bool enabled, bool dischargeEnabled, int percent)
+        => enabled && dischargeEnabled ? LidDischargeWatch.Clamp(percent) : null;
 
     private static int Clamp(int minutes) =>
         Math.Clamp(minutes, LidDelayPolicy.MinMinutes, LidDelayPolicy.MaxMinutes);

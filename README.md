@@ -241,11 +241,11 @@ packages). The only **non-Microsoft** dependencies are:
 ## MQTT
 
 ChargeKeeper can publish its battery, charge and settings surface to an MQTT broker. When enabled it
-connects to your broker and announces a single **ChargeKeeper** device with forty-one entities — battery
+connects to your broker and announces a single **ChargeKeeper** device with forty-six entities — battery
 level and state, charge power, on-AC, battery health and the raw capacities, the Smart Charge limit
-and preset, Keep Awake, the lid-close delay, the warning thresholds, the detected network and the
-app's own diagnostics. An availability topic, with a Last-Will, marks the device offline if the app
-stops.
+and preset, Keep Awake, lid handling with both of its sleep conditions, the warning thresholds, the
+detected network and the app's own diagnostics. An availability topic, with a Last-Will, marks the
+device offline if the app stops.
 
 Each entity has **its own bare topic carrying a plain value** — no JSON payload and no templates — so
 a shell script or a flow engine reads one with no parsing. Twenty-three of them take commands, and a

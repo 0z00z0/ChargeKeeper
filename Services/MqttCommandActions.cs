@@ -33,7 +33,10 @@ internal interface ISettingsActions
     void StartKeepAwake(KeepAwakeRequest request);
     void SetKeepAwakeDisplayOn(bool on);
     void SetLidDelay(bool on);
+    void SetLidDelayTime(bool on);
     void SetLidDelayMinutes(int minutes);
+    void SetLidDischarge(bool on);
+    void SetLidDischargePercent(int percent);
     void SetLidDelayLock(bool on);
     void SetLidDelayOffAfterSleep(bool on);
     void SetSmartStandby(bool on);
@@ -168,8 +171,23 @@ internal sealed class SettingsActions : ISettingsActions
         Raise();
     }
 
-    public void SetLidDelayMinutes(int minutes) => Write(s => s.LidDelayMinutes = minutes);
-    public void SetLidDelayLock(bool on)        => Write(s => s.LidDelayLockOnClose = on);
+    // Through the service, which pairs each condition with its runtime effect: a plain settings write
+    // would leave a wait in flight holding the machine awake for a condition no longer configured.
+    public void SetLidDelayTime(bool on)
+    {
+        LidDelayService.SetTimeEnabled(on);
+        Raise();
+    }
+
+    public void SetLidDischarge(bool on)
+    {
+        LidDelayService.SetDischargeEnabled(on);
+        Raise();
+    }
+
+    public void SetLidDelayMinutes(int minutes)     => Write(s => s.LidDelayMinutes = minutes);
+    public void SetLidDischargePercent(int percent) => Write(s => s.LidDischargeTargetPercent = percent);
+    public void SetLidDelayLock(bool on)            => Write(s => s.LidDelayLockOnClose = on);
 
     // A plain settings write: it changes what the end of the next lid close does, and nothing about
     // the power scheme or a hold in flight.

@@ -83,10 +83,16 @@ public class MqttEntityCatalogTests
         new(MqttEntityCatalog.KeepAwakeDisplayOn, "switch", "Keep the display on",
             MqttPublishGroups.KeepAwake, MqttEntityCategory.Config, Icon: "mdi:monitor-shimmer"),
 
-        new(MqttEntityCatalog.LidDelay, "switch", "Lid-close delay",
+        new(MqttEntityCatalog.LidDelay, "switch", "Lid-close active",
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:laptop"),
+        new(MqttEntityCatalog.LidDelayTime, "switch", "Lid-close delay",
+            MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:timer-outline"),
         new(MqttEntityCatalog.LidDelayMinutes, "number", "Lid-close delay length",
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:timer-outline", Unit: "min"),
+        new(MqttEntityCatalog.LidDischarge, "switch", "Lid-close battery target",
+            MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:battery-arrow-down"),
+        new(MqttEntityCatalog.LidDischargePercent, "number", "Lid-close battery target level",
+            MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:battery-arrow-down", Unit: "%"),
         new(MqttEntityCatalog.LidDelayLock, "switch", "Lid-close lock",
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:lock"),
         new(MqttEntityCatalog.LidDelayOffAfterSleep, "switch", "Lid-close off after sleeping",
@@ -147,13 +153,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFortyThreeEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheFortySixEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsFifteenSensorsElevenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsFifteenSensorsThirteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -162,7 +168,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 15, ["switch"] = 11, ["number"] = 8,
+                ["sensor"] = 15, ["switch"] = 13, ["number"] = 9,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
@@ -294,7 +300,9 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.SmartCharge, MqttEntityCatalog.ChargeStart, MqttEntityCatalog.ChargeStop,
             MqttEntityCatalog.ChargeToFull, MqttEntityCatalog.Preset,
             MqttEntityCatalog.KeepAwake, MqttEntityCatalog.KeepAwakeFor, MqttEntityCatalog.KeepAwakeDisplayOn,
-            MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayMinutes, MqttEntityCatalog.LidDelayLock,
+            MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayTime, MqttEntityCatalog.LidDelayMinutes,
+            MqttEntityCatalog.LidDischarge, MqttEntityCatalog.LidDischargePercent,
+            MqttEntityCatalog.LidDelayLock,
             MqttEntityCatalog.LidDelayOffAfterSleep, MqttEntityCatalog.SmartStandby,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
@@ -466,7 +474,10 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             MqttTestBed.Declared().All
                 .Where(e => e.EntityId is not (MqttEntityCatalog.LowPowerMode or MqttEntityCatalog.PowerState
-                                               or MqttEntityCatalog.LidDelayOffAfterSleep))
+                                               or MqttEntityCatalog.LidDelayOffAfterSleep
+                                               or MqttEntityCatalog.LidDelayTime
+                                               or MqttEntityCatalog.LidDischarge
+                                               or MqttEntityCatalog.LidDischargePercent))
                 .Select(e => (e.Platform, e.EntityId)).Order(),
             MqttEntityCatalog.Migrating
                 .Select(m => (m.Component, m.EntityId)).Order());

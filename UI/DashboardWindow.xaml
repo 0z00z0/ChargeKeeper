@@ -189,9 +189,15 @@
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
                             </TextBlock>
+                            <!-- Wrapping and trimming together: with neither set the line reports a
+                                 desired width the star column cannot give it and the text runs on
+                                 under the switch. Two lines is what the popup can spend. -->
                             <TextBlock x:Name="SmartChargeDetailText"
                                        Text="—"
                                        FontSize="11"
+                                       TextWrapping="Wrap"
+                                       MaxLines="2"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <!-- Empty On/OffContent and MinWidth 0 strip the default 154 px label
@@ -295,6 +301,9 @@
                         <TextBlock x:Name="SmartStandbyDetailText"
                                    Text="—"
                                    FontSize="11"
+                                   TextWrapping="Wrap"
+                                   MaxLines="2"
+                                   TextTrimming="CharacterEllipsis"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
                     <ToggleSwitch Grid.Column="1"
@@ -341,6 +350,9 @@
                             <TextBlock x:Name="LidDelayDetailText"
                                        Text="—"
                                        FontSize="11"
+                                       TextWrapping="Wrap"
+                                       MaxLines="2"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
@@ -353,13 +365,24 @@
                                       Toggled="OnLidDelayToggled"/>
                     </Grid>
 
-                    <!-- Delay chips. Built in code (BuildLidDelayChips) for the same reason the
-                         keep-awake row is: the set depends on the stored delay, and their look is
-                         set there rather than by a style out of scope here. -->
-                    <StackPanel x:Name="LidDelayPresetPanel"
-                                Orientation="Horizontal"
-                                Spacing="4"
-                                Margin="0,6,0,0"/>
+                    <!-- Both kinds of preset, each in its own labelled group. Built in code
+                         (BuildLidChips) for the same reason the keep-awake row is: the sets come
+                         from settings, and their look is set there rather than by a style out of
+                         scope here. Columns and rows of this outer grid come from
+                         LidDashboardPolicy.GroupsSideBySide. -->
+                    <Grid x:Name="LidPresetGroups"
+                          Margin="0,6,0,0"
+                          ColumnSpacing="8"
+                          RowSpacing="6">
+                        <StackPanel x:Name="LidDelayGroup" Spacing="2">
+                            <TextBlock Text="DELAY" Style="{StaticResource StatLabelStyle}"/>
+                            <Grid x:Name="LidDelayPresetPanel"/>
+                        </StackPanel>
+                        <StackPanel x:Name="LidLevelGroup" Spacing="2">
+                            <TextBlock Text="BATTERY" Style="{StaticResource StatLabelStyle}"/>
+                            <Grid x:Name="LidLevelPresetPanel"/>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
 
@@ -396,6 +419,9 @@
                             <TextBlock x:Name="KeepAwakeDetailText"
                                        Text="—"
                                        FontSize="11"
+                                       TextWrapping="Wrap"
+                                       MaxLines="2"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"

@@ -29,8 +29,12 @@ internal static class LidDelayService
 
     private static System.Threading.Timer? _timer;
     private static bool   _delayPending;
-    private static bool   _delayElapsed;   // the timer ran; only a discharge target can still hold
     private static bool   _lidSeeded;      // has the registration replay been consumed?
+
+    // The two conditions of the current lid close: whether each was set when it started, and whether
+    // it has arrived. Whichever arrives first ends the wait — see LidDelayPolicy.WaitIsOver.
+    private static bool _timeSet, _timeArrived, _targetSet, _targetArrived;
+
     private static long   _generation;     // bumped by anything that invalidates a queued suspend
     private static IntPtr _lidRegistration = IntPtr.Zero;
 
@@ -161,16 +165,17 @@ internal static class LidDelayService
     }
 
     /// <summary>
-    /// Turns the discharge target on or off. Paired with its runtime effect rather than left to a
-    /// plain settings write, for the same reason <see cref="SetEnabled"/> is: switching it off while
-    /// a target is outstanding must drop that target, or the hold outlives the feature.
+    /// Turns the battery-level condition on or off. Paired with its runtime effect rather than left
+    /// to a plain settings write, for the same reason <see cref="SetEnabled"/> is: switching it off
+    /// while a target is outstanding must drop that condition from the current wait, or the machine
+    /// keeps waiting for a level nothing is watching for.
     /// </summary>
     public static void SetDischargeEnabled(bool enable)
     {
         SettingsService.Update(s => s.LidDischargeEnabled = enable);
         if (enable)
         {
-            PowerLog.Event($"Lid-close discharge target on, {SettingsService.Current.LidDischargeTargetPercent} %",
+            PowerLog.Event($"Lid-close battery target on, {SettingsService.Current.LidDischargeTargetPercent} %",
                            "the setting was turned on");
             return;
         }
@@ -180,9 +185,23 @@ internal static class LidDelayService
         {
             wasWatching = _discharge.IsWatching;
             _discharge.Disarm();
+            if (wasWatching) _targetSet = false;
         }
-        PowerLog.Event("Lid-close discharge target off", "the setting was turned off");
+        PowerLog.Event("Lid-close battery target off", "the setting was turned off");
         if (wasWatching) Complete();
+    }
+
+    /// <summary>
+    /// Turns the time condition on or off. A plain settings write: unlike the battery target it owns
+    /// no watch, and the timer of a wait already running is left to run out on its own terms.
+    /// </summary>
+    public static void SetTimeEnabled(bool enable)
+    {
+        SettingsService.Update(s => s.LidDelayTimeEnabled = enable);
+        PowerLog.Event(enable
+            ? $"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min"
+            : "Lid-close delay off",
+            enable ? "the setting was turned on" : "the setting was turned off");
     }
 
     /// <summary>
@@ -198,24 +217,27 @@ internal static class LidDelayService
         {
             _lastBattery = (percent, isCharging);
             decision = _discharge.OnReading(percent, isCharging);
+            // Reaching the target is that condition arriving; a pack taking charge means it can
+            // never arrive, so the condition is dropped rather than counted as met. Counting it as
+            // met would sleep a plugged-in machine the moment its lid closed.
+            if (decision is LidDischargeDecision.TargetReached) _targetArrived = true;
+            if (decision is LidDischargeDecision.Charging)      _targetSet     = false;
         }
 
         switch (decision)
         {
             case LidDischargeDecision.TargetReached:
                 PowerLog.Event($"Battery reached its lid-close target at {percent} %",
-                               "the discharge target was met");
+                               "the battery target was met");
                 break;
             case LidDischargeDecision.Charging:
-                PowerLog.Event($"Lid-close discharge target given up at {percent} %",
+                PowerLog.Event($"Lid-close battery target given up at {percent} %",
                                "the battery is charging, so the target cannot be reached");
                 break;
             default:
                 return;
         }
 
-        // No-op while the wait itself is still running — the timer decides then, and finds the watch
-        // already released.
         Complete();
     }
 
@@ -401,8 +423,10 @@ internal static class LidDelayService
         switch (action)
         {
             case LidDelayAction.StartDelay:
-                StartDelay();
+                // Locked first: with neither condition set the wait ends inside StartDelay, and a
+                // lock queued behind that suspend would land on a machine already asleep.
                 LockIfConfigured();
+                StartDelay();
                 break;
             case LidDelayAction.Cancel:
                 CancelDelay();
@@ -437,6 +461,7 @@ internal static class LidDelayService
     {
         var s = SettingsService.Current;
         var delay = LidDelayPolicy.DelayFor(s.LidDelayMinutes);
+        bool armedTimer;
         int? watchingFor = null;
         lock (_sync)
         {
@@ -445,40 +470,59 @@ internal static class LidDelayService
             // the countdown.
             if (_delayPending) return;
             EnsureHolder();
-            _delayPending = true;
-            _delayElapsed = false;
+            _delayPending  = true;
+            _timeArrived   = false;
+            _targetArrived = false;
+            _timeSet       = s.LidDelayTimeEnabled;
 
-            // Armed only where a battery reading exists, and judged against it at once: a machine
+            // Set only where a battery reading exists, and judged against it at once: a machine
             // already at its target must not wait for a level that has no reason to move, and a
-            // machine with no battery at all could never release a watch once it held.
-            if (s.LidDischargeEnabled && _lastBattery is { } reading)
+            // machine with no battery at all could never release a watch once it held, which under
+            // first-to-arrive would leave the clock as the only condition anyway.
+            _targetSet = s.LidDischargeEnabled && _lastBattery is not null;
+            if (_targetSet && _lastBattery is { } reading)
             {
                 _discharge.Arm(s.LidDischargeTargetPercent);
-                if (_discharge.OnReading(reading.Percent, reading.Charging) == LidDischargeDecision.Hold)
-                    watchingFor = _discharge.Target;
+                switch (_discharge.OnReading(reading.Percent, reading.Charging))
+                {
+                    case LidDischargeDecision.Hold:          watchingFor    = s.LidDischargeTargetPercent; break;
+                    case LidDischargeDecision.TargetReached: _targetArrived = true;  break;
+                    // Already charging as the lid closes: the target can never arrive, so it is no
+                    // condition at all and the clock, if set, carries the wait on its own.
+                    default:                                 _targetSet     = false; break;
+                }
             }
 
             _holdRequests.Add(NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
             _timer?.Dispose();
-            _timer = new System.Threading.Timer(_ => OnTimerFired(), null, delay, Timeout.InfiniteTimeSpan);
+            _timer = null;
+            armedTimer = _timeSet;
+            if (armedTimer)
+                _timer = new System.Threading.Timer(_ => OnTimerFired(), null, delay, Timeout.InfiniteTimeSpan);
         }
-        PowerLog.Event($"Lid-close delay armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
-                       "lid closed with the lid-close delay on");
+
+        if (armedTimer)
+            PowerLog.Event($"Lid-close delay armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
+                           "lid closed with the lid-close delay on");
         if (watchingFor is { } target)
-            PowerLog.Event($"Sleep also waits for the battery to reach {target} %",
-                           "lid closed with a discharge target set");
+            PowerLog.Event($"Sleep also comes as soon as the battery reaches {target} %",
+                           "lid closed with a battery target set");
+
+        // Whichever condition already stands satisfied ends the wait here, including the case where
+        // neither was set at all.
+        Complete();
     }
 
     private static void OnTimerFired()
     {
-        lock (_sync) _delayElapsed = true;
+        lock (_sync) _timeArrived = true;
         Complete();
     }
 
     /// <summary>
-    /// Decides what happens now the wait is over: suspend, hold on for an outstanding discharge
-    /// target, or release the hold without sleeping. Reached from the timer, and again from whatever
-    /// ends a hold — a battery reading or the target being switched off.
+    /// Decides what the wait's current state means: suspend, keep waiting, or release the hold
+    /// without sleeping. Reached from arming, from the timer, and from whatever settles the battery
+    /// target — a reading or the condition being switched off.
     /// </summary>
     private static void Complete()
     {
@@ -486,12 +530,9 @@ internal static class LidDelayService
         long gen;
         lock (_sync)
         {
-            // Before the wait is up the timer still owns the decision; suspending here would cut the
-            // delay short for a machine that merely reached its target early.
-            if (!_delayElapsed) return;
-
-            action = LidDelayPolicy.OnTimerFired(SettingsService.Current.LidDelayEnabled, _delayPending,
-                                                 KeepAwakeService.Current is not null, _discharge.IsWatching);
+            bool over = LidDelayPolicy.WaitIsOver(_timeSet, _timeArrived, _targetSet, _targetArrived);
+            action = LidDelayPolicy.OnWaitProgress(SettingsService.Current.LidDelayEnabled, _delayPending,
+                                                   KeepAwakeService.Current is not null, over);
             if (action is LidDelayAction.Suspend or LidDelayAction.Cancel) ClearLocked();
             gen = _generation;
         }
@@ -500,7 +541,7 @@ internal static class LidDelayService
         {
             case LidDelayAction.Suspend:
                 PowerLog.Event("Suspending the machine",
-                               "the lid-close delay elapsed with the lid still closed");
+                               "a lid-close condition was reached with the lid still closed");
                 // Off this timer thread: SetSuspendState does not return until the machine resumes.
                 Task.Run(() =>
                 {
@@ -526,13 +567,9 @@ internal static class LidDelayService
                 });
                 break;
             case LidDelayAction.Cancel:
-                PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
+                PowerLog.Event("A lid-close condition was reached but the machine was not suspended",
                                "a keep-awake session is holding it awake");
                 TurnOffIfDue(LidDelayOutcome.StoppedShort);
-                break;
-            case LidDelayAction.Hold:
-                PowerLog.Event("Lid-close delay elapsed but the machine was not suspended",
-                               "the battery has not drained to its target yet");
                 break;
         }
     }
@@ -551,8 +588,11 @@ internal static class LidDelayService
     // Callers hold _sync.
     private static void ClearLocked()
     {
-        _delayPending = false;
-        _delayElapsed = false;
+        _delayPending  = false;
+        _timeSet       = false;
+        _timeArrived   = false;
+        _targetSet     = false;
+        _targetArrived = false;
         _discharge.Disarm();
         _timer?.Dispose();
         _timer = null;

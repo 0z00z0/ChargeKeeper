@@ -493,10 +493,6 @@ internal sealed partial class SettingsWindow : Window
         [("60 %", 60), ("70 %", 70), ("75 %", 75), ("80 %", 80), ("85 %", 85), ("90 %", 90), ("95 %", 95)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
-    // No "None": a zero lid delay would sleep the machine instantly through the very feature meant
-    // to delay that. LidDelayPolicy clamps a hand-edited file the same way.
-    private static readonly (string Label, int Value)[] LidDelayPresets =
-        [("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60), ("120 min", 120)];
 
     /// <summary>Populates a preset-picker and selects the item matching <paramref name="current"/>.
     /// A stored value that is not one of the presets becomes a custom entry rather than being
@@ -1261,8 +1257,8 @@ internal sealed partial class SettingsWindow : Window
         WithUpdatingSuppressed(() =>
         {
             KeepAwakeDisplayToggle.IsOn = s.KeepAwakeDisplayOn;
-            LoadPresetCombo(LidDelayMinutesCombo, LidDelayPresets, s.LidDelayMinutes, v => $"{v} min");
             LidLockToggle.IsOn          = s.LidDelayLockOnClose;
+            LidDelayTimeToggle.IsOn     = s.LidDelayTimeEnabled;
             LidDischargeToggle.IsOn     = s.LidDischargeEnabled;
             LidOffAfterSleepToggle.IsOn = s.LidDelayOffAfterSleep;
         });
@@ -1271,6 +1267,7 @@ internal sealed partial class SettingsWindow : Window
         RefreshKeepAwakeCustomEcho();
         RebuildKeepAwakeChips();
         RebuildKeepAwakePresetRows();
+        RebuildLidDelayPresetRows();
         RebuildLidDischargeTargetRows();
         RefreshKeepAwakeCurrentNetworkText();
         // The rule rows come from LoadNetwork() → RebuildNetworkRuleRows(), which rebuilds both
@@ -1311,9 +1308,9 @@ internal sealed partial class SettingsWindow : Window
     // after a lid close reached sleep — marshal before touching anything.
     private void OnLidDelayStateChanged() => RunOnUi(RefreshLidDelayState);
 
-    /// <summary>Puts the switch and its three dependants where the setting is. Driven by the page
-    /// load, by the switch itself, and by <see cref="LidDelayService.StateChanged"/>, so a feature
-    /// that switches itself off shows here without the page being reopened.</summary>
+    /// <summary>Puts the master switch and everything that depends on it where the setting is. Driven
+    /// by the page load, by the switch itself, and by <see cref="LidDelayService.StateChanged"/>, so a
+    /// feature that switches itself off shows here without the page being reopened.</summary>
     private void RefreshLidDelayState()
     {
         // The setting rather than the toggle: an enable the power scheme refused never reached it,
@@ -1321,8 +1318,9 @@ internal sealed partial class SettingsWindow : Window
         bool on = SettingsService.Current.LidDelayEnabled;
         WithUpdatingSuppressed(() => LidDelayToggle.IsOn = on);
         LidLockToggle.IsEnabled          = on;
-        LidDischargeToggle.IsEnabled     = on;
         LidOffAfterSleepToggle.IsEnabled = on;
+        LidDelayTimeToggle.IsEnabled     = on;
+        LidDischargeToggle.IsEnabled     = on;
     }
 
     private void OnLidDelayToggled(object sender, RoutedEventArgs e)
@@ -1342,14 +1340,175 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.LidDelayOffAfterSleep = on);
     }
 
-    private void OnLidDelayMinutesChanged(object sender, SelectionChangedEventArgs e)
-        => CommitPresetCombo(LidDelayMinutesCombo, (s, v) => s.LidDelayMinutes = v);
+    private void OnLidDelayTimeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        LidDelayService.SetTimeEnabled(LidDelayTimeToggle.IsOn);
+        RefreshLidDelayPresetActivationStates();
+    }
 
     private void OnLidLockToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
         bool on = LidLockToggle.IsOn;
         SettingsService.Update(s => s.LidDelayLockOnClose = on);
+    }
+
+    // The lid-close delay: how long the machine stays awake with the lid shut before sleep is
+    // allowed. Same row shell as every other preset list on this page, and the delay in use is the
+    // one marked active.
+
+    /// <summary>A saved delay as its row header reads — its name when it has one, else the span.</summary>
+    private static string DescribeDelayPreset(LidDelayPreset p) =>
+        string.IsNullOrWhiteSpace(p.Name) ? DescribeDelaySpan(p) : p.Name!;
+
+    /// <summary>The row's subtitle: the span, but only when the header isn't already showing it.</summary>
+    private static string DescribeDelaySubtitle(LidDelayPreset p) =>
+        string.IsNullOrWhiteSpace(p.Name) ? "" : DescribeDelaySpan(p);
+
+    private static string DescribeDelaySpan(LidDelayPreset p) =>
+        $"After {LidDelayPolicy.DelayFor(p.Minutes).TotalMinutes:0} min";
+
+    private void RebuildLidDelayPresetRows()
+    {
+        LidDelayPresetsListPanel.Children.Clear();
+        var presets = SettingsService.Current.LidDelayPresets;
+
+        PresetRows.ApplyActiveResources(LidDelayPresetsListPanel);
+
+        if (presets.Count == 0)
+        {
+            LidDelayPresetsListPanel.Children.Add(EmptyListText("No delays yet. Add one below."));
+            return;
+        }
+
+        for (int i = 0; i < presets.Count; i++)
+            LidDelayPresetsListPanel.Children.Add(BuildLidDelayPresetRow(i, presets[i]));
+
+        RefreshLidDelayPresetActivationStates();
+    }
+
+    /// <summary>Marks the row whose span is the configured delay. Always visible: nothing about the
+    /// hardware can refuse a delay.</summary>
+    private void RefreshLidDelayPresetActivationStates()
+    {
+        var s = SettingsService.Current;
+        int minutes = (int)LidDelayPolicy.DelayFor(s.LidDelayMinutes).TotalMinutes;
+        // Matched on the clamped span rather than by position, so two rows at the same span both
+        // read as in use rather than one of them arbitrarily.
+        int active = s.LidDelayPresets.FindIndex(p => (int)LidDelayPolicy.DelayFor(p.Minutes).TotalMinutes == minutes);
+
+        PresetRows.RefreshActivation(
+            LidDelayPresetsListPanel, active >= 0 ? active : null, Visibility.Visible,
+            "This is the delay the lid-close wait runs.",
+            "Makes this the delay the lid-close wait runs.");
+    }
+
+    /// <summary>One delay's editor row — a name and the span, entered as whole minutes.</summary>
+    private SettingsExpander BuildLidDelayPresetRow(int index, LidDelayPreset preset)
+    {
+        var nameBox = new TextBox { Text = preset.Name ?? "", MinWidth = 220, PlaceholderText = DescribeDelaySpan(preset) };
+        // CurrentCulture on both sides, so what is shown is what parses back.
+        var minutesBox = new TextBox
+        {
+            Text            = preset.Minutes.ToString(System.Globalization.CultureInfo.CurrentCulture),
+            MinWidth        = 220,
+            PlaceholderText = $"{LidDelayPolicy.MinMinutes}–{LidDelayPolicy.MaxMinutes}",
+        };
+
+        // Tagged by position, not by name: a delay need not have one.
+        var row = PresetRows.Build(
+            DescribeDelayPreset(preset), DescribeDelaySubtitle(preset), index,
+            [
+                new SettingsCard { Header = "Name",    Description = "Optional — the delay is shown when this is blank.", Content = nameBox },
+                new SettingsCard { Header = "Minutes", Description = "How long to stay awake with the lid closed.",       Content = minutesBox },
+            ],
+            CriticalBrush());
+
+        row.Activate.Click += (_, _) => ActivateLidDelayPresetAt(index);
+
+        void Commit() => CommitLidDelayPresetRow(index, nameBox, minutesBox, row);
+        nameBox.LostFocus    += (_, _) => Commit();
+        nameBox.KeyDown      += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+        minutesBox.LostFocus += (_, _) => Commit();
+        minutesBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+
+        row.Delete.Click += (_, _) => DeleteLidDelayPreset(index);
+
+        return row.Expander;
+    }
+
+    /// <summary>Validates and saves one delay row, same reject-on-save contract as the lists around
+    /// it. A blank span keeps the stored one, so clearing the field cannot destroy a delay.</summary>
+    private void CommitLidDelayPresetRow(int index, TextBox nameBox, TextBox minutesBox,
+        PresetRows.Parts row)
+    {
+        var presets = SettingsService.Current.LidDelayPresets;
+        if (index < 0 || index >= presets.Count) return;
+
+        int minutes = presets[index].Minutes;
+        string typed = minutesBox.Text?.Trim() ?? "";
+        if (typed.Length > 0)
+        {
+            if (!int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.CurrentCulture, out int parsed))
+            {
+                ShowInlineError(row.Error, "Enter the delay as a whole number of minutes, like 30.");
+                return;
+            }
+            // The same bounds a remote write is held to, rather than a second, looser set here.
+            if (SettingRanges.Validate(parsed, LidDelayPolicy.MinMinutes, LidDelayPolicy.MaxMinutes,
+                                       "The delay") is { } error)
+            {
+                ShowInlineError(row.Error, error);
+                return;
+            }
+            minutes = parsed;
+        }
+        row.Error.Visibility = Visibility.Collapsed;
+
+        string? name = nameBox.Text?.Trim() is { Length: > 0 } n ? n : null;
+        var updated = new LidDelayPreset(minutes, name);
+
+        SettingsService.Update(s =>
+        {
+            if (index < s.LidDelayPresets.Count) s.LidDelayPresets[index] = updated;
+        });
+
+        row.Header.Text          = DescribeDelayPreset(updated);
+        row.Expander.Description = DescribeDelaySubtitle(updated);
+        minutesBox.Text          = updated.Minutes.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        nameBox.PlaceholderText  = DescribeDelaySpan(updated);
+
+        // An edited span may now be, or may no longer be, the one in use.
+        RefreshLidDelayPresetActivationStates();
+    }
+
+    /// <summary>Makes a saved delay the one the lid-close wait runs, re-read by position so an edit
+    /// committed since the row was built is the span that lands.</summary>
+    private void ActivateLidDelayPresetAt(int index)
+    {
+        var presets = SettingsService.Current.LidDelayPresets;
+        if (index < 0 || index >= presets.Count) return;
+        int minutes = (int)LidDelayPolicy.DelayFor(presets[index].Minutes).TotalMinutes;
+        SettingsService.Update(s => s.LidDelayMinutes = minutes);
+        RefreshLidDelayPresetActivationStates();
+    }
+
+    private void DeleteLidDelayPreset(int index)
+    {
+        SettingsService.Update(s =>
+        {
+            if (index < s.LidDelayPresets.Count) s.LidDelayPresets.RemoveAt(index);
+        });
+        RebuildLidDelayPresetRows();
+    }
+
+    private void OnAddLidDelayPreset(object sender, RoutedEventArgs e)
+    {
+        // Ten minutes is the shipped default; the point is that the row exists and is editable.
+        SettingsService.Update(s => s.LidDelayPresets.Add(new LidDelayPreset(10)));
+        RebuildLidDelayPresetRows();
     }
 
     // The lid-close discharge target: a level the battery drains to with the lid shut before sleep is

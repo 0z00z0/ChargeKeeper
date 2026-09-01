@@ -50,9 +50,52 @@ public class SettingsSectionLayoutTests
     [InlineData("GeneralPanel",     new[] { "Advanced" })]
     [InlineData("SmartChargePanel", new[] { "Charge limit", "Presets", "Network profiles" })]
     [InlineData("KeepAwakePanel",   new[] { "Presets", "Networks" })]
-    [InlineData("LidClosePanel",    new[] { "Sleep delay", "Battery target", "Locking" })]
+    [InlineData("LidClosePanel",    new[] { "Sleep after a time", "Sleep at a battery level" })]
     public void EverySectionOpensWithTheSharedHeader(string panelName, string[] headings) =>
         Assert.Equal(headings, SectionHeadings(panelName));
+
+    /// <summary>The Lid close master switch governs the whole page, so no section heading may stand
+    /// above it: a heading over it reads as though it belonged to that one section.</summary>
+    [Fact]
+    public void TheLidCloseMasterSwitchSitsAboveEverySectionHeading()
+    {
+        string page   = Page("LidClosePanel");
+        int    master = page.IndexOf("x:Name=\"LidDelayToggle\"", StringComparison.Ordinal);
+        int    first  = page.IndexOf("<local:SettingsSectionHeader", StringComparison.Ordinal);
+
+        Assert.True(master >= 0, "The Lid close master switch is no longer declared.");
+        Assert.True(first  >= 0, "The Lid close page no longer has any section heading.");
+        Assert.True(master < first, "A section heading stands above the Lid close master switch.");
+    }
+
+    /// <summary>The two rows that apply to either kind of wait come before either preset group, so
+    /// neither group can read as owning them.</summary>
+    [Fact]
+    public void TheLidCloseSharedRowsComeBeforeBothPresetGroups()
+    {
+        string page = Page("LidClosePanel");
+        int offAfterSleep = page.IndexOf("x:Name=\"LidOffAfterSleepToggle\"", StringComparison.Ordinal);
+        int lockOnClose   = page.IndexOf("x:Name=\"LidLockToggle\"", StringComparison.Ordinal);
+        int firstHeading  = page.IndexOf("<local:SettingsSectionHeader", StringComparison.Ordinal);
+
+        Assert.True(offAfterSleep >= 0 && lockOnClose >= 0);
+        Assert.True(offAfterSleep < firstHeading, "Switching off after sleeping fell inside a preset group.");
+        Assert.True(lockOnClose   < firstHeading, "Locking on lid close fell inside a preset group.");
+    }
+
+    /// <summary>Each preset group carries its own list panel and its own add button — split rather
+    /// than one merged list.</summary>
+    [Fact]
+    public void TheLidClosePresetGroupsAreSplit()
+    {
+        string page = Page("LidClosePanel");
+        foreach (string name in new[]
+                 {
+                     "LidDelayPresetsListPanel", "AddLidDelayPresetBtn",
+                     "LidDischargeTargetsListPanel", "AddLidDischargeTargetBtn",
+                 })
+            Assert.Contains($"x:Name=\"{name}\"", page, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void TheSectionStylesAreDrawnFromOnePlaceOnly()

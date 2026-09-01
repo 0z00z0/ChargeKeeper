@@ -65,7 +65,10 @@ internal sealed class FakeSettingsActions : ISettingsActions
     public void StartKeepAwake(KeepAwakeRequest request) => Calls.Add($"StartKeepAwake={request.Kind}");
     public void SetKeepAwakeDisplayOn(bool on) => Calls.Add($"KeepAwakeDisplayOn={on}");
     public void SetLidDelay(bool on) => Calls.Add($"LidDelay={on}");
+    public void SetLidDelayTime(bool on) => Calls.Add($"LidDelayTime={on}");
     public void SetLidDelayMinutes(int minutes) => Calls.Add($"LidDelayMinutes={minutes}");
+    public void SetLidDischarge(bool on) => Calls.Add($"LidDischarge={on}");
+    public void SetLidDischargePercent(int percent) => Calls.Add($"LidDischargePercent={percent}");
     public void SetLidDelayLock(bool on) => Calls.Add($"LidDelayLock={on}");
     public void SetLidDelayOffAfterSleep(bool on) => Calls.Add($"LidDelayOffAfterSleep={on}");
     public void SetSmartStandby(bool on) => Calls.Add($"SmartStandby={on}");
@@ -100,7 +103,8 @@ internal static class MqttTestBed
     public static SurfaceState Surface(
         bool travelOverride = false, bool keepAwake = false, string keepAwakeFor = "1 h",
         DateTimeOffset? keepAwakeExpires = null, bool keepAwakeDisplayOn = false,
-        bool lidDelay = true, int lidDelayMinutes = 10, bool lidDelayLock = true,
+        bool lidDelay = true, bool lidDelayTime = true, int lidDelayMinutes = 10,
+        bool lidDischarge = false, int lidDischargePercent = 50, bool lidDelayLock = true,
         bool lidDelayOffAfterSleep = false,
         bool smartStandby = false, bool lowBatteryWarning = true, int lowBatteryLevel = 20,
         bool highBatteryWarning = false, int highBatteryLevel = 90, bool drainWarning = true,
@@ -110,7 +114,8 @@ internal static class MqttTestBed
         string appVersion = "1.17.0", int startupDelay = 5,
         TrayIconMode iconMode = TrayIconMode.Arc, int downtimeGap = 15) =>
         new(travelOverride, keepAwake, keepAwakeFor, keepAwakeExpires, keepAwakeDisplayOn,
-            lidDelay, lidDelayMinutes, lidDelayLock, lidDelayOffAfterSleep,
+            lidDelay, lidDelayTime, lidDelayMinutes, lidDischarge, lidDischargePercent,
+            lidDelayLock, lidDelayOffAfterSleep,
             smartStandby, lowBatteryWarning, lowBatteryLevel,
             highBatteryWarning, highBatteryLevel, drainWarning, drainRate, networkProfiles,
             unknownNetworkPreset ?? PresetEditValidator.UnknownNetworkSentinel,

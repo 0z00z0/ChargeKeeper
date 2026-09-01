@@ -12,8 +12,7 @@ internal enum LidDelayAction
     Cancel,
     /// <summary>Release the OS hold, then suspend the machine.</summary>
     Suspend,
-    /// <summary>Keep the OS hold and stay pending: the wait is over but a discharge target is not
-    /// yet met, so the release comes from a battery reading rather than from the clock.</summary>
+    /// <summary>Keep the OS hold and stay pending: no condition has arrived yet.</summary>
     Hold,
 }
 
@@ -21,8 +20,7 @@ internal enum LidDelayAction
 /// interruption.</summary>
 internal enum LidDelayOutcome
 {
-    /// <summary>The wait ran its course — the delay elapsed, any discharge target was met, and the
-    /// machine was suspended.</summary>
+    /// <summary>The wait ran its course — a condition arrived and the machine was suspended.</summary>
     Slept,
     /// <summary>The lid was reopened before the machine slept.</summary>
     LidReopened,
@@ -76,19 +74,31 @@ internal static class LidDelayPolicy
     }
 
     /// <summary>
+    /// Whichever condition arrives first ends the wait. A thirty-minute delay must not drain the
+    /// battery past a target, and a fifteen-per-cent target must not hold the machine awake for an
+    /// hour, so the two are alternatives rather than a pair that both have to be satisfied. A
+    /// condition that is not set never arrives and therefore never ends the wait on its own; with
+    /// neither set there is nothing to wait for and the wait is over at once.
+    /// </summary>
+    public static bool WaitIsOver(bool timeSet, bool timeArrived, bool targetSet, bool targetArrived)
+    {
+        if (!timeSet && !targetSet) return true;
+        return (timeSet && timeArrived) || (targetSet && targetArrived);
+    }
+
+    /// <summary>
     /// A running keep-awake session vetoes the sleep — an explicit "do not sleep this machine" the
     /// user asked for by hand. The veto does not re-arm, so re-closing the lid starts a fresh delay.
-    /// <paramref name="dischargeHolding"/> makes the configured wait the earliest the machine may
-    /// sleep rather than the moment it does: with a discharge target outstanding the hold stands and
-    /// a later battery reading, not the clock, ends it. Both vetoes outrank it — a target that never
-    /// arrives must not keep the hold alive after the feature is switched off.
+    /// It is read only once the wait is over, so a reading arriving mid-wait cannot cancel a delay
+    /// that still had time to run; both vetoes then outrank the wait itself, so a feature switched
+    /// off mid-wait releases the hold rather than sleeping the machine.
     /// </summary>
-    public static LidDelayAction OnTimerFired(bool enabled, bool delayPending, bool keepAwakeActive,
-                                              bool dischargeHolding)
+    public static LidDelayAction OnWaitProgress(bool enabled, bool delayPending, bool keepAwakeActive,
+                                                bool waitIsOver)
     {
         if (!delayPending) return LidDelayAction.None;             // lid reopened; a stale tick
+        if (!waitIsOver) return LidDelayAction.Hold;
         if (!enabled || keepAwakeActive) return LidDelayAction.Cancel;
-        if (dischargeHolding) return LidDelayAction.Hold;
         return LidDelayAction.Suspend;
     }
 

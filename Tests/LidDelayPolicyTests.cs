@@ -66,78 +66,128 @@ public class LidDelayPolicyTests
             LidDelayPolicy.OnLidState(LidState.Opened, enabled: false, delayPending: true, isFirstReading: false));
     }
 
-    // OnTimerFired
+    // WaitIsOver — whichever condition arrives first ends the wait.
 
     [Fact]
-    public void OnTimerFired_WindowStillOpen_Suspends()
+    public void WaitIsOver_TheClockArrivesFirst_EndsTheWaitWithTheTargetStillOutstanding()
     {
-        Assert.Equal(LidDelayAction.Suspend,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
+        // The direction the old conjunction got wrong: a thirty-minute delay must not go on draining
+        // the battery towards a target it never reaches.
+        Assert.True(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: true,
+                                              targetSet: true, targetArrived: false));
     }
 
     [Fact]
-    public void OnTimerFired_LidAlreadyReopened_DoesNothing()
+    public void WaitIsOver_TheBatteryTargetArrivesFirst_EndsTheWaitWithTimeStillToRun()
+    {
+        // The other direction: a fifteen-per-cent target must not leave the machine running for the
+        // rest of an hour it no longer needs.
+        Assert.True(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: false,
+                                              targetSet: true, targetArrived: true));
+    }
+
+    [Fact]
+    public void WaitIsOver_BothConditionsSetAndNeitherArrived_KeepsWaiting()
+    {
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: false,
+                                               targetSet: true, targetArrived: false));
+    }
+
+    [Fact]
+    public void WaitIsOver_NoBatteryTarget_TheClockAloneDecides()
+    {
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: false,
+                                               targetSet: false, targetArrived: false));
+        Assert.True(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: true,
+                                              targetSet: false, targetArrived: false));
+    }
+
+    [Fact]
+    public void WaitIsOver_NoDelay_TheBatteryTargetAloneDecides()
+    {
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
+                                               targetSet: true, targetArrived: false));
+        Assert.True(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
+                                              targetSet: true, targetArrived: true));
+    }
+
+    [Fact]
+    public void WaitIsOver_AConditionThatIsNotSet_NeverEndsTheWaitOnItsOwn()
+    {
+        // An unset condition carrying a stale "arrived" must not decide anything: only a condition
+        // the user actually asked for can end the wait.
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: true,
+                                               targetSet: true, targetArrived: false));
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: false,
+                                               targetSet: false, targetArrived: true));
+    }
+
+    [Fact]
+    public void WaitIsOver_NeitherConditionSet_IsOverAtOnce()
+    {
+        // Nothing to wait for, so the machine sleeps rather than sitting awake with the lid shut for
+        // a condition that can never arrive.
+        Assert.True(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
+                                              targetSet: false, targetArrived: false));
+    }
+
+    // OnWaitProgress
+
+    [Fact]
+    public void OnWaitProgress_WaitOverAndTheLidStillShut_Suspends()
+    {
+        Assert.Equal(LidDelayAction.Suspend,
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true, keepAwakeActive: false, waitIsOver: true));
+    }
+
+    [Fact]
+    public void OnWaitProgress_NoConditionArrivedYet_KeepsTheHold()
+    {
+        Assert.Equal(LidDelayAction.Hold,
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true, keepAwakeActive: false, waitIsOver: false));
+    }
+
+    [Fact]
+    public void OnWaitProgress_LidAlreadyReopened_DoesNothing()
     {
         // A stale tick: suspending here would sleep a machine the user is sitting in front of.
         Assert.Equal(LidDelayAction.None,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false, dischargeHolding: false));
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: false, keepAwakeActive: false, waitIsOver: true));
     }
 
     [Fact]
-    public void OnTimerFired_KeepAwakeSessionRunning_ReleasesTheHoldButDoesNotSleep()
+    public void OnWaitProgress_KeepAwakeSessionRunning_ReleasesTheHoldButDoesNotSleep()
     {
         // A keep-awake session is an explicit request and outranks a background rule about lids:
         // closing the lid on a long build must not kill it.
         Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true, dischargeHolding: false));
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true, keepAwakeActive: true, waitIsOver: true));
     }
 
     [Fact]
-    public void OnTimerFired_FeatureTurnedOffMidWindow_ReleasesTheHoldButDoesNotSleep()
+    public void OnWaitProgress_FeatureTurnedOffMidWait_ReleasesTheHoldButDoesNotSleep()
     {
         Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
+            LidDelayPolicy.OnWaitProgress(enabled: false, delayPending: true, keepAwakeActive: false, waitIsOver: true));
     }
 
     [Fact]
-    public void OnTimerFired_DischargeTargetOutstanding_KeepsTheHoldInsteadOfSleeping()
+    public void OnWaitProgress_MidWaitVetoes_DoNotCutTheWaitShort()
     {
-        // The configured wait becomes the earliest the machine may sleep, not the moment it does: a
-        // battery still above its target has to drain first, and a reading ends the hold, not the clock.
+        // The vetoes are read only once something has arrived, so a battery reading mid-wait cannot
+        // cancel a delay that still had time to run.
         Assert.Equal(LidDelayAction.Hold,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: true));
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true, keepAwakeActive: true, waitIsOver: false));
+        Assert.Equal(LidDelayAction.Hold,
+            LidDelayPolicy.OnWaitProgress(enabled: false, delayPending: true, keepAwakeActive: false, waitIsOver: false));
     }
 
     [Fact]
-    public void OnTimerFired_DischargeTargetAlreadyMet_SuspendsAsTheWaitAlwaysDid()
-    {
-        // A battery already at or below its target adds no condition, so the wait alone governs.
-        Assert.Equal(LidDelayAction.Suspend,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: false, dischargeHolding: false));
-    }
-
-    [Fact]
-    public void OnTimerFired_KeepAwakeOutranksAnOutstandingDischargeTarget()
-    {
-        // The hold is released either way; a target that may never arrive must not outlive the
-        // session that vetoed the sleep.
-        Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: true, keepAwakeActive: true, dischargeHolding: true));
-    }
-
-    [Fact]
-    public void OnTimerFired_FeatureTurnedOffOutranksAnOutstandingDischargeTarget()
-    {
-        Assert.Equal(LidDelayAction.Cancel,
-            LidDelayPolicy.OnTimerFired(enabled: false, delayPending: true, keepAwakeActive: false, dischargeHolding: true));
-    }
-
-    [Fact]
-    public void OnTimerFired_LidReopenedWithADischargeTargetOutstanding_DoesNothing()
+    public void OnWaitProgress_LidReopened_OutranksEverythingElse()
     {
         // A stale tick outranks everything: the machine the user reopened must not be held or slept.
         Assert.Equal(LidDelayAction.None,
-            LidDelayPolicy.OnTimerFired(enabled: true, delayPending: false, keepAwakeActive: false, dischargeHolding: true));
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: false, keepAwakeActive: false, waitIsOver: false));
     }
 
     // DelayFor

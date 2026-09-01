@@ -24,6 +24,10 @@ internal sealed class ThresholdPreset
 /// as a keep-awake preset's may.</summary>
 internal sealed record LidDischargeTarget(int Percent, string? Name = null);
 
+/// <summary>A lid-close delay: how long the machine stays awake with the lid shut before sleep is
+/// allowed. Named or not, on the same terms as a discharge target.</summary>
+internal sealed record LidDelayPreset(int Minutes, string? Name = null);
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 // APPEND new members, never insert: SettingsWindow casts between the ComboBox's SelectedIndex and
 // this enum by position, so the two orders have to stay in lockstep.
@@ -124,7 +128,21 @@ internal sealed class AppSettings
     /// <summary>Never defaulted on: it parks a Windows power setting outside the app for as long as it runs.</summary>
     public bool LidDelayEnabled { get; set; } = false;
 
+    /// <summary>Whether the clock is one of the conditions that ends a lid-close wait. On by default,
+    /// which is the only shape a settings file written before the two conditions were separable can
+    /// have meant.</summary>
+    public bool LidDelayTimeEnabled { get; set; } = true;
+
     public int LidDelayMinutes { get; set; } = 10;
+
+    /// <summary>The selectable delays, edited on the Lid close page. The default set matches the
+    /// dashboard's own quick delays so both surfaces open on the same three figures.</summary>
+    public List<LidDelayPreset> LidDelayPresets { get; set; } =
+    [
+        new(10),
+        new(30),
+        new(60),
+    ];
 
     /// <summary>On by default, unlike the feature itself: with the lid action parked on "do nothing"
     /// the machine sits awake and unlocked with the lid shut, so the delay removes the sign-in prompt
@@ -136,8 +154,8 @@ internal sealed class AppSettings
     /// default, which leaves the feature standing as it always did.</summary>
     public bool LidDelayOffAfterSleep { get; set; } = false;
 
-    /// <summary>Off by default: the plain delay is bounded by <see cref="LidDelayPolicy.MaxMinutes"/>,
-    /// and a discharge target replaces that bound with the battery's own.</summary>
+    /// <summary>Whether the battery level is one of the conditions that ends a lid-close wait. Off by
+    /// default, leaving the clock as the only condition.</summary>
     public bool LidDischargeEnabled { get; set; } = false;
 
     /// <summary>The level the machine drains to with the lid shut before sleep is allowed. Held here

@@ -18,12 +18,16 @@ namespace ChargeKeeper.UI;
 /// </summary>
 public sealed partial class DashboardWindow : Window
 {
-    private const int WindowWidth = 340;
+    // Wide enough for the badges' description lines, which at 340 ran out of room beside the switch.
+    private const int WindowWidth = 380;
 
     // What PresetButtonPanel is allowed before its first arrange: WindowWidth less RootGrid's 20 px
     // padding either side and the Smart Charge badge's 10 px either side. The same width the
     // travel-override button occupies, which is what the preset rows have to line up with.
     private const double PresetPanelWidth = WindowWidth - 40 - 20;
+
+    /// <summary>Narrowest lid chip that still reads: five glyphs at FontSize 11 plus its padding.</summary>
+    private const double LidChipWidth = 44;
 
     // Arc gauge geometry: 100×100 px canvas, clock-face 135° start — 4:30, not 7 o'clock — and a
     // 270° clockwise sweep ending at 1:30, so the 90° gap sits on the right-hand side.
@@ -56,9 +60,14 @@ public sealed partial class DashboardWindow : Window
     // What KeepAwakePresetPanel is built from; rebuilding only on a change keeps the reconcile cheap.
     private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
 
-    // Same purpose for the lid-delay chips: the set only changes when the stored delay leaves the
-    // quick list, so the 5 s reconcile must not rebuild the row underneath a pointer.
+    // Same purpose for the two lid chip groups: the sets only change when a preset is added, removed
+    // or edited, so the 5 s reconcile must not rebuild a row underneath a pointer.
     private IReadOnlyList<int> _lidDelayChips = [];
+    private IReadOnlyList<int> _lidLevelChips = [];
+
+    // Whether the two lid groups are currently laid out beside each other; re-laying out on every
+    // tick would move a chip under the pointer.
+    private bool _lidGroupsSideBySide;
 
     // Same for PresetButtonPanel: rebuilding on every 5 s tick would drop the button under the pointer.
     private IReadOnlyList<string> _presetButtonLabels = [];
@@ -834,48 +843,137 @@ public sealed partial class DashboardWindow : Window
         if (!visible) return;
 
         SetFeatureBadge(LidDelayBadge, LidDelayToggle, s.LidDelayEnabled);
-        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayMinutes,
+        LidDelayDetailText.Text = LidDashboardPolicy.Describe(s.LidDelayEnabled, s.LidDelayTimeEnabled,
+                                                             s.LidDelayMinutes,
                                                              s.LidDischargeEnabled, s.LidDischargeTargetPercent);
 
-        BuildLidDelayChips(s.LidDelayMinutes);
+        var delays = LidDashboardPolicy.DelayChips(s.LidDelayPresets.Select(p => p.Minutes), s.LidDelayMinutes);
+        var levels = LidDashboardPolicy.LevelChips(s.LidDischargePresets.Select(t => t.Percent),
+                                                   s.LidDischargeTargetPercent);
 
-        int? active = LidDashboardPolicy.ActiveChip(s.LidDelayEnabled, s.LidDelayMinutes);
-        foreach (var chip in LidDelayPresetPanel.Children.OfType<ToggleButton>())
-            chip.IsChecked = active is { } minutes && Equals(chip.Tag, minutes);
+        BuildLidChips(LidDelayPresetPanel, ref _lidDelayChips, delays,
+                      LidDashboardPolicy.ShortLabel,
+                      m => $"Sleep {LidDashboardPolicy.ShortLabel(m)} after the lid closes",
+                      OnLidDelayChipChecked, OnLidDelayChipUnchecked);
+        BuildLidChips(LidLevelPresetPanel, ref _lidLevelChips, levels,
+                      LidDashboardPolicy.LevelLabel,
+                      p => $"Sleep once the battery is down to {LidDashboardPolicy.LevelLabel(p)}",
+                      OnLidLevelChipChecked, OnLidLevelChipUnchecked);
+
+        LayoutLidPresetGroups(delays.Count, levels.Count);
+
+        MarkLidChips(LidDelayPresetPanel,
+                     LidDashboardPolicy.ActiveChip(s.LidDelayEnabled, s.LidDelayTimeEnabled, s.LidDelayMinutes));
+        MarkLidChips(LidLevelPresetPanel,
+                     LidDashboardPolicy.ActiveLevelChip(s.LidDelayEnabled, s.LidDischargeEnabled,
+                                                        s.LidDischargeTargetPercent));
     }
 
-    /// <summary>(Re)builds the delay chips. Returns untouched when the set hasn't changed.</summary>
-    private void BuildLidDelayChips(int currentMinutes)
+    private static void MarkLidChips(Panel panel, int? active)
     {
-        var wanted = LidDashboardPolicy.Chips(currentMinutes);
-        if (wanted.SequenceEqual(_lidDelayChips)) return;
+        foreach (var chip in panel.Children.OfType<ToggleButton>())
+            chip.IsChecked = active is { } value && Equals(chip.Tag, value);
+    }
 
-        _lidDelayChips = wanted;
-        LidDelayPresetPanel.Children.Clear();
+    /// <summary>
+    /// Side by side while the two groups together stay within the popup's width and the preset count
+    /// allows it, stacked otherwise. <see cref="LidDashboardPolicy.GroupsSideBySide"/> holds the rule.
+    /// </summary>
+    private void LayoutLidPresetGroups(int delayCount, int levelCount)
+    {
+        // ActualWidth is 0 until the first arrange; the fallback is the width a badge's content gets.
+        double available = LidPresetGroups.ActualWidth > 0 ? LidPresetGroups.ActualWidth : PresetPanelWidth;
+        // A group needs room for one chip plus the gap between the two groups.
+        bool sideBySide = LidDashboardPolicy.GroupsSideBySide(delayCount, levelCount, available,
+                                                             PresetButtonLayout.MinButtonWidth + LidPresetGroups.ColumnSpacing);
+        if (sideBySide == _lidGroupsSideBySide && LidPresetGroups.ColumnDefinitions.Count > 0) return;
+        _lidGroupsSideBySide = sideBySide;
+
+        LidPresetGroups.ColumnDefinitions.Clear();
+        LidPresetGroups.RowDefinitions.Clear();
+
+        if (sideBySide)
+        {
+            for (int c = 0; c < 2; c++)
+                LidPresetGroups.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            LidPresetGroups.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Place(LidDelayGroup, 0, 0);
+            Place(LidLevelGroup, 0, 1);
+        }
+        else
+        {
+            LidPresetGroups.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (int r = 0; r < 2; r++)
+                LidPresetGroups.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Place(LidDelayGroup, 0, 0);
+            Place(LidLevelGroup, 1, 0);
+        }
+
+        static void Place(FrameworkElement e, int row, int column)
+        {
+            Grid.SetRow(e, row);
+            Grid.SetColumn(e, column);
+        }
+    }
+
+    /// <summary>
+    /// (Re)builds one chip group into equal-width columns, so a group too wide for one row takes a
+    /// second rather than overflowing. Returns untouched when the set hasn't changed.
+    /// </summary>
+    private void BuildLidChips(Grid panel, ref IReadOnlyList<int> built, IReadOnlyList<int> wanted,
+                               Func<int, string> label, Func<int, string> tip,
+                               RoutedEventHandler onChecked, RoutedEventHandler onUnchecked)
+    {
+        if (wanted.SequenceEqual(built)) return;
+        built = wanted;
+
+        panel.Children.Clear();
+        panel.ColumnDefinitions.Clear();
+        panel.RowDefinitions.Clear();
+        panel.ColumnSpacing = PresetButtonLayout.Spacing;
+        panel.RowSpacing    = PresetButtonLayout.Spacing;
 
         // Set before the chips are parented, so their templates resolve it.
         foreach (string state in new[] { "", "PointerOver", "Pressed" })
         {
-            LidDelayPresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
-            LidDelayPresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+            panel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            panel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
         }
 
-        foreach (int minutes in wanted)
+        if (wanted.Count == 0) return;
+
+        // Chips are far narrower than a preset button, so the group takes as many columns as it has
+        // chips and only wraps when the row genuinely runs out.
+        double available = panel.ActualWidth > 0 ? panel.ActualWidth : PresetPanelWidth / 2;
+        int columns = Math.Clamp((int)((available + PresetButtonLayout.Spacing) / (LidChipWidth + PresetButtonLayout.Spacing)),
+                                 1, wanted.Count);
+        int rows = (wanted.Count + columns - 1) / columns;
+
+        for (int c = 0; c < columns; c++)
+            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int r = 0; r < rows; r++)
+            panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        for (int i = 0; i < wanted.Count; i++)
         {
+            int value = wanted[i];
             var chip = new ToggleButton
             {
-                Content         = LidDashboardPolicy.ShortLabel(minutes),
-                Tag             = minutes,
-                FontSize        = 11,
-                Padding         = new Thickness(8, 3, 8, 3),
-                MinWidth        = 0,
-                CornerRadius    = new CornerRadius(4),
-                BorderThickness = new Thickness(0),
+                Content             = label(value),
+                Tag                 = value,
+                FontSize            = 11,
+                Padding             = new Thickness(4, 3, 4, 3),
+                MinWidth            = 0,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius        = new CornerRadius(4),
+                BorderThickness     = new Thickness(0),
             };
-            ToolTipService.SetToolTip(chip, $"Sleep {LidDashboardPolicy.ShortLabel(minutes)} after the lid closes");
-            chip.Checked   += OnLidDelayChipChecked;
-            chip.Unchecked += OnLidDelayChipUnchecked;
-            LidDelayPresetPanel.Children.Add(chip);
+            ToolTipService.SetToolTip(chip, tip(value));
+            chip.Checked   += onChecked;
+            chip.Unchecked += onUnchecked;
+            Grid.SetRow(chip, i / columns);
+            Grid.SetColumn(chip, i % columns);
+            panel.Children.Add(chip);
         }
     }
 
@@ -894,8 +992,8 @@ public sealed partial class DashboardWindow : Window
         ApplyLidBadge();
     }
 
-    /// <summary>Picking a delay also turns the feature on — the chip row is the quick way in, exactly
-    /// as the keep-awake chips start a session.</summary>
+    /// <summary>Picking a delay also turns lid handling and the clock condition on — the chip row is
+    /// the quick way in, exactly as the keep-awake chips start a session.</summary>
     private void OnLidDelayChipChecked(object sender, RoutedEventArgs e)
     {
         if (_updatingBadges) return;
@@ -904,19 +1002,49 @@ public sealed partial class DashboardWindow : Window
         try
         {
             SettingsService.Update(x => x.LidDelayMinutes = minutes);
+            if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true);
             if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
         }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipChecked", ex); }
         ApplyLidBadge();
     }
 
-    /// <summary>Clicking the filled chip turns the delay off — a ToggleButton unchecking itself is that click.</summary>
+    /// <summary>Clicking the filled chip drops the clock condition — a ToggleButton unchecking itself
+    /// is that click. Lid handling itself is left on: the battery target may still be carrying it.</summary>
     private void OnLidDelayChipUnchecked(object sender, RoutedEventArgs e)
     {
         if (_updatingBadges) return;
 
-        try { LidDelayService.SetEnabled(false); }
+        try { LidDelayService.SetTimeEnabled(false); }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipUnchecked", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Picking a battery target turns lid handling and the level condition on, mirroring the
+    /// delay chips beside it.</summary>
+    private void OnLidLevelChipChecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+        if (sender is not ToggleButton { Tag: int percent }) return;
+
+        try
+        {
+            SettingsService.Update(x => x.LidDischargeTargetPercent = percent);
+            if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true);
+            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
+        }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidLevelChipChecked", ex); }
+        ApplyLidBadge();
+    }
+
+    /// <summary>Clicking the filled target drops the level condition, leaving lid handling to the
+    /// delay if that is still on.</summary>
+    private void OnLidLevelChipUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (_updatingBadges) return;
+
+        try { LidDelayService.SetDischargeEnabled(false); }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidLevelChipUnchecked", ex); }
         ApplyLidBadge();
     }
 

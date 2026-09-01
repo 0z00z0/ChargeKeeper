@@ -319,56 +319,60 @@
                                         Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
                     </StackPanel>
 
-                    <local:SettingsSectionHeader Heading="Sleep delay"/>
-
-                    <controls:SettingsCard Header="Delay sleep after the lid closes"
-                                            Description="Waits before sleeping when the lid closes, instead of sleeping at once.">
+                    <!-- No section heading above the master switch: it governs everything on the
+                         page, and a heading over it would claim it belongs to one part. -->
+                    <controls:SettingsCard Header="Handle the lid closing"
+                                            Description="ChargeKeeper decides when the computer sleeps after the lid closes, instead of Windows.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="the lid-close delay"
-                                            Info="Opening the lid before the delay is up cancels it. A running keep-awake session suppresses the sleep, so the computer is never slept out from under one."/>
+                            <local:InfoIcon Subject="lid handling"
+                                            Info="The computer sleeps as soon as one of the two conditions below is reached — the delay running out, or the battery reaching its target — whichever comes first. With neither switched on it sleeps as soon as the lid closes. Opening the lid before it sleeps cancels the wait. A running keep-awake session suppresses the sleep, so the computer is never slept out from under one."/>
                             <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Wait"
-                                            Description="How long to stay awake with the lid closed before sleeping.">
-                        <ComboBox x:Name="LidDelayMinutesCombo" MinWidth="140" SelectionChanged="OnLidDelayMinutesChanged"/>
-                    </controls:SettingsCard>
-
-                    <!-- Disabled rather than hidden while the delay is off, like the two switches
-                         below it: with no delay there is no lid close for it to act on. -->
+                    <!-- The two rows that hold whichever kind of wait is running, so they sit above
+                         both preset groups rather than beside one of them. Disabled rather than
+                         hidden while lid handling is off: with it off there is no lid close to act on. -->
                     <controls:SettingsCard Header="Switch off once the computer has slept"
-                                            Description="Turns the delay above off again after one lid close has run its course.">
+                                            Description="Turns lid handling off again after one lid close has run its course.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="switching the delay off after it has held"
-                                            Info="Only a lid close that ended in sleep counts. Opening the lid before the computer sleeps, or a keep-awake session suppressing the sleep, leaves the delay on for the next lid close."/>
+                            <local:InfoIcon Subject="switching lid handling off after it has held"
+                                            Info="Only a lid close that ended in sleep counts. Opening the lid before the computer sleeps, or a keep-awake session suppressing the sleep, leaves lid handling on for the next lid close."/>
                             <ToggleSwitch x:Name="LidOffAfterSleepToggle" OnContent="On" OffContent="Off" Toggled="OnLidOffAfterSleepToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <local:SettingsSectionHeader Heading="Battery target" Subject="the battery target"
-                                                 Info="With the lid shut the computer stays awake until the battery has drained to the target, and only then sleeps. The wait above becomes the earliest it may sleep rather than when it does. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached."/>
+                    <!-- On by default: handling the lid parks the Windows lid-close action on "do
+                         nothing", which also removes the sign-in prompt a lid close normally leads
+                         to. This puts it back. -->
+                    <controls:SettingsCard Header="Lock the computer when the lid closes"
+                                            Description="Locks the computer as soon as the lid closes.">
+                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
+                    </controls:SettingsCard>
 
-                    <!-- Disabled rather than hidden while the delay is off, like the lock switch:
-                         without the delay there is no period awake with the lid shut to hold on to. -->
-                    <controls:SettingsCard Header="Wait for the battery to drain to a target"
-                                            Description="Stays awake with the lid closed until the battery reaches the target in use below.">
+                    <local:SettingsSectionHeader Heading="Sleep after a time" Subject="the sleep delay"
+                                                 Info="The computer stays awake with the lid shut for the delay in use below, then sleeps. Opening the lid before it is up cancels the wait."/>
+
+                    <controls:SettingsCard Header="Sleep once a delay has run out"
+                                            Description="Uses the delay marked in use below as one of the conditions for sleeping.">
+                        <ToggleSwitch x:Name="LidDelayTimeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayTimeToggled"/>
+                    </controls:SettingsCard>
+
+                    <StackPanel x:Name="LidDelayPresetsListPanel" Spacing="4"/>
+                    <Button x:Name="AddLidDelayPresetBtn" Content="Add delay"
+                            Click="OnAddLidDelayPreset" Margin="0,4,0,12"/>
+
+                    <local:SettingsSectionHeader Heading="Sleep at a battery level" Subject="the battery target"
+                                                 Info="The computer stays awake with the lid shut until the battery has drained to the target in use below, then sleeps. The target is a charge level, not a check for a connected charger: a charger supplying less than the computer draws still lets the battery drain, so waiting for the cable to come out would keep the computer awake indefinitely. A battery that starts charging releases the computer to sleep, because the target can no longer be reached."/>
+
+                    <controls:SettingsCard Header="Sleep once the battery reaches a level"
+                                            Description="Uses the target marked in use below as one of the conditions for sleeping.">
                         <ToggleSwitch x:Name="LidDischargeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDischargeToggled"/>
                     </controls:SettingsCard>
 
                     <StackPanel x:Name="LidDischargeTargetsListPanel" Spacing="4"/>
                     <Button x:Name="AddLidDischargeTargetBtn" Content="Add target"
                             Click="OnAddLidDischargeTarget" Margin="0,4,0,12"/>
-
-                    <local:SettingsSectionHeader Heading="Locking"/>
-
-                    <!-- On by default, and disabled rather than hidden while the delay is off: the
-                         delay parks the Windows lid-close action on "do nothing", which also removes
-                         the sign-in prompt a lid close normally leads to. This puts it back. -->
-                    <controls:SettingsCard Header="Lock the computer when the lid closes"
-                                            Description="Locks the computer as soon as the lid closes.">
-                        <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
-                    </controls:SettingsCard>
                 </StackPanel>
 
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">
