@@ -27,7 +27,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: forty-one entities, their groups, their capability gates and the
+/// ChargeKeeper's published surface: forty-two entities, their groups, their capability gates and the
 /// domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -45,6 +45,7 @@ internal static class MqttEntityCatalog
     public const string BatteryHealth       = "battery_health";
     public const string IsCharging          = "is_charging";
     public const string OnAc                = "on_ac";
+    public const string PowerState          = "power_state";
     public const string RemainingChargeTime = "remaining_charge_time";
     public const string AdapterWatts        = "adapter_watts";
     public const string CapacityFull        = "capacity_full";
@@ -223,6 +224,18 @@ internal static class MqttEntityCatalog
                 EntityId = OnAc, Name = "On AC", Group = MqttPublishGroups.BatteryStatus,
                 DeviceClass = "plug",
                 Read = () => live()?.OnAc,
+            },
+            new MqttSensor
+            {
+                // The two mains states told apart, which neither is_charging nor on_ac says on its
+                // own: a pack held at a charge limit reads off and on. Read-only — the state is what
+                // the firmware is doing, and no command changes it. Derived like health is, so it is
+                // a diagnostic rather than a sixth uncategorised reading.
+                EntityId = PowerState, Name = "Power state", Group = MqttPublishGroups.BatteryStatus,
+                Category = MqttEntityCategory.Diagnostic, Icon = "mdi:power-plug-battery",
+                Read = () => live() is { } v
+                    ? Helpers.PowerStates.Label(Helpers.PowerStates.From(v.IsCharging, v.OnAc))
+                    : null,
             },
             new MqttSensor
             {

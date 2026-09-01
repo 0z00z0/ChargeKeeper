@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the forty-one entity ids, the component each is announced
+/// The published surface as a declaration: the forty-two entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -43,6 +43,8 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.BatteryStatus, MqttEntityCategory.Primary, DeviceClass: "battery_charging"),
         new(MqttEntityCatalog.OnAc, "binary_sensor", "On AC",
             MqttPublishGroups.BatteryStatus, MqttEntityCategory.Primary, DeviceClass: "plug"),
+        new(MqttEntityCatalog.PowerState, "sensor", "Power state",
+            MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic, Icon: "mdi:power-plug-battery"),
         new(MqttEntityCatalog.BatteryHealth, "sensor", "Battery health",
             MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic, Icon: "mdi:heart-pulse"),
         new(MqttEntityCatalog.RemainingChargeTime, "sensor", "Remaining charge time",
@@ -143,13 +145,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFortyOneEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheFortyTwoEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsFourteenSensorsTenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsFifteenSensorsTenSwitchesEightNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -158,7 +160,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 14, ["switch"] = 10, ["number"] = 8,
+                ["sensor"] = 15, ["switch"] = 10, ["number"] = 8,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
@@ -409,6 +411,24 @@ public class MqttEntityCatalogTests
     }
 
     [Fact]
+    public void ThePowerState_TellsTheTwoMainsStatesApart()
+    {
+        // The reading neither is_charging nor on_ac gives on its own: a pack held at a charge limit
+        // reads charging=off and on_ac=on, which is a state of its own rather than an absence.
+        Assert.Equal("Charging", MqttTestBed.Build(MqttTestBed.Live(isCharging: true, onAc: true))
+                                            .Find(MqttEntityCatalog.PowerState)!.ReadState());
+        Assert.Equal("Idle on mains", MqttTestBed.Build(MqttTestBed.Live(isCharging: false, onAc: true))
+                                                 .Find(MqttEntityCatalog.PowerState)!.ReadState());
+        Assert.Equal("Discharging", MqttTestBed.Build(MqttTestBed.Live(isCharging: false, onAc: false))
+                                               .Find(MqttEntityCatalog.PowerState)!.ReadState());
+    }
+
+    [Fact]
+    public void ThePowerState_TakesNoCommand() =>
+        // Read-only: the state is what the firmware is doing, and nothing on the broker changes it.
+        Assert.IsType<MqttSensor>(MqttTestBed.Declared().Find(MqttEntityCatalog.PowerState));
+
+    [Fact]
     public void TheTwoPresetSelects_OfferTheConfiguredPresetsAndOnlyOneOffersStayingPut()
     {
         var settings = new FakeSettingsActions { Presets = ["Daily", "Travel", "Storage"] };
@@ -443,7 +463,7 @@ public class MqttEntityCatalogTests
         // declared after the document was adopted never had one, so it is absent here by design.
         Assert.Equal(
             MqttTestBed.Declared().All
-                .Where(e => e.EntityId != MqttEntityCatalog.LowPowerMode)
+                .Where(e => e.EntityId is not (MqttEntityCatalog.LowPowerMode or MqttEntityCatalog.PowerState))
                 .Select(e => (e.Platform, e.EntityId)).Order(),
             MqttEntityCatalog.Migrating
                 .Select(m => (m.Component, m.EntityId)).Order());
