@@ -262,28 +262,15 @@ internal static class BatteryHistoryService
     {
         try
         {
-            var cutoff = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
-            var kept = new List<string>();
-            int droppedCount = 0;
-            foreach (var line in _store.ReadAllLines())   // empty when the file doesn't exist yet
-            {
-                if (!TryParse(line, out var s)) continue;   // skip blank/corrupt lines
-                if (s.AtUtc >= cutoff) kept.Add(line);
-                else droppedCount++;
-            }
-            if (droppedCount > 0)
-            {
-                // Temp file plus atomic move. The header is re-emitted because header lines fail
-                // TryParse and so never reach `kept`.
-                var path = _store.FilePath;
-                var tmp = path + ".tmp";
-                var output = new List<string>();
-                if (_store.Header is { } h) output.AddRange(h.Split('\n'));
-                output.AddRange(kept);
-                File.WriteAllLines(tmp, output);
-                File.Move(tmp, path, overwrite: true);
-                AppLog.Info($"History pruned: dropped {droppedCount} row(s) older than {RetentionDays}d, {kept.Count} kept.");
-            }
+            // Age only, no row cap: the sample interval is fixed, so 14 days is already a bounded
+            // file. The rewrite, the header re-emit and the atomic move live in the shared store.
+            var cutoff  = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
+            int dropped = _store.Prune(line =>
+                !TryParse(line, out var s) ? CsvRowVerdict.NotARow
+                : s.AtUtc >= cutoff       ? CsvRowVerdict.Keep
+                                          : CsvRowVerdict.Expired);
+            if (dropped > 0)
+                AppLog.Info($"History pruned: dropped {dropped} row(s) older than {RetentionDays}d.");
         }
         catch (Exception ex)
         {

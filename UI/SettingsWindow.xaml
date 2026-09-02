@@ -65,6 +65,9 @@
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="App diagnostics" Tag="AppDiagnostics">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/diagnostics.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="About"            Tag="About">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/about.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -444,6 +447,42 @@
                      opens AboutWindow, which would be a dialog on top of a dialog. The Border gives
                      it the same bordered look as the SettingsCards while keeping it distinct: the
                      studio identity inside is not this app's settings UI. -->
+                <StackPanel x:Name="AppDiagnosticsPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock Text="App diagnostics" Style="{StaticResource SectionHeaderStyle}"/>
+
+                    <!-- The switch and the rate sit with the graph they govern, so turning
+                         measurement on and seeing what it costs is one place rather than two. -->
+                    <controls:SettingsCard Header="Performance graph"
+                                            Description="Record and plot what ChargeKeeper itself is using.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="Performance graph"
+                                            Info="Off, nothing is scheduled at all: no timer runs and no processor time goes to measuring. On, the app samples itself and writes performance-history.csv beside the battery history."/>
+                            <ToggleSwitch x:Name="PerformanceGraphToggle" Toggled="OnPerformanceGraphToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Sampling rate"
+                                            Description="How often processor time is read. Memory, handles and threads are read once a second whatever this says.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="Sampling rate"
+                                            Info="Reading processor time costs microseconds. Memory, handles and threads cost a snapshot of every process on the machine, so they keep their own once-a-second pace — at the slowest rate they are the denser of the two lines."/>
+                            <!-- Item order IS the PerformanceSampleRate order: the load and save cast
+                                 between the enum and SelectedIndex by position. Append, never insert. -->
+                            <ComboBox x:Name="PerformanceRateCombo" MinWidth="140"
+                                      SelectionChanged="OnPerformanceRateChanged"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <local:PerformanceGraphControl x:Name="PerformanceGraph" Margin="0,8,0,0"/>
+
+                    <controls:SettingsCard Header="Performance log"
+                                            Description="Kept beside the battery history, on the same retention.">
+                        <Button x:Name="OpenPerformanceLogButton"
+                                Content="Show in Explorer"
+                                Click="OnOpenPerformanceLogClick"/>
+                    </controls:SettingsCard>
+                </StackPanel>
+
                 <StackPanel x:Name="AboutPanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}"/>
 

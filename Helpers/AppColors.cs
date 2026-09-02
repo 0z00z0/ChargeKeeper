@@ -61,6 +61,17 @@ internal static class AppColors
     internal static readonly SolidColorBrush HistoryLimitBrush = new(Terracotta);
     internal static readonly SolidColorBrush HistoryPowerBrush = new(FromPacked(GaugePalette.Lavender));
 
+    // Self-measurement graph series. Two tones already in the gauge palette, deliberately NOT the
+    // three the battery history uses, so the two graphs cannot be mistaken for one another at a
+    // glance. Sage reads as load, steel is the app accent and carries the slower memory line.
+    internal static readonly SolidColorBrush PerformanceProcessorBrush =
+        new(FromPacked(GaugePalette.SageGreen));
+    internal static readonly SolidColorBrush PerformanceMemoryBrush = new(SteelBlue);
+
+    // Gradient fill under the processor line, on the same terms as the SoC fill above.
+    internal static readonly LinearGradientBrush PerformanceProcessorFillBrush =
+        BuildFadeBrush(FromPacked(GaugePalette.SageGreen));
+
     // Terracotta, not the vivid Orange, so the pop-out trigger matches the dashboard's orange tint.
     internal static readonly SolidColorBrush ExpandGlyphBrush = new(Terracotta);
     internal static readonly SolidColorBrush ExpandGlyphBackgroundBrush =

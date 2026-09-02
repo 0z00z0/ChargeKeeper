@@ -118,6 +118,7 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadKeepAwake();
+        LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
         // throw away a half-entered host name.
         if (_mqtt is not null) MqttPanel.Reload();
@@ -343,7 +344,11 @@ internal sealed partial class SettingsWindow : Window
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
+        AppDiagnosticsPanel.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
+
+        // The graph only paints while its page is on screen; leaving the page stops its repaint.
+        if (tag == "AppDiagnostics") PerformanceGraph.ApplySettings(); else PerformanceGraph.Render();
 
         // Refreshed on open rather than on a timer: cheap, and it picks up anything that changed
         // while the window sat on a different tab.
@@ -592,6 +597,46 @@ internal sealed partial class SettingsWindow : Window
         bool on = GraphShadingToggle.IsOn;
         SettingsService.Update(s => s.GraphShadingEnabled = on);
     }
+
+    // ── App diagnostics ─────────────────────────────────────────────────────────────────────────
+
+    private void LoadAppDiagnostics()
+    {
+        var s = SettingsService.Current;
+        WithUpdatingSuppressed(() =>
+        {
+            // Built from the rate ladder itself rather than listed in markup, so a step added to the
+            // enum reaches the dropdown instead of silently going missing from it.
+            if (PerformanceRateCombo.Items.Count == 0)
+                foreach (var rate in PerformanceSampleRates.All)
+                    PerformanceRateCombo.Items.Add(new ComboBoxItem { Content = rate.Label() });
+
+            PerformanceGraphToggle.IsOn      = s.PerformanceGraphEnabled;
+            PerformanceRateCombo.SelectedIndex = (int)PerformanceSampleRates.Normalise(s.PerformanceSampleRate);
+        });
+        PerformanceGraph.ApplySettings();
+    }
+
+    private void OnPerformanceGraphToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = PerformanceGraphToggle.IsOn;
+        SettingsService.Update(s => s.PerformanceGraphEnabled = on);
+        // The sampler itself is re-applied by App, which listens for the settings change; this only
+        // brings the plot in line with what is now being collected.
+        PerformanceGraph.ApplySettings();
+    }
+
+    private void OnPerformanceRateChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || PerformanceRateCombo.SelectedIndex < 0) return;
+        var rate = (PerformanceSampleRate)PerformanceRateCombo.SelectedIndex;
+        SettingsService.Update(s => s.PerformanceSampleRate = rate);
+        PerformanceGraph.ApplySettings();
+    }
+
+    private void OnOpenPerformanceLogClick(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Reveal(PerformanceHistoryService.FilePath);
 
     private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Reveal(SettingsService.FilePath);

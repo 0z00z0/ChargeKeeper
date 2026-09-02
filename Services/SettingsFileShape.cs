@@ -32,6 +32,7 @@ internal sealed class SettingsFile
     public const string LidCloseKey     = MqttPublishGroups.LidClose;
     public const string NotificationsKey = MqttPublishGroups.Notifications;
     public const string MqttKey         = "mqtt";
+    public const string DiagnosticsKey  = "diagnostics";
     public const string WindowKey       = "window";
 
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
@@ -64,8 +65,11 @@ internal sealed class SettingsFile
     [JsonPropertyName(MqttKey), JsonPropertyOrder(8)]
     public MqttGroup Mqtt { get; set; } = new();
 
+    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(9)]
+    public DiagnosticsGroup Diagnostics { get; set; } = new();
+
     // Window placement is state rather than a page: nothing on screen edits it, so it sits last.
-    [JsonPropertyName(WindowKey), JsonPropertyOrder(9)]
+    [JsonPropertyName(WindowKey), JsonPropertyOrder(10)]
     public WindowGroup Window { get; set; } = new();
 
     internal sealed class GeneralGroup
@@ -141,6 +145,12 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(1)] public MqttEndpointMemory? MqttLastGoodEndpoint { get; set; }
     }
 
+    internal sealed class DiagnosticsGroup
+    {
+        [JsonPropertyOrder(1)] public bool                  PerformanceGraphEnabled { get; set; }
+        [JsonPropertyOrder(2)] public PerformanceSampleRate PerformanceSampleRate   { get; set; }
+    }
+
     internal sealed class WindowGroup
     {
         [JsonPropertyOrder(1)] public int? SettingsWindowX      { get; set; }
@@ -206,7 +216,12 @@ internal sealed class SettingsFile
             DrainAnomalyPercentPerHour = s.DrainAnomalyPercentPerHour,
             DrainAnomalyWarningEnabled = s.DrainAnomalyWarningEnabled,
         },
-        Mqtt   = new MqttGroup   { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
+        Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
+        Diagnostics = new DiagnosticsGroup
+        {
+            PerformanceGraphEnabled = s.PerformanceGraphEnabled,
+            PerformanceSampleRate   = s.PerformanceSampleRate,
+        },
         Window = new WindowGroup
         {
             SettingsWindowX      = s.SettingsWindowX,
@@ -260,6 +275,9 @@ internal sealed class SettingsFile
         DrainAnomalyWarningEnabled = Notifications.DrainAnomalyWarningEnabled,
 
         MqttLastGoodEndpoint = Mqtt.MqttLastGoodEndpoint,
+
+        PerformanceGraphEnabled = Diagnostics.PerformanceGraphEnabled,
+        PerformanceSampleRate   = Diagnostics.PerformanceSampleRate,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,
