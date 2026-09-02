@@ -179,6 +179,22 @@ internal static class IconGenerator
         return new System.Drawing.Icon(ms);
     }
 
+    /// <summary>
+    /// The tray mark for an application that is not watching the battery: an exclamation on the
+    /// critical tier, in no style the user can choose, so it cannot be mistaken for a reading.
+    /// </summary>
+    internal static System.Drawing.Icon RenderWarningIcon()
+    {
+        using var ms = new MemoryStream();
+        WriteIco(ms, RenderWarningBitmap, [CurrentTraySlotSize()]);
+        ms.Position = 0;
+        return new System.Drawing.Icon(ms);
+    }
+
+    /// <inheritdoc cref="RenderWarningIcon"/>
+    internal static Bitmap RenderWarningBitmap(int size) =>
+        RenderGlyphOnTierBitmap(size, "!", FillFor(0, PowerState.Discharging));
+
     /// <summary>One frame of the selected style at <paramref name="size"/> px. Split out from
     /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
     /// live tray slot happens to be.</summary>
@@ -207,15 +223,19 @@ internal static class IconGenerator
             : (state.Stop, state.HasStartThreshold ? state.Start : null);
 
     /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
-    private static Bitmap RenderNumericBitmap(int size, int percent, PowerState state)
+    private static Bitmap RenderNumericBitmap(int size, int percent, PowerState state) =>
+        // Three-digit "100" is scaled down by the shared renderer so it still fits the slot.
+        RenderGlyphOnTierBitmap(size, percent > 0 ? $"{percent}" : "?", FillFor(percent, state));
+
+    /// <summary>The rounded tier square with a centred glyph, shared by the numeric style and the
+    /// warning mark so the two cannot drift apart in shape, margin or contrast.</summary>
+    private static Bitmap RenderGlyphOnTierBitmap(int size, string label, Color bg)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode   = SmoothingMode.AntiAlias;
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
-
-        Color bg = FillFor(percent, state);
 
         int margin = Math.Max(1, (int)Math.Round(size * MarginFraction));
         var rect   = new Rectangle(margin, margin, size - margin * 2 - 1, size - margin * 2 - 1);
@@ -224,8 +244,6 @@ internal static class IconGenerator
         using (var path    = BuildRoundedRectPath(rect, radius))
             g.FillPath(bgBrush, path);
 
-        // Three-digit "100" is scaled down so it still fits the slot.
-        string label  = percent > 0 ? $"{percent}" : "?";
         float  emSize = size * (label.Length >= 3 ? 0.46f : 0.66f);
         using var sf  = new StringFormat
         {

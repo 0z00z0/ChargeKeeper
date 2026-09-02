@@ -21,7 +21,9 @@ tick markers, adjustable start/stop sliders); right-click for quick toggles, pre
 **Settings…** (opens the full configuration window). The tray icon itself shows a live
 battery-level arc, coloured on a continuous scale that follows both the level and the power state —
 on battery, charging, or connected and holding — or, optionally, the battery percentage as a
-number.
+number. An exclamation mark in place of a reading means start-up failed: the battery is not being
+watched and no battery warnings will be given until the application is restarted. Hovering the icon
+says the same in words, and `%AppData%\ChargeKeeper\app.log` carries the reason.
 
 ### Features
 
