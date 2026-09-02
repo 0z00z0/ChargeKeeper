@@ -330,6 +330,24 @@ public partial class App : Application
     {
         _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
 
+        // The identity the shell files this icon's settings under, including whether it sits in the
+        // visible area or behind the overflow chevron. Left unset it is a hash of the executable's
+        // full path, so moving the install folder reads to Windows as a different icon and drops
+        // the position back to the chevron. Set before the icon is created, and never after
+        // CustomName, which writes the library's own derived value back over it.
+        //
+        // Guarded on its own rather than with the creation below: an identity that cannot be
+        // applied is a position that may not be remembered, which is no reason to leave the tray
+        // with no icon at all.
+        try
+        {
+            _trayIcon.Id = TrayIconIdentity.Value;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("InitTrayIcon.Identity", ex);
+        }
+
         // Start with the seed mark, drawn on the tray's own maximised geometry so the slot does not
         // change shape when the battery arc replaces it on the first event.
         // Guarded because nothing above this on the startup path catches: a disk fault would kill
