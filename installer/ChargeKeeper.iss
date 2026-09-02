@@ -527,7 +527,7 @@ begin
     '$auto = ''' + TaskName + '''' + #13#10 +
     '$wdog = ''' + WatchdogTaskName + '''' + #13#10 +
     '$newExe = Join-Path $NewDir ''{#AppExe}''' + #13#10 +
-    #13#10 +
+    '' + #13#10 +
     '# Only the leading directory changes, and it appears once. No regular expression, so a path' + #13#10 +
     '# holding characters that are special to one cannot corrupt the result.' + #13#10 +
     'function Swap([string]$s) {' + #13#10 +
@@ -536,10 +536,10 @@ begin
     '  if ($i -lt 0) { return $s }' + #13#10 +
     '  return $s.Substring(0, $i) + $NewDir + $s.Substring($i + $OldDir.Length)' + #13#10 +
     '}' + #13#10 +
-    #13#10 +
+    '' + #13#10 +
     '# A task that did not exist left an EMPTY export, which must not be mistaken for one that did.' + #13#10 +
     'function HasContent([string]$f) { return ($f -and (Test-Path $f) -and ((Get-Item $f).Length -gt 0)) }' + #13#10 +
-    #13#10 +
+    '' + #13#10 +
     'function Repoint([string]$name, [string]$file) {' + #13#10 +
     '  if (-not (HasContent $file)) { return $false }' + #13#10 +
     '  $doc = New-Object System.Xml.XmlDocument' + #13#10 +
@@ -556,7 +556,7 @@ begin
     '  Remove-Item $out -Force -ErrorAction SilentlyContinue' + #13#10 +
     '  return $ok' + #13#10 +
     '}' + #13#10 +
-    #13#10 +
+    '' + #13#10 +
     '$ok = $false' + #13#10 +
     'try { $ok = Repoint $auto $AutoXml } catch { $ok = $false }' + #13#10 +
     '# Fallback, and only where a startup task really existed: a plain task at the correct path.' + #13#10 +
@@ -569,7 +569,7 @@ begin
     '# Best effort: a Watchdog that cannot be restored is re-registered by the app on its next' + #13#10 +
     '# start, and its absence resurrects nothing in the meantime.' + #13#10 +
     'try { [void](Repoint $wdog $WatchXml) } catch { }' + #13#10 +
-    #13#10 +
+    '' + #13#10 +
     '# The post-condition, read back off the live tasks rather than inferred from exit codes.' + #13#10 +
     '# The separator matters: without it a NEIGHBOURING folder whose name merely starts the same' + #13#10 +
     '# way would read as the old one.' + #13#10 +

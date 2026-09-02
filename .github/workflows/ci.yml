@@ -196,3 +196,55 @@ jobs:
           path: Tests/TestResults/**
           if-no-files-found: ignore
           retention-days: 7
+
+  # The installer script is Pascal inside a preprocessed text file, and nothing in the ordinary
+  # build looked at it: ci.yml never ran ISCC, so installer\ChargeKeeper.iss was compiled for the
+  # first time by the release workflow, on a tag, with no way back. That is how a preprocessor
+  # collision reached v1.34.0 and stopped the release - five continuation lines beginning with a
+  # Pascal #13#10 literal, which ISPP claims as directives of its own (measured: ISCC 6.7.3 exits
+  # 2 with "Unknown preprocessor directive" on the first of them, and 0 once they are fixed).
+  #
+  # This job compiles the script on every push and pull request. It does NOT publish the app: the
+  # only thing [Files] needs is a folder to glob, so a stub holding one dummy file is enough for
+  # ISCC to preprocess the whole file and compile the entire [Code] section. Any script error -
+  # an unknown directive, an unbalanced #if, a Pascal syntax error, a missing wizard image or
+  # setup icon - fails here in under a minute instead of on the tag. What it cannot catch is an
+  # error that depends on the real publish output, since the stub has none.
+  #
+  # Separate job on purpose: it needs no .NET, no shared-library clone and no Windows App Runtime,
+  # so it runs beside the build rather than lengthening it.
+  installer-script:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Same source as release.yml, so the compiler that gates here is the compiler that ships.
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer script
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc." }
+
+          # [Files] globs {#PublishDir}\* and Inno rejects a pattern that matches nothing, so give
+          # it one file. The contents are irrelevant - no installer is run and none is kept.
+          $stub = Join-Path $env:RUNNER_TEMP 'stub-publish'
+          $out  = Join-Path $env:RUNNER_TEMP 'iss-out'
+          New-Item -ItemType Directory -Force -Path $stub, $out | Out-Null
+          Set-Content -Path (Join-Path $stub 'ChargeKeeper.exe') -Value 'stub' -NoNewline
+
+          # The same two defines build-installer.ps1 passes, so this compiles the identical path.
+          & $iscc "/DAppVersion=0.0.0" "/DPublishDir=$stub" "/O$out" installer\ChargeKeeper.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE): installer\ChargeKeeper.iss does not compile." }
+
+          # Assert an installer was actually produced. A compiler that exits 0 having written
+          # nothing would leave this gate green while proving nothing.
+          $setup = Join-Path $out 'ChargeKeeper-Setup-0.0.0.exe'
+          if (-not (Test-Path $setup)) { throw "ISCC exited 0 but produced no $setup." }
+          Write-Host "OK  installer script compiles ($((Get-Item $setup).Length) bytes)"
