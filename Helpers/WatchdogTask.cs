@@ -46,10 +46,9 @@ internal static class WatchdogTask
         try
         {
             if (Environment.ProcessPath is not { } exe) return;
-            // Two accepted install locations: upgrades across the rename keep the old folder name,
-            // because the installer reuses the AppId-recorded {app} directory.
-            if (!exe.EndsWith(@"\ChargeKeeper\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase) &&
-                !exe.EndsWith(@"\Lenovo Power Tray\ChargeKeeper.exe", StringComparison.OrdinalIgnoreCase))
+            // Two accepted install locations: an installation the installer has not yet moved still
+            // runs from the retired folder name, and must keep both its tasks maintained.
+            if (!InstallLocations.IsInstalledExe(exe))
             {
                 AppLog.Info("Watchdog: not running from the install directory — task registration skipped.");
                 return;

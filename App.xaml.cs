@@ -203,6 +203,9 @@ public partial class App : Application
             CrashDumps.TryDisarmSilentExitMonitor();
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();
+            // After the tasks, never before: the sweep declines while one still starts from the
+            // retired folder, so it has to read what TryEnsureTasks has just written.
+            LegacyInstallSweep.TryRun();
         });
 
         // Must run before any UI is created so the tray menu's native HWND inherits the setting.
