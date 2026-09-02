@@ -107,6 +107,13 @@ Appears bottom-right above the taskbar.  Closes on focus loss.  Refreshes every 
   Smart Charge is enabled. Sliders are constrained (≥ 5% gap); **Apply** writes the new thresholds
   immediately via `LenSetChargeThreshold`
 - **Smart Standby badge** — shows service running state
+- **Keep Awake badge** — with no session it reads *normal sleep settings*; with one running it shows
+  how much of the session is left, then a tappable phrase reading *screen stays on* or *screen
+  sleeps*. Tapping the phrase switches the screen hold and re-applies it to the session already
+  running, so the change takes effect without ending and restarting it. Holding the screen on while
+  discharging is allowed rather than refused: the badge and the phrase turn amber and the line ends
+  *, on battery*, so the cost is shown instead of blocked. The tray tooltip carries the same line
+  while a session runs
 - **Settings expander** — a collapsible section for app options (see [Settings](#settings))
 
 The tray icon is a live battery-level arc (same colour scheme as the gauge), updated on every
