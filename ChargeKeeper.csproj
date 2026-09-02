@@ -232,9 +232,9 @@
 
   <!-- Shared ZeroZero Software branding: the About window comes from here instead of a
        hand-rolled UI/AboutWindow. Plain sibling-folder ProjectReference (no NuGet feed yet) — the
-       CI workflows git-clone 0z00z0/0z0-shared beside this repo at its default branch, so a build
-       resolves the library as it currently stands; local dev uses the live sibling folder. Project
-       name ZeroZero.Brand.WinUI. Integration contract documented in README. -->
+       CI workflows git-clone 0z00z0/0z0-shared beside this repo and check out the commit pinned in
+       .github/0z0-shared-ref; local dev uses the live sibling folder. Project name
+       ZeroZero.Brand.WinUI. Integration contract documented in README. -->
   <PropertyGroup>
     <ZeroZeroSharedDir Condition="'$(ZeroZeroSharedDir)' == ''">..\0z0-shared</ZeroZeroSharedDir>
   </PropertyGroup>
@@ -258,6 +258,22 @@
       <UndefineProperties>WindowsAppSDKSelfContained</UndefineProperties>
     </ProjectReference>
   </ItemGroup>
+
+  <!--
+    Guard the pin. A local build compiles against the LIVE sibling folder while CI clones the
+    commit pinned in .github/0z0-shared-ref, so a shared type present only in the sibling tree
+    builds green here and fails CI with CS0234. Warning, never error, and skipped entirely when
+    the ref file or the sibling clone is absent, so a docs-only checkout or a machine without git
+    is unaffected.
+  -->
+  <Target Name="CheckSharedPin" BeforeTargets="Build"
+          Condition="Exists('$(MSBuildProjectDirectory)\.github\0z0-shared-ref') And Exists('$(ZeroZeroSharedDir)\.git')">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\check-shared-pin.ps1&quot; -RefFile &quot;$(MSBuildProjectDirectory)\.github\0z0-shared-ref&quot; -SharedPath &quot;$(ZeroZeroSharedDir)&quot;"
+          ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SharedPinMessage" />
+    </Exec>
+    <Warning Condition="'$(_SharedPinMessage)' != ''" Code="ZZ0001" Text="$(_SharedPinMessage)" />
+  </Target>
 
   <!--
     Authenticode-sign the produced executable on Release builds.

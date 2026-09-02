@@ -52,14 +52,22 @@ jobs:
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # No ref is named, so the clone lands on whatever branch the remote advertises as its
-      # default and the release builds against the library as it currently stands. The commit
-      # is logged, because it is the only record of what a given release was built from.
-      - name: Clone 0z0-shared (sibling dependency, default branch)
+      # PINNED to the exact 0z0-shared revision this app is validated against. The ref is read
+      # from the shared `.github/0z0-shared-ref` file — the same file ci.yml reads — so a
+      # release cannot build against something other than what CI tested; bump it there. The
+      # clone is full, so `checkout --detach` resolves a tag as well as a raw commit; a shallow
+      # clone would need `--branch`. The resolved commit is logged, because it is the record of
+      # what a given release was built from.
+      - name: Clone 0z0-shared (sibling dependency, pinned)
         shell: pwsh
         run: |
+          $ref = (Get-Content .github/0z0-shared-ref |
+                  Where-Object { $_.Trim() -and $_ -notmatch '^\s*#' } |
+                  Select-Object -First 1).Trim()
+          Write-Host "Pinned 0z0-shared ref: $ref"
           git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
-          Write-Host "0z0-shared at $(git -C ../0z0-shared rev-parse --abbrev-ref HEAD) ($(git -C ../0z0-shared rev-parse --short HEAD))"
+          git -C ../0z0-shared checkout --detach $ref
+          Write-Host "0z0-shared at $(git -C ../0z0-shared rev-parse HEAD)"
 
       # ── 2. Resolve version string ────────────────────────────────────────────
       # Tag-triggered: strip the leading 'v'.

@@ -1,0 +1,14 @@
+# The 0z0-shared commit both workflows check out as the sibling ../0z0-shared
+# dependency. Single source of truth: ci.yml and release.yml read this same file, so a
+# release cannot build against something other than what CI tested.
+#
+# The value is a commit rather than a tag or branch name, so the pin cannot move under
+# a build. This commit is the one tag v0.6.0 points at.
+#
+# A local build compiles against the live sibling working tree, not this commit, so a
+# green local build proves nothing about the pin. Build warning ZZ0001 reports the
+# difference. Adopting anything new from the shared library means bumping this value in
+# the same change, or CI fails with CS0234.
+#
+# Blank lines and lines starting with '#' are ignored; the first remaining line is the ref.
+04ab2da1918ad6fec76fe38f19df37144aca5c5b

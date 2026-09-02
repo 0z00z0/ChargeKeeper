@@ -350,17 +350,23 @@ protocol sentence in the panel — belongs to the module.
 
 ### Resolving the shared library
 
-**Resolution:** the default branch of 0z0-shared, unpinned — 2026-09-01.
+**Resolution:** pinned to the commit named in `.github/0z0-shared-ref`, which is the commit tag
+`v0.6.0` points at — 2026-09-02.
 
-Both workflows clone the library without naming a ref, so a build resolves it as it currently
-stands. Two properties follow. A release does not rebuild identically at a later date, because the
-library it built against has moved on; the commit is logged by the clone step, which is the only
-record of what a given release was built from. And a change made in 0z0-shared can turn a build here
-red without anything in this repository changing.
+Both workflows read that one file and check the sibling clone out at the commit it names, so a
+release builds against exactly what CI tested, a release rebuilds identically later, and a change
+merged in 0z0-shared cannot reach a build here without the pin being bumped. The pin is a commit
+rather than a tag or branch name, so it cannot move under a build.
 
-**Provisional.** Reconsider the arrangement when ChargeKeeper depends on materially more of
-0z0-shared than it does today. The exposure today is one library's worth of surface, and the cost of
-an unpinned build scales with how much of that surface a release depends on.
+A local build compiles against the live sibling working tree instead of the pin, so a green local
+build proves nothing about it. Build warning `ZZ0001` reports the difference whenever the sibling
+clone sits at another commit — a warning, not an error, so local work against a newer library is
+not blocked. Adopting anything new from the shared library means bumping the pin in the same
+change; without it CI fails with CS0234.
+
+**The pin holds while 0z0-shared is restructured into extracted components.** ChargeKeeper adopts
+none of that work yet. Bump the pin at adoption, and expect `ZZ0001` in the meantime on a machine
+whose sibling clone follows the library's default branch.
 
 **Notice before a structural change.** 0z0-shared gives notice before renaming or relocating
 anything reachable from ChargeKeeper's source reference. On notice, build against the proposed shape,

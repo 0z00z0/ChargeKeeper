@@ -50,15 +50,24 @@ jobs:
       # ("not under D:\a\ChargeKeeper\ChargeKeeper"), so clone the (public) repo
       # directly beside this checkout instead. (Repo was renamed ZeroZeroBrand → 0z0-shared.)
       #
-      # No ref is named, so the clone lands on whatever branch the remote advertises as its
-      # default and the build resolves the library as it currently stands. A structural change
-      # in 0z0-shared therefore reaches this workflow without ChargeKeeper being touched; the
-      # arrangement and its notice rule are described in README under "Shared components".
-      - name: Clone 0z0-shared (sibling dependency, default branch)
+      # PINNED to the exact 0z0-shared revision this app is validated against, so a change
+      # merged there cannot reach this build unannounced. The ref lives in a SINGLE shared
+      # file — `.github/0z0-shared-ref` — that both this workflow and release.yml read, so
+      # the two pins cannot drift out of lockstep. Bump the ref there.
+      #
+      # A full `git clone` fetches tags, so `checkout --detach` resolves a tag as well as a
+      # raw commit. Do NOT add `--depth 1` without `--branch <ref>`: a shallow clone leaves
+      # nothing to check out and the step fails on a ref that is perfectly valid.
+      - name: Clone 0z0-shared (sibling dependency, pinned)
         shell: pwsh
         run: |
+          $ref = (Get-Content .github/0z0-shared-ref |
+                  Where-Object { $_.Trim() -and $_ -notmatch '^\s*#' } |
+                  Select-Object -First 1).Trim()
+          Write-Host "Pinned 0z0-shared ref: $ref"
           git clone https://github.com/0z00z0/0z0-shared.git ../0z0-shared
-          Write-Host "0z0-shared at $(git -C ../0z0-shared rev-parse --abbrev-ref HEAD) ($(git -C ../0z0-shared rev-parse --short HEAD))"
+          git -C ../0z0-shared checkout --detach $ref
+          Write-Host "0z0-shared at $(git -C ../0z0-shared rev-parse HEAD)"
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v6
