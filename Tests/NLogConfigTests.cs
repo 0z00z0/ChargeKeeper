@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Reflection;
 using ChargeKeeper.Services;
 using NLog;
 using NLog.Config;
@@ -47,6 +48,13 @@ public class NLogConfigTests
     /// <summary>RetryCount/RetryDelayMilliseconds are Layout&lt;int&gt;, so they compare as rendered text.</summary>
     private static string Rendered(Layout<int> value) => value.Render(LogEventInfo.CreateNullEvent());
 
+    /// <summary>The shipped file with its comments stripped, so an assertion about what the config
+    /// does not say is not defeated by a comment warning readers off that very spelling.</summary>
+    private static string SettingsTextOfShippedConfig() =>
+        System.Text.RegularExpressions.Regex.Replace(
+            File.ReadAllText(RepoFiles.Find("nlog.config")), "<!--.*?-->", string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
     [Fact]
     public void ShippedConfig_ParsesWithNoUnknownOrMisspelledSettings() =>
         // Fails loudly on any attribute this NLog version does not recognise, including one removed
@@ -54,13 +62,15 @@ public class NLogConfigTests
         Assert.NotNull(FileTargetOf(LoadShippedConfigStrictly()));
 
     [Fact]
-    public void ShippedConfig_RotatesAbove10MbAndKeeps2Days()
+    public void ShippedConfig_RollsDailyKeepsSevenArchivesAndStillCapsOneDayAt10Mb()
     {
-        // The rotation policy has to live in the config file, not in code.
+        // The rotation policy has to live in the config file, not in code. archiveAboveSize stays as
+        // a within-day cap: a day's file cannot grow without bound between midnights.
         var file = FileTargetOf(LoadShippedConfigStrictly());
 
+        Assert.Equal(FileArchivePeriod.Day, file.ArchiveEvery);
+        Assert.Equal(7, file.MaxArchiveFiles);
         Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
-        Assert.Equal(2, file.MaxArchiveDays);
     }
 
     [Fact]
@@ -95,12 +105,7 @@ public class NLogConfigTests
     {
         // Asserted on the text: NLog 6 has no FileTarget.concurrentWrites, so writing it here would
         // parse, do nothing, and still look like a concurrency setting.
-        var xml = File.ReadAllText(RepoFiles.Find("nlog.config"));
-        // The config's own comments discuss concurrentWrites to warn readers off it, so strip them.
-        var settings = System.Text.RegularExpressions.Regex.Replace(
-            xml, "<!--.*?-->", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
-
-        Assert.DoesNotContain("concurrentWrites", settings, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("concurrentWrites", SettingsTextOfShippedConfig(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -142,7 +147,9 @@ public class NLogConfigTests
         var fallback = FileTargetOf(fallbackConfig);
 
         Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
+        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
         Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
+        Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
         Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
         Assert.Equal(shipped.LineEnding, fallback.LineEnding);
         Assert.Equal(shipped.ArchiveSuffixFormat, fallback.ArchiveSuffixFormat);
@@ -204,7 +211,8 @@ public class NLogConfigTests
         var file   = FileTargetOf(config, "powerfile");
 
         Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
-        Assert.Equal(2, file.MaxArchiveDays);
+        Assert.Equal(FileArchivePeriod.Day, file.ArchiveEvery);
+        Assert.Equal(7, file.MaxArchiveFiles);
         Assert.False(file.KeepFileOpen);
         Assert.Equal("5",  Rendered(WrapperOf(config, "powerfile").RetryCount));
         Assert.Equal("20", Rendered(WrapperOf(config, "powerfile").RetryDelayMilliseconds));
@@ -223,7 +231,7 @@ public class NLogConfigTests
             Thread.CurrentThread.CurrentCulture = new CultureInfo("ar-SA");
             var rendered = layout.Render(LogEventInfo.Create(LogLevel.Info, PowerLog.LoggerName, "message"));
 
-            Assert.Matches($@"^\[{DateTime.Now.Year}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}}\] message", rendered);
+            Assert.Matches($@"^\[{DateTime.Now.Year}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}}\] \S+\s+message", rendered);
         }
         finally { Thread.CurrentThread.CurrentCulture = original; }
     }
@@ -239,7 +247,9 @@ public class NLogConfigTests
         var fallback = FileTargetOf(fallbackConfig, "powerfile");
 
         Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
+        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
         Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
+        Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
         Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
         Assert.Equal(shipped.LineEnding, fallback.LineEnding);
         Assert.Equal(shipped.ArchiveSuffixFormat, fallback.ArchiveSuffixFormat);
@@ -285,6 +295,241 @@ public class NLogConfigTests
         }
     }
 
+    // Rotation, retention and line shape - driven, not parsed
+
+    /// <summary>
+    /// A throwaway copy of both trails. Every write goes through a freshly loaded copy of the shipped
+    /// config with BOTH file names redirected here, so nothing reaches the real per-user log
+    /// directory, and each call re-probes the file's age exactly as a restarted process would.
+    /// </summary>
+    private sealed class TempTrail : IDisposable
+    {
+        public string Dir { get; } =
+            Path.Combine(Path.GetTempPath(), $"ck-nlogconfig-{Guid.NewGuid():N}");
+
+        public string AppFile => Path.Combine(Dir, "app.log");
+        public string PowerFile => Path.Combine(Dir, PowerLog.FileName);
+
+        public TempTrail() => Directory.CreateDirectory(Dir);
+
+        /// <summary>Writes through <see cref="AppLog.Write"/>, the one writer both trails share.</summary>
+        public void Write(params (string Logger, string CallerFile, string Message)[] entries)
+        {
+            var config = LoadShippedConfigStrictly();
+            FileTargetOf(config).FileName = AppFile;
+            FileTargetOf(config, "powerfile").FileName = PowerFile;
+            var factory = new LogFactory { Configuration = config };
+            try
+            {
+                foreach (var (logger, callerFile, message) in entries)
+                    AppLog.Write(factory.GetLogger(logger), LogLevel.Info, message, callerFile);
+                factory.Flush();
+            }
+            finally { factory.Shutdown(); }
+        }
+
+        public static void Age(string file, int days)
+        {
+            var when = DateTime.Now.AddDays(-days);
+            File.SetCreationTime(file, when);
+            File.SetLastWriteTime(file, when);
+        }
+
+        public string Archive(string stem, int daysAgo) =>
+            Path.Combine(Dir, $"{stem}_{DateTime.Now.AddDays(-daysAgo):yyyy-MM-dd}_00.log");
+
+        public void PlantArchive(string stem, int daysAgo)
+        {
+            var path = Archive(stem, daysAgo);
+            File.WriteAllText(path, $"an archive from {daysAgo} days ago");
+            Age(path, daysAgo);
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Dir, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    private const string AppCaller = @"X:\src\BatteryMonitor.cs";
+    private const string PowerCaller = @"X:\src\LidDelayPolicy.cs";
+
+    [Fact]
+    public void ShippedConfig_ArchiveSettingsAreOnesThisNLogVersionStillHonours()
+    {
+        // The trap this whole file exists for, in its current form: NLog drops an attribute it does
+        // not recognise without a word, so a package bump that renames one of these leaves a config
+        // that parses, rotates nothing and deletes nothing. Reflected on the referenced NLog rather
+        // than taken from a remembered attribute list, and looked up BY NAME so a removal fails a
+        // test instead of failing the compile.
+        foreach (var name in new[] { "ArchiveEvery", "MaxArchiveFiles", "ArchiveAboveSize",
+                                     "ArchiveSuffixFormat", "LineEnding" })
+        {
+            var property = typeof(FileTarget).GetProperty(name);
+            Assert.True(property is not null,
+                $"NLog {typeof(FileTarget).Assembly.GetName().Version} has no FileTarget.{name}, " +
+                "which nlog.config relies on. Rotation would silently stop.");
+            Assert.True(property!.GetCustomAttribute<ObsoleteAttribute>() is null,
+                $"FileTarget.{name} is obsolete in this NLog and nlog.config relies on it.");
+        }
+
+        // The two NLog 5 spellings superseded by archiveSuffixFormat, both obsolete in 6.x.
+        var settings = SettingsTextOfShippedConfig();
+        Assert.DoesNotContain("archiveNumbering", settings, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("archiveDateFormat", settings, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("app.log", "app")]
+    [InlineData("power.log", "power")]
+    public void ShippedConfig_ActuallyRollsToANewFileOnADayBoundary(string fileName, string stem)
+    {
+        // Driven rather than asserted on attributes: a config can carry archiveEvery and still not
+        // roll, because NLog reads the file's birth time rather than the entries in it.
+        using var trail = new TempTrail();
+        trail.Write((AppLog.LoggerName, AppCaller, "an entry from yesterday"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event from yesterday"));
+
+        TempTrail.Age(Path.Combine(trail.Dir, fileName), 1);
+
+        trail.Write((AppLog.LoggerName, AppCaller, "an entry from today"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event from today"));
+
+        var archive = trail.Archive(stem, 1);
+        Assert.True(File.Exists(archive), $"{fileName} did not roll: no {Path.GetFileName(archive)}.");
+        Assert.Contains("yesterday", File.ReadAllText(archive), StringComparison.Ordinal);
+
+        var active = File.ReadAllText(Path.Combine(trail.Dir, fileName));
+        Assert.Contains("today", active, StringComparison.Ordinal);
+        Assert.DoesNotContain("yesterday", active, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("app")]
+    [InlineData("power")]
+    public void ShippedConfig_ActuallyKeepsSevenDailyArchivesAndDeletesTheRest(string stem)
+    {
+        // Deletion is the half that fails silently: nothing in the app notices archives piling up.
+        using var trail = new TempTrail();
+        for (var age = 1; age <= 9; age++)
+            trail.PlantArchive(stem, age);
+
+        // The trails share their directory with the settings file and the battery history, so the
+        // sweep must reach archives of this trail and nothing else.
+        var bystander = Path.Combine(trail.Dir, "settings.json");
+        File.WriteAllText(bystander, "{}");
+        TempTrail.Age(bystander, 400);
+
+        trail.Write((AppLog.LoggerName, AppCaller, "an entry"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event"));
+
+        Assert.True(File.Exists(bystander), "the sweep must not delete files that are not its archives.");
+        for (var age = 1; age <= 7; age++)
+            Assert.True(File.Exists(trail.Archive(stem, age)),
+                $"the {age}-day-old archive is one of the seven most recent and must survive.");
+        Assert.False(File.Exists(trail.Archive(stem, 8)), "the eighth archive back must be deleted.");
+        Assert.False(File.Exists(trail.Archive(stem, 9)), "the ninth archive back must be deleted.");
+    }
+
+    [Theory]
+    [InlineData("app.log", "app")]
+    [InlineData("power.log", "power")]
+    public void ShippedConfig_KeepsTheArchiveMovedFromALongLivedLogFile(string fileName, string stem)
+    {
+        // The reason retention counts archives instead of ageing them. Windows carries a file's
+        // creation time over when NLog moves it to its archive name, and maxArchiveDays reads exactly
+        // that timestamp - measured both ways - so an age rule archives a log file created weeks ago
+        // and deletes it in the same write. That takes out the whole file on the first run after an
+        // upgrade, and a week's worth every time the machine sits unused for a week.
+        using var trail = new TempTrail();
+        trail.Write((AppLog.LoggerName, AppCaller, "entries nobody has read yet"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event nobody has read yet"));
+
+        var active = Path.Combine(trail.Dir, fileName);
+        File.SetCreationTime(active, DateTime.Now.AddDays(-56));
+        File.SetLastWriteTime(active, DateTime.Now.AddDays(-1));
+
+        trail.Write((AppLog.LoggerName, AppCaller, "the first entry after the upgrade"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event after the upgrade"));
+        // A second start, so the sweep meets the archive rather than racing its creation.
+        trail.Write((AppLog.LoggerName, AppCaller, "an entry after a restart"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event after a restart"));
+
+        var archive = trail.Archive(stem, 1);
+        Assert.True(File.Exists(archive),
+            $"{fileName} was archived and then deleted. Its content is gone: an archive keeps the " +
+            "creation time of the file it was moved from, so retention must not be age-based.");
+        Assert.Contains("nobody has read yet", File.ReadAllText(archive), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShippedConfig_DoesNotUseTheAgeBasedRetentionThatDeletesAJustArchivedLog()
+    {
+        // Asserted on the text as well as the behaviour: re-adding this parses, looks like the
+        // policy that was asked for, and silently destroys a log file the moment it is archived.
+        Assert.DoesNotContain("maxArchiveDays", SettingsTextOfShippedConfig(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ShippedConfig_WritesOneLinePerEntryWithNoBlankLineBetween()
+    {
+        // Asserted on the bytes and on a line count from a known number of entries, never on the
+        // layout text: the layout is exactly what looked correct while writing two line feeds per
+        // entry.
+        using var trail = new TempTrail();
+        trail.Write((AppLog.LoggerName, AppCaller, "one"),
+                    (AppLog.LoggerName, AppCaller, "two"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event"));
+
+        // The power rule is not final, so that third entry lands in both files.
+        foreach (var (path, expectedEntries) in new[] { (trail.AppFile, 3), (trail.PowerFile, 1) })
+        {
+            var bytes = File.ReadAllBytes(path);
+            Assert.DoesNotContain((byte)'\r', bytes);
+            Assert.Equal(expectedEntries, bytes.Count(b => b == (byte)'\n'));
+            Assert.Equal(expectedEntries, File.ReadAllLines(path).Length);
+            Assert.DoesNotContain("\n\n", System.Text.Encoding.UTF8.GetString(bytes), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ShippedConfig_EveryEntryCarriesTheClassItCameFrom()
+    {
+        // Driven end to end: the class has to survive AppLog.Write, the event property and the layout,
+        // and it has to be its own column rather than part of the sentence.
+        using var trail = new TempTrail();
+        trail.Write((AppLog.LoggerName, AppCaller, "a battery reading was taken"),
+                    (PowerLog.LoggerName, PowerCaller, "the lid was closed"));
+
+        var appLines = File.ReadAllLines(trail.AppFile);
+        Assert.Matches(@"\] INFO\s+BatteryMonitor\s+a battery reading was taken$", appLines[0]);
+        Assert.Matches(@"\] INFO\s+LidDelayPolicy\s+the lid was closed$", appLines[1]);
+
+        var powerLine = Assert.Single(File.ReadAllLines(trail.PowerFile));
+        Assert.Matches(@"\] LidDelayPolicy\s+the lid was closed$", powerLine);
+
+        // Its own field: splitting the line after the timestamp on runs of whitespace yields the
+        // class alone, never glued to the message.
+        var fields = System.Text.RegularExpressions.Regex.Split(appLines[0].Split("] ")[1], @"\s{2,}");
+        Assert.Equal("INFO", fields[0].Trim());
+        Assert.Equal("BatteryMonitor", fields[1].Trim());
+    }
+
+    [Fact]
+    public void ClassColumn_IsPaddedToTheDeclaredWidth() =>
+        // The width is a literal inside the layout string, which no const int can be interpolated into.
+        Assert.Contains($"padding=-{AppLog.ClassColumnWidth}", AppLog.ClassColumn, StringComparison.Ordinal);
+
+    [Theory]
+    [InlineData(@"X:\src\BatteryMonitor.cs", "BatteryMonitor")]
+    [InlineData(@"X:\src\Pages\SettingsPage.xaml.cs", "SettingsPage")]
+    [InlineData("/_/Services/AppLog.cs", "AppLog")]
+    [InlineData("", "-")]
+    public void ClassOf_NamesTheCallersClass(string callerFilePath, string expected) =>
+        // CallerFilePath is whatever the compiler recorded, which is a build-machine path on a local
+        // build and a mapped one elsewhere; only the file name is used.
+        Assert.Equal(expected, AppLog.ClassOf(callerFilePath));
+
     [Fact]
     public void CodeFallback_ConstantsMatchTheShippedConfig()
     {
@@ -292,7 +537,7 @@ public class NLogConfigTests
         var shipped = FileTargetOf(LoadShippedConfigStrictly());
 
         Assert.Equal(AppLog.ArchiveAboveSizeBytes, shipped.ArchiveAboveSize);
-        Assert.Equal(AppLog.MaxArchiveDays, shipped.MaxArchiveDays);
+        Assert.Equal(AppLog.MaxArchiveFiles, shipped.MaxArchiveFiles);
         Assert.Equal(TenMegabytes, AppLog.ArchiveAboveSizeBytes);
     }
 }
