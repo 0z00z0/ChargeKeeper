@@ -74,7 +74,9 @@ public class AppLogTests : IDisposable
         factory.Flush();
 
         var text = ReadLog();
-        Assert.Contains("ERROR TestSource", text);
+        // The class column sits between the level and the message; an event raised without one
+        // renders the placeholder.
+        Assert.Matches(@"ERROR\s+-\s+TestSource", text);
         Assert.Contains("InvalidOperationException", text);
         Assert.Contains("boom", text);
     }
@@ -101,20 +103,23 @@ public class AppLogTests : IDisposable
     }
 
     [Fact]
-    public void LineFormat_MatchesTheFormatWrittenBeforeNLog()
+    public void LineFormat_TerminatesEachEntryWithOneLineFeedAndNoBlankLineBetween()
     {
-        // app.log stays readable by eye and by anything parsing it: LF-terminated, one blank line
-        // between entries. NLog's LineEnding default is CRLF, so the setting is load-bearing.
+        // Asserted on the bytes, not on the layout text: a layout ending in a newline while
+        // lineEnding also terminates the entry reads correctly and doubles the file.
         var factory = NewLogFactory();
         var log = factory.GetLogger(AppLog.LoggerName);
         log.Info("first");
         log.Info("second");
         factory.Flush();
 
-        var text = ReadLog();
-        Assert.DoesNotContain("\r", text);
-        Assert.Contains("\n\n", text);
-        Assert.Matches(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}\] INFO first\n\n", text);
+        var bytes = File.ReadAllBytes(_testFile);
+        Assert.DoesNotContain((byte)'\r', bytes);
+        Assert.Equal(2, bytes.Count(b => b == (byte)'\n'));
+        Assert.DoesNotContain("\n\n", System.Text.Encoding.UTF8.GetString(bytes));
+        Assert.Matches(
+            @"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}\] INFO\s+-\s+first\n",
+            System.Text.Encoding.UTF8.GetString(bytes));
     }
 
     [Fact]
