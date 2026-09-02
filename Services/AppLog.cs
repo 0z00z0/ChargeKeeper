@@ -22,8 +22,11 @@ internal static class AppLog
     /// a fallback cannot read the missing file. <c>NLogConfigTests</c> asserts they match.</summary>
     internal const long ArchiveAboveSizeBytes = 10L * 1024 * 1024;
 
-    /// <inheritdoc cref="ArchiveAboveSizeBytes"/>
-    internal const int MaxArchiveDays = 7;
+    /// <summary>Archives kept per trail, one per day. Counted rather than aged: NLog judges
+    /// <c>maxArchiveDays</c> by an archive's creation time, which Windows carries over from the log
+    /// file it was moved from, so an age rule deletes a long-lived log the moment it is archived.
+    /// <c>NLogConfigTests</c> drives both cases.</summary>
+    internal const int MaxArchiveFiles = 7;
 
     /// <summary>Width of the class column. A name longer than this pushes the message right on that
     /// line rather than being truncated.</summary>
@@ -158,7 +161,7 @@ internal static class AppLog
             CreateDirs          = true,
             ArchiveAboveSize    = ArchiveAboveSizeBytes,
             ArchiveEvery        = FileArchivePeriod.Day,
-            MaxArchiveDays      = MaxArchiveDays,
+            MaxArchiveFiles     = MaxArchiveFiles,
             ArchiveSuffixFormat = "_{1:yyyy-MM-dd}_{0:00}",
             WriteBom            = false,
             Encoding            = System.Text.Encoding.UTF8,
@@ -182,7 +185,7 @@ internal static class AppLog
             CreateDirs          = true,
             ArchiveAboveSize    = ArchiveAboveSizeBytes,
             ArchiveEvery        = FileArchivePeriod.Day,
-            MaxArchiveDays      = MaxArchiveDays,
+            MaxArchiveFiles     = MaxArchiveFiles,
             ArchiveSuffixFormat = "_{1:yyyy-MM-dd}_{0:00}",
             WriteBom            = false,
             Encoding            = System.Text.Encoding.UTF8,

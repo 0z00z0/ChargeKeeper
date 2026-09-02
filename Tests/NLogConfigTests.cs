@@ -62,14 +62,14 @@ public class NLogConfigTests
         Assert.NotNull(FileTargetOf(LoadShippedConfigStrictly()));
 
     [Fact]
-    public void ShippedConfig_RollsDailyKeepsSevenDaysAndStillCapsOneDayAt10Mb()
+    public void ShippedConfig_RollsDailyKeepsSevenArchivesAndStillCapsOneDayAt10Mb()
     {
         // The rotation policy has to live in the config file, not in code. archiveAboveSize stays as
         // a within-day cap: a day's file cannot grow without bound between midnights.
         var file = FileTargetOf(LoadShippedConfigStrictly());
 
         Assert.Equal(FileArchivePeriod.Day, file.ArchiveEvery);
-        Assert.Equal(7, file.MaxArchiveDays);
+        Assert.Equal(7, file.MaxArchiveFiles);
         Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
     }
 
@@ -147,6 +147,7 @@ public class NLogConfigTests
         var fallback = FileTargetOf(fallbackConfig);
 
         Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
+        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
         Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
         Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
         Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
@@ -211,7 +212,7 @@ public class NLogConfigTests
 
         Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
         Assert.Equal(FileArchivePeriod.Day, file.ArchiveEvery);
-        Assert.Equal(7, file.MaxArchiveDays);
+        Assert.Equal(7, file.MaxArchiveFiles);
         Assert.False(file.KeepFileOpen);
         Assert.Equal("5",  Rendered(WrapperOf(config, "powerfile").RetryCount));
         Assert.Equal("20", Rendered(WrapperOf(config, "powerfile").RetryDelayMilliseconds));
@@ -246,6 +247,7 @@ public class NLogConfigTests
         var fallback = FileTargetOf(fallbackConfig, "powerfile");
 
         Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
+        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
         Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
         Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
         Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
@@ -360,7 +362,7 @@ public class NLogConfigTests
         // that parses, rotates nothing and deletes nothing. Reflected on the referenced NLog rather
         // than taken from a remembered attribute list, and looked up BY NAME so a removal fails a
         // test instead of failing the compile.
-        foreach (var name in new[] { "ArchiveEvery", "MaxArchiveDays", "ArchiveAboveSize",
+        foreach (var name in new[] { "ArchiveEvery", "MaxArchiveFiles", "ArchiveAboveSize",
                                      "ArchiveSuffixFormat", "LineEnding" })
         {
             var property = typeof(FileTarget).GetProperty(name);
@@ -405,11 +407,11 @@ public class NLogConfigTests
     [Theory]
     [InlineData("app")]
     [InlineData("power")]
-    public void ShippedConfig_ActuallyDeletesArchivesOlderThanSevenDays(string stem)
+    public void ShippedConfig_ActuallyKeepsSevenDailyArchivesAndDeletesTheRest(string stem)
     {
         // Deletion is the half that fails silently: nothing in the app notices archives piling up.
         using var trail = new TempTrail();
-        foreach (var age in new[] { 6, 7, 8, 30 })
+        for (var age = 1; age <= 9; age++)
             trail.PlantArchive(stem, age);
 
         // The trails share their directory with the settings file and the battery history, so the
@@ -422,10 +424,50 @@ public class NLogConfigTests
                     (PowerLog.LoggerName, PowerCaller, "a power event"));
 
         Assert.True(File.Exists(bystander), "the sweep must not delete files that are not its archives.");
-        Assert.True(File.Exists(trail.Archive(stem, 6)), "a 6-day-old archive must survive.");
-        Assert.True(File.Exists(trail.Archive(stem, 7)), "a 7-day-old archive must survive.");
-        Assert.False(File.Exists(trail.Archive(stem, 8)), "an 8-day-old archive must be deleted.");
-        Assert.False(File.Exists(trail.Archive(stem, 30)), "a 30-day-old archive must be deleted.");
+        for (var age = 1; age <= 7; age++)
+            Assert.True(File.Exists(trail.Archive(stem, age)),
+                $"the {age}-day-old archive is one of the seven most recent and must survive.");
+        Assert.False(File.Exists(trail.Archive(stem, 8)), "the eighth archive back must be deleted.");
+        Assert.False(File.Exists(trail.Archive(stem, 9)), "the ninth archive back must be deleted.");
+    }
+
+    [Theory]
+    [InlineData("app.log", "app")]
+    [InlineData("power.log", "power")]
+    public void ShippedConfig_KeepsTheArchiveMovedFromALongLivedLogFile(string fileName, string stem)
+    {
+        // The reason retention counts archives instead of ageing them. Windows carries a file's
+        // creation time over when NLog moves it to its archive name, and maxArchiveDays reads exactly
+        // that timestamp - measured both ways - so an age rule archives a log file created weeks ago
+        // and deletes it in the same write. That takes out the whole file on the first run after an
+        // upgrade, and a week's worth every time the machine sits unused for a week.
+        using var trail = new TempTrail();
+        trail.Write((AppLog.LoggerName, AppCaller, "entries nobody has read yet"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event nobody has read yet"));
+
+        var active = Path.Combine(trail.Dir, fileName);
+        File.SetCreationTime(active, DateTime.Now.AddDays(-56));
+        File.SetLastWriteTime(active, DateTime.Now.AddDays(-1));
+
+        trail.Write((AppLog.LoggerName, AppCaller, "the first entry after the upgrade"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event after the upgrade"));
+        // A second start, so the sweep meets the archive rather than racing its creation.
+        trail.Write((AppLog.LoggerName, AppCaller, "an entry after a restart"),
+                    (PowerLog.LoggerName, PowerCaller, "a power event after a restart"));
+
+        var archive = trail.Archive(stem, 1);
+        Assert.True(File.Exists(archive),
+            $"{fileName} was archived and then deleted. Its content is gone: an archive keeps the " +
+            "creation time of the file it was moved from, so retention must not be age-based.");
+        Assert.Contains("nobody has read yet", File.ReadAllText(archive), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShippedConfig_DoesNotUseTheAgeBasedRetentionThatDeletesAJustArchivedLog()
+    {
+        // Asserted on the text as well as the behaviour: re-adding this parses, looks like the
+        // policy that was asked for, and silently destroys a log file the moment it is archived.
+        Assert.DoesNotContain("maxArchiveDays", SettingsTextOfShippedConfig(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -495,7 +537,7 @@ public class NLogConfigTests
         var shipped = FileTargetOf(LoadShippedConfigStrictly());
 
         Assert.Equal(AppLog.ArchiveAboveSizeBytes, shipped.ArchiveAboveSize);
-        Assert.Equal(AppLog.MaxArchiveDays, shipped.MaxArchiveDays);
+        Assert.Equal(AppLog.MaxArchiveFiles, shipped.MaxArchiveFiles);
         Assert.Equal(TenMegabytes, AppLog.ArchiveAboveSizeBytes);
     }
 }

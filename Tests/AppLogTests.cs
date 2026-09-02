@@ -177,9 +177,15 @@ public class AppLogTests : IDisposable
     public void ArchivesOnceTheFileGrowsPastTheConfiguredSize_AndKeepsTheOldContent()
     {
         // Driven at a small size for speed: this covers the mechanism, while NLogConfigTests pins
-        // the shipped threshold.
+        // the shipped threshold. Retention is lifted here because 400 lines over a 4 kB threshold
+        // make far more than the seven archives the shipped config keeps, and this test is about the
+        // archive operation itself; NLogConfigTests covers what retention then discards.
         const int archiveAbove = 4 * 1024;
-        var factory = NewLogFactory(f => f.ArchiveAboveSize = archiveAbove);
+        var factory = NewLogFactory(f =>
+        {
+            f.ArchiveAboveSize = archiveAbove;
+            f.MaxArchiveFiles = -1;   // negative disables retention; zero would keep no archives at all
+        });
         var log = factory.GetLogger(AppLog.LoggerName);
 
         for (var i = 0; i < 400; i++) log.Info($"padding line {i} {new string('x', 100)}");
