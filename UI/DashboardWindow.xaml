@@ -416,13 +416,35 @@
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
                             </TextBlock>
-                            <TextBlock x:Name="KeepAwakeDetailText"
-                                       Text="—"
-                                       FontSize="11"
-                                       TextWrapping="Wrap"
-                                       MaxLines="2"
-                                       TextTrimming="CharacterEllipsis"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <!-- A RichTextBlock, not a TextBlock, only so the screen phrase can be a
+                                 real element inside the flowing line: it marks its own Tapped
+                                 handled, which a Run cannot, and a near-miss must not reach the tap
+                                 target around it and cancel the session. -->
+                            <RichTextBlock x:Name="KeepAwakeDetailText"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
+                                           IsTextSelectionEnabled="False"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                <Paragraph>
+                                    <Run x:Name="KeepAwakeDetailRun" Text="—"/>
+                                    <InlineUIContainer>
+                                        <!-- The Border carries the fill: a WinUI TextBlock has no
+                                             Background, so on its own it hit-tests glyphs only. -->
+                                        <Border x:Name="KeepAwakeScreenPhraseHost"
+                                                Background="Transparent"
+                                                Padding="3,0,3,0"
+                                                Visibility="Collapsed"
+                                                Tapped="OnKeepAwakeScreenPhraseTapped">
+                                            <TextBlock x:Name="KeepAwakeScreenPhrase"
+                                                       FontSize="11"
+                                                       TextDecorations="Underline"/>
+                                        </Border>
+                                    </InlineUIContainer>
+                                    <Run x:Name="KeepAwakeDetailTailRun"/>
+                                </Paragraph>
+                            </RichTextBlock>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="KeepAwakeToggle"

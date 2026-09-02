@@ -60,6 +60,11 @@ public sealed partial class DashboardWindow : Window
     // What KeepAwakePresetPanel is built from; rebuilding only on a change keeps the reconcile cheap.
     private IReadOnlyList<KeepAwakeRequest> _keepAwakeChips = [];
 
+    // Cached from the battery read that precedes every badge pass, so the Keep Awake badge can warn
+    // about a screen hold on battery without a second read. Starts on AC: nothing warns until a real
+    // reading says otherwise.
+    private bool _onAC = true;
+
     // Same purpose for the two lid chip groups: the sets only change when a preset is added, removed
     // or edited, so the 5 s reconcile must not rebuild a row underneath a pointer.
     private IReadOnlyList<int> _lidDelayChips = [];
@@ -354,6 +359,7 @@ public sealed partial class DashboardWindow : Window
             // The same derivations the tray icon path uses, so the two cannot disagree on colour.
             var  state = PowerStates.From(report.Status);
             bool onAC  = BatteryStatsFormatter.IsOnAC(report.Status);
+            _onAC      = onAC;
             UpdateGaugeArc(pct ?? 0, state);
 
             // Wattage is pop-out only: "AC Power (60W charger) · +45 W" overflows the 340px card.
@@ -647,9 +653,11 @@ public sealed partial class DashboardWindow : Window
     }
 
     /// <summary>Applies the badge colour and syncs its switch; the caller must hold <see cref="_updatingBadges"/>.</summary>
-    private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on)
+    /// <param name="activeBrush">Overrides the active fill, for a state that is on but costing
+    /// something. Ignored when <paramref name="on"/> is false.</param>
+    private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on, Brush? activeBrush = null)
     {
-        badge.Background = on ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
+        badge.Background = on ? activeBrush ?? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
         toggle.IsOn      = on;
     }
 
@@ -712,6 +720,24 @@ public sealed partial class DashboardWindow : Window
     private void OnKeepAwakeLabelTapped(object sender, TappedRoutedEventArgs e) =>
         KeepAwakeToggle.IsOn = !KeepAwakeToggle.IsOn;   // never disabled: no vendor to refuse it
 
+    /// <summary>
+    /// The screen-hold phrase inside the detail line, shown only while a session runs. Marks its tap
+    /// handled: the block around it toggles Keep Awake off, so an unhandled tap here would cancel
+    /// the session instead of changing what it holds.
+    /// </summary>
+    private void OnKeepAwakeScreenPhraseTapped(object sender, TappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (_updatingBadges) return;
+
+        bool screenHeld = !SettingsService.Current.KeepAwakeDisplayOn;
+        // The same setting the Settings card and the MQTT switch write. KeepAwakeService re-posts the
+        // OS hold off ChangeCommitted, so a running session changes now, not on the next activation.
+        SettingsService.Update(s => s.KeepAwakeDisplayOn = screenHeld);
+        // Redraw at once rather than waiting for the marshalled StateChanged; the pass is idempotent.
+        ApplyKeepAwakeBadge();
+    }
+
     /// <summary>Reconciles the whole Keep Awake badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
     private void ApplyKeepAwakeBadge()
     {
@@ -726,10 +752,29 @@ public sealed partial class DashboardWindow : Window
         // Remember what is running, wherever it started, so the switch can resume it after an off.
         if (session is not null) _lastKeepAwake = session.Request;
 
-        SetFeatureBadge(KeepAwakeBadge, KeepAwakeToggle, session is not null);
-        KeepAwakeDetailText.Text = session is null
-            ? "Off — normal sleep settings"
-            : $"On — {KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session)}";
+        bool screenHeld = SettingsService.Current.KeepAwakeDisplayOn;
+        // The screen hold is never refused on battery, only made visible — including a session with
+        // no clock expiry, which is the case it matters most for.
+        bool costly = session is not null && screenHeld && !_onAC;
+
+        SetFeatureBadge(KeepAwakeBadge, KeepAwakeToggle, session is not null,
+                        costly ? AppColors.BadgeCostlyBrush : null);
+
+        if (session is null)
+        {
+            KeepAwakeDetailRun.Text              = "Off — normal sleep settings";
+            KeepAwakeDetailTailRun.Text          = "";
+            KeepAwakeScreenPhraseHost.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            KeepAwakeDetailRun.Text              = $"On — {KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session)} ·";
+            KeepAwakeScreenPhrase.Text           = screenHeld ? "screen stays on" : "screen sleeps";
+            KeepAwakeScreenPhrase.Foreground     =
+                costly ? AppColors.StatusDischargingBrush : AppColors.AccentBrush;
+            KeepAwakeScreenPhraseHost.Visibility = Visibility.Visible;
+            KeepAwakeDetailTailRun.Text          = costly ? ", on battery" : "";
+        }
 
         BuildKeepAwakeChips();
 

@@ -38,6 +38,11 @@ internal static class AppColors
         new(Color.FromArgb(20, SteelBlue.R, SteelBlue.G, SteelBlue.B));
     internal static readonly SolidColorBrush BadgeInactiveBrush = new(Color.FromArgb(12, 0x80, 0x80, 0x80));
 
+    // An active badge whose state is costing battery. Same weight as BadgeActiveBrush so it reads as
+    // "on", with only the hue carrying the warning.
+    internal static readonly SolidColorBrush BadgeCostlyBrush =
+        new(Color.FromArgb(20, Amber.R, Amber.G, Amber.B));
+
     // ~3x more opaque than BadgeActiveBrush: at 8 % a 34 px selected button is too faint to read.
     internal static readonly SolidColorBrush TimeScaleSelectedBrush =
         new(Color.FromArgb(60, SteelBlue.R, SteelBlue.G, SteelBlue.B));

@@ -80,7 +80,7 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.KeepAwake, MqttEntityCategory.Config, Icon: "mdi:timer-cog-outline"),
         new(MqttEntityCatalog.KeepAwakeExpires, "sensor", "Keep awake until",
             MqttPublishGroups.KeepAwake, MqttEntityCategory.Diagnostic, DeviceClass: "timestamp"),
-        new(MqttEntityCatalog.KeepAwakeDisplayOn, "switch", "Keep the display on",
+        new(MqttEntityCatalog.KeepAwakeDisplayOn, "switch", "Keep awake with the screen on",
             MqttPublishGroups.KeepAwake, MqttEntityCategory.Config, Icon: "mdi:monitor-shimmer"),
 
         new(MqttEntityCatalog.LidDelay, "switch", "Lid-close active",

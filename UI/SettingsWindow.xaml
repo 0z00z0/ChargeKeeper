@@ -289,7 +289,7 @@
                                             Description="Also holds the display on while a keep-awake session runs.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <local:InfoIcon Subject="keeping the display on"
-                                            Info="This is off by default: the usual case is a long build or download finishing, where the screen may sleep as normal. The change takes effect on the next session, not on one already running."/>
+                                            Info="This is off by default: the usual case is a long build or download finishing, where the screen may sleep as normal. A change takes effect at once, including on a session already running, and the dashboard shows which way a running session is set. Holding the screen on costs battery, so the dashboard badge turns amber while it runs on battery."/>
                             <ToggleSwitch x:Name="KeepAwakeDisplayToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeDisplayToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>

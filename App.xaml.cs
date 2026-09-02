@@ -470,6 +470,9 @@ public partial class App : Application
         // Travel-override toggles aren't battery events, so rebuild the tooltip on the service's own
         // state change — otherwise it stays stuck on "Charging to 100 %" after a revert.
         TravelOverrideService.StateChanged += RefreshTooltip;
+        // Same reason for the screen-hold line: starting, ending or re-posting a session is not a
+        // battery event, so without this the line outlives the hold it describes.
+        KeepAwakeService.StateChanged += RefreshTooltip;
 
         // Seed the baseline from a forced read, THEN subscribe — in that order, so the first real
         // event cannot overlap the seed. Off the UI thread, so the battery read and the vendor RPCs
@@ -1103,6 +1106,11 @@ public partial class App : Application
             lines.Append(sc.HasStartThreshold ? $"\n⚙ Smart Charge: {sc.Start}–{sc.Stop}%"
                                               : $"\n⚙ Smart Charge: to {sc.Stop}%");
 
+        // The screen hold is the one keep-awake state that costs real power, so it is the only part
+        // of the session the tooltip carries. U+FE0E keeps the sun an outline, like the glyphs above.
+        if (KeepAwakeService.Current is not null && SettingsService.Current.KeepAwakeDisplayOn)
+            lines.Append("\n☀︎ Keep Awake: screen on");
+
         if (_updateAvailableVersion is { } uv)
             lines.Append($"\n⬆ Update available: v{uv}");
 
@@ -1317,6 +1325,7 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
+        KeepAwakeService.StateChanged -= RefreshTooltip;
         SettingsService.Changed  -= ApplyPerformanceSettings;
         SettingsService.Reloaded -= ApplyPerformanceSettings;
         // Stops both timers and writes out whatever the last second collected.

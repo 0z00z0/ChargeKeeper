@@ -380,7 +380,9 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = KeepAwakeDisplayOn, Name = "Keep the display on", Group = MqttPublishGroups.KeepAwake,
+                // Named to sort as one block under the other Keep entries. The entity id stays put:
+                // moving it discards an installation's entity ids, areas, labels and automations.
+                EntityId = KeepAwakeDisplayOn, Name = "Keep awake with the screen on", Group = MqttPublishGroups.KeepAwake,
                 Category = MqttEntityCategory.Config, Icon = "mdi:monitor-shimmer",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.KeepAwakeDisplayOn,

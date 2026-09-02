@@ -25,6 +25,8 @@ internal static class KeepAwakeService
     // The holder thread and its request queue; each item is the esFlags value to apply.
     private static readonly BlockingCollection<uint> _holdRequests = new();
     private static Thread? _holder;
+    // The flags last posted, so a settings change that leaves them alone costs nothing.
+    private static uint _postedFlags;
 
     private static bool _started;
 
@@ -34,8 +36,8 @@ internal static class KeepAwakeService
     /// <summary>The running session, or null when nothing is holding the machine awake.</summary>
     public static KeepAwakeSession? Current { get { lock (_sync) return _current; } }
 
-    /// <summary>Wires the network-location reactions. Called once at startup; never unsubscribed,
-    /// since the subscription lives for the whole process.</summary>
+    /// <summary>Wires the network-location reactions and the settings reaction. Called once at
+    /// startup; never unsubscribed, since the subscriptions live for the whole process.</summary>
     public static void Start()
     {
         lock (_sync)
@@ -44,10 +46,30 @@ internal static class KeepAwakeService
             _started = true;
         }
         NetworkLocationService.LocationChanged += OnLocationChanged;
+        // Every writer of the display preference — Settings, MQTT, the dashboard — goes through
+        // SettingsService, so one subscription here reaches all of them.
+        SettingsService.ChangeCommitted += _ => ReapplyHold();
     }
 
-    /// <summary>Starts or replaces the session, re-applying the OS hold so a change to
-    /// <see cref="AppSettings.KeepAwakeDisplayOn"/> takes effect on the next activation.</summary>
+    /// <summary>
+    /// Re-posts the OS hold when <see cref="AppSettings.KeepAwakeDisplayOn"/> has moved under a
+    /// running session, so the screen choice takes effect now rather than on the next activation.
+    /// No-op when nothing is running or the flags are unchanged.
+    /// </summary>
+    private static void ReapplyHold()
+    {
+        lock (_sync)
+        {
+            if (_current is null || _holder is null) return;
+            uint flags = HoldFlags();
+            if (flags == _postedFlags) return;
+            PostLocked(flags);
+        }
+        RaiseStateChanged();
+    }
+
+    /// <summary>Starts or replaces the session, applying the OS hold for the current
+    /// <see cref="AppSettings.KeepAwakeDisplayOn"/>.</summary>
     /// <param name="cause">Who asked, for the power trail. Defaults to the user because every entry
     /// point but the network reaction below is one.</param>
     public static void Activate(KeepAwakeRequest request, string cause = "user request")
@@ -58,7 +80,7 @@ internal static class KeepAwakeService
         {
             EnsureHolder();
             _current = session;
-            _holdRequests.Add(HoldFlags());
+            PostLocked(HoldFlags());
             ArmExpiry(session, now);
         }
         PowerLog.Event($"Keep-awake on, {KeepAwakePolicy.DescribeRemaining(now, session)}", cause);
@@ -119,6 +141,13 @@ internal static class KeepAwakeService
     private static uint HoldFlags() =>
         NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED |
         (SettingsService.Current.KeepAwakeDisplayOn ? NativeMethods.ES_DISPLAY_REQUIRED : 0);
+
+    // Callers hold _sync. One place posts, so _postedFlags cannot drift from the queue.
+    private static void PostLocked(uint flags)
+    {
+        _postedFlags = flags;
+        _holdRequests.Add(flags);
+    }
 
     private static void EnsureHolder()
     {
@@ -189,6 +218,6 @@ internal static class KeepAwakeService
         _expiryTimer?.Dispose();
         _expiryTimer = null;
         // Clearing must happen on the thread that made the request — post it, don't call it here.
-        if (_holder is not null) _holdRequests.Add(NativeMethods.ES_CONTINUOUS);
+        if (_holder is not null) PostLocked(NativeMethods.ES_CONTINUOUS);
     }
 }
