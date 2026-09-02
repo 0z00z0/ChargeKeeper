@@ -21,6 +21,12 @@
 #define LegacyUpdateTask   "LenovoTray AutoUpdate"
 #define LegacyWatchdogTask "LenovoTray Watchdog"
 
+; The install folder an upgrade across the rename is still sitting in. The FINAL COMPONENT of a
+; path, never a whole path. It must stay equal to InstallLocations.LegacyFolderName in Helpers\,
+; as AppName above must stay equal to InstallLocations.ProductFolderName; the test
+; EveryFolderLiteral_AgreesWithTheApplication reads this script and fails if either drifts.
+#define LegacyDirName      "Lenovo Power Tray"
+
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
@@ -31,16 +37,24 @@
 [Setup]
 ; AppId uniquely identifies this app for upgrades/uninstall — do not change it.
 ; Deliberately UNCHANGED across the Lenovo Power Tray -> ChargeKeeper rename so existing
-; 1.1.x installs upgrade in place. Consequence: upgraded installs keep living in their old
-; "%LocalAppData%\Programs\Lenovo Power Tray" folder (Inno reuses the recorded {app}),
-; while fresh installs get "...\ChargeKeeper". Cosmetic only — accepted trade-off.
+; 1.1.x installs upgrade in place. A new value would orphan every existing install: the old one
+; would never uninstall and both would sit in Apps & features.
 AppId={{B1F8E4B2-3D7A-4C56-9E2F-7A1C9D5E6F40}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}
-DefaultDirName={autopf}\{#AppName}
+; UsePreviousAppDir=no is what lets an install move OUT of the retired "{#LegacyDirName}" folder.
+; With it left at the default, Inno reads {app} straight from the AppId-recorded uninstall key and
+; a changed DefaultDirName is ignored on every upgrade — which is why such installs never moved.
+; Turning it off hands the choice to ResolveInstallDir in [Code], which returns the recorded
+; directory UNCHANGED unless its final component is the retired name. So a directory the user chose
+; for themselves is still honoured; only the retired one is replaced.
+; Consequence handled in [Code]: DisableDirPage's automatic hiding of the directory page on an
+; upgrade keys off UsePreviousAppDir, so ShouldSkipPage restores it.
+UsePreviousAppDir=no
+DefaultDirName={code:ResolveInstallDir}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 ; Inno Setup 6 defaults DisableWelcomePage=yes, which hides the Welcome page entirely — so the
@@ -183,11 +197,68 @@ const
   UpdateTaskName   = 'ChargeKeeper AutoUpdate';
   WatchdogTaskName = 'ChargeKeeper Watchdog';
 
+  // Where Inno records this install's own directory. The GUID is AppId's, repeated because AppId
+  // is the one line in this file that must never be restructured; the test
+  // TheUninstallKey_NamesTheSameGuidAsAppId reads both and fails if they disagree.
+  UninstallKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B1F8E4B2-3D7A-4C56-9E2F-7A1C9D5E6F40}_is1';
+
 var
   // True when PrepareToInstall found (and killed) a running instance. Lets a SILENT upgrade
   // (winget / the AutoUpdate task) restart the app it killed: without this, a background
   // upgrade leaves the tray app dead until the next sign-in.
   WasRunning: Boolean;
+
+  // The directory the previous install recorded, read before Setup overwrites the uninstall key.
+  // Empty on a fresh install.
+  PreviousAppDir: string;
+
+  // True when this run moves an installation out of the retired product folder.
+  MigratingFromLegacy: Boolean;
+
+  // Both task definitions as they stood before this run, exported in PrepareToInstall. Empty when
+  // the task did not exist or could not be read.
+  AutoStartXmlFile, WatchdogXmlFile: string;
+
+// True when the FINAL COMPONENT of Dir is the retired product folder. Matches
+// InstallLocations.IsLegacyInstallDir in the app: the name, never a whole path, so an install
+// under a non-default parent is still recognised.
+function IsLegacyDir(const Dir: string): Boolean;
+begin
+  Result := (Dir <> '')
+        and (CompareText(ExtractFileName(RemoveBackslashUnlessRoot(Dir)), '{#LegacyDirName}') = 0);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  PreviousAppDir := '';
+  RegQueryStringValue(HKCU, UninstallKey, 'Inno Setup: App Path', PreviousAppDir);
+
+  // Interactive runs only. Re-pointing an RL HIGHEST task needs elevation, and a silent run has
+  // nobody to answer the consent prompt — the same stance this file already takes for the
+  // Lenovo-era task cleanup. A silent upgrade installs where it already is and leaves the move to
+  // the next interactive run; the app's own update route passes no silent switch, so that route
+  // migrates (and, being started from the elevated app, raises no prompt at all).
+  MigratingFromLegacy := IsLegacyDir(PreviousAppDir) and not WizardSilent();
+  Result := True;
+end;
+
+// Where this run installs. Called by DefaultDirName, so it runs after InitializeSetup.
+function ResolveInstallDir(Param: string): string;
+begin
+  if (PreviousAppDir = '') or MigratingFromLegacy then
+    Result := ExpandConstant('{autopf}\{#AppName}')
+  else
+    // A directory the user chose for themselves. UsePreviousAppDir=no would otherwise discard it.
+    Result := PreviousAppDir;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  // Restores what DisableDirPage=auto did before UsePreviousAppDir=no switched it off: an upgrade
+  // does not ask again for a directory it already has.
+  Result := (PageID = wpSelectDir) and (PreviousAppDir <> '');
+end;
 
 procedure InitializeWizard();
 begin
@@ -338,6 +409,31 @@ begin
   ShellExec('runas', ExpandConstant('{app}\{#AppExe}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
+// Exports one task's whole definition to a file under {tmp}, and returns that path whether or not
+// anything was written: a task that does not exist leaves the file EMPTY (schtasks reports the
+// miss on stderr), and the re-point script reads empty as "no such task". Redirected through cmd
+// rather than captured, because schtasks writes /XML output as UTF-16 and only a file keeps it
+// that way — which is also the only form schtasks /Create /XML reads back. Querying needs no
+// elevation.
+function ExportTaskXml(const TaskTitle, FileTitle: string): string;
+var
+  ResultCode: Integer;
+begin
+  Result := ExpandConstant('{tmp}\') + FileTitle + '.xml';
+  Exec(ExpandConstant('{cmd}'),
+       '/C schtasks /Query /TN "' + TaskTitle + '" /XML ONE > "' + Result + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Captures BOTH definitions as the app left them, before this run touches either. ssPostInstall
+// puts the same definitions back with only their path changed, so everything the app configured —
+// the power-safe settings above all — survives the move.
+procedure ExportTaskDefinitions();
+begin
+  AutoStartXmlFile := ExportTaskXml(TaskName, 'autostart-task');
+  WatchdogXmlFile  := ExportTaskXml(WatchdogTaskName, 'watchdog-task');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode, i: Integer;
@@ -368,9 +464,20 @@ begin
   WasRunning       := AppIsRunning();
   LegacyWasRunning := ProcessIsRunning('{#LegacyExe}');
   LegacyAutoStart  := LegacyTaskExists();
-  if WasRunning or LegacyWasRunning or ((LegacyAutoStart or LegacyWatchdogExists()) and not WizardSilent()) then
+  if MigratingFromLegacy then ExportTaskDefinitions();
+  if WasRunning or LegacyWasRunning or MigratingFromLegacy
+     or ((LegacyAutoStart or LegacyWatchdogExists()) and not WizardSilent()) then
   begin
-    Cmd := '/C schtasks /Delete /TN "{#LegacyWatchdogTask}" /F'
+    Cmd := '/C schtasks /Delete /TN "{#LegacyWatchdogTask}" /F';
+    if MigratingFromLegacy then
+      // The Watchdog must be gone for the whole of this run. A probe firing between the taskkill
+      // above and the re-point in ssPostInstall would start the OLD exe, which then holds the old
+      // folder open and re-points both tasks back at itself. Deleting is recoverable — the app
+      // re-registers a missing Watchdog on its next start — whereas DISABLING would not be: a
+      // disabled task still matches the app's own definition, so the app would leave it disabled
+      // for good. ssPostInstall puts the exported definition back, re-pointed.
+      Cmd := Cmd + ' & schtasks /Delete /TN "' + WatchdogTaskName + '" /F';
+    Cmd := Cmd
          + ' & taskkill /F /IM "{#AppExe}" & taskkill /F /IM "{#LegacyExe}"'
          + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F';
     if LegacyAutoStart then
@@ -400,12 +507,158 @@ begin
           + 'installer again.';
 end;
 
+// The re-point script. It rewrites each exported definition so that ONLY the directory changes —
+// every setting the app configured, above all the power-safe ones, is carried across untouched —
+// and then VERIFIES the outcome by reading the live tasks back, because the folder deletion that
+// follows depends on it. Exit code 0 means neither task starts from the old directory any more.
+//
+// Written to a file and run through PowerShell because rewriting one element of a task definition
+// is beyond schtasks alone. If a machine policy refuses to run the script, the non-zero exit keeps
+// the old directory, which is the safe outcome.
+//
+// ASCII only, and every path arrives as an ARGUMENT rather than embedded text: the file is written
+// in the system's ANSI code page, so a path outside it would be mangled in the script but survives
+// intact on the command line.
+function BuildRepointScript(): string;
+begin
+  Result :=
+    'param([string]$OldDir,[string]$NewDir,[string]$AutoXml,[string]$WatchXml)' + #13#10 +
+    '$ErrorActionPreference = ''Stop''' + #13#10 +
+    '$auto = ''' + TaskName + '''' + #13#10 +
+    '$wdog = ''' + WatchdogTaskName + '''' + #13#10 +
+    '$newExe = Join-Path $NewDir ''{#AppExe}''' + #13#10 +
+    #13#10 +
+    '# Only the leading directory changes, and it appears once. No regular expression, so a path' + #13#10 +
+    '# holding characters that are special to one cannot corrupt the result.' + #13#10 +
+    'function Swap([string]$s) {' + #13#10 +
+    '  if (-not $s) { return $s }' + #13#10 +
+    '  $i = $s.IndexOf($OldDir, [StringComparison]::OrdinalIgnoreCase)' + #13#10 +
+    '  if ($i -lt 0) { return $s }' + #13#10 +
+    '  return $s.Substring(0, $i) + $NewDir + $s.Substring($i + $OldDir.Length)' + #13#10 +
+    '}' + #13#10 +
+    #13#10 +
+    '# A task that did not exist left an EMPTY export, which must not be mistaken for one that did.' + #13#10 +
+    'function HasContent([string]$f) { return ($f -and (Test-Path $f) -and ((Get-Item $f).Length -gt 0)) }' + #13#10 +
+    #13#10 +
+    'function Repoint([string]$name, [string]$file) {' + #13#10 +
+    '  if (-not (HasContent $file)) { return $false }' + #13#10 +
+    '  $doc = New-Object System.Xml.XmlDocument' + #13#10 +
+    '  $doc.PreserveWhitespace = $true' + #13#10 +
+    '  $doc.LoadXml((Get-Content -Raw -Path $file))' + #13#10 +
+    '  $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)' + #13#10 +
+    '  $ns.AddNamespace(''t'', ''http://schemas.microsoft.com/windows/2004/02/mit/task'')' + #13#10 +
+    '  foreach ($n in $doc.SelectNodes(''//t:Exec/t:Command'', $ns)) { $n.InnerText = Swap $n.InnerText }' + #13#10 +
+    '  foreach ($n in $doc.SelectNodes(''//t:Exec/t:WorkingDirectory'', $ns)) { $n.InnerText = Swap $n.InnerText }' + #13#10 +
+    '  $out = Join-Path $env:TEMP (''ck-'' + [guid]::NewGuid().ToString(''N'') + ''.xml'')' + #13#10 +
+    '  $doc.Save($out)' + #13#10 +
+    '  & schtasks.exe /Create /TN $name /XML $out /F | Out-Null' + #13#10 +
+    '  $ok = ($LASTEXITCODE -eq 0)' + #13#10 +
+    '  Remove-Item $out -Force -ErrorAction SilentlyContinue' + #13#10 +
+    '  return $ok' + #13#10 +
+    '}' + #13#10 +
+    #13#10 +
+    '$ok = $false' + #13#10 +
+    'try { $ok = Repoint $auto $AutoXml } catch { $ok = $false }' + #13#10 +
+    '# Fallback, and only where a startup task really existed: a plain task at the correct path.' + #13#10 +
+    '# It loses the power-safe settings until the app repairs them, which happens seconds later —' + #13#10 +
+    '# the installer launches the app at the end of this same run.' + #13#10 +
+    'if (-not $ok -and (HasContent $AutoXml)) {' + #13#10 +
+    '  $tr = [char]34 + $newExe + [char]34' + #13#10 +
+    '  & schtasks.exe /Create /TN $auto /TR $tr /SC ONLOGON /RL HIGHEST /F | Out-Null' + #13#10 +
+    '}' + #13#10 +
+    '# Best effort: a Watchdog that cannot be restored is re-registered by the app on its next' + #13#10 +
+    '# start, and its absence resurrects nothing in the meantime.' + #13#10 +
+    'try { [void](Repoint $wdog $WatchXml) } catch { }' + #13#10 +
+    #13#10 +
+    '# The post-condition, read back off the live tasks rather than inferred from exit codes.' + #13#10 +
+    '# The separator matters: without it a NEIGHBOURING folder whose name merely starts the same' + #13#10 +
+    '# way would read as the old one.' + #13#10 +
+    '$bad = 0' + #13#10 +
+    '$oldPrefix = $OldDir.ToLowerInvariant() + [char]92' + #13#10 +
+    'foreach ($n in @($auto, $wdog)) {' + #13#10 +
+    '  $t = Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue' + #13#10 +
+    '  if ($t) { foreach ($a in @($t.Actions)) {' + #13#10 +
+    '    $p = "$($a.Execute)".Trim([char]34)' + #13#10 +
+    '    if ($p -and $p.ToLowerInvariant().StartsWith($oldPrefix)) { $bad = 1 }' + #13#10 +
+    '  } }' + #13#10 +
+    '}' + #13#10 +
+    'exit $bad' + #13#10;
+end;
+
+// Points both tasks at the new directory. Elevated, because the startup task runs RL HIGHEST — one
+// UAC prompt, or none at all when Setup was started by the already-elevated app.
+function RepointTasks(): Boolean;
+var
+  ScriptFile, Params: string;
+  ResultCode: Integer;
+begin
+  Result := False;
+  ScriptFile := ExpandConstant('{tmp}\repoint-tasks.ps1');
+  if not SaveStringToFile(ScriptFile, BuildRepointScript(), False) then exit;
+
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"'
+          + ' "' + RemoveBackslashUnlessRoot(PreviousAppDir) + '"'
+          + ' "' + RemoveBackslashUnlessRoot(ExpandConstant('{app}')) + '"'
+          + ' "' + AutoStartXmlFile + '" "' + WatchdogXmlFile + '"';
+  Result := ShellExec('runas', 'powershell.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+        and (ResultCode = 0);
+end;
+
+procedure RemoveLegacyInstallDir();
+var
+  Dir, Exe: string;
+begin
+  Dir := RemoveBackslashUnlessRoot(PreviousAppDir);
+  if DelTree(Dir, True, True, True) then
+  begin
+    Log('Migration: old install directory removed.');
+    exit;
+  end;
+
+  // Something in there is still open. The binary must not survive in a startable state: a running
+  // image cannot be deleted, but it CAN be renamed, and a renamed path starts nothing.
+  Exe := Dir + '\{#AppExe}';
+  if FileExists(Exe) and not DeleteFile(Exe) then
+    RenameFile(Exe, Exe + '.migrated');
+
+  if DelTree(Dir, True, True, True) then
+    Log('Migration: old install directory removed on the second pass.')
+  else
+    Log('Migration: old install directory could not be fully removed; its executable is gone or renamed.');
+end;
+
+// Every one of these must hold before anything is removed: this run is a migration, the recorded
+// directory really carries the retired name, it is NOT the directory just installed into, and the
+// new executable is on disk. The third guard is the one that matters most — without it a
+// mis-resolved directory would delete the installation that was just written.
+function LegacyMigrationCanProceed(): Boolean;
+begin
+  Result := MigratingFromLegacy
+        and IsLegacyDir(PreviousAppDir)
+        and (CompareText(RemoveBackslashUnlessRoot(PreviousAppDir),
+                         RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0)
+        and FileExists(ExpandConstant('{app}\{#AppExe}'));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
+    // Before everything else in this step: RegisterStartupTask and LaunchApp below both act on the
+    // startup task, and must see it already naming the new directory.
+    if LegacyMigrationCanProceed() then
+    begin
+      if RepointTasks() then
+        RemoveLegacyInstallDir()
+      else
+        // Neither the definition-preserving route nor the plain fallback left the startup task
+        // pointing at the new directory. The old one stays: an installation whose startup task
+        // names a binary that still exists keeps working, one that names a deleted binary does not.
+        Log('Migration: the scheduled tasks could not be re-pointed — old install directory kept.');
+    end;
+
     if WizardIsTaskSelected('runstartup') then RegisterStartupTask();
     // Clears the winget logon task earlier versions created. The app checks GitHub itself.
     RemoveAutoUpdateTask();
