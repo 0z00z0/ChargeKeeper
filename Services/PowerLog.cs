@@ -27,4 +27,11 @@ internal static class PowerLog
 
     /// <summary>Logs one event: what happened, and what caused it.</summary>
     public static void Event(string what, string cause) => _log.Info($"{what} — cause: {cause}");
+
+    /// <summary>
+    /// Logs a sentence already written to be read as one — the machine slept and woke, monitoring
+    /// started or stopped. No cause clause: these carry their own, and appending one to a
+    /// two-sentence line reads as a fragment.
+    /// </summary>
+    public static void Say(string sentence) => _log.Info(sentence);
 }

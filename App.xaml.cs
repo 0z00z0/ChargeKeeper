@@ -48,6 +48,10 @@ public partial class App : Application
     // Fire-once latch, reset with 5 % hysteresis so a brief charge re-arms it.
     private bool _lowBatteryWarningFired;
 
+    // Holds the "already warned" line to one per latch: the alternative is a line on every tick
+    // from the warning level down to empty.
+    private bool _lowSuppressionLogged;
+
     // Fire-once latch for the opposite end, re-armed the moment the level falls back below.
     private bool _highBatteryWarningFired;
 
@@ -99,6 +103,16 @@ public partial class App : Application
         var uptime = DateTime.UtcNow - _processStartUtc;
         AppLog.Info($"ProcessExit: clean teardown after {uptime:hh\\:mm\\:ss} " +
                     $"(intentional={_intentionalExit}, sessionEnding={_sessionEnding}).");
+
+        // Here rather than in Shutdown or OnSessionEnding: this is the one point every clean exit
+        // passes through — the tray Exit, a sign-out, and the silent compositor-loss teardown that
+        // nothing else announces. A shutdown another app then vetoes never reaches it, so the line
+        // cannot claim a stop that did not happen.
+        if (StartupHealth.State == MonitoringState.Watching)
+        {
+            PowerLog.Say(HealthMessages.MonitoringStopped);
+            StartupHealth.MarkStopped();
+        }
 
         if (_intentionalExit || _sessionEnding) return;
 
@@ -236,6 +250,26 @@ public partial class App : Application
         _windowsReady.TrySetResult();
         PowerLog.Event("Display settle: complete, windows may be created", "startup gate opened");
 
+        // Everything that makes the application useful hangs off this call, and a throw inside it
+        // used to abandon start-up in silence behind a tray icon that looked normal. Whatever
+        // fails, the log and the icon now say the battery is not being watched.
+        try
+        {
+            StartMonitoring();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("OnLaunched.StartMonitoring", ex);
+            ReportStartupFailed();
+        }
+    }
+
+    /// <summary>
+    /// The second half of start-up: the host window, the battery subscription, sampling and every
+    /// background service. Split from <see cref="OnLaunched"/> so one guard covers all of it.
+    /// </summary>
+    private void StartMonitoring()
+    {
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         SubscribeBatteryEvents();
@@ -322,7 +356,84 @@ public partial class App : Application
         // process into IDLE_PRIORITY_CLASS plus EcoQoS throttling for the rest of its life —
         // nothing reverses it. The tray icon's own left-click path hops through a threading timer,
         // so under load the menu arrives seconds late or not at all.
-        _trayIcon.ForceCreate(enablesEfficiencyMode: false);
+        //
+        // Guarded: the shell refuses the Shell_NotifyIcon registration when it is still coming up
+        // after a boot, and that throw used to abandon the whole of startup. The icon is a way to
+        // reach the app, not what the app is for, so a refusal must not stop the battery being
+        // watched. H.NotifyIcon re-adds the icon itself on the shell's TaskbarCreated broadcast.
+        try
+        {
+            _trayIcon.ForceCreate(enablesEfficiencyMode: false);
+        }
+        catch (Exception ex)
+        {
+            PowerLog.Say(HealthMessages.TrayIconMissing);
+            AppLog.Error("InitTrayIcon.ForceCreate", ex);
+        }
+    }
+
+    /// <summary>
+    /// Records a start-up that did not finish: the readable line, the state every tray repaint
+    /// consults, and the warning mark itself. Reachable from the launch handler and from the
+    /// battery-subscription task, which runs after it has returned.
+    /// </summary>
+    private void ReportStartupFailed()
+    {
+        PowerLog.Say(HealthMessages.MonitoringDidNotStart);
+        StartupHealth.MarkFailed();
+        _degradedTrayShown = false;
+        RunOnUi(ApplyDegradedTrayPresentation);
+    }
+
+    /// <summary>Records that the watch is live, with the reading it started from and the levels it
+    /// will warn at — the line that separates a working instance from a dead one at a glance.</summary>
+    private void ReportMonitoringStarted()
+    {
+        int pct; PowerState state;
+        using (_batteryReportLock.EnterScope())
+            (pct, state) = (_lastIconState.Pct, _lastIconState.State);
+
+        var s = SettingsService.Current;
+        PowerLog.Say(HealthMessages.MonitoringStarted(
+            Math.Max(pct, 0), state,
+            s.LowBatteryWarningEnabled,  s.LowBatteryWarningPct,
+            s.HighBatteryWarningEnabled, s.HighBatteryWarningPct));
+        StartupHealth.MarkWatching();
+
+        // The low-battery latch is in memory only, so a restart re-arms a warning that was already
+        // given. Unrecorded, a second warning at the same level reads as a defect.
+        if (s.LowBatteryWarningEnabled)
+            AppLog.Info(NotificationMessages.LowWarningResetByRestart(s.LowBatteryWarningPct));
+    }
+
+    // What the tray icon is showing while degraded. Kept apart from _iconLatch, which records
+    // battery readings and is bypassed entirely in that state.
+    private bool _degradedTrayShown;
+
+    /// <summary>
+    /// Puts the warning mark and its plain-language tooltip on the tray icon. UI thread only, for
+    /// the same reason <see cref="UpdateTrayIcon"/> is.
+    /// </summary>
+    private void ApplyDegradedTrayPresentation()
+    {
+        if (_trayIcon is not { } icon) return;
+
+        try
+        {
+            var warning = IconGenerator.RenderWarningIcon();
+            var previous = _currentBatteryIcon;
+            icon.Icon           = warning;
+            _currentBatteryIcon = warning;
+            previous?.Dispose();
+
+            icon.ToolTipText   = HealthMessages.DegradedTooltip;
+            _lastTooltip       = HealthMessages.DegradedTooltip;
+            _degradedTrayShown = true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("ApplyDegradedTrayPresentation", ex);
+        }
     }
 
     private void SubscribeBatteryEvents()
@@ -358,10 +469,14 @@ public partial class App : Application
                 if (_intentionalExit) return;
                 OnBatteryReportUpdated(Battery.AggregateBattery, null!);
                 Battery.AggregateBattery.ReportUpdated += OnBatteryReportUpdated;
+                ReportMonitoringStarted();
             }
             catch (Exception ex)
             {
                 LogCrash("SubscribeBatteryEvents.Seed", ex);
+                // The subscription IS the watch, so a fault here is the failure the tray must show,
+                // even though the launch handler returned successfully some time ago.
+                ReportStartupFailed();
             }
         });
     }
@@ -482,12 +597,69 @@ public partial class App : Application
         }, null, TimeSpan.FromSeconds(30), System.Threading.Timeout.InfiniteTimeSpan);
     }
 
+    /// <summary>The last reading the application took, or null when none has arrived yet.</summary>
+    private int? LastKnownLevel()
+    {
+        using (_batteryReportLock.EnterScope())
+            return _lastIconState.Pct < 0 ? null : _lastIconState.Pct;
+    }
+
+    /// <summary>
+    /// The waking half of the sleep pair: how long the machine was away and what the battery did
+    /// meanwhile. The level is read fresh rather than taken from the cache — the cached one is from
+    /// before the suspend, and reporting it would state the drain as nothing.
+    /// </summary>
+    private static void ReportWake()
+    {
+        var at = DateTimeOffset.Now;
+
+        // Off the notification thread: a resume broadcast is on a deadline and the battery read is
+        // a vendor call.
+        _ = Task.Run(() =>
+        {
+            int? levelNow = null;
+            try
+            {
+                levelNow = PercentFrom(Battery.AggregateBattery.GetReport());
+            }
+            catch (Exception ex)
+            {
+                // A missing level costs the sentence its second half, not the sentence.
+                AppLog.Error("ReportWake.Read", ex);
+            }
+
+            if (SleepWatch.Wake(at, levelNow) is { } sentence) PowerLog.Say(sentence);
+        });
+    }
+
+    /// <summary>State of charge from a battery report, or null when the report carries no usable
+    /// capacity pair. The one place the percentage is derived, so no two readers can disagree.</summary>
+    private static int? PercentFrom(BatteryReport report) =>
+        report.FullChargeCapacityInMilliwattHours is > 0 and { } full &&
+        report.RemainingCapacityInMilliwattHours  is { } remaining
+            ? Math.Clamp((int)Math.Round(100.0 * remaining / full), 0, 100)
+            : null;
+
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         // Every transition is logged: this timeline is what correlates a later silent teardown
         // with a power event.
         PowerLog.Event($"Windows power mode: {e.Mode}", "system power notification");
+
+        // The sleep half of the pair. The cached reading is used rather than a fresh one: a suspend
+        // notification is on a deadline, and a vendor read here would delay the machine going down.
+        if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
+        {
+            SleepWatch.RecordSleep(DateTimeOffset.Now, LastKnownLevel());
+            PowerLog.Say(SleepWatch.WentToSleep);
+            return;
+        }
+
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+
+        // Without this pair, downtime and a stopped application are the same shape in the log: a
+        // gap in the samples with nothing to say which it was.
+        ReportWake();
 
         // A charger swap while asleep produces no AC→battery transition to invalidate on.
         ChargerInfoService.Invalidate();
@@ -520,12 +692,7 @@ public partial class App : Application
         {
             var report = sender.GetReport();
 
-            int pct = 0;
-            if (report.FullChargeCapacityInMilliwattHours is > 0 and { } full &&
-                report.RemainingCapacityInMilliwattHours  is { } remaining)
-            {
-                pct = Math.Clamp((int)Math.Round(100.0 * remaining / full), 0, 100);
-            }
+            int pct = PercentFrom(report) ?? 0;
 
             // Windows separates the two mains states itself: Charging is taking charge, Idle is
             // connected and not. The gauge is painted from all three; the on-AC flag stays for
@@ -549,6 +716,11 @@ public partial class App : Application
             // publish are deferred to after the lock releases.
             LiveState liveSnapshot;
             bool fireLowBattery = false;
+            // The low-battery decision, carried out of the lock so the log write is file I/O the
+            // lock does not span. Exactly one of the three is ever set on a tick.
+            bool lowRepeatSuppressed = false;
+            bool lowWarningReArmed   = false;
+            int  lowWarnAtPct        = 0;
             int? highBatteryWarnAtPct = null;   // the configured level, carried out of the lock
             bool fireChargingStarted = false;
             int? chargeCompleteStopPct = null;
@@ -579,19 +751,33 @@ public partial class App : Application
                 }
 
                 var s = SettingsService.Current;
-                if (s.LowBatteryWarningEnabled &&
-                    report.Status == BatteryStatus.Discharging &&
-                    pct > 0 &&
-                    pct <= s.LowBatteryWarningPct &&
-                    !_lowBatteryWarningFired)
+                lowWarnAtPct = s.LowBatteryWarningPct;
+                bool lowLevelReached = s.LowBatteryWarningEnabled &&
+                                       report.Status == BatteryStatus.Discharging &&
+                                       pct > 0 &&
+                                       pct <= s.LowBatteryWarningPct;
+                if (lowLevelReached && !_lowBatteryWarningFired)
                 {
                     _lowBatteryWarningFired = true;
                     fireLowBattery = true;   // fired outside the lock (see below)
+                    _lowSuppressionLogged = false;
+                }
+                // Below the level with the warning already given. Recorded ONCE per latch: a
+                // discharge from the level to empty is dozens of ticks, and one line answers "why
+                // was there no second warning" for all of them.
+                else if (lowLevelReached && !_lowSuppressionLogged)
+                {
+                    _lowSuppressionLogged = true;
+                    lowRepeatSuppressed   = true;
                 }
                 // Reset the guard with hysteresis so it can fire again after a partial charge.
                 else if (pct > s.LowBatteryWarningPct + 5)
                 {
+                    // Only news when a warning was actually outstanding; a machine sitting on
+                    // charge would otherwise announce a re-arm on every tick.
+                    lowWarningReArmed       = _lowBatteryWarningFired;
                     _lowBatteryWarningFired = false;
+                    _lowSuppressionLogged   = false;
                 }
 
                 // The threshold state decides whether a high level is news: within the cap it is
@@ -664,6 +850,16 @@ public partial class App : Application
                 PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",
                                onAc ? "charger connected" : "charger disconnected");
 
+            // The decision, recorded before the attempt to show it. Together with ToastService's own
+            // shown/refused line this separates "never attempted" from "attempted and failed" —
+            // the distinction the whole path was missing.
+            if (fireLowBattery)
+                AppLog.Info(NotificationMessages.LowThresholdCrossed(lowWarnAtPct, pct));
+            else if (lowRepeatSuppressed)
+                AppLog.Info(NotificationMessages.LowRepeatSuppressed(lowWarnAtPct, pct));
+            else if (lowWarningReArmed)
+                AppLog.Info(NotificationMessages.LowWarningReArmed(pct));
+
             // ToastService.Notify* does a synchronous WinRT/COM Show; the decisions and the latch
             // above were taken under the lock, so only the Show is deferred.
             if (fireLowBattery)                    ToastService.NotifyLowBattery(pct);
@@ -697,6 +893,15 @@ public partial class App : Application
 
     private void UpdateTrayIcon(int pct, PowerState state, PowerFlow? flow)
     {
+        // A start-up that failed must never paint a battery reading. The icon is the only thing
+        // most people ever look at, and a normal-looking one is exactly what made an instance that
+        // watched nothing indistinguishable from a working one.
+        if (StartupHealth.IsDegraded)
+        {
+            if (!_degradedTrayShown) RunOnUi(ApplyDegradedTrayPresentation);
+            return;
+        }
+
         // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
         // style and the thresholds in force now rather than the ones set when it was posted. The
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
@@ -781,6 +986,15 @@ public partial class App : Application
     /// change and the tray recreate that call this all have to show without waiting for a tick.</summary>
     internal void ForceIconRefresh()
     {
+        // A degraded instance repaints the warning mark, not a reading — the slot size and the
+        // taskbar theme move under it just the same.
+        if (StartupHealth.IsDegraded)
+        {
+            _degradedTrayShown = false;
+            RunOnUi(ApplyDegradedTrayPresentation);
+            return;
+        }
+
         // The pixels changed without the request changing, so the latch has to be dropped first.
         _iconLatch.Invalidate();
         RepaintTrayIconFromLastReading();
@@ -830,6 +1044,10 @@ public partial class App : Application
 
     private void UpdateTooltip(int pct, int? remainingMwh, int? fullMwh)
     {
+        // Same reason as UpdateTrayIcon: while start-up has failed the tooltip says so and nothing
+        // else, so a hover cannot report a battery level nothing is watching.
+        if (StartupHealth.IsDegraded) return;
+
         var lines = new System.Text.StringBuilder();
 
         // A tray tooltip is plain text, so a colour emoji is the only way to carry the brand teal.
