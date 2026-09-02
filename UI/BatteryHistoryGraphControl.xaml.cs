@@ -602,7 +602,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             else
             {
                 var geo = new PathGeometry();
-                geo.Figures.Add(BuildMonotoneFigure(pts, FitRun(pts).Tangents));
+                geo.Figures.Add(MonotonePath.Figure(pts, FitRun(pts).Tangents));
                 shape = new Microsoft.UI.Xaml.Shapes.Path { Data = geo };
             }
 
@@ -614,34 +614,6 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             if (dashed) shape.StrokeDashArray = [3, 2];
             SparklineCanvas.Children.Add(shape);
         }
-    }
-
-    /// <summary>Interpolating figure through <paramref name="pts"/> from precomputed tangents
-    /// <paramref name="m"/>. <paramref name="closeAtY"/> closes it for the gradient fill; left open,
-    /// it is the line itself.</summary>
-    private static PathFigure BuildMonotoneFigure(IReadOnlyList<Point> pts, double[] m, double? closeAtY = null)
-    {
-        var figure = new PathFigure { StartPoint = pts[0], IsClosed = closeAtY.HasValue };
-        for (int i = 0; i < pts.Count - 1; i++)
-        {
-            double h = pts[i + 1].X - pts[i].X;
-            figure.Segments.Add(new BezierSegment
-            {
-                // Hermite→Bezier for a curve linear in x: the tangent vector at each end is
-                // (h, slope*h), and the control points sit a third of it in from each endpoint.
-                Point1 = new Point(pts[i].X     + h / 3, pts[i].Y     + m[i]     * h / 3),
-                Point2 = new Point(pts[i + 1].X - h / 3, pts[i + 1].Y - m[i + 1] * h / 3),
-                Point3 = pts[i + 1],
-            });
-        }
-
-        if (closeAtY is { } bottomY)
-        {
-            figure.Segments.Add(new LineSegment { Point = new Point(pts[^1].X, bottomY) });
-            figure.Segments.Add(new LineSegment { Point = new Point(pts[0].X,  bottomY) });
-        }
-
-        return figure;
     }
 
     /// <summary>One run's knot coordinates and its monotone tangents, kept together so the hover dot
@@ -718,12 +690,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
             if (drawShading)
             {
                 var fillGeo = new PathGeometry();
-                fillGeo.Figures.Add(BuildMonotoneFigure(pts, m, closeAtY: plotBottomY));
+                fillGeo.Figures.Add(MonotonePath.Figure(pts, m, closeAtY: plotBottomY));
                 SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = fillGeo, Fill = fillBrush });
             }
 
             var lineGeo = new PathGeometry();
-            lineGeo.Figures.Add(BuildMonotoneFigure(pts, m));
+            lineGeo.Figures.Add(MonotonePath.Figure(pts, m));
             SparklineCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
             {
                 Data              = lineGeo,

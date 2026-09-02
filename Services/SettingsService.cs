@@ -114,6 +114,18 @@ internal sealed class AppSettings
     /// keeps the accent whatever <see cref="GraphLineColouring"/> is set to.</summary>
     public bool GraphShadingEnabled { get; set; } = true;
 
+    // The self-measurement graph, on the App diagnostics page. Not published over MQTT: like the
+    // two graph settings above, it decides how one window draws and what one local file collects.
+
+    /// <summary>Whether the app measures itself at all. Off by default, and off means nothing is
+    /// scheduled — see <see cref="PerformanceSampler"/>, which owns that promise.</summary>
+    public bool PerformanceGraphEnabled { get; set; } = false;
+
+    /// <summary>How often processor time is sampled while the graph is on. Memory, handles and
+    /// threads are sampled once a second whatever this says, because they cost a machine-wide
+    /// process snapshot and this one does not.</summary>
+    public PerformanceSampleRate PerformanceSampleRate { get; set; } = PerformanceSampleRates.Default;
+
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
     [

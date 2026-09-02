@@ -144,6 +144,21 @@ It also offers:
 The file is portable by copy across machines. Automatic cloud sync is not yet implemented (a planned
 future option).
 
+### App diagnostics
+
+The **App diagnostics** page in the Settings window carries the self-measurement graph: what
+ChargeKeeper itself is costing, plotted live.
+
+- **Off by default, and off means nothing is scheduled.** No timer runs and no processor time goes
+  to measuring while the switch is off.
+- **Sampling rate**, 10 Hz down to 0.1 Hz, governs the processor line only. Memory, handles and
+  threads are read once a second whatever the rate says, because they cost a snapshot of every
+  process on the machine while reading processor time does not. At the slowest rate the memory line
+  is therefore the denser of the two; the legend names each line's own rate.
+- **The log** is `%AppData%\ChargeKeeper\performance-history.csv`, separate from `app.log` and from
+  the battery histories, and on the same retention mechanism as the battery level history: rows past
+  the retention age are dropped, and because the rate is adjustable this file also carries a row cap.
+
 ## Building
 
 ```powershell

@@ -240,6 +240,7 @@ public partial class App : Application
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         SubscribeBatteryEvents();
         StartHistorySampling();
+        StartPerformanceSampling();
         ScheduleUpdateCheck();
         // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
         // and applying its preset is exactly what this drops the rule to avoid.
@@ -363,6 +364,46 @@ public partial class App : Application
                 LogCrash("SubscribeBatteryEvents.Seed", ex);
             }
         });
+    }
+
+    private PerformanceSampler? _performanceSampler;
+
+    /// <summary>
+    /// Brings the self-measurement sampler up and keeps it in step with the settings. Off is the
+    /// default and off schedules nothing, so an installation that never turns this on pays for one
+    /// object and no timers.
+    /// </summary>
+    private void StartPerformanceSampling()
+    {
+        _performanceSampler = new PerformanceSampler(new SystemPerformanceProbe(), new PerformanceHistorySink());
+
+        // Every settings write raises Changed, not only these two; Apply is a no-op when neither has
+        // moved, so an unrelated save does not restart the timers or lose the processor baseline.
+        SettingsService.Changed  += ApplyPerformanceSettings;
+        SettingsService.Reloaded += ApplyPerformanceSettings;
+        ApplyPerformanceSettings();
+    }
+
+    private void ApplyPerformanceSettings()
+    {
+        try
+        {
+            var s = SettingsService.Current;
+            bool wasSampling = _performanceSampler?.IsSampling ?? false;
+            _performanceSampler?.Apply(s.PerformanceGraphEnabled, s.PerformanceSampleRate);
+
+            // Switching off drops the live window too, so switching back on starts a fresh stretch
+            // rather than drawing a line across the gap. The file is untouched either way.
+            if (wasSampling && !s.PerformanceGraphEnabled)
+            {
+                PerformanceHistoryService.Flush();
+                PerformanceHistoryService.ClearWindow();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("App.ApplyPerformanceSettings", ex);
+        }
     }
 
     private System.Threading.Timer? _historyTimer;
@@ -1037,6 +1078,11 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
         TravelOverrideService.StateChanged -= RefreshTooltip;
+        SettingsService.Changed  -= ApplyPerformanceSettings;
+        SettingsService.Reloaded -= ApplyPerformanceSettings;
+        // Stops both timers and writes out whatever the last second collected.
+        _performanceSampler?.Dispose();
+        PerformanceHistoryService.Flush();
         NetworkLocationService.Stop();
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
         _mqtt?.Dispose();         // publishes offline, and leaves the document standing

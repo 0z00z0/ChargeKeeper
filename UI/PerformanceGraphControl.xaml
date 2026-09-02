@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="ChargeKeeper.UI.PerformanceGraphControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- The app measuring itself: processor share on the left axis at the chosen rate, working set
+         on the right at a fixed once a second. Two rows only — the plot and the legend — because the
+         time span is fixed and there is no scale to choose. -->
+    <Grid x:Name="RootGrid" RowSpacing="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>     <!-- plot card -->
+            <RowDefinition Height="Auto"/>  <!-- legend and readouts -->
+        </Grid.RowDefinitions>
+
+        <Border x:Name="PlotCard"
+                Grid.Row="0"
+                CornerRadius="12"
+                Padding="0,6,0,0"
+                Background="{ThemeResource ControlFillColorDefaultBrush}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="CanvasRow" Height="*"/>
+                    <RowDefinition Height="Auto"/>  <!-- time axis -->
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="34"/>   <!-- left % axis -->
+                    <ColumnDefinition Width="*"/>    <!-- canvas -->
+                    <ColumnDefinition Width="44"/>   <!-- right MB axis -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Processor share of the whole machine. The top is auto-scaled: a tray app sits
+                     near zero, and a fixed 0-100 axis would draw both series as flat lines. -->
+                <Grid Grid.Row="0" Grid.Column="0" Margin="6,2,3,4">
+                    <TextBlock x:Name="LeftAxisTopLabel"    Text="—" FontSize="11" VerticalAlignment="Top"    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBlock x:Name="LeftAxisMidLabel"    Text="—" FontSize="11" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBlock x:Name="LeftAxisBottomLabel" Text="0" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </Grid>
+
+                <Canvas x:Name="PlotCanvas" Grid.Row="0" Grid.Column="1"
+                        Background="Transparent"
+                        SizeChanged="OnCanvasSizeChanged"/>
+
+                <!-- Working set, auto-scaled to the visible window. -->
+                <Grid Grid.Row="0" Grid.Column="2" Margin="3,2,4,4">
+                    <TextBlock x:Name="RightAxisTopLabel"    Text="—" FontSize="11" VerticalAlignment="Top"    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBlock x:Name="RightAxisMidLabel"    Text="—" FontSize="11" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBlock x:Name="RightAxisBottomLabel" Text="—" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </Grid>
+
+                <Grid Grid.Row="1" Grid.Column="1" Margin="7,3,7,6">
+                    <TextBlock x:Name="AxisStartLabel"
+                               Text="—"
+                               FontSize="12"
+                               HorizontalAlignment="Left"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <!-- Says why the plot is empty when it is, and disappears once a line arrives. -->
+                    <TextBlock x:Name="PlotStateLabel"
+                               Text=""
+                               FontSize="12"
+                               HorizontalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBlock x:Name="AxisEndLabel"
+                               Text="now"
+                               FontSize="12"
+                               HorizontalAlignment="Right"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- The legend carries each series' OWN rate. Without it the once-a-second memory line looks
+             like a defect at 0.1 Hz, where it is the denser of the two. Swatch colours are assigned
+             in code-behind from AppColors. -->
+        <Grid Grid.Row="1" Margin="4,0,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border x:Name="LegendProcessorSwatch" Width="8" Height="8" CornerRadius="4"/>
+                    <TextBlock x:Name="LegendProcessorText" Text="Processor" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border x:Name="LegendMemorySwatch" Width="8" Height="8" CornerRadius="4"/>
+                    <TextBlock x:Name="LegendMemoryText" Text="Memory" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Handles and threads come from the same once-a-second snapshot as the memory line.
+                 Two more lines on this plot would not read, so they are shown as figures. -->
+            <TextBlock x:Name="CountsText"
+                       Grid.Column="1"
+                       Text=""
+                       FontSize="12"
+                       VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+        </Grid>
+    </Grid>
+</UserControl>
