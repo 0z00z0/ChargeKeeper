@@ -35,6 +35,12 @@ internal static class LidDelayService
     // it has arrived. Whichever arrives first ends the wait — see LidDelayPolicy.WaitIsOver.
     private static bool _timeSet, _timeArrived, _targetSet, _targetArrived;
 
+    // What the current lid close says while it runs and at its end. The timer reports on the delay;
+    // the battery reports off the readings that arrive anyway.
+    private static readonly LidWaitTrail _trail = new();
+    private static System.Threading.Timer? _heartbeat;
+    private static DateTimeOffset _waitStartedAt;
+
     private static long   _generation;     // bumped by anything that invalidates a queued suspend
     private static IntPtr _lidRegistration = IntPtr.Zero;
 
@@ -110,9 +116,9 @@ internal static class LidDelayService
     /// setting was left off rather than promising a delay the machine will not honour. Disabling
     /// always returns true; a failed restore stays owed to the next <see cref="Start"/>.
     /// </summary>
-    /// <param name="cause">Why it was switched off, for the power trail; the enable path names its own.
-    /// Defaults to the user, because every entry point but <see cref="TurnOffIfDue"/> is one.</param>
-    public static bool SetEnabled(bool enable, string cause = "the setting was turned off")
+    /// <param name="cause">Why it changed, for the power trail. Null means the user, because every
+    /// entry point but <see cref="TurnOffIfDue"/> and a refused suspend is one.</param>
+    public static bool SetEnabled(bool enable, string? cause = null)
     {
         if (enable)
         {
@@ -125,7 +131,7 @@ internal static class LidDelayService
             SettingsService.Update(x => x.LidDelayEnabled = true);
             Subscribe();
             PowerLog.Event($"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min",
-                           "the setting was turned on");
+                           cause ?? "the setting was turned on");
             RaiseStateChanged();
             return true;
         }
@@ -136,7 +142,7 @@ internal static class LidDelayService
         PowerLog.Event(RestoreSavedAction()
             ? "Lid-close delay off, the Windows lid-close action is back to its own value"
             : "Lid-close delay off, but the Windows lid-close action could not be restored — retrying at next start",
-            cause);
+            cause ?? "the setting was turned off");
         RaiseStateChanged();
         return true;
     }
@@ -148,12 +154,15 @@ internal static class LidDelayService
     /// </summary>
     /// <remarks>Never called from the lid-switch callback: <see cref="SetEnabled"/> unsubscribes, and
     /// unregistering from inside a callback deadlocks against the callback still running.</remarks>
-    private static void TurnOffIfDue(LidDelayOutcome outcome)
+    /// <returns>Whether it stood the feature down.</returns>
+    private static bool TurnOffIfDue(LidDelayOutcome outcome)
     {
         if (!LidDelayPolicy.ShouldTurnOffAfterLidClose(SettingsService.Current.LidDelayOffAfterSleep, outcome))
-            return;
+            return false;
 
-        SetEnabled(false, "the delay was set to run once and the machine slept");
+        PowerLog.Say(LidWaitTrail.SwitchedOffBeforeSleeping);
+        SetEnabled(false, "the delay was set to run once and this lid close is over");
+        return true;
     }
 
     // Never let a subscriber's failure escape: one raise site sits on the suspend task, where an
@@ -213,6 +222,7 @@ internal static class LidDelayService
     public static void OnBatteryReport(int percent, bool isCharging)
     {
         LidDischargeDecision decision;
+        string? progress = null;
         lock (_sync)
         {
             _lastBattery = (percent, isCharging);
@@ -220,9 +230,18 @@ internal static class LidDelayService
             // Reaching the target is that condition arriving; a pack taking charge means it can
             // never arrive, so the condition is dropped rather than counted as met. Counting it as
             // met would sleep a plugged-in machine the moment its lid closed.
-            if (decision is LidDischargeDecision.TargetReached) _targetArrived = true;
+            if (decision is LidDischargeDecision.TargetReached)
+            {
+                _targetArrived = true;
+                _trail.Arrived(LidWaitEnd.BatteryTarget);
+            }
             if (decision is LidDischargeDecision.Charging)      _targetSet     = false;
+
+            // Hold means a target is still outstanding, which only happens inside a wait.
+            if (decision is LidDischargeDecision.Hold) progress = _trail.OnBatteryReading(percent);
         }
+
+        if (progress is not null) PowerLog.Say(progress);
 
         switch (decision)
         {
@@ -474,19 +493,26 @@ internal static class LidDelayService
             _timeArrived   = false;
             _targetArrived = false;
             _timeSet       = s.LidDelayTimeEnabled;
+            _waitStartedAt = DateTimeOffset.Now;
 
             // Set only where a battery reading exists, and judged against it at once: a machine
             // already at its target must not wait for a level that has no reason to move, and a
             // machine with no battery at all could never release a watch once it held, which under
             // first-to-arrive would leave the clock as the only condition anyway.
             _targetSet = s.LidDischargeEnabled && _lastBattery is not null;
+
+            _trail.Start(_timeSet, (int)delay.TotalMinutes,
+                         _targetSet ? LidDischargeWatch.Clamp(s.LidDischargeTargetPercent) : null,
+                         _lastBattery?.Percent);
+
             if (_targetSet && _lastBattery is { } reading)
             {
                 _discharge.Arm(s.LidDischargeTargetPercent);
                 switch (_discharge.OnReading(reading.Percent, reading.Charging))
                 {
                     case LidDischargeDecision.Hold:          watchingFor    = s.LidDischargeTargetPercent; break;
-                    case LidDischargeDecision.TargetReached: _targetArrived = true;  break;
+                    case LidDischargeDecision.TargetReached: _targetArrived = true;
+                                                             _trail.Arrived(LidWaitEnd.BatteryTarget); break;
                     // Already charging as the lid closes: the target can never arrive, so it is no
                     // condition at all and the clock, if set, carries the wait on its own.
                     default:                                 _targetSet     = false; break;
@@ -499,6 +525,14 @@ internal static class LidDelayService
             armedTimer = _timeSet;
             if (armedTimer)
                 _timer = new System.Threading.Timer(_ => OnTimerFired(), null, delay, Timeout.InfiniteTimeSpan);
+
+            // The progress report runs only for the condition it reports on: with no delay set there
+            // is no elapsed fraction to report, and the battery reports off its own readings.
+            _heartbeat?.Dispose();
+            _heartbeat = armedTimer
+                ? new System.Threading.Timer(_ => OnHeartbeat(), null,
+                                             LidWaitTrail.TimeReportInterval, LidWaitTrail.TimeReportInterval)
+                : null;
         }
 
         if (armedTimer)
@@ -515,8 +549,29 @@ internal static class LidDelayService
 
     private static void OnTimerFired()
     {
-        lock (_sync) _timeArrived = true;
+        lock (_sync)
+        {
+            _timeArrived = true;
+            _trail.Arrived(LidWaitEnd.DelayElapsed);
+        }
         Complete();
+    }
+
+    /// <summary>
+    /// Says how far the delay has got. Elapsed time is measured from the moment the wait started
+    /// rather than counted in ticks, so a coalesced or delayed timer reports the time that actually
+    /// passed instead of the time it was supposed to fire at.
+    /// </summary>
+    private static void OnHeartbeat()
+    {
+        string? progress;
+        lock (_sync)
+        {
+            if (!_delayPending) return;
+            progress = _trail.OnElapsed(DateTimeOffset.Now - _waitStartedAt);
+        }
+
+        if (progress is not null) PowerLog.Say(progress);
     }
 
     /// <summary>
@@ -528,14 +583,24 @@ internal static class LidDelayService
     {
         LidDelayAction action;
         long gen;
+        string? ended = null;
         lock (_sync)
         {
             bool over = LidDelayPolicy.WaitIsOver(_timeSet, _timeArrived, _targetSet, _targetArrived);
             action = LidDelayPolicy.OnWaitProgress(SettingsService.Current.LidDelayEnabled, _delayPending,
                                                    KeepAwakeService.Current is not null, over);
-            if (action is LidDelayAction.Suspend or LidDelayAction.Cancel) ClearLocked();
+            if (action is LidDelayAction.Suspend or LidDelayAction.Cancel)
+            {
+                // Composed before ClearLocked wipes what it describes.
+                ended = _trail.End(_lastBattery?.Percent);
+                ClearLocked();
+            }
             gen = _generation;
         }
+
+        // First, and outside the lock: this is the line whose absence is meant to prove the
+        // application was not the one that acted, so nothing that can block may precede it.
+        if (ended is not null) PowerLog.Say(ended);
 
         switch (action)
         {
@@ -555,15 +620,25 @@ internal static class LidDelayService
                         TurnOffIfDue(LidDelayOutcome.LidReopened);
                         return;
                     }
-                    // Returns on resume, so the stand-down lands after the machine has actually slept.
+
+                    // Before the suspend, never after it: SetSuspendState does not return until the
+                    // machine resumes, so a stand-down placed after it is never written on a machine
+                    // that never resumes with the application running, and the one-off delay would
+                    // still be armed for the next lid close. Putting the user's own lid action back
+                    // with the lid already shut cannot re-trigger it — Windows acts on the
+                    // transition, not on the state.
+                    bool stoodDown = TurnOffIfDue(LidDelayOutcome.Slept);
+
                     if (!NativeMethods.Suspend())
                     {
                         PowerLog.Event("Suspend was refused by Windows", "SetSuspendState returned false");
                         AppLog.Error("LidDelayService.Suspend failed", null);
-                        TurnOffIfDue(LidDelayOutcome.StoppedShort);
+                        // The stand-down was taken for a sleep that did not happen, and only a lid
+                        // close that reached sleep expires the setting.
+                        if (stoodDown)
+                            SetEnabled(true, "the suspend the one-off delay stood down for was refused");
                         return;
                     }
-                    TurnOffIfDue(LidDelayOutcome.Slept);
                 });
                 break;
             case LidDelayAction.Cancel:
@@ -593,9 +668,12 @@ internal static class LidDelayService
         _timeArrived   = false;
         _targetSet     = false;
         _targetArrived = false;
+        _trail.Clear();
         _discharge.Disarm();
         _timer?.Dispose();
         _timer = null;
+        _heartbeat?.Dispose();
+        _heartbeat = null;
         // Clearing must happen on the thread that made the request — post it, don't call it here.
         if (_holder is not null) _holdRequests.Add(NativeMethods.ES_CONTINUOUS);
     }
