@@ -592,6 +592,10 @@ internal sealed partial class SettingsWindow : Window
         _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
     }
 
+    /// <summary>Opens the "What's new" report. The tray menu owns that window, so the two entry
+    /// points share one instance rather than each opening a copy.</summary>
+    private void OnShowWhatsNew(object sender, RoutedEventArgs e) => _menu.ShowWhatsNew();
+
     private void OnPromoteIconsToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;

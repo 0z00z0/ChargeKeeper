@@ -84,6 +84,7 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(3)] public bool         ShowPercentageIcon  { get; set; }
         [JsonPropertyOrder(4)] public bool         PromoteTrayIcons    { get; set; }
         [JsonPropertyOrder(5)] public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
+        [JsonPropertyOrder(6)] public string       LastSeenVersion     { get; set; } = "";
     }
 
     internal sealed class GraphGroup
@@ -182,6 +183,7 @@ internal sealed class SettingsFile
             ShowPercentageIcon  = s.ShowPercentageIcon,
             PromoteTrayIcons    = s.PromoteTrayIcons,
             TrayPromotionRestore = s.TrayPromotionRestore,
+            LastSeenVersion     = s.LastSeenVersion,
         },
         Graph = new GraphGroup
         {
@@ -260,6 +262,7 @@ internal sealed class SettingsFile
         ShowPercentageIcon  = General.ShowPercentageIcon,
         PromoteTrayIcons    = General.PromoteTrayIcons,
         TrayPromotionRestore = General.TrayPromotionRestore,
+        LastSeenVersion     = General.LastSeenVersion,
 
         GraphTimeScale      = Graph.GraphTimeScale,
         GraphLineColouring  = Graph.GraphLineColouring,

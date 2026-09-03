@@ -128,6 +128,11 @@ internal sealed class AppSettings
     /// separated by a restart. Bookkeeping, not a setting.</summary>
     public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
 
+    /// <summary>The version that ran last, so a start under a different one can report what
+    /// changed. Empty on a first install, which reports nothing: there is no version this one
+    /// replaced. Bookkeeping, not a setting.</summary>
+    public string LastSeenVersion { get; set; } = "";
+
     public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
 
     /// <summary>Gap before a hole in the samples is drawn as an axis break. 0 = never, not zero minutes.</summary>

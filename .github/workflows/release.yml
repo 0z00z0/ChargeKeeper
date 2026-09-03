@@ -471,10 +471,13 @@ jobs:
           }
 
       # ── 11b. Release notes ───────────────────────────────────────────────────
-      # Built from the Conventional Commit subjects between the previous tag and this
-      # one, so the notes cannot drift from what actually shipped. The update dialog
-      # renders this body with markdown stripped: headings lose their marker and
-      # bullets survive, so the shape here is what a user sees.
+      # RELEASE-NOTES.md is the one source: the application embeds the same file and shows
+      # the running version's section as its "What's new" report, so the report and this
+      # body cannot say different things. A version the file does not name falls back to
+      # the Conventional Commit subjects between the previous tag and this one, so a build
+      # made between releases still publishes something true.
+      # The update dialog renders this body with markdown stripped: headings lose their
+      # marker and bullets survive, so the shape here is what a user sees.
       - name: Build release notes
         id: notes
         shell: pwsh
@@ -483,6 +486,43 @@ jobs:
           $version = '${{ steps.version.outputs.version }}'
           $sha256  = '${{ steps.sha256.outputs.sha256 }}'
           $tag     = '${{ github.ref_type == 'tag' && github.ref_name || 'HEAD' }}'
+
+          # The section for this version, if the file names it. The heading is the version
+          # alone; everything up to the next level-two heading belongs to it.
+          $authored = @()
+          if (Test-Path 'RELEASE-NOTES.md') {
+            $inSection = $false
+            foreach ($line in (Get-Content 'RELEASE-NOTES.md')) {
+              if ($line -match '^##\s+(.+?)\s*$') {
+                if ($inSection) { break }
+                $inSection = ($Matches[1] -eq $version)
+                continue
+              }
+              if ($inSection) { $authored += $line }
+            }
+          }
+
+          if ($authored.Count -gt 0) {
+            Write-Host "Using the authored section for $version."
+            $lines = [System.Collections.Generic.List[string]]::new()
+            $lines.Add("## ChargeKeeper v$version")
+            $lines.Add('')
+            foreach ($line in $authored) { $lines.Add($line) }
+            $lines.Add('')
+            $lines.Add("Download ``ChargeKeeper-Setup-$version.exe`` below. Per-user installer, no administrator rights required.")
+            $lines.Add('')
+            $lines.Add("**SHA256 (installer):** ``$sha256``")
+
+            $path = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+            $lines -join "`n" | Set-Content -Path $path -Encoding utf8 -NoNewline
+            "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+            Write-Host '--- release notes ---'
+            Get-Content $path | Write-Host
+            exit 0
+          }
+
+          Write-Host "RELEASE-NOTES.md names no section for $version; falling back to the commit subjects."
 
           $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
           $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }

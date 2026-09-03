@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.38.0</Version>
+    <Version>1.39.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -176,6 +176,11 @@
     <Content Include="Assets\nav\*.svg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- The "What's new" report. Embedded rather than fetched: the requirement is that the report
+         is always reachable, and an "always" that depends on a network is not one. The release
+         workflow publishes the section for the tag it builds, so the report and the release page
+         read from one text. -->
+    <EmbeddedResource Include="RELEASE-NOTES.md" LogicalName="ChargeKeeper.RELEASE-NOTES.md" />
   </ItemGroup>
 
   <!--

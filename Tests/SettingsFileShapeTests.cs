@@ -51,6 +51,7 @@ public class SettingsFileShapeTests : IDisposable
         "general.ShowPercentageIcon",
         "general.PromoteTrayIcons",
         "general.TrayPromotionRestore",
+        "general.LastSeenVersion",
         "graph",
         "graph.GraphTimeScale",
         "graph.GraphLineColouring",

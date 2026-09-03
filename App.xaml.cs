@@ -286,6 +286,7 @@ public partial class App : Application
         StartHistorySampling();
         StartPerformanceSampling();
         ScheduleUpdateCheck();
+        ReportWhatsNewIfTheVersionMoved();
         // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
         // and applying its preset is exactly what this drops the rule to avoid.
         SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
@@ -1039,6 +1040,37 @@ public partial class App : Application
         _percentageIcon.Icon    = next;
         _currentPercentageIcon  = next;
         previous?.Dispose();
+    }
+
+    /// <summary>
+    /// Shows what changed, once, on the first start under a version the machine has not run before.
+    /// Nothing is shown on a first install: there is no version this one replaced. The version is
+    /// recorded whether or not a report is shown, so a build with no notes does not queue one up for
+    /// the next start.
+    /// </summary>
+    private void ReportWhatsNewIfTheVersionMoved()
+    {
+        try
+        {
+            string running = AppInfo.Version;
+            string seen    = SettingsService.Current.LastSeenVersion;
+            if (string.Equals(seen, running, StringComparison.OrdinalIgnoreCase)) return;
+
+            SettingsService.Update(s => s.LastSeenVersion = running);
+
+            if (seen.Length == 0) return;                       // first install
+            if (ReleaseNotes.For(running) is null) return;      // a build made between releases
+
+            // The window waits on the same gate every other window does, and the menu owns it, so
+            // opening it here and from the tray gives one window rather than two.
+            _ = WindowsReady.ContinueWith(_ => RunOnUi(() => _menu?.ShowWhatsNew()),
+                                          TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            // A report is not worth a failed start-up.
+            AppLog.Error("ReportWhatsNewIfTheVersionMoved", ex);
+        }
     }
 
     /// <summary>The identities the shell files this application's tray icons under. The second is

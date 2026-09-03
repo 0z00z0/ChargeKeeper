@@ -18,6 +18,7 @@ internal sealed class TrayMenu
 
     private MenuFlyoutItem? _updateItem;
     private AboutWindow?    _aboutWindow;
+    private WhatsNewWindow? _whatsNewWindow;
 
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
@@ -59,6 +60,7 @@ internal sealed class TrayMenu
             Flyout.Items.Add(MakeToggle(feature));
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
+        Flyout.Items.Add(new MenuFlyoutItem { Text = "What's new…", Command = new RelayCommand(() => ShowWhatsNew()) });
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
@@ -233,7 +235,7 @@ internal sealed class TrayMenu
                 return;
             }
 
-            _aboutWindow = new AboutWindow();
+            _aboutWindow = new AboutWindow(ShowWhatsNew);
             _aboutWindow.Closed += (_, _) => _aboutWindow = null;
             _aboutWindow.Activate();
         }
@@ -242,6 +244,33 @@ internal sealed class TrayMenu
             // async void: an escaping exception tears the process down. Drop the half-built window.
             AppLog.Error("TrayMenu.ShowAbout", ex);
             _aboutWindow = null;
+        }
+    }
+
+    /// <summary>Opens, or re-activates, the single "What's new" window. Reachable at any time, not
+    /// only in the moment after an update: a report that cannot be reopened is not always
+    /// available.</summary>
+    internal async void ShowWhatsNew()
+    {
+        try
+        {
+            await _windowsReady.ConfigureAwait(true);
+
+            if (_whatsNewWindow is not null)
+            {
+                _whatsNewWindow.Activate();
+                return;
+            }
+
+            _whatsNewWindow = new WhatsNewWindow();
+            _whatsNewWindow.Closed += (_, _) => _whatsNewWindow = null;
+            _whatsNewWindow.Activate();
+        }
+        catch (Exception ex)
+        {
+            // async void: an escaping exception tears the process down. Drop the half-built window.
+            AppLog.Error("TrayMenu.ShowWhatsNew", ex);
+            _whatsNewWindow = null;
         }
     }
 

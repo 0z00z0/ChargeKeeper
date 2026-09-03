@@ -18,18 +18,26 @@ internal sealed partial class AboutWindow : Window
 
     private bool _placed;
 
-    public AboutWindow()
+    /// <summary>Opens the "What's new" report. Supplied by the caller that owns that window, so
+    /// this one creates nothing of its own.</summary>
+    private readonly Action? _showWhatsNew;
+
+    public AboutWindow(Action? showWhatsNew = null)
     {
+        _showWhatsNew = showWhatsNew;
         InitializeComponent();
         Title = "About ChargeKeeper";
 
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
 
         About.SetInfo(AboutContent.Build());
+        WhatsNewButton.Visibility = _showWhatsNew is null ? Visibility.Collapsed : Visibility.Visible;
 
         // Placed on first activation, once the content is in a live visual tree and can be measured.
         Activated += OnActivated;
     }
+
+    private void OnWhatsNew(object sender, RoutedEventArgs e) => _showWhatsNew?.Invoke();
 
     /// <summary>Places and sizes the window once, centred on the monitor under the cursor.</summary>
     private void OnActivated(object sender, WindowActivatedEventArgs e)
@@ -54,10 +62,12 @@ internal sealed partial class AboutWindow : Window
     private void FitWindowToContent()
     {
         double viewport = ContentScroller.ViewportHeight;
-        if (viewport <= 0 || About.ActualWidth <= 0) return;   // not laid out yet — keep the opening rect
+        if (viewport <= 0 || ContentPanel.ActualWidth <= 0) return;   // not laid out yet — keep the opening rect
 
-        About.Measure(new Windows.Foundation.Size(About.ActualWidth, double.PositiveInfinity));
-        double content = About.DesiredSize.Height
+        // The panel, not the shared control alone: the "What's new" button below it is part of what
+        // the window has to be tall enough for.
+        ContentPanel.Measure(new Windows.Foundation.Size(ContentPanel.ActualWidth, double.PositiveInfinity));
+        double content = ContentPanel.DesiredSize.Height
                        + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
 
         // AppWindow.Size is physical px while everything measured above is DIPs.
