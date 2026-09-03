@@ -14,6 +14,12 @@ internal enum LidDelayAction
     Suspend,
     /// <summary>Keep the OS hold and stay pending: no condition has arrived yet.</summary>
     Hold,
+    /// <summary>Give Windows its own lid-close action back until the lid next opens. The process
+    /// started with the lid already shut, so no wait can be resumed and the override would otherwise
+    /// leave nobody serving the close.</summary>
+    HandBackUntilTheLidOpens,
+    /// <summary>Take the override again, now the lid is open and a later close can be served.</summary>
+    TakeTheOverrideBack,
 }
 
 /// <summary>How a lid close finished, for the one decision that has to tell an expiry from an
@@ -64,12 +70,32 @@ internal static class LidDelayPolicy
     /// as a close would suspend the machine merely because the app started. A close while a delay is
     /// pending is ignored: the notification repeats, and must not extend the countdown.
     /// </summary>
-    public static LidDelayAction OnLidState(LidState state, bool enabled, bool delayPending, bool isFirstReading)
+    /// <param name="handedBack">Whether the lid action has been given back to Windows because the
+    /// process started with the lid already shut. The lid opening is what makes it safe to take the
+    /// override again: a later close can then be served in full.</param>
+    public static LidDelayAction OnLidState(LidState state, bool enabled, bool delayPending,
+                                            bool isFirstReading, bool handedBack = false)
     {
         if (state == LidState.Opened)
-            return delayPending ? LidDelayAction.Cancel : LidDelayAction.None;
+        {
+            if (delayPending) return LidDelayAction.Cancel;
+            return handedBack ? LidDelayAction.TakeTheOverrideBack : LidDelayAction.None;
+        }
 
-        if (!enabled || isFirstReading || delayPending) return LidDelayAction.None;
+        if (!enabled || delayPending) return LidDelayAction.None;
+
+        // A start with the lid already shut. The replay is not a transition, so no wait is armed —
+        // but the override has already been applied by the startup reconcile, and leaving it there
+        // parks the lid action on "do nothing" with nobody serving the close. The action goes back
+        // to Windows until the lid opens.
+        //
+        // The wait is declined rather than resumed because the moment the lid closed does not
+        // survive the restart: a fresh full wait would hold the machine awake for longer than was
+        // ever configured, and a shortened one would be a number with nothing behind it. Windows'
+        // own lid-close action is the only behaviour that is knowably what its owner asked for.
+        if (isFirstReading)
+            return handedBack ? LidDelayAction.None : LidDelayAction.HandBackUntilTheLidOpens;
+
         return LidDelayAction.StartDelay;
     }
 

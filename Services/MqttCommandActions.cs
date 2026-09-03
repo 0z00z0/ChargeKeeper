@@ -185,7 +185,14 @@ internal sealed class SettingsActions : ISettingsActions
         Raise();
     }
 
-    public void SetLidDelayMinutes(int minutes)     => Write(s => s.LidDelayMinutes = minutes);
+    // Through the service rather than a plain write: this surface changes the armed wait with
+    // nothing local to observe, which is exactly the case the trail entry exists for.
+    public void SetLidDelayMinutes(int minutes)
+    {
+        LidDelayService.SetDelayMinutes(minutes, "Home Assistant");
+        Raise();
+    }
+
     public void SetLidDischargePercent(int percent) => Write(s => s.LidDischargeTargetPercent = percent);
     public void SetLidDelayLock(bool on)            => Write(s => s.LidDelayLockOnClose = on);
 

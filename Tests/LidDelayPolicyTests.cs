@@ -26,12 +26,19 @@ public class LidDelayPolicyTests
     }
 
     [Fact]
-    public void OnLidState_FirstReadingIsASeed_NeverALidClose()
+    public void OnLidState_FirstReadingIsASeed_StartsNoWaitAndHandsTheActionBack()
     {
         // Windows invokes the power-setting callback immediately on registration with the current lid
         // state; acting on that replay would suspend the machine minutes after the app merely started.
-        Assert.Equal(LidDelayAction.None,
-            LidDelayPolicy.OnLidState(LidState.Closed, enabled: true, delayPending: false, isFirstReading: true));
+        // It is still not a close and still arms nothing — but a start that finds the lid already
+        // shut can serve no wait either, so the lid-close action goes back to Windows rather than
+        // being left parked on the override with nobody serving it.
+        var action = LidDelayPolicy.OnLidState(LidState.Closed, enabled: true, delayPending: false,
+                                               isFirstReading: true);
+
+        Assert.NotEqual(LidDelayAction.StartDelay, action);
+        Assert.NotEqual(LidDelayAction.Suspend, action);
+        Assert.Equal(LidDelayAction.HandBackUntilTheLidOpens, action);
     }
 
     [Fact]

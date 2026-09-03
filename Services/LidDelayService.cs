@@ -31,6 +31,11 @@ internal static class LidDelayService
     private static bool   _delayPending;
     private static bool   _lidSeeded;      // has the registration replay been consumed?
 
+    // True between a start that found the lid already shut and the lid next opening. Over that span
+    // Windows owns the lid-close action again: no wait can be resumed, and leaving the override in
+    // place would park the action on "do nothing" with nobody serving the close.
+    private static bool   _handedBack;
+
     // The two conditions of the current lid close: whether each was set when it started, and whether
     // it has arrived. Whichever arrives first ends the wait — see LidDelayPolicy.WaitIsOver.
     private static bool _timeSet, _timeArrived, _targetSet, _targetArrived;
@@ -204,6 +209,36 @@ internal static class LidDelayService
     /// Turns the time condition on or off. A plain settings write: unlike the battery target it owns
     /// no watch, and the timer of a wait already running is left to run out on its own terms.
     /// </summary>
+    /// <summary>
+    /// The one way the lid-close delay length is written. Every surface that offers it — the
+    /// Settings page, the dashboard chip and the Home Assistant number — comes through here, so the
+    /// configured wait is knowable from the power trail at any point without toggling the feature.
+    /// </summary>
+    /// <remarks>
+    /// The trail used to name the length in two places — at switch-on and at the lid close — with
+    /// nothing recorded in between, so a length changed mid-life read as the arming code arming
+    /// something other than what was configured. The two are indistinguishable in a record that
+    /// carries only the endpoints, which is what this closes.
+    /// <para>Both the stored value and the span it arms are named, because they differ wherever the
+    /// stored one falls outside <see cref="LidDelayPolicy.MinMinutes"/>…<see cref="LidDelayPolicy.MaxMinutes"/>.</para>
+    /// </remarks>
+    /// <param name="surface">Where the write came from, in the words a reader of the trail knows the
+    /// surface by.</param>
+    public static void SetDelayMinutes(int minutes, string surface)
+    {
+        int previous = SettingsService.Current.LidDelayMinutes;
+        if (previous == minutes) return;
+
+        SettingsService.Update(s => s.LidDelayMinutes = minutes);
+
+        int arms = (int)LidDelayPolicy.DelayFor(minutes).TotalMinutes;
+        PowerLog.Event(
+            arms == minutes
+                ? $"Lid-delay length {previous} min → {minutes} min"
+                : $"Lid-delay length {previous} min → {minutes} min, which arms {arms} min",
+            $"changed from {surface}");
+    }
+
     public static void SetTimeEnabled(bool enable)
     {
         SettingsService.Update(s => s.LidDelayTimeEnabled = enable);
@@ -430,7 +465,8 @@ internal static class LidDelayService
             // run — by then _delayPending is false and the policy has nothing left to cancel.
             if (!closed) _generation++;
             action = LidDelayPolicy.OnLidState(closed ? LidState.Closed : LidState.Opened,
-                                               SettingsService.Current.LidDelayEnabled, _delayPending, first);
+                                               SettingsService.Current.LidDelayEnabled, _delayPending, first,
+                                               _handedBack);
         }
 
         // Logged whatever the policy decided, replay included: a lid event the feature ignored is
@@ -450,6 +486,22 @@ internal static class LidDelayService
             case LidDelayAction.Cancel:
                 CancelDelay();
                 PowerLog.Event("Lid delay cancelled, the machine stays awake", "lid reopened");
+                break;
+
+            case LidDelayAction.HandBackUntilTheLidOpens:
+                lock (_sync) _handedBack = true;
+                PowerLog.Event(RestoreSavedAction()
+                    ? "No lid-close wait — the Windows lid-close action is back until the lid next opens"
+                    : "No lid-close wait, and the Windows lid-close action could not be put back",
+                    "the application started with the lid already shut, so there is no wait to resume");
+                break;
+
+            case LidDelayAction.TakeTheOverrideBack:
+                lock (_sync) _handedBack = false;
+                PowerLog.Event(CaptureAndOverride()
+                    ? "Lid-close waits are being served again"
+                    : "Lid-close waits could not be taken back — Windows still owns the lid-close action",
+                    "the lid opened after a start with it already shut");
                 break;
         }
     }
@@ -481,7 +533,9 @@ internal static class LidDelayService
         var s = SettingsService.Current;
         var delay = LidDelayPolicy.DelayFor(s.LidDelayMinutes);
         bool armedTimer;
-        int? watchingFor = null;
+        LidTargetArm targetArm;
+        int targetPercent = LidDischargeWatch.Clamp(s.LidDischargeTargetPercent);
+        int? levelAtClose;
         lock (_sync)
         {
             // Re-checked under the lock: OnLidState decided and then released it, so two concurrent
@@ -499,18 +553,21 @@ internal static class LidDelayService
             // already at its target must not wait for a level that has no reason to move, and a
             // machine with no battery at all could never release a watch once it held, which under
             // first-to-arrive would leave the clock as the only condition anyway.
-            _targetSet = s.LidDischargeEnabled && _lastBattery is not null;
+            _targetSet   = s.LidDischargeEnabled && _lastBattery is not null;
+            levelAtClose = _lastBattery?.Percent;
 
             _trail.Start(_timeSet, (int)delay.TotalMinutes,
-                         _targetSet ? LidDischargeWatch.Clamp(s.LidDischargeTargetPercent) : null,
+                         _targetSet ? targetPercent : null,
                          _lastBattery?.Percent);
 
+            LidDischargeDecision? decision = null;
             if (_targetSet && _lastBattery is { } reading)
             {
                 _discharge.Arm(s.LidDischargeTargetPercent);
-                switch (_discharge.OnReading(reading.Percent, reading.Charging))
+                decision = _discharge.OnReading(reading.Percent, reading.Charging);
+                switch (decision)
                 {
-                    case LidDischargeDecision.Hold:          watchingFor    = s.LidDischargeTargetPercent; break;
+                    case LidDischargeDecision.Hold:          break;
                     case LidDischargeDecision.TargetReached: _targetArrived = true;
                                                              _trail.Arrived(LidWaitEnd.BatteryTarget); break;
                     // Already charging as the lid closes: the target can never arrive, so it is no
@@ -518,6 +575,8 @@ internal static class LidDelayService
                     default:                                 _targetSet     = false; break;
                 }
             }
+
+            targetArm = LidTargetArming.Decide(s.LidDischargeEnabled, _lastBattery is not null, decision);
 
             _holdRequests.Add(NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
             _timer?.Dispose();
@@ -538,9 +597,11 @@ internal static class LidDelayService
         if (armedTimer)
             PowerLog.Event($"Lid-delay timer armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
                            "lid closed with the lid-delay timer on");
-        if (watchingFor is { } target)
-            PowerLog.Event($"Sleep also comes as soon as the battery reaches {target} %",
-                           "lid closed with a battery target set");
+
+        // Recorded in every direction, including the ones where nothing was armed: a target that was
+        // configured and never armed is otherwise indistinguishable from one quietly holding.
+        var (what, why) = LidTargetArming.Describe(targetArm, targetPercent, levelAtClose);
+        PowerLog.Event(what, why);
 
         // Whichever condition already stands satisfied ends the wait here, including the case where
         // neither was set at all.

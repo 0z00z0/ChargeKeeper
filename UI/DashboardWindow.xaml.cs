@@ -1251,7 +1251,7 @@ public sealed partial class DashboardWindow : Window
 
         try
         {
-            SettingsService.Update(x => x.LidDelayMinutes = minutes);
+            LidDelayService.SetDelayMinutes(minutes, "the dashboard");
             if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true);
             if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
         }

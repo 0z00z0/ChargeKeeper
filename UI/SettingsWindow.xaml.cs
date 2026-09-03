@@ -1604,7 +1604,7 @@ internal sealed partial class SettingsWindow : Window
         var presets = SettingsService.Current.LidDelayPresets;
         if (index < 0 || index >= presets.Count) return;
         int minutes = (int)LidDelayPolicy.DelayFor(presets[index].Minutes).TotalMinutes;
-        SettingsService.Update(s => s.LidDelayMinutes = minutes);
+        LidDelayService.SetDelayMinutes(minutes, "the Settings page");
         RefreshLidDelayPresetActivationStates();
     }
 
