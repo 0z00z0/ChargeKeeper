@@ -45,8 +45,11 @@ says the same in words, and `%AppData%\ChargeKeeper\app.log` carries the reason.
   with selectable time scales.
 - **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings
   window → General).
-- **Numeric % tray icon** — show the battery percentage as a number instead of the arc gauge
-  (toggle in the tray menu, dashboard, and Settings window).
+- **Three tray icon styles** — the arc gauge, the reading as a number, or a battery whose interior
+  fills to the level (Settings window → General).
+- **Also show percentage** — a second, display-only tray icon carrying the charge level as a number
+  beside whichever style the main icon uses. Off by default, and unavailable while the main style is
+  already the number.
 - **Settings window** — a proper titled window (tray icon → **Settings…**) with a General/Smart
   Charge/Notifications/MQTT/About sidebar, replacing the old nested tray submenus. Settings are
   stored as human-readable JSON at `%AppData%\ChargeKeeper\settings.json`

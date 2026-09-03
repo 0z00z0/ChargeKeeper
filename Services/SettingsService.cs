@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using ZeroZero.Mqtt;
 
@@ -103,6 +103,19 @@ internal sealed class AppSettings
     public int StartupDelaySeconds { get; set; } = 0;
 
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;
+
+    /// <summary>A second, display-only tray icon carrying the charge level as a number. Off by
+    /// default: Windows files a new icon behind the overflow chevron, so one that arrives
+    /// unasked-for is invisible and unexplained. Meaningless while <see cref="IconMode"/> is
+    /// <see cref="TrayIconMode.Numeric"/>, which draws the same thing — the Settings page refuses
+    /// the combination and <see cref="PercentageIconWanted"/> is the single reading of it.</summary>
+    public bool ShowPercentageIcon { get; set; }
+
+    /// <summary>Whether a second icon is actually drawn. Numeric % already puts the reading in the
+    /// tray, so the two never appear together whatever the stored flag says — one reading of the
+    /// pair, so the tray, the Settings page and the tests cannot each decide it differently.</summary>
+    [JsonIgnore]
+    public bool PercentageIconWanted => ShowPercentageIcon && IconMode != TrayIconMode.Numeric;
 
     public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
 

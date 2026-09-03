@@ -140,7 +140,8 @@ The dashboard's collapsible **Settings** expander exposes:
 |---------|--------|
 | **Low-battery warning** | On/off toggle + threshold % for the discharge toast (5 % hysteresis) |
 | **Startup delay** | Seconds to wait before the app initialises at sign-in — keeps it off the critical path when many elevated apps start at once |
-| **Numeric % icon** | Render the tray icon as a number instead of the arc gauge |
+| **Tray icon style** | Arc gauge, Numeric % or Battery fill |
+| **Also show percentage** | A second, display-only tray icon carrying the charge level as a number. Unavailable while Numeric % is the style, which already shows it. Windows files a new tray icon behind the overflow chevron, so drag it out once to keep it on the taskbar |
 
 It also offers:
 

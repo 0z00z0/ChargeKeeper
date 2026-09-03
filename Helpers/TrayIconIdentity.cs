@@ -18,4 +18,12 @@ internal static class TrayIconIdentity
     /// moving the install folder used to cost every installation its position.</para>
     /// </summary>
     internal static readonly Guid Value = new("05290CC3-5F1D-4AD4-8F5D-722D2D0772A1");
+
+    /// <summary>
+    /// The second, display-only icon carrying the charge level as a number. Its own value, so the
+    /// shell tracks the two icons separately and each keeps the position its owner chose for it.
+    /// Fixed on the same terms as <see cref="Value"/>: never regenerated, never derived from
+    /// anything that can move, and pinned as a literal by a test.
+    /// </summary>
+    internal static readonly Guid PercentageValue = new("3C0B6A57-9E44-4E1B-B0A2-6D8F4C21B7E9");
 }

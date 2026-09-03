@@ -530,6 +530,8 @@ internal sealed partial class SettingsWindow : Window
         {
             LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
             IconModeCombo.SelectedIndex   = (int)s.IconMode;
+            PercentageIconToggle.IsOn     = s.ShowPercentageIcon;
+            ApplyPercentageIconAvailability(s.IconMode);
             GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
             SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
             GraphShadingToggle.IsOn       = s.GraphShadingEnabled;
@@ -561,8 +563,43 @@ internal sealed partial class SettingsWindow : Window
     {
         if (_updating || IconModeCombo.SelectedIndex < 0) return;
         var mode = (TrayIconMode)IconModeCombo.SelectedIndex;
-        SettingsService.Update(s => s.IconMode = mode);
+
+        // Numeric % already puts the reading in the tray, so the second icon would be a duplicate.
+        // Switched off as well as disabled: leaving it stored as on would bring the duplicate back
+        // the moment another style was chosen, which is not what selecting Numeric % asked for.
+        bool clearSecond = mode == TrayIconMode.Numeric;
+        SettingsService.Update(s =>
+        {
+            s.IconMode = mode;
+            if (clearSecond) s.ShowPercentageIcon = false;
+        });
+
+        WithUpdatingSuppressed(() =>
+        {
+            if (clearSecond) PercentageIconToggle.IsOn = false;
+            ApplyPercentageIconAvailability(mode);
+        });
+
         _menu.ReconcileFromExternalChange();   // repaints the tray icon via the icon-mode callback
+    }
+
+    private void OnPercentageIconToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = PercentageIconToggle.IsOn;
+        SettingsService.Update(s => s.ShowPercentageIcon = on);
+        _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
+    }
+
+    /// <summary>The second icon is offered only where it would show something the main icon does
+    /// not. Disabling rather than ignoring is what makes the reason visible.</summary>
+    private void ApplyPercentageIconAvailability(TrayIconMode mode)
+    {
+        bool available = mode != TrayIconMode.Numeric;
+        PercentageIconToggle.IsEnabled = available;
+        PercentageIconCard.Description = available
+            ? "Adds a second tray icon showing the charge level as a number."
+            : "The Numeric % style already shows the charge level as a number.";
     }
 
     private void OnGraphScaleChanged(object sender, SelectionChangedEventArgs e)

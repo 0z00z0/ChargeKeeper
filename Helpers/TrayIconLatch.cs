@@ -12,8 +12,11 @@ namespace ChargeKeeper.Helpers;
 /// painted from different scales, so an edge between them at an unchanged level must repaint. The
 /// flow is separate from the state and moves independently of it — a machine drawing more than its
 /// adapter supplies turns the flow round while the state and the level stand still.</remarks>
+/// <param name="Percentage">Whether the second, display-only icon is drawn. Part of the key because
+/// switching it on or off moves the tray without moving the reading.</param>
 internal readonly record struct TrayIconRequest(
-    int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold, PowerFlow? Flow = null);
+    int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold,
+    PowerFlow? Flow = null, bool Percentage = false);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the

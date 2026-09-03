@@ -48,6 +48,7 @@ public class SettingsFileShapeTests : IDisposable
         "general",
         "general.StartupDelaySeconds",
         "general.IconMode",
+        "general.ShowPercentageIcon",
         "graph",
         "graph.GraphTimeScale",
         "graph.GraphLineColouring",

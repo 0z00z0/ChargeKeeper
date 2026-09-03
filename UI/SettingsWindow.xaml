@@ -140,6 +140,17 @@
                         </ComboBox>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard x:Name="PercentageIconCard"
+                                            Header="Also show percentage"
+                                            Description="Adds a second tray icon showing the charge level as a number.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnPercentageIconToggled"/>
+                            <local:InfoIcon Subject="Also show percentage"
+                                            Info="A second icon that only shows the reading — the menu, the dashboard and the tooltip stay on the main one. Windows puts a new tray icon behind the overflow chevron, so drag it out to keep it on the taskbar. Unavailable while the tray icon style is Numeric %, which already shows the number."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="History graph range"
                                             Description="Default time span shown in the battery history graph.">
                         <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">

@@ -80,6 +80,7 @@ internal sealed class SettingsFile
     {
         [JsonPropertyOrder(1)] public int          StartupDelaySeconds { get; set; }
         [JsonPropertyOrder(2)] public TrayIconMode IconMode            { get; set; }
+        [JsonPropertyOrder(3)] public bool         ShowPercentageIcon  { get; set; }
     }
 
     internal sealed class GraphGroup
@@ -175,6 +176,7 @@ internal sealed class SettingsFile
         {
             StartupDelaySeconds = s.StartupDelaySeconds,
             IconMode            = s.IconMode,
+            ShowPercentageIcon  = s.ShowPercentageIcon,
         },
         Graph = new GraphGroup
         {
@@ -250,6 +252,7 @@ internal sealed class SettingsFile
     {
         StartupDelaySeconds = General.StartupDelaySeconds,
         IconMode            = General.IconMode,
+        ShowPercentageIcon  = General.ShowPercentageIcon,
 
         GraphTimeScale      = Graph.GraphTimeScale,
         GraphLineColouring  = Graph.GraphLineColouring,

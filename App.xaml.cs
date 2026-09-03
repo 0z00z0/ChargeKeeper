@@ -1,4 +1,4 @@
-﻿using H.NotifyIcon;
+using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
@@ -24,6 +24,10 @@ public partial class App : Application
     private readonly TaskCompletionSource _windowsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal Task WindowsReady => _windowsReady.Task;
     private TaskbarIcon?         _trayIcon;
+    // The second, display-only icon of the "Also show percentage" setting. Created and destroyed as
+    // the setting moves rather than only at start-up, so it is null whenever the setting is off.
+    private TaskbarIcon?         _percentageIcon;
+    private System.Drawing.Icon? _currentPercentageIcon;
     private DashboardWindow?     _dashboard;
     private BatteryHistoryWindow? _historyWindow;
     private SettingsWindow?      _settings;
@@ -714,6 +718,12 @@ public partial class App : Application
                 icon.TrayIcon.TryRemove();
                 icon.TrayIcon.Create();
             }
+            // The second icon is dropped by the same shell event and recovers the same way.
+            if (_percentageIcon is { } percentage)
+            {
+                percentage.TrayIcon.TryRemove();
+                percentage.TrayIcon.Create();
+            }
             ForceIconRefresh();   // repaint the battery arc onto the (re)created icon
         });
     }
@@ -937,8 +947,9 @@ public partial class App : Application
         // Re-read on whichever thread gets here, so a repaint that waited in the queue draws the
         // style and the thresholds in force now rather than the ones set when it was posted. The
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
-        var request = new TrayIconRequest(pct, state, SettingsService.Current.IconMode,
-                                          _lastThresholdState, flow);
+        var settings = SettingsService.Current;
+        var request  = new TrayIconRequest(pct, state, settings.IconMode, _lastThresholdState, flow,
+                                           settings.PercentageIconWanted);
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -962,6 +973,12 @@ public partial class App : Application
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
             oldIcon?.Dispose();
+
+            // Inside the same guard and before the latch commits: a second icon that failed to
+            // appear must leave the latch unset, so the next tick tries again rather than deduping
+            // against a tray that never got it.
+            ApplyPercentageIcon(request);
+
             // Only here: the latch records what the tray icon is showing, not what was asked for.
             _iconLatch.MarkPainted(request);
         }
@@ -971,6 +988,53 @@ public partial class App : Application
             // place with nothing anywhere to say why.
             AppLog.Error("UpdateTrayIcon", ex);
         }
+    }
+
+    /// <summary>
+    /// Brings the second, display-only icon into line with <paramref name="request"/>: creates it
+    /// the first time the setting asks for one, repaints it on every later tick, and removes it
+    /// when the setting goes off. UI thread only, like every other tray mutation.
+    /// </summary>
+    private void ApplyPercentageIcon(TrayIconRequest request)
+    {
+        if (!request.Percentage)
+        {
+            if (_percentageIcon is not { } stale) return;
+
+            // Cleared before disposal: a throw must not leave a disposed icon reachable.
+            _percentageIcon = null;
+            var lastFrame = _currentPercentageIcon;
+            _currentPercentageIcon = null;
+            stale.Dispose();
+            lastFrame?.Dispose();
+            return;
+        }
+
+        if (_percentageIcon is null)
+        {
+            var icon = new TaskbarIcon
+            {
+                // Its own identity, so the shell keeps this icon's position separately from the
+                // main one's. Set before creation, and never a CustomName, which would write the
+                // library's own path-derived value back over it.
+                Id = TrayIconIdentity.PercentageValue,
+            };
+
+            // Display-only: no context flyout, no click commands, no tooltip. Everything reachable
+            // from the tray is reachable from the main icon.
+            //
+            // enablesEfficiencyMode: false for the same reason the main icon passes it — the flag
+            // is a property of the PROCESS, so one icon created with the library's default would
+            // drop the whole application into the lowest priority class for the rest of the run.
+            icon.ForceCreate(enablesEfficiencyMode: false);
+            _percentageIcon = icon;
+        }
+
+        var next     = IconGenerator.RenderPercentageIcon(request.Pct, request.State);
+        var previous = _currentPercentageIcon;
+        _percentageIcon.Icon    = next;
+        _currentPercentageIcon  = next;
+        previous?.Dispose();
     }
 
     /// <summary>Repaints from the last reading, for the sources that change the icon without a
@@ -1343,8 +1407,11 @@ public partial class App : Application
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
         _mqtt?.Dispose();         // publishes offline, and leaves the document standing
         _currentBatteryIcon?.Dispose();
+        _currentPercentageIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();
+        // Both icons go, or the one left behind is a ghost in the tray until the shell is poked.
+        _percentageIcon?.Dispose();
         Application.Current.Exit();
     }
 }

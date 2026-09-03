@@ -179,6 +179,19 @@ internal static class IconGenerator
         return new System.Drawing.Icon(ms);
     }
 
+    /// <summary>The second, display-only tray icon: the reading and nothing else, at the current
+    /// tray-slot size. Draws exactly what <see cref="TrayIconMode.Numeric"/> draws, so the two can
+    /// never disagree about the same number.</summary>
+    internal static System.Drawing.Icon RenderPercentageIcon(int percent, PowerState state)
+    {
+        Bitmap Render(int size) => RenderPercentageBitmap(size, percent, state);
+
+        using var ms = new MemoryStream();
+        WriteIco(ms, Render, [CurrentTraySlotSize()]);
+        ms.Position = 0;
+        return new System.Drawing.Icon(ms);
+    }
+
     /// <summary>
     /// The tray mark for an application that is not watching the battery: an exclamation on the
     /// critical tier, in no style the user can choose, so it cannot be mistaken for a reading.
@@ -206,7 +219,7 @@ internal static class IconGenerator
             // every placement tried clipped them at 16 px. The brand mark's payload IS its interior
             // fill band, and the moat that keeps the mark legible erases the band it sits on. Both
             // keep the power state in their colour, as before.
-            TrayIconMode.Numeric   => RenderNumericBitmap(size, percent, state),
+            TrayIconMode.Numeric   => RenderPercentageBitmap(size, percent, state),
             TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, FillFor(percent, state), threshold,
                                                       TraySlotHeights),
             _                      => RenderBatteryBitmap(size, percent, state, threshold, flow),
@@ -222,10 +235,93 @@ internal static class IconGenerator
             ? (null, null)
             : (state.Stop, state.HasStartThreshold ? state.Start : null);
 
-    /// <summary>Renders the percentage as a large number on a colour-coded rounded square.</summary>
-    private static Bitmap RenderNumericBitmap(int size, int percent, PowerState state) =>
-        // Three-digit "100" is scaled down by the shared renderer so it still fits the slot.
-        RenderGlyphOnTierBitmap(size, percent > 0 ? $"{percent}" : "?", FillFor(percent, state));
+    /// <summary>Renders the percentage as digits filling the whole frame. Public so the second,
+    /// display-only tray icon draws the same thing as the numeric style rather than a copy.</summary>
+    internal static Bitmap RenderPercentageBitmap(int size, int percent, PowerState state) =>
+        RenderFullBleedDigits(size, percent > 0 ? $"{percent}" : "?", FillFor(percent, state),
+                              CurrentContrast());
+
+    /// <summary>How far the digits are allowed past the top and bottom of the frame, as a fraction
+    /// of it. The reading is what the icon is for, so the numerals are sized to the frame and
+    /// cropped by it rather than letterboxed inside it.</summary>
+    internal const float DigitOverflowFraction = 0.04f;
+
+    /// <summary>The narrowest the digits may be squeezed, as a fraction of their natural width. Two
+    /// digits tall enough to fill a 16 px frame are wider than it, so they are condensed to fit; a
+    /// floor stops three digits collapsing into a smear.</summary>
+    internal const float DigitMinimumCondense = 0.62f;
+
+    /// <summary>The em size and horizontal squeeze that make <paramref name="glyphs"/> fill a
+    /// <paramref name="size"/> px frame: height first, because that is what a reader resolves, then
+    /// as much condensing as the floor allows before the em size gives way.</summary>
+    internal static (float EmSize, float Condense) DigitFit(float size, RectangleF glyphs)
+    {
+        if (glyphs.Height <= 0 || glyphs.Width <= 0) return (size, 1f);
+
+        float target = size * (1f + 2f * DigitOverflowFraction);
+        float em     = DigitReferenceEm * target / glyphs.Height;
+        float width  = glyphs.Width * target / glyphs.Height;
+        float squeeze = Math.Clamp(size / width, DigitMinimumCondense, 1f);
+
+        // Condensing alone could not close the gap, so the whole reading steps down until it does.
+        if (width * squeeze > size) em *= size / (width * squeeze);
+        return (em, squeeze);
+    }
+
+    /// <summary>The em size the glyph outline is measured at. Large, so the measurement does not
+    /// quantise on a small frame.</summary>
+    private const float DigitReferenceEm = 100f;
+
+    /// <summary>
+    /// The reading as heavy numerals filling the frame: sized to its height, condensed to its width,
+    /// and cropped by its top and bottom edges rather than sitting inside a margin. The tier colour
+    /// carries the level, as it does on every other style, and a dark halo underneath is what makes
+    /// a mid-luminance colour read on a light taskbar.
+    /// </summary>
+    private static Bitmap RenderFullBleedDigits(int size, string label, Color fill, IconContrast contrast)
+    {
+        var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode   = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.Clear(Color.Transparent);
+
+        using var family = new FontFamily("Segoe UI");
+        using var sf     = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap,
+            Trimming    = StringTrimming.None,
+        };
+
+        using var path = new GraphicsPath();
+        path.AddString(label, family, (int)System.Drawing.FontStyle.Bold, DigitReferenceEm,
+                       new PointF(0, 0), sf);
+
+        // The ink's own bounds, not the font's line box: a digit's advance carries side bearings and
+        // an ascent nothing in "80" reaches, and fitting to those letterboxes the reading again.
+        RectangleF ink = path.GetBounds();
+        if (ink.Width <= 0 || ink.Height <= 0) return bmp;
+
+        var (em, condense) = DigitFit(size, ink);
+        float scale = em / DigitReferenceEm;
+
+        using var transform = new Matrix();
+        transform.Translate(size / 2f, size / 2f);
+        transform.Scale(scale * condense, scale);
+        transform.Translate(-(ink.X + ink.Width / 2f), -(ink.Y + ink.Height / 2f));
+        path.Transform(transform);
+
+        // Deliberately narrow. The pen is centred on the outline, so half of it lands inside the
+        // glyph, and a halo sized like the arc's closes the counters of an 8 at 16 px — measured,
+        // the reading becomes two blobs.
+        using (var halo = new System.Drawing.Pen(contrast.Outline, Math.Max(1f, size * 0.07f))
+                          { LineJoin = LineJoin.Round })
+            g.DrawPath(halo, path);
+        using (var brush = new SolidBrush(fill))
+            g.FillPath(brush, path);
+
+        return bmp;
+    }
 
     /// <summary>The rounded tier square with a centred glyph, shared by the numeric style and the
     /// warning mark so the two cannot drift apart in shape, margin or contrast.</summary>
