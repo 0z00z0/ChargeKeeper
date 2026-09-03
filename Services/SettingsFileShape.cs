@@ -33,6 +33,7 @@ internal sealed class SettingsFile
     public const string NotificationsKey = MqttPublishGroups.Notifications;
     public const string MqttKey         = "mqtt";
     public const string DiagnosticsKey  = "diagnostics";
+    public const string AppearanceKey   = "appearance";
     public const string WindowKey       = "window";
 
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
@@ -68,8 +69,11 @@ internal sealed class SettingsFile
     [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(9)]
     public DiagnosticsGroup Diagnostics { get; set; } = new();
 
+    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(10)]
+    public AppearanceGroup Appearance { get; set; } = new();
+
     // Window placement is state rather than a page: nothing on screen edits it, so it sits last.
-    [JsonPropertyName(WindowKey), JsonPropertyOrder(10)]
+    [JsonPropertyName(WindowKey), JsonPropertyOrder(11)]
     public WindowGroup Window { get; set; } = new();
 
     internal sealed class GeneralGroup
@@ -151,6 +155,11 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(2)] public PerformanceSampleRate PerformanceSampleRate   { get; set; }
     }
 
+    internal sealed class AppearanceGroup
+    {
+        [JsonPropertyOrder(1)] public bool OneLineUntilItMatters { get; set; }
+    }
+
     internal sealed class WindowGroup
     {
         [JsonPropertyOrder(1)] public int? SettingsWindowX      { get; set; }
@@ -222,6 +231,10 @@ internal sealed class SettingsFile
             PerformanceGraphEnabled = s.PerformanceGraphEnabled,
             PerformanceSampleRate   = s.PerformanceSampleRate,
         },
+        Appearance = new AppearanceGroup
+        {
+            OneLineUntilItMatters = s.OneLineUntilItMatters,
+        },
         Window = new WindowGroup
         {
             SettingsWindowX      = s.SettingsWindowX,
@@ -278,6 +291,8 @@ internal sealed class SettingsFile
 
         PerformanceGraphEnabled = Diagnostics.PerformanceGraphEnabled,
         PerformanceSampleRate   = Diagnostics.PerformanceSampleRate,
+
+        OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

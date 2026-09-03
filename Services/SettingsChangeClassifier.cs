@@ -38,6 +38,10 @@ internal static class SettingsChangeClassifier
         nameof(AppSettings.GraphLineColouring),
         nameof(AppSettings.GraphShadingEnabled),
 
+        // Whether an off badge collapses to one dense row on the dashboard popup. Decides how one
+        // window draws, like the graph settings above — deliberately absent from the MQTT surface.
+        nameof(AppSettings.OneLineUntilItMatters),
+
         // The lid actions captured for crash recovery, and the scheme they belong to.
         nameof(AppSettings.LidDelaySavedAcAction),
         nameof(AppSettings.LidDelaySavedDcAction),

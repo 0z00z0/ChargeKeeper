@@ -20,12 +20,20 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
+
+        <!-- The time-scale row and legend's rest opacity, restored to 1 on pointer-enter over the
+             graph card (RootGrid) in code-behind. Midpoint of the approved 35-45% range. The plotted
+             line, its extremum markers and every axis label are never gated by this — they stay full
+             opacity always. -->
+        <x:Double x:Key="GraphChromeRestOpacity">0.4</x:Double>
     </UserControl.Resources>
 
     <!-- A Grid, not a StackPanel, so the plot row can take "*" from a resizable host: a StackPanel
          never gives a child more than its desired size along the stack axis. The card and the
          legend are direct children so nothing between that "*" and the card caps its growth. -->
-    <Grid x:Name="RootGrid" RowSpacing="6">
+    <Grid x:Name="RootGrid" RowSpacing="6"
+          PointerEntered="OnGraphCardPointerEntered"
+          PointerExited="OnGraphCardPointerExited">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- time-scale selector -->
             <RowDefinition Height="*"/>     <!-- sparkline card -->
@@ -33,11 +41,14 @@
         </Grid.RowDefinitions>
 
         <!-- One toggle button per GraphTimeScale value, in order. The expand trigger is not in this
-             row, so the buttons get the full width. -->
+             row, so the buttons get the full width. Faded at rest and restored on pointer-enter (see
+             RootGrid above) so the row reads as chrome rather than content while just glancing at
+             the plot — the line, its markers and every axis label stay full opacity always. -->
         <StackPanel Grid.Row="0"
                     x:Name="TimeScalePanel"
                     Orientation="Horizontal"
-                    Spacing="4">
+                    Spacing="4"
+                    Opacity="{StaticResource GraphChromeRestOpacity}">
             <Button x:Name="Scale15mButton" Content="15m" Tag="FifteenMinutes" Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
             <Button x:Name="Scale1hButton"  Content="1h"  Tag="OneHour"        Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
             <Button x:Name="Scale6hButton"  Content="6h"  Tag="SixHours"       Click="OnTimeScaleButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
@@ -141,8 +152,12 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- A swatch and label per series; swatch colours are assigned in code-behind. -->
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <!-- A swatch and label per series; swatch colours are assigned in code-behind. Faded and
+                 restored on the same terms as TimeScalePanel above — the ExpandGlyph button beside it
+                 is its own always-visible affordance and is not part of this fade. -->
+            <StackPanel x:Name="LegendPanel" Grid.Column="0" Orientation="Horizontal" Spacing="14"
+                        VerticalAlignment="Center"
+                        Opacity="{StaticResource GraphChromeRestOpacity}">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock Text="SoC" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

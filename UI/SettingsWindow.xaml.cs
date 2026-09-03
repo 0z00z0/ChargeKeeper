@@ -118,6 +118,7 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadKeepAwake();
+        LoadAppearance();
         LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
         // throw away a half-entered host name.
@@ -344,6 +345,7 @@ internal sealed partial class SettingsWindow : Window
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
+        AppearancePanel.Visibility     = tag == "Appearance"     ? Visibility.Visible : Visibility.Collapsed;
         AppDiagnosticsPanel.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
@@ -596,6 +598,21 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         bool on = GraphShadingToggle.IsOn;
         SettingsService.Update(s => s.GraphShadingEnabled = on);
+    }
+
+    // ── Appearance ──────────────────────────────────────────────────────────────────────────────
+
+    private void LoadAppearance()
+    {
+        WithUpdatingSuppressed(() =>
+            OneLineUntilItMattersToggle.IsOn = SettingsService.Current.OneLineUntilItMatters);
+    }
+
+    private void OnOneLineUntilItMattersToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = OneLineUntilItMattersToggle.IsOn;
+        SettingsService.Update(s => s.OneLineUntilItMatters = on);
     }
 
     // ── App diagnostics ─────────────────────────────────────────────────────────────────────────

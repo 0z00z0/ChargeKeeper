@@ -36,7 +36,20 @@ internal static class AppColors
     // Badge backgrounds (semi-transparent fills).
     internal static readonly SolidColorBrush BadgeActiveBrush =
         new(Color.FromArgb(20, SteelBlue.R, SteelBlue.G, SteelBlue.B));
-    internal static readonly SolidColorBrush BadgeInactiveBrush = new(Color.FromArgb(12, 0x80, 0x80, 0x80));
+
+    // Fully transparent: an off badge carries no tint at all. BadgeBorderBrush below draws the
+    // rounded-rectangle outline that keeps its edges legible against the Mica backdrop once the
+    // tint is gone.
+    internal static readonly SolidColorBrush BadgeInactiveBrush = new(Microsoft.UI.Colors.Transparent);
+
+    // Reuses the app's hairline colour (DividerStrokeColorDefaultBrush / ControlStrokeColorDefaultBrush
+    // in App.xaml, both #1a2840) rather than a new brush, so the badge outline matches every other
+    // stroke in the chrome. Also the dimmed preset chips' border, for the same reason.
+    internal static readonly SolidColorBrush BadgeBorderBrush = new(Color.FromArgb(255, 0x1A, 0x28, 0x40));
+
+    // A dimmed preset chip's text, while its badge's own switch is off. Matches
+    // TextFillColorTertiaryBrush in App.xaml (#748ba5) rather than a new value.
+    internal static readonly SolidColorBrush ChipMutedForegroundBrush = new(Color.FromArgb(255, 0x74, 0x8B, 0xA5));
 
     // An active badge whose state is costing battery. Same weight as BadgeActiveBrush so it reads as
     // "on", with only the hue carrying the warning.

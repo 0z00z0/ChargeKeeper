@@ -63,8 +63,8 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         set => StressHeatmapBar.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>Shows the hover crosshair; false in the 340px dashboard, where the readout pill would
-    /// cover the lines it tracks.</summary>
+    /// <summary>Shows the hover crosshair; false in the narrow dashboard popup, where the readout
+    /// pill would cover the lines it tracks.</summary>
     public bool ShowCrosshair { get; set; } = true;
 
     // Cached per Render() so a pointer move needn't redo the downsample/compressed-x/projection pipeline.
@@ -169,6 +169,25 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
     }
 
     private void OnCanvasPointerExited(object sender, PointerRoutedEventArgs e) => ClearCrosshair();
+
+    /// <summary>
+    /// Restores the time-scale row and legend to full opacity while the pointer is anywhere over the
+    /// graph card; <see cref="OnGraphCardPointerExited"/> fades them back once it leaves. PointerEntered
+    /// and PointerExited fire once per crossing of RootGrid's own bounds, not per child, so moving
+    /// between the buttons and the sparkline inside it does not retrigger either.
+    /// </summary>
+    private void OnGraphCardPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        TimeScalePanel.Opacity = 1.0;
+        LegendPanel.Opacity    = 1.0;
+    }
+
+    private void OnGraphCardPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        double rest = (double)Resources["GraphChromeRestOpacity"];
+        TimeScalePanel.Opacity = rest;
+        LegendPanel.Opacity    = rest;
+    }
 
     /// <summary>Detaches only the crosshair's own elements; a Children.Clear() would wipe the chart.</summary>
     private void ClearCrosshair()

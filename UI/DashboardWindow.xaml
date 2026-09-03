@@ -14,8 +14,10 @@
     </Window.SystemBackdrop>
 
     <!-- No fixed size: the window is measured from this grid, so rows can appear and disappear
-         without hard-coded height constants. -->
-    <Grid x:Name="RootGrid" Padding="20,16,20,12">
+         without hard-coded height constants. Bottom padding matches the left/right 20 rather than
+         the tighter 12 it used to carry: the last badge's chip row sat too close to the window edge
+         at 12, independent of width. -->
+    <Grid x:Name="RootGrid" Padding="20,16,20,20">
         <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
              sits; nothing in this window wants the key for itself. -->
         <Grid.KeyboardAccelerators>
@@ -164,11 +166,13 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <!-- A second hit target for the switch, so a click anywhere on the badge
                              text works. The Background is required: a panel with no brush is not
                              hit-testable, leaving only the glyphs clickable. -->
-                        <StackPanel Grid.Column="0" Spacing="1"
+                        <StackPanel x:Name="SmartChargeExpandedHeader"
+                                    Grid.Column="0" Spacing="1"
                                     Background="Transparent"
                                     Tapped="OnSmartChargeLabelTapped">
                             <TextBlock Text="Smart Charge"
@@ -200,6 +204,18 @@
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
+                        <!-- "One line until it matters" (Settings > Appearance), off by default: the
+                             dense alternative shown instead of the row above while Smart Charge is
+                             off and not expanded. Never shown while Smart Charge is on. -->
+                        <StackPanel x:Name="SmartChargeCollapsedHeader"
+                                    Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                    VerticalAlignment="Center"
+                                    Background="Transparent"
+                                    Visibility="Collapsed"
+                                    Tapped="OnSmartChargeCollapsedRowTapped">
+                            <TextBlock Text="Smart Charge" Style="{StaticResource DashboardHeaderStyle}"/>
+                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
                         <!-- Empty On/OffContent and MinWidth 0 strip the default 154 px label
                              track, so the switch takes only the space it needs. The badge
                              background carries the active colour. -->
@@ -211,6 +227,19 @@
                                       VerticalAlignment="Center"
                                       AutomationProperties.Name="Smart Charge"
                                       Toggled="OnSmartChargeToggled"/>
+                        <!-- The expand/collapse affordance for the row above; visible only while
+                             eligible (badge off and "One line until it matters" is on), in either the
+                             collapsed or the expanded-in-place state. -->
+                        <Border Grid.Column="2" x:Name="SmartChargeChevronHost"
+                                Width="20" Height="20" Margin="4,0,0,0"
+                                Background="Transparent"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Collapsed"
+                                Tapped="OnSmartChargeCollapsedRowTapped">
+                            <FontIcon x:Name="SmartChargeChevronGlyph"
+                                      FontFamily="Segoe Fluent Icons" Glyph="&#xE70D;" FontSize="10"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        </Border>
                     </Grid>
 
                     <!-- One dual-thumb selector rather than two sliders, so "charge between X and
@@ -278,8 +307,10 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Spacing="1"
+                    <StackPanel x:Name="SmartStandbyExpandedHeader"
+                                Grid.Column="0" Spacing="1"
                                 Background="Transparent"
                                 Tapped="OnSmartStandbyLabelTapped">
                         <TextBlock Text="Smart Standby"
@@ -306,6 +337,15 @@
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
+                    <StackPanel x:Name="SmartStandbyCollapsedHeader"
+                                Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                VerticalAlignment="Center"
+                                Background="Transparent"
+                                Visibility="Collapsed"
+                                Tapped="OnSmartStandbyCollapsedRowTapped">
+                        <TextBlock Text="Smart Standby" Style="{StaticResource DashboardHeaderStyle}"/>
+                        <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
                     <ToggleSwitch Grid.Column="1"
                                   x:Name="SmartStandbyToggle"
                                   OnContent=""
@@ -314,6 +354,16 @@
                                   VerticalAlignment="Center"
                                   AutomationProperties.Name="Smart Standby"
                                   Toggled="OnSmartStandbyToggled"/>
+                    <Border Grid.Column="2" x:Name="SmartStandbyChevronHost"
+                            Width="20" Height="20" Margin="4,0,0,0"
+                            Background="Transparent"
+                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="Collapsed"
+                            Tapped="OnSmartStandbyCollapsedRowTapped">
+                        <FontIcon x:Name="SmartStandbyChevronGlyph"
+                                  FontFamily="Segoe Fluent Icons" Glyph="&#xE70D;" FontSize="10"
+                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </Border>
                 </Grid>
             </Border>
 
@@ -327,8 +377,10 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="1"
+                        <StackPanel x:Name="LidDelayExpandedHeader"
+                                    Grid.Column="0" Spacing="1"
                                     Background="Transparent"
                                     Tapped="OnLidDelayLabelTapped">
                             <TextBlock Text="Lid close"
@@ -355,6 +407,15 @@
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
+                        <StackPanel x:Name="LidDelayCollapsedHeader"
+                                    Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                    VerticalAlignment="Center"
+                                    Background="Transparent"
+                                    Visibility="Collapsed"
+                                    Tapped="OnLidDelayCollapsedRowTapped">
+                            <TextBlock Text="Lid close" Style="{StaticResource DashboardHeaderStyle}"/>
+                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="LidDelayToggle"
                                       OnContent=""
@@ -363,6 +424,16 @@
                                       VerticalAlignment="Center"
                                       AutomationProperties.Name="Lid close delay"
                                       Toggled="OnLidDelayToggled"/>
+                        <Border Grid.Column="2" x:Name="LidDelayChevronHost"
+                                Width="20" Height="20" Margin="4,0,0,0"
+                                Background="Transparent"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Collapsed"
+                                Tapped="OnLidDelayCollapsedRowTapped">
+                            <FontIcon x:Name="LidDelayChevronGlyph"
+                                      FontFamily="Segoe Fluent Icons" Glyph="&#xE70D;" FontSize="10"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        </Border>
                     </Grid>
 
                     <!-- Both kinds of preset, each in its own labelled group. Built in code
@@ -396,8 +467,10 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="1"
+                        <StackPanel x:Name="KeepAwakeExpandedHeader"
+                                    Grid.Column="0" Spacing="1"
                                     Background="Transparent"
                                     Tapped="OnKeepAwakeLabelTapped">
                             <TextBlock Text="Keep Awake"
@@ -430,21 +503,35 @@
                                 <Paragraph>
                                     <Run x:Name="KeepAwakeDetailRun" Text="—"/>
                                     <InlineUIContainer>
-                                        <!-- The Border carries the fill: a WinUI TextBlock has no
-                                             Background, so on its own it hit-tests glyphs only. -->
+                                        <!-- A small tinted pill, the same vocabulary as the badges
+                                             and preset chips, rather than an underlined web-style
+                                             link — no other tappable element in the app looks like a
+                                             hyperlink. CornerRadius and the code-behind Background
+                                             give it the chip shape; a WinUI TextBlock has no
+                                             Background of its own, so the Border also carries the fill
+                                             that makes this hit-testable at all. The tint matches the
+                                             badge's own on/costly brushes (set in code from AppColors). -->
                                         <Border x:Name="KeepAwakeScreenPhraseHost"
-                                                Background="Transparent"
-                                                Padding="3,0,3,0"
+                                                CornerRadius="4"
+                                                Padding="4,1,4,1"
                                                 Visibility="Collapsed"
                                                 Tapped="OnKeepAwakeScreenPhraseTapped">
                                             <TextBlock x:Name="KeepAwakeScreenPhrase"
-                                                       FontSize="11"
-                                                       TextDecorations="Underline"/>
+                                                       FontSize="11"/>
                                         </Border>
                                     </InlineUIContainer>
                                     <Run x:Name="KeepAwakeDetailTailRun"/>
                                 </Paragraph>
                             </RichTextBlock>
+                        </StackPanel>
+                        <StackPanel x:Name="KeepAwakeCollapsedHeader"
+                                    Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                    VerticalAlignment="Center"
+                                    Background="Transparent"
+                                    Visibility="Collapsed"
+                                    Tapped="OnKeepAwakeCollapsedRowTapped">
+                            <TextBlock Text="Keep Awake" Style="{StaticResource DashboardHeaderStyle}"/>
+                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="KeepAwakeToggle"
@@ -454,6 +541,16 @@
                                       VerticalAlignment="Center"
                                       AutomationProperties.Name="Keep Awake"
                                       Toggled="OnKeepAwakeToggled"/>
+                        <Border Grid.Column="2" x:Name="KeepAwakeChevronHost"
+                                Width="20" Height="20" Margin="4,0,0,0"
+                                Background="Transparent"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Collapsed"
+                                Tapped="OnKeepAwakeCollapsedRowTapped">
+                            <FontIcon x:Name="KeepAwakeChevronGlyph"
+                                      FontFamily="Segoe Fluent Icons" Glyph="&#xE70D;" FontSize="10"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        </Border>
                     </Grid>
 
                     <!-- Built in code because the spans come from settings, and styled inline there

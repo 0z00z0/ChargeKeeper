@@ -18,8 +18,10 @@ namespace ChargeKeeper.UI;
 /// </summary>
 public sealed partial class DashboardWindow : Window
 {
-    // Wide enough for the badges' description lines, which at 340 ran out of room beside the switch.
-    private const int WindowWidth = 380;
+    // Wide enough for the badges' description lines, which at 340 ran out of room beside the
+    // switch; widened again from 380 for general breathing room and so the badge stack's own
+    // bottom padding (see RootGrid in the XAML) could grow without the chip rows wrapping.
+    private const int WindowWidth = 400;
 
     // What PresetButtonPanel is allowed before its first arrange: WindowWidth less RootGrid's 20 px
     // padding either side and the Smart Charge badge's 10 px either side. The same width the
@@ -38,6 +40,20 @@ public sealed partial class DashboardWindow : Window
     private const double GaugeStartAngle = 135;
     private const double GaugeSweep      = 270;
 
+    // The border toggled onto an off badge once BadgeInactiveBrush lost its tint, and the absence of
+    // one on an active/costly badge — kept pixel-identical to before that change.
+    private static readonly Thickness NoBorder    = new(0);
+    private static readonly Thickness BadgeBorder = new(1);
+
+    // Preset-chip "shrink and dim": the chip's own on-state metrics (unchanged from before this
+    // existed) versus the shrunk, dimmed off-state one. Font size is 11 either way at rest — only
+    // the off state drops it, so there is one dimmed size for both chip rows.
+    private const double        ChipOnFontSize     = 11;
+    private const double        ChipDimmedFontSize = 10;
+    private static readonly Thickness KeepAwakeChipOnPadding = new(8, 3, 8, 3);
+    private static readonly Thickness LidChipOnPadding       = new(4, 3, 4, 3);
+    private static readonly Thickness ChipDimmedPadding      = new(5, 1, 5, 1);
+
     // Margin between window edge and work-area boundary (DIPs, scaled per monitor).
     private const int EdgeMargin = 12;
 
@@ -53,6 +69,14 @@ public sealed partial class DashboardWindow : Window
 
     // Same for the badge switches and chips: a programmatic write raises the click's own event.
     private bool _updatingBadges = false;
+
+    // "One line until it matters" (Settings > Appearance): whether each badge's off-state row is
+    // expanded in place, overriding the collapsed dense row the setting would otherwise show. Reset
+    // to collapsed every time the popup opens — see ShowNearTray — rather than persisted.
+    private bool _smartChargeExpanded;
+    private bool _smartStandbyExpanded;
+    private bool _lidDelayExpanded;
+    private bool _keepAwakeExpanded;
 
     // The last span the user ran, so the switch resumes that one; the service keeps no history.
     private KeepAwakeRequest? _lastKeepAwake;
@@ -251,6 +275,12 @@ public sealed partial class DashboardWindow : Window
     {
         // A tick already queued can still arrive — CloseIfIdle's visibility check covers that.
         _idleCloseTimer.Stop();
+
+        // Every badge starts collapsed again on a fresh open — see the fields' own comment.
+        _smartChargeExpanded  = false;
+        _smartStandbyExpanded = false;
+        _lidDelayExpanded     = false;
+        _keepAwakeExpanded    = false;
 
         // Load data before making the window visible to avoid a "Loading…" flash.
         Refresh();
@@ -535,6 +565,9 @@ public sealed partial class DashboardWindow : Window
                 : "Off — always Modern Standby";
         }
 
+        if (chargeVisible)    ApplySmartChargeCollapse();
+        if (standbySupported) ApplySmartStandbyCollapse();
+
         // Last: measuring earlier would size the window to a row that is about to disappear.
         if (AppWindow.IsVisible)
             PlaceWindow();
@@ -652,13 +685,124 @@ public sealed partial class DashboardWindow : Window
         });
     }
 
+    /// <summary>
+    /// Shrinks and dims a preset-chip row while its badge's own switch is off, and restores it to
+    /// full strength while the switch is on. Runs on every write, independent of whether the chip
+    /// set itself was rebuilt: only the size, padding and colours are ToggleButton properties that
+    /// persist once a chip exists, so a switch flip with no preset change would otherwise leave a
+    /// stale look. Never runs while a chip in the row is Checked — <see cref="LidDashboardPolicy"/>
+    /// and the Keep Awake session both leave every chip unchecked while their own switch is off, so
+    /// there is no active-preset highlight to conflict with the dimmed look.
+    /// </summary>
+    private static void ApplyChipRowDimming(Panel panel, bool dimmed, Thickness onPadding)
+    {
+        foreach (var chip in panel.Children.OfType<ToggleButton>())
+        {
+            chip.FontSize = dimmed ? ChipDimmedFontSize : ChipOnFontSize;
+            chip.Padding  = dimmed ? ChipDimmedPadding  : onPadding;
+            if (dimmed)
+            {
+                chip.Foreground      = AppColors.ChipMutedForegroundBrush;
+                chip.Background      = AppColors.BadgeInactiveBrush;   // transparent
+                chip.BorderBrush     = AppColors.BadgeBorderBrush;
+                chip.BorderThickness = BadgeBorder;
+            }
+            else
+            {
+                chip.ClearValue(Control.ForegroundProperty);
+                chip.ClearValue(Control.BackgroundProperty);
+                chip.ClearValue(Control.BorderBrushProperty);
+                chip.BorderThickness = NoBorder;
+            }
+        }
+    }
+
+    // Segoe Fluent Icons: chevron pointing down (collapsed, tap to expand) and up (expanded, tap to
+    // collapse back).
+    private const string ChevronDownGlyph = "\uE70D";
+    private const string ChevronUpGlyph   = "\uE70E";
+
+    /// <summary>
+    /// Applies "One line until it matters" to one badge: the dense collapsed row while the badge's
+    /// own switch is off, the setting is on, and it hasn't been expanded in place; the regular
+    /// header and content otherwise. The switch itself is never touched by this — it sits in its own
+    /// grid column throughout. <paramref name="extraContent"/> is whatever the badge shows beyond
+    /// its header (chip rows, Smart Charge's threshold controls) — forced collapsed together with
+    /// the header, left exactly as the caller already set it otherwise, since that is governed by
+    /// each badge's own on/off logic and is not this method's business to decide.
+    /// </summary>
+    private static void ApplyOneLineCollapse(bool on, bool expanded, bool oneLineSetting,
+        StackPanel expandedHeader, StackPanel collapsedHeader, Border chevronHost, FontIcon chevronGlyph,
+        params UIElement[] extraContent)
+    {
+        bool eligible  = oneLineSetting && !on;
+        bool collapsed = eligible && !expanded;
+
+        expandedHeader.Visibility  = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        collapsedHeader.Visibility = collapsed ? Visibility.Visible   : Visibility.Collapsed;
+        chevronHost.Visibility     = eligible  ? Visibility.Visible   : Visibility.Collapsed;
+        chevronGlyph.Glyph         = expanded  ? ChevronUpGlyph       : ChevronDownGlyph;
+
+        if (collapsed)
+            foreach (var content in extraContent)
+                content.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnSmartChargeCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _smartChargeExpanded = !_smartChargeExpanded;
+        ApplySmartChargeCollapse();
+    }
+
+    private void ApplySmartChargeCollapse() => ApplyOneLineCollapse(
+        SmartChargeToggle.IsOn, _smartChargeExpanded, SettingsService.Current.OneLineUntilItMatters,
+        SmartChargeExpandedHeader, SmartChargeCollapsedHeader, SmartChargeChevronHost, SmartChargeChevronGlyph,
+        ThresholdSliders, ThresholdFixedNote, PresetButtonPanel, TravelOverrideButton);
+
+    private void OnSmartStandbyCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _smartStandbyExpanded = !_smartStandbyExpanded;
+        ApplySmartStandbyCollapse();
+    }
+
+    private void ApplySmartStandbyCollapse() => ApplyOneLineCollapse(
+        SmartStandbyToggle.IsOn, _smartStandbyExpanded, SettingsService.Current.OneLineUntilItMatters,
+        SmartStandbyExpandedHeader, SmartStandbyCollapsedHeader, SmartStandbyChevronHost, SmartStandbyChevronGlyph);
+
+    private void OnLidDelayCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _lidDelayExpanded = !_lidDelayExpanded;
+        ApplyLidDelayCollapse();
+    }
+
+    private void ApplyLidDelayCollapse() => ApplyOneLineCollapse(
+        LidDelayToggle.IsOn, _lidDelayExpanded, SettingsService.Current.OneLineUntilItMatters,
+        LidDelayExpandedHeader, LidDelayCollapsedHeader, LidDelayChevronHost, LidDelayChevronGlyph,
+        LidPresetGroups);
+
+    private void OnKeepAwakeCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _keepAwakeExpanded = !_keepAwakeExpanded;
+        ApplyKeepAwakeCollapse();
+    }
+
+    private void ApplyKeepAwakeCollapse() => ApplyOneLineCollapse(
+        KeepAwakeToggle.IsOn, _keepAwakeExpanded, SettingsService.Current.OneLineUntilItMatters,
+        KeepAwakeExpandedHeader, KeepAwakeCollapsedHeader, KeepAwakeChevronHost, KeepAwakeChevronGlyph,
+        KeepAwakePresetPanel);
+
     /// <summary>Applies the badge colour and syncs its switch; the caller must hold <see cref="_updatingBadges"/>.</summary>
     /// <param name="activeBrush">Overrides the active fill, for a state that is on but costing
     /// something. Ignored when <paramref name="on"/> is false.</param>
     private static void SetFeatureBadge(Border badge, ToggleSwitch toggle, bool on, Brush? activeBrush = null)
     {
         badge.Background = on ? activeBrush ?? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
-        toggle.IsOn      = on;
+        // An active or costly badge keeps its tinted fill and no outline — pixel-identical to
+        // before BadgeInactiveBrush went transparent. An off badge has no fill any more, so it takes
+        // a hairline border instead, to stay legible against the Mica backdrop.
+        badge.BorderBrush     = on ? null : AppColors.BadgeBorderBrush;
+        badge.BorderThickness = on ? DashboardWindow.NoBorder : DashboardWindow.BadgeBorder;
+        toggle.IsOn           = on;
     }
 
     /// <summary>
@@ -772,15 +916,23 @@ public sealed partial class DashboardWindow : Window
             KeepAwakeScreenPhrase.Text           = screenHeld ? "screen stays on" : "screen sleeps";
             KeepAwakeScreenPhrase.Foreground     =
                 costly ? AppColors.StatusDischargingBrush : AppColors.AccentBrush;
+            // The same tint the badge itself would carry for this state, so the phrase reads as the
+            // chip/badge idiom rather than an underlined link. A non-null Background is also what
+            // makes the Border hit-testable at all — see the comment on KeepAwakeScreenPhraseHost.
+            KeepAwakeScreenPhraseHost.Background =
+                costly ? AppColors.BadgeCostlyBrush : AppColors.BadgeActiveBrush;
             KeepAwakeScreenPhraseHost.Visibility = Visibility.Visible;
             KeepAwakeDetailTailRun.Text          = costly ? ", on battery" : "";
         }
 
         BuildKeepAwakeChips();
+        ApplyChipRowDimming(KeepAwakePresetPanel, dimmed: session is null, KeepAwakeChipOnPadding);
 
         // KeepAwakeRequest is a record, so this compares the span itself, not where it started.
         foreach (var chip in KeepAwakePresetPanel.Children.OfType<ToggleButton>())
             chip.IsChecked = session is not null && Equals(chip.Tag, session.Request);
+
+        ApplyKeepAwakeCollapse();
     }
 
     /// <summary>
@@ -812,11 +964,11 @@ public sealed partial class DashboardWindow : Window
             {
                 Content         = KeepAwakePolicy.ShortLabel(request),
                 Tag             = request,
-                FontSize        = 11,
-                Padding         = new Thickness(8, 3, 8, 3),
+                FontSize        = ChipOnFontSize,
+                Padding         = KeepAwakeChipOnPadding,
                 MinWidth        = 0,   // the default would spend width this row hasn't got
                 CornerRadius    = new CornerRadius(4),
-                BorderThickness = new Thickness(0),
+                BorderThickness = NoBorder,
             };
             chip.Checked   += OnKeepAwakePresetChecked;
             chip.Unchecked += OnKeepAwakePresetUnchecked;
@@ -912,6 +1064,11 @@ public sealed partial class DashboardWindow : Window
         MarkLidChips(LidLevelPresetPanel,
                      LidDashboardPolicy.ActiveLevelChip(s.LidDelayEnabled, s.LidDischargeEnabled,
                                                         s.LidDischargeTargetPercent));
+
+        ApplyChipRowDimming(LidDelayPresetPanel, dimmed: !s.LidDelayEnabled, LidChipOnPadding);
+        ApplyChipRowDimming(LidLevelPresetPanel, dimmed: !s.LidDelayEnabled, LidChipOnPadding);
+
+        ApplyLidDelayCollapse();
     }
 
     private static void MarkLidChips(Panel panel, int? active)
@@ -1006,12 +1163,12 @@ public sealed partial class DashboardWindow : Window
             {
                 Content             = label(value),
                 Tag                 = value,
-                FontSize            = 11,
-                Padding             = new Thickness(4, 3, 4, 3),
+                FontSize            = ChipOnFontSize,
+                Padding             = LidChipOnPadding,
                 MinWidth            = 0,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 CornerRadius        = new CornerRadius(4),
-                BorderThickness     = new Thickness(0),
+                BorderThickness     = NoBorder,
             };
             ToolTipService.SetToolTip(chip, tip(value));
             chip.Checked   += onChecked;

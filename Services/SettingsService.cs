@@ -126,6 +126,15 @@ internal sealed class AppSettings
     /// process snapshot and this one does not.</summary>
     public PerformanceSampleRate PerformanceSampleRate { get; set; } = PerformanceSampleRates.Default;
 
+    // Appearance, on its own Settings page. Not published over MQTT, for the same reason as the
+    // graph settings above: it decides how the dashboard popup draws, not anything another machine
+    // can see.
+
+    /// <summary>Whether a badge whose own switch is off collapses to one dense row on the dashboard
+    /// popup, expandable in place. Off by default, so an existing installation's dashboard looks
+    /// exactly as before until this is turned on.</summary>
+    public bool OneLineUntilItMatters { get; set; } = false;
+
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
     [

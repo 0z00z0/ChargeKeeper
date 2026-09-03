@@ -181,6 +181,14 @@
                  "running right now". Headings are chrome, so they take a chrome colour. -->
             <StaticResource x:Key="SectionHeadingBrush" ResourceKey="BrandTealBrush"/>
 
+            <!-- The dashboard badge headings only: BrandTealBrush at ~55% strength (alpha 0x8C of
+                 0xFF), an ARGB brush rather than a blended solid hex so it composites correctly over
+                 whatever sits behind it, on the same terms as AppColors.BadgeActiveBrush. Applied
+                 through DashboardHeaderStyle below, never through HeadingBaseStyle itself, so the
+                 Settings window's own headings (SectionHeaderStyle, SubHeaderStyle) keep the full
+                 brand teal. -->
+            <SolidColorBrush x:Key="DashboardHeaderMutedBrush" Color="#8C27E0C8"/>
+
             <Style x:Key="HeadingBaseStyle" TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
@@ -202,8 +210,15 @@
             <Style x:Key="SubHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
                 <Setter Property="FontSize" Value="15"/>
             </Style>
+            <!-- Quieter than a Settings-page heading: the badge name is a label for the row beside
+                 it, not a section break, so it takes the muted brush and drops to the app's plain
+                 body weight rather than HeadingBaseStyle's SemiBold. No Medium weight token exists
+                 in this app's type ramp (only Normal, SemiBold and Bold are used anywhere), so
+                 Normal is the closest weight below SemiBold. -->
             <Style x:Key="DashboardHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource HeadingBaseStyle}">
                 <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+                <Setter Property="Foreground" Value="{StaticResource DashboardHeaderMutedBrush}"/>
             </Style>
 
             <!-- Marks where one sub-section ends and the next begins. The whole gap between groups

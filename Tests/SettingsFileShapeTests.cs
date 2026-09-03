@@ -91,6 +91,8 @@ public class SettingsFileShapeTests : IDisposable
         "diagnostics",
         "diagnostics.PerformanceGraphEnabled",
         "diagnostics.PerformanceSampleRate",
+        "appearance",
+        "appearance.OneLineUntilItMatters",
         "window",
         "window.SettingsWindowX",
         "window.SettingsWindowY",
