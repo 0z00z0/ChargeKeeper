@@ -118,6 +118,12 @@ public sealed partial class DashboardWindow : Window
     // Destroys the window once it has sat hidden long enough; never armed with _refreshTimer.
     private readonly DispatcherTimer _idleCloseTimer;
 
+    // Set by ShowNearTray, cleared once WriteStatusBadges has placed and revealed the window against
+    // freshly loaded badge content. Placing and revealing on ShowNearTray's own thread would size the
+    // window to whatever the badges showed at the previous hide, then jump once the vendor read below
+    // lands a moment later with the real state.
+    private bool _showPending;
+
     public TimeSpan SinceHidden => DateTime.UtcNow - _hiddenAtUtc;
 
     public DashboardWindow(App app)
@@ -282,16 +288,11 @@ public sealed partial class DashboardWindow : Window
         _lidDelayExpanded     = false;
         _keepAwakeExpanded    = false;
 
-        // Load data before making the window visible to avoid a "Loading…" flash.
+        // Placing and revealing the window are deferred to WriteStatusBadges, once the vendor read
+        // it kicks off below has actually landed — the window is shown once, at the height that
+        // read settles on, never at whatever the badges happened to show at the previous hide.
+        _showPending = true;
         Refresh();
-
-        // Size to the current content; ApplyStatusBadges re-places once the background read lands.
-        PlaceWindow();
-
-        AppWindow.Show();
-
-        // Activate() fires the Activated event, which starts the refresh timer.
-        Activate();
     }
 
     private void PlaceWindow()
@@ -361,12 +362,22 @@ public sealed partial class DashboardWindow : Window
         // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
         ApplyLidBadge();
 
-        // The badge reads go through the vendor RPC — off-thread, then marshal back to apply.
+        // The badge reads go through the vendor RPC — off-thread, then marshal back to apply. Caught
+        // here rather than left to propagate: WriteStatusBadges is what reveals a pending first show,
+        // so a swallowed exception must not leave the window hidden for good.
         Task.Run(() =>
         {
-            var chargeState      = ChargeThresholdService.Read();
-            bool standbySupported = StandbyService.IsSupported;
-            bool standbyOn        = StandbyService.IsRunning();
+            ChargeThresholdState? chargeState = null;
+            bool standbySupported = false;
+            bool standbyOn        = false;
+            try
+            {
+                chargeState      = ChargeThresholdService.Read();
+                standbySupported = StandbyService.IsSupported;
+                standbyOn        = StandbyService.IsRunning();
+            }
+            catch (Exception ex) { AppLog.Error("DashboardWindow.Refresh", ex); }
+
             RunOnUi(() => ApplyStatusBadges(chargeState, standbySupported, standbyOn));
         });
     }
@@ -573,9 +584,19 @@ public sealed partial class DashboardWindow : Window
         if (chargeVisible)    ApplySmartChargeCollapse();
         if (standbySupported) ApplySmartStandbyCollapse();
 
-        // Last: measuring earlier would size the window to a row that is about to disappear.
-        if (AppWindow.IsVisible)
+        // Last: measuring earlier would size the window to a row that is about to disappear. Also
+        // where a pending first show is revealed, so the window is placed once, at the height this
+        // fresh read settles on, and only then shown and activated.
+        if (AppWindow.IsVisible || _showPending)
+        {
             PlaceWindow();
+            if (_showPending)
+            {
+                _showPending = false;
+                AppWindow.Show();
+                Activate();
+            }
+        }
     }
 
     /// <summary>Which preset the device's current thresholds are, or "Custom" when none matches.</summary>
