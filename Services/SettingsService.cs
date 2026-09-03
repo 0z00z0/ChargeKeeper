@@ -51,6 +51,13 @@ internal static class GraphTimeScaleExtensions
     };
 }
 
+/// <summary>Which history graph the dashboard's pop-out shows. Battery is the SoC/limit/power graph
+/// that has always been there; System is the self-measurement graph, and will grow a temperature
+/// line alongside processor/memory, so this is not read as "exactly one control's worth of
+/// content".</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum GraphDisplay { Battery, System }
+
 /// <summary>How the battery history graph's charge line takes its colour. Independent of the
 /// shading beneath it.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -101,6 +108,10 @@ internal sealed class AppSettings
 
     /// <summary>Gap before a hole in the samples is drawn as an axis break. 0 = never, not zero minutes.</summary>
     public int DowntimeGapMinutes { get; set; } = 1;
+
+    /// <summary>Which history graph the pop-out shows. Defaults to the graph that has always shown
+    /// first, so an existing installation looks unchanged immediately after update.</summary>
+    public GraphDisplay GraphDisplay { get; set; } = GraphDisplay.Battery;
 
     // Neither of the two below is published over MQTT, deliberately unlike IconMode above: they
     // decide how one window draws, so a remote value would change nothing another machine can see.

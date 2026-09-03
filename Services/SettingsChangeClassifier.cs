@@ -37,6 +37,7 @@ internal static class SettingsChangeClassifier
         nameof(AppSettings.GraphTimeScale),
         nameof(AppSettings.GraphLineColouring),
         nameof(AppSettings.GraphShadingEnabled),
+        nameof(AppSettings.GraphDisplay),
 
         // Whether an off badge collapses to one dense row on the dashboard popup. Decides how one
         // window draws, like the graph settings above — deliberately absent from the MQTT surface.

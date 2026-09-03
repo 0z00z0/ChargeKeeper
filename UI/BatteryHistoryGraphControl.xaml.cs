@@ -516,11 +516,11 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
     /// <summary>Builds the per-sample X for the compressed timeline: continuous data maps
     /// proportionally to its real duration, each downtime gap to a fixed-width break. Total break
-    /// width is capped at 40% so many gaps can't starve the data of horizontal room.</summary>
+    /// width is capped at 20% so many gaps can't starve the data of horizontal room.</summary>
     private static double[] BuildCompressedX(
         IReadOnlyList<BatterySample> samples, IReadOnlySet<int> gapBefore, double w, double pad)
     {
-        const double GapPx = 16;              // fixed on-screen width of one collapsed gap
+        const double GapPx = 8;               // fixed on-screen width of one collapsed gap
         double plotW = Math.Max(w - pad * 2, 1);
 
         // One clamped delta per step, reused for both the width budget and the placement: two copies
@@ -537,7 +537,7 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
 
         // Every step a gap: with no active elapsed time to proportion by, pxPerTick would be 0 and
         // every point would cluster at the left edge, so give the gaps the full width instead.
-        double totalGapPx = activeTicks > 0 ? Math.Min(gapCount * GapPx, plotW * 0.4) : plotW;
+        double totalGapPx = activeTicks > 0 ? Math.Min(gapCount * GapPx, plotW * 0.2) : plotW;
         double perGapPx   = gapCount > 0 ? totalGapPx / gapCount : 0;
         double pxPerTick  = activeTicks > 0 ? (plotW - gapCount * perGapPx) / activeTicks : 0;
 
