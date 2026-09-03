@@ -118,11 +118,15 @@ public sealed partial class DashboardWindow : Window
     // Destroys the window once it has sat hidden long enough; never armed with _refreshTimer.
     private readonly DispatcherTimer _idleCloseTimer;
 
-    // Set by ShowNearTray, cleared once WriteStatusBadges has placed and revealed the window against
-    // freshly loaded badge content. Placing and revealing on ShowNearTray's own thread would size the
-    // window to whatever the badges showed at the previous hide, then jump once the vendor read below
-    // lands a moment later with the real state.
-    private bool _showPending;
+    // The charge-threshold/standby shape the last successful vendor read produced, kept for the
+    // running app's life so the next open can draw and show the window before a fresh read even
+    // starts (see ShowNearTray/BeginVendorRead). Static: App recreates the window itself after an
+    // idle close, but the read that produced this state did not become any less true for that.
+    // Null/false/false — nothing read yet — is also the right first-run default: every
+    // capability-gated section it drives starts collapsed until a real read says otherwise.
+    private static ChargeThresholdState? _cachedChargeState;
+    private static bool _cachedStandbySupported;
+    private static bool _cachedStandbyOn;
 
     public TimeSpan SinceHidden => DateTime.UtcNow - _hiddenAtUtc;
 
@@ -288,11 +292,20 @@ public sealed partial class DashboardWindow : Window
         _lidDelayExpanded     = false;
         _keepAwakeExpanded    = false;
 
-        // Placing and revealing the window are deferred to WriteStatusBadges, once the vendor read
-        // it kicks off below has actually landed — the window is shown once, at the height that
-        // read settles on, never at whatever the badges happened to show at the previous hide.
-        _showPending = true;
-        Refresh();
+        // Draw and reveal the window at once, from sources that never leave the process (battery,
+        // Keep Awake, Lid) plus whatever the last successful vendor read produced for Smart
+        // Charge/Standby — or the collapsed first-run default where nothing has been read yet. The
+        // window must never wait on the vendor RPC below to appear; BeginVendorRead updates the same
+        // badges in place, resizing rather than hiding and re-showing, once its answer lands.
+        RefreshBatteryInfo();
+        ApplyKeepAwakeBadge();
+        ApplyLidBadge();
+        ApplyStatusBadges(_cachedChargeState, _cachedStandbySupported, _cachedStandbyOn);
+        PlaceWindow();
+        AppWindow.Show();
+        Activate();
+
+        BeginVendorRead();
     }
 
     private void PlaceWindow()
@@ -362,22 +375,39 @@ public sealed partial class DashboardWindow : Window
         // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
         ApplyLidBadge();
 
-        // The badge reads go through the vendor RPC — off-thread, then marshal back to apply. Caught
-        // here rather than left to propagate: WriteStatusBadges is what reveals a pending first show,
-        // so a swallowed exception must not leave the window hidden for good.
+        BeginVendorRead();
+    }
+
+    /// <summary>
+    /// Reads the charge-threshold and standby state off-thread — both cross into vendor RPC — then
+    /// applies the result on the UI thread and remembers it in <see cref="_cachedChargeState"/> and
+    /// its neighbours for the next open. A failed read leaves the badges exactly as they already
+    /// are: there is nothing new to show, and applying nulls would blank out a state that was
+    /// showing correctly a moment ago — the window is always already visible by the time this runs
+    /// (see ShowNearTray), never waiting on this call to appear in the first place.
+    /// </summary>
+    private void BeginVendorRead()
+    {
         Task.Run(() =>
         {
-            ChargeThresholdState? chargeState = null;
-            bool standbySupported = false;
-            bool standbyOn        = false;
+            ChargeThresholdState? chargeState;
+            bool standbySupported;
+            bool standbyOn;
             try
             {
                 chargeState      = ChargeThresholdService.Read();
                 standbySupported = StandbyService.IsSupported;
                 standbyOn        = StandbyService.IsRunning();
             }
-            catch (Exception ex) { AppLog.Error("DashboardWindow.Refresh", ex); }
+            catch (Exception ex)
+            {
+                AppLog.Error("DashboardWindow.BeginVendorRead", ex);
+                return;
+            }
 
+            _cachedChargeState      = chargeState;
+            _cachedStandbySupported = standbySupported;
+            _cachedStandbyOn        = standbyOn;
             RunOnUi(() => ApplyStatusBadges(chargeState, standbySupported, standbyOn));
         });
     }
@@ -584,19 +614,11 @@ public sealed partial class DashboardWindow : Window
         if (chargeVisible)    ApplySmartChargeCollapse();
         if (standbySupported) ApplySmartStandbyCollapse();
 
-        // Last: measuring earlier would size the window to a row that is about to disappear. Also
-        // where a pending first show is revealed, so the window is placed once, at the height this
-        // fresh read settles on, and only then shown and activated.
-        if (AppWindow.IsVisible || _showPending)
-        {
-            PlaceWindow();
-            if (_showPending)
-            {
-                _showPending = false;
-                AppWindow.Show();
-                Activate();
-            }
-        }
+        // Last: measuring earlier would size the window to a row that is about to disappear.
+        // ShowNearTray places and reveals the window itself before the first vendor read ever
+        // starts; every call that reaches here afterwards only resizes the already-visible window
+        // in place — it never hides or re-shows it.
+        if (AppWindow.IsVisible) PlaceWindow();
     }
 
     /// <summary>Which preset the device's current thresholds are, or "Custom" when none matches.</summary>
