@@ -56,6 +56,14 @@ internal static class BatteryStatsFormatter
         return h;
     }
 
+    /// <summary>RATE line: charge/discharge as %/hour, signed so positive reads as charging — the
+    /// live counterpart to the overnight-drain anomaly's own %/hour extrapolation
+    /// (<see cref="ChargeKeeper.Services.DrainAnomalyPolicy.PercentPerHour"/>). "—" before enough
+    /// history has accumulated to trust a rate, the same placeholder <see cref="FormatTimeRemaining"/>
+    /// falls back to when there is nothing to show.</summary>
+    public static string FormatChargeRate(double? percentPerHour) =>
+        PowerFormat.SignedPercentPerHour(percentPerHour) ?? "—";
+
     // Internal, not private, as a test seam for the hour/minute formatting and its boundaries.
     internal static string FormatHours(double h, bool chargingDirection)
     {
