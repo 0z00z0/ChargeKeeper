@@ -12,9 +12,11 @@ namespace ChargeKeeper.Services;
 /// </summary>
 /// <remarks>
 /// A serialisation shape rather than the in-memory model: <see cref="AppSettings"/> stays flat, so
-/// no call site changes and the grouping cannot drift into behaviour. Group keys reuse
-/// <see cref="MqttPublishGroups"/> wherever a page has one there; <c>graph</c>, <c>mqtt</c> and
-/// <c>window</c> name pages or state that vocabulary does not cover.
+/// no call site changes and the grouping cannot drift into behaviour. Group keys are PascalCase,
+/// the shape System.Text.Json produces with no naming policy applied, and are the file's own
+/// vocabulary: nothing outside reads them, so they borrow nothing from the MQTT group names.
+/// <c>LidClose</c> keeps its spelling although the page reads "Lid delay" — a key on disk is an
+/// identifier, and renaming one loses the value behind it.
 /// Property order is pinned with <see cref="JsonPropertyOrderAttribute"/> on every member:
 /// System.Text.Json orders unattributed members by reflection order, which is not a guarantee.
 /// </remarks>
@@ -24,18 +26,18 @@ internal sealed class SettingsFile
     /// is why the number starts at 1 rather than 0.</summary>
     public const int CurrentVersion = 1;
 
-    public const string VersionKey      = "version";
-    public const string GeneralKey      = "general";
-    public const string GraphKey        = "graph";
-    public const string SmartChargeKey  = MqttPublishGroups.SmartCharge;
-    public const string NetworkKey      = MqttPublishGroups.Network;
-    public const string KeepAwakeKey    = MqttPublishGroups.KeepAwake;
-    public const string LidCloseKey     = MqttPublishGroups.LidClose;
-    public const string NotificationsKey = MqttPublishGroups.Notifications;
-    public const string MqttKey         = "mqtt";
-    public const string DiagnosticsKey  = "diagnostics";
-    public const string AppearanceKey   = "appearance";
-    public const string WindowKey       = "window";
+    public const string VersionKey      = "Version";
+    public const string GeneralKey      = "General";
+    public const string GraphKey        = "Graph";
+    public const string SmartChargeKey  = "SmartCharge";
+    public const string NetworkKey      = "Network";
+    public const string KeepAwakeKey    = "KeepAwake";
+    public const string LidCloseKey     = "LidClose";
+    public const string NotificationsKey = "Notifications";
+    public const string MqttKey         = "Mqtt";
+    public const string DiagnosticsKey  = "Diagnostics";
+    public const string AppearanceKey   = "Appearance";
+    public const string WindowKey       = "Window";
 
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
     [JsonPropertyName(VersionKey), JsonPropertyOrder(0)]

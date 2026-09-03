@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.41.0
+
+- #160 The settings file now spells its section names the same way as everything inside them, so
+  reading it means one convention instead of two. A settings file written by 1.28.0 or later is
+  not carried across: the first start on this version comes up on defaults and keeps the previous
+  file beside it as `settings.json.pre-grouping-backup-<date>`, to copy values back from by hand.
+
 ## 1.40.0
 
 - #153 The power log now records every change to the lid-close delay length, from whichever surface
