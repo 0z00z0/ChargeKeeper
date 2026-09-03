@@ -205,6 +205,36 @@ internal static class BatteryHistoryService
         lock (_lock) { return [.. _window]; }
     }
 
+    /// <summary>
+    /// Live charge/discharge rate in %/hour, positive while charging and negative while discharging —
+    /// the same sign convention <see cref="BatterySample.PowerMw"/> uses. Extrapolated from the newest
+    /// sample back to the most recent one at least <see cref="DrainAnomalyPolicy.MinGap"/> older, the
+    /// same minimum span the anomaly gate requires before trusting a rate at all, so a fresh window
+    /// (or one narrower than that span) reads as no rate yet rather than a division blown up by a
+    /// near-zero duration.
+    /// </summary>
+    public static double? CurrentRatePercentPerHour()
+    {
+        lock (_lock)
+        {
+            if (_window.Count < 2) return null;
+            var newest = _window[^1];
+
+            BatterySample? baseline = null;
+            for (int i = _window.Count - 2; i >= 0; i--)
+            {
+                if (newest.AtUtc - _window[i].AtUtc >= DrainAnomalyPolicy.MinGap)
+                {
+                    baseline = _window[i];
+                    break;
+                }
+            }
+            if (baseline is not { } b) return null;
+
+            return DrainAnomalyPolicy.PercentPerHour(newest.Soc - b.Soc, newest.AtUtc - b.AtUtc);
+        }
+    }
+
     // Samples are appended in time order, so an out-of-window prefix can be dropped from the front.
     private static void TrimWindowToSpan()
     {

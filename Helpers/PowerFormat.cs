@@ -19,4 +19,18 @@ internal static class PowerFormat
             ? $"{sign}{absMw} mW"
             : $"{sign}{absMw / 1000.0:F0} W";
     }
+
+    /// <summary>
+    /// Renders a %/hour battery rate (positive = charging in) with the same real minus sign (U+2212)
+    /// and leading-sign convention as <see cref="SignedRate(int)"/>. One decimal place: SoC is only
+    /// ever read to the whole percent, so a rate extrapolated from it is rarely a round number.
+    /// Null in, null out, so the caller falls back to the same "no reading yet" placeholder the other
+    /// dashboard stats already use.
+    /// </summary>
+    public static string? SignedPercentPerHour(double? percentPerHour)
+    {
+        if (percentPerHour is not { } rate) return null;
+        char sign = rate < 0 ? '−' : '+';   // + or −
+        return $"{sign}{Math.Abs(rate):F1} %/h";
+    }
 }

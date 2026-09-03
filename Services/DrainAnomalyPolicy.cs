@@ -20,7 +20,15 @@ internal static class DrainAnomalyPolicy
         if (gapDuration < MinGap) return false;              // too short to extrapolate a rate from
                                                              // (also guards the division below)
 
-        double ratePerHour = socDropPercent / gapDuration.TotalHours;
-        return ratePerHour >= thresholdPercentPerHour;
+        return PercentPerHour(socDropPercent, gapDuration) >= thresholdPercentPerHour;
     }
+
+    /// <summary>Percent-per-hour rate from a signed SoC change over an elapsed duration — the one
+    /// division this policy and the dashboard's live rate reading both extrapolate from, so the two
+    /// cannot drift apart. The sign of the result follows the sign of <paramref name="socDeltaPercent"/>
+    /// as the caller defines it: this call site passes a drop (positive means SoC fell), while the
+    /// dashboard passes a rise (positive means SoC grew, matching <c>BatterySample.PowerMw</c>'s
+    /// positive-means-charging convention).</summary>
+    internal static double PercentPerHour(int socDeltaPercent, TimeSpan duration) =>
+        socDeltaPercent / duration.TotalHours;
 }

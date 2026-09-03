@@ -398,9 +398,14 @@ public sealed partial class DashboardWindow : Window
 
             SetStatusGlyph(report.Status);
 
-            // The label stays "REMAINING"; the value carries the direction, so it is never ambiguous.
+            // No caption here (the pop-out graph window still has one); the value alone carries the
+            // direction, so it is never ambiguous which way "remaining" runs.
             TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
                 report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
+
+            // From recorded history, not this report's instantaneous mW: a single reading is noisy
+            // at the resolution SoC is stored at, so this extrapolates from a real elapsed span.
+            ChargeRateText.Text = BatteryStatsFormatter.FormatChargeRate(BatteryHistoryService.CurrentRatePercentPerHour());
 
             HistoryGraph.Render();
         }
