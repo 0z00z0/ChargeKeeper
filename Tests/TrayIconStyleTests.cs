@@ -18,7 +18,9 @@ public class TrayIconStyleTests
     [
         (nameof(TrayIconMode.Arc),       "Arc gauge"),
         (nameof(TrayIconMode.Numeric),   "Numeric %"),
-        (nameof(TrayIconMode.BrandMark), "Brand mark"),
+        // The label describes the drawing; the enum member is what is persisted and what the MQTT
+        // select advertises, so the two deliberately disagree.
+        (nameof(TrayIconMode.BrandMark), "Battery fill"),
     ];
 
     /// <summary>The ComboBoxItem labels inside the IconModeCombo block of SettingsWindow.xaml, in
