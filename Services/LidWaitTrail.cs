@@ -12,6 +12,10 @@ internal enum LidWaitEnd
 
     /// <summary>The battery came down to its target level.</summary>
     BatteryTarget,
+
+    /// <summary>The machine reached its temperature ceiling, so the hold ended ahead of every
+    /// condition it was waiting on.</summary>
+    TooHot,
 }
 
 /// <summary>
@@ -147,6 +151,9 @@ internal sealed class LidWaitTrail
                 LidWaitEnd.BatteryTarget =>
                     $"The lid-close wait ended because the battery reached its target of " +
                     $"{_targetPercent ?? 0} %, standing at {levelNow ?? 0} %.",
+                LidWaitEnd.TooHot =>
+                    "The lid-close wait ended early because the machine reached its temperature " +
+                    "ceiling, ahead of whatever it was waiting on.",
                 _ =>
                     "The lid-close wait ended because there was nothing left to wait for: neither " +
                     "the delay nor a battery target was set.",

@@ -9,6 +9,20 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.40.0
+
+- #153 The power log now records every change to the lid-close delay length, from whichever surface
+  made it, so the wait that is armed can be checked against the one that was configured.
+- #154 A computer started with its lid already shut hands the lid-close action back to Windows until
+  the lid next opens, instead of leaving the lid parked on "do nothing" with nothing serving it.
+- #155 The lid-close battery target now says in the power log whether it armed and, where it did
+  not, why — including the case where no battery reading has reached it at all.
+- #157 A new "Sleep if the computer reaches a temperature" setting ends a lid-close wait early and
+  sleeps the computer when it gets hot with the lid shut, which is what a laptop carried in a bag
+  needs; the temperature is recorded alongside the battery history, and what happened is said at the
+  next wake. Off by default, and unavailable on a computer that exposes no trustworthy reading.
+- #158 The dashboard opens immediately rather than waiting on a reading from the vendor interface.
+
 ## 1.39.0
 
 - #132 The third tray icon style is now called "Battery fill", which says what appears in the

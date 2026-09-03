@@ -69,7 +69,9 @@ public class BatteryHistoryServiceTests : IDisposable
             var sample = new BatterySample(new DateTime(2026, 3, 4, 9, 0, 0, DateTimeKind.Utc), 55, null, 0, state);
             var line   = BatteryHistoryService.Format(sample);
 
-            Assert.EndsWith($",{state}", line);
+            // The state column by position: temperature_c trails it since the thermal reading was
+            // added, so "the last column" no longer names it.
+            Assert.Equal($"{state}", line.Split(',')[4]);
             Assert.True(BatteryHistoryService.TryParse(line, out var parsed));
             Assert.Equal(state, parsed.State);
         }
@@ -129,7 +131,8 @@ public class BatteryHistoryServiceTests : IDisposable
             BatteryHistoryService.Record(60, 80, 3000, state);
 
             var row = File.ReadAllLines(BatteryHistoryService.FilePath)[^1];
-            Assert.Equal($"{state}", row.Split(',')[^1]);
+            // Named by position rather than "the last column": temperature_c now trails it.
+            Assert.Equal($"{state}", row.Split(',')[4]);
         }
     }
 

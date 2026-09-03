@@ -134,10 +134,16 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(7)] public bool                      LidDischargeEnabled       { get; set; }
         [JsonPropertyOrder(8)] public int                       LidDischargeTargetPercent { get; set; }
         [JsonPropertyOrder(9)] public List<LidDischargeTarget>  LidDischargePresets       { get; set; } = [];
+        [JsonPropertyOrder(10)] public bool  LidThermalCeilingEnabled { get; set; }
+        [JsonPropertyOrder(11)] public int   LidThermalCeilingCelsius { get; set; }
+        // The early sleep waiting to be reported at the next wake. State rather than a setting, so
+        // it trails the visible rows with the saved power-scheme values.
+        [JsonPropertyOrder(12)] public double?         LidThermalSleptAtCelsius { get; set; }
+        [JsonPropertyOrder(13)] public DateTimeOffset? LidThermalSleptAtUtc     { get; set; }
         // Saved power-scheme state, edited by nothing on the page, so it trails the visible rows.
-        [JsonPropertyOrder(10)] public int?    LidDelaySavedAcAction { get; set; }
-        [JsonPropertyOrder(11)] public int?    LidDelaySavedDcAction { get; set; }
-        [JsonPropertyOrder(12)] public string? LidDelaySavedScheme   { get; set; }
+        [JsonPropertyOrder(14)] public int?    LidDelaySavedAcAction { get; set; }
+        [JsonPropertyOrder(15)] public int?    LidDelaySavedDcAction { get; set; }
+        [JsonPropertyOrder(16)] public string? LidDelaySavedScheme   { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -223,6 +229,10 @@ internal sealed class SettingsFile
             LidDischargeEnabled       = s.LidDischargeEnabled,
             LidDischargeTargetPercent = s.LidDischargeTargetPercent,
             LidDischargePresets       = s.LidDischargePresets,
+            LidThermalCeilingEnabled  = s.LidThermalCeilingEnabled,
+            LidThermalCeilingCelsius  = s.LidThermalCeilingCelsius,
+            LidThermalSleptAtCelsius  = s.LidThermalSleptAtCelsius,
+            LidThermalSleptAtUtc      = s.LidThermalSleptAtUtc,
             LidDelaySavedAcAction     = s.LidDelaySavedAcAction,
             LidDelaySavedDcAction     = s.LidDelaySavedDcAction,
             LidDelaySavedScheme       = s.LidDelaySavedScheme,
@@ -292,6 +302,10 @@ internal sealed class SettingsFile
         LidDischargeEnabled       = LidClose.LidDischargeEnabled,
         LidDischargeTargetPercent = LidClose.LidDischargeTargetPercent,
         LidDischargePresets       = LidClose.LidDischargePresets,
+        LidThermalCeilingEnabled  = LidClose.LidThermalCeilingEnabled,
+        LidThermalCeilingCelsius  = LidClose.LidThermalCeilingCelsius,
+        LidThermalSleptAtCelsius  = LidClose.LidThermalSleptAtCelsius,
+        LidThermalSleptAtUtc      = LidClose.LidThermalSleptAtUtc,
         LidDelaySavedAcAction     = LidClose.LidDelaySavedAcAction,
         LidDelaySavedDcAction     = LidClose.LidDelaySavedDcAction,
         LidDelaySavedScheme       = LidClose.LidDelaySavedScheme,

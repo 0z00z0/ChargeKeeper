@@ -142,6 +142,7 @@ The dashboard's collapsible **Settings** expander exposes:
 | **Startup delay** | Seconds to wait before the app initialises at sign-in — keeps it off the critical path when many elevated apps start at once |
 | **Tray icon style** | Arc gauge, Numeric % or Battery fill |
 | **Also show percentage** | A second, display-only tray icon carrying the charge level as a number. Unavailable while Numeric % is the style, which already shows it. Windows files a new tray icon behind the overflow chevron, so drag it out once to keep it on the taskbar |
+| **Sleep if the computer reaches a temperature** | Ends a lid-close wait early and sleeps the computer once it reaches the chosen temperature, ahead of the delay and the battery target. Off by default, and offered only where the computer exposes a reading that has been shown to be trustworthy. Sleep, never shutdown; what happened is said at the next wake |
 | **Show icons in main tray (experimental)** | Asks Windows to keep both icons on the taskbar rather than behind the overflow chevron. Off by default. Experimental because Windows offers no supported way to do it: on a version that stores the setting differently it does nothing at all, and switching it off puts back whatever was there before |
 
 It also offers:

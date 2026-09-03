@@ -50,7 +50,7 @@ public class SettingsSectionLayoutTests
     [InlineData("GeneralPanel",     new[] { "Advanced" })]
     [InlineData("SmartChargePanel", new[] { "Charge limit", "Presets", "Network profiles" })]
     [InlineData("KeepAwakePanel",   new[] { "Presets", "Networks" })]
-    [InlineData("LidClosePanel",    new[] { "Sleep after a time", "Sleep at a battery level" })]
+    [InlineData("LidClosePanel",    new[] { "Sleep after a time", "Sleep at a battery level", "Sleep if the computer gets hot" })]
     public void EverySectionOpensWithTheSharedHeader(string panelName, string[] headings) =>
         Assert.Equal(headings, SectionHeadings(panelName));
 

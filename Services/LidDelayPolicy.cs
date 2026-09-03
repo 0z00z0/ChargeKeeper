@@ -106,8 +106,13 @@ internal static class LidDelayPolicy
     /// condition that is not set never arrives and therefore never ends the wait on its own; with
     /// neither set there is nothing to wait for and the wait is over at once.
     /// </summary>
-    public static bool WaitIsOver(bool timeSet, bool timeArrived, bool targetSet, bool targetArrived)
+    /// <param name="endedEarly">A safeguard has ended the hold ahead of every condition — the
+    /// temperature ceiling. It outranks them rather than joining them: the point of the ceiling is
+    /// to act before the wait would have.</param>
+    public static bool WaitIsOver(bool timeSet, bool timeArrived, bool targetSet, bool targetArrived,
+                                  bool endedEarly = false)
     {
+        if (endedEarly) return true;
         if (!timeSet && !targetSet) return true;
         return (timeSet && timeArrived) || (targetSet && targetArrived);
     }

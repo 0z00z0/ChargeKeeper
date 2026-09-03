@@ -7,8 +7,11 @@ namespace ChargeKeeper.Services;
 /// <paramref name="State"/> is null for rows written before the state was recorded: the sign of
 /// <paramref name="PowerMw"/> cannot tell mains-with-no-flow from battery-with-no-drain, so an
 /// unrecorded state stays unknown rather than being guessed at.</summary>
+/// <param name="TemperatureC">The gated thermal-zone reading, or null where the machine offers
+/// none, the gate is still withholding it, or the row predates the column.</param>
 internal readonly record struct BatterySample(
-    DateTime AtUtc, int Soc, int? LimitPct, int PowerMw, PowerState? State = null);
+    DateTime AtUtc, int Soc, int? LimitPct, int PowerMw, PowerState? State = null,
+    double? TemperatureC = null);
 
 /// <summary>
 /// Reported when a sample lands after a gap large enough to plausibly be downtime.
@@ -72,8 +75,11 @@ internal static class BatteryHistoryService
         "timestamp = ISO 8601 with local UTC offset; soc_percent = state of charge; " +
         "charge_limit_percent = Smart Charge limit (blank if off); " +
         "power_mw = charge power in milliwatts (negative = discharging); " +
-        "power_state = Discharging, Charging or IdleOnMains (blank in rows written before it was recorded).";
-    internal const string HeaderColumns = "timestamp,soc_percent,charge_limit_percent,power_mw,power_state";
+        "power_state = Discharging, Charging or IdleOnMains (blank in rows written before it was recorded); " +
+        "temperature_c = the gated thermal-zone reading in degrees Celsius (blank where the machine " +
+        "offers none, the reading is not yet trusted, or the row predates the column).";
+    internal const string HeaderColumns =
+        "timestamp,soc_percent,charge_limit_percent,power_mw,power_state,temperature_c";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
     private static readonly CsvSampleStore _store = new("battery-level-history.csv", Header);
@@ -120,9 +126,10 @@ internal static class BatteryHistoryService
     /// <see cref="AnomalyGapThreshold"/> after the previous one; the caller owns the anomaly-rate
     /// threshold and the decision to warn.
     /// </summary>
-    public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw, PowerState? state = null)
+    public static DowntimeGapInfo? Record(int soc, int? limitPct, int powerMw, PowerState? state = null,
+                                          double? temperatureC = null)
     {
-        var sample = new BatterySample(DateTime.UtcNow, soc, limitPct, powerMw, state);
+        var sample = new BatterySample(DateTime.UtcNow, soc, limitPct, powerMw, state, temperatureC);
         DowntimeGapInfo? gapInfo = null;
 
         lock (_lock)
@@ -313,7 +320,7 @@ internal static class BatteryHistoryService
     // readability and round-trips the same instant), the limit column is blank when Smart Charge is
     // off, and the state column is the PowerState member name, blank when it is unknown.
     internal static string Format(BatterySample s) => string.Create(CultureInfo.InvariantCulture,
-        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw},{s.State?.ToString() ?? ""}");
+        $"{new DateTimeOffset(s.AtUtc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture)},{s.Soc},{s.LimitPct?.ToString(CultureInfo.InvariantCulture) ?? ""},{s.PowerMw},{s.State?.ToString() ?? ""},{s.TemperatureC?.ToString("0.#", CultureInfo.InvariantCulture) ?? ""}");
 
     internal static bool TryParse(string line, out BatterySample sample)
     {
@@ -331,7 +338,11 @@ internal static class BatteryHistoryService
         PowerState? state = p.Length > 4
                          && Enum.TryParse<PowerState>(p[4], ignoreCase: true, out var st)
                          && Enum.IsDefined(st) ? st : null;
-        sample = new BatterySample(dto.UtcDateTime, soc, limit, pw, state);
+        // Five columns still parse, on the same terms as four: every row written before the
+        // temperature column carries only those.
+        double? temperature = p.Length > 5
+                           && double.TryParse(p[5], NumberStyles.Float, ci, out var c) ? c : null;
+        sample = new BatterySample(dto.UtcDateTime, soc, limit, pw, state, temperature);
         return true;
     }
 }

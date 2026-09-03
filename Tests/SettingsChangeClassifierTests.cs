@@ -166,6 +166,11 @@ public class SettingsChangeClassifierTests
     /// distinctness matters — nothing reads the values back.</summary>
     private static object Instantiate(Type type)
     {
+        // A struct's default is already an instance, and reaching for its smallest constructor
+        // finds one that cannot be satisfied by defaults: DateTimeOffset's takes a DateTime, and
+        // the earliest DateTime plus a positive local offset is out of range.
+        if (type.IsValueType) return Activator.CreateInstance(type)!;
+
         var constructor = type.GetConstructors().OrderBy(c => c.GetParameters().Length).First();
         var arguments   = constructor.GetParameters().Select(p => SampleValue(p.ParameterType)).ToArray();
         return constructor.Invoke(arguments);

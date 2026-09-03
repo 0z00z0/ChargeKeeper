@@ -224,6 +224,22 @@ internal sealed class AppSettings
     /// the feature on with no level at all.</summary>
     public int LidDischargeTargetPercent { get; set; } = 50;
 
+    /// <summary>Whether the machine sleeps early when it gets too hot with the lid shut. Off by
+    /// default: the level that is safe depends on what the machine's one thermal zone actually
+    /// describes, so nobody is opted into a ceiling that was not chosen for their hardware.</summary>
+    public bool LidThermalCeilingEnabled { get; set; } = false;
+
+    /// <summary>The temperature that ends a lid-close hold, in degrees Celsius. The default sits
+    /// near the top of the plausible band rather than in the middle of it, so a machine that trips
+    /// it is one that is genuinely running hot rather than merely busy.</summary>
+    public int LidThermalCeilingCelsius { get; set; } = 85;
+
+    /// <summary>The temperature and the moment a lid-close hold last ended early because the machine
+    /// was too hot, so the next wake can say what happened — nobody sees a notification inside a
+    /// closed bag. Cleared once it has been reported.</summary>
+    public double? LidThermalSleptAtCelsius { get; set; }
+    public DateTimeOffset? LidThermalSleptAtUtc { get; set; }
+
     /// <summary>The selectable discharge targets, edited on the Lid delay page.</summary>
     public List<LidDischargeTarget> LidDischargePresets { get; set; } =
     [

@@ -287,6 +287,9 @@ public partial class App : Application
         StartPerformanceSampling();
         ScheduleUpdateCheck();
         ReportWhatsNewIfTheVersionMoved();
+        // Also here, not only on resume: a machine slept from a bag may be restarted rather than
+        // resumed, and the resume notification then never arrives.
+        ReportAnEarlySleepIfOneIsOwed();
         // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
         // and applying its preset is exactly what this drops the rule to avoid.
         SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
@@ -584,6 +587,11 @@ public partial class App : Application
             // feeds needs this tick's cadence regardless.
             ThermalStatusService.Sample();
 
+            // The lid-close temperature ceiling is fed from this tick rather than a timer of its
+            // own: the reading is refreshed here, and a second cadence would only sample the same
+            // gate twice. Inert unless a hold is running with a ceiling armed.
+            LidDelayService.OnThermalReading(ThermalStatusService.PublishableCelsius);
+
             // Runs on a timer pool thread, so snapshot the fields together — a row must not pair
             // this tick's SoC with the previous tick's limit and power. Record does disk I/O and
             // must stay outside the lock.
@@ -597,7 +605,10 @@ public partial class App : Application
                 state = _lastIconState.State;
             }
 
-            var gap = BatteryHistoryService.Record(pct, limit, rate, state);
+            // The reading taken at the top of this tick, so the row carries the temperature that
+            // stood when the level did. Null wherever the gate is withholding it.
+            var gap = BatteryHistoryService.Record(pct, limit, rate, state,
+                                                   ThermalStatusService.PublishableCelsius);
             if (gap is { } g) CheckDrainAnomaly(g);
         }
         catch (Exception ex)
@@ -681,6 +692,35 @@ public partial class App : Application
             ? Math.Clamp((int)Math.Round(100.0 * remaining / full), 0, 100)
             : null;
 
+    /// <summary>
+    /// Says, once, that a lid-close wait ended early because the machine got hot. Left until a wake
+    /// because nobody sees a notification inside a closed bag, and cleared as it is reported so it
+    /// is not repeated at every later resume.
+    /// </summary>
+    private static void ReportAnEarlySleepIfOneIsOwed()
+    {
+        try
+        {
+            var s = SettingsService.Current;
+            if (s.LidThermalSleptAtCelsius is not { } celsius || s.LidThermalSleptAtUtc is not { } at)
+                return;
+
+            SettingsService.Update(x =>
+            {
+                x.LidThermalSleptAtCelsius = null;
+                x.LidThermalSleptAtUtc     = null;
+            });
+
+            PowerLog.Event($"The computer slept early at {celsius:0.#} °C",
+                           "reporting the lid-close temperature ceiling at the first wake after it acted");
+            ToastService.NotifySleptWhileHot(celsius, at);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("ReportAnEarlySleepIfOneIsOwed", ex);
+        }
+    }
+
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         // Every transition is logged: this timeline is what correlates a later silent teardown
@@ -701,6 +741,7 @@ public partial class App : Application
         // Without this pair, downtime and a stopped application are the same shape in the log: a
         // gap in the samples with nothing to say which it was.
         ReportWake();
+        ReportAnEarlySleepIfOneIsOwed();
 
         // A charger swap while asleep produces no AC→battery transition to invalidate on.
         ChargerInfoService.Invalidate();

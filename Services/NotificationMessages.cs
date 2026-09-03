@@ -8,6 +8,7 @@ internal enum NotificationKind
     ChargeComplete,
     ChargingStarted,
     DrainAnomaly,
+    SleptWhileHot,
 }
 
 /// <summary>

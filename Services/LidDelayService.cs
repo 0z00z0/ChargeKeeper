@@ -53,6 +53,11 @@ internal static class LidDelayService
     // The reading is kept so arming can judge a machine that is already at its target, rather than
     // holding until the level happens to move again.
     private static readonly LidDischargeWatch _discharge = new();
+
+    // The temperature safeguard. Armed with the hold and stood down with it, never a background
+    // monitor: the hold is what the application does to the machine, so the ceiling belongs to it.
+    private static readonly LidThermalWatch _thermal = new();
+    private static bool _thermalEnded;
     private static (int Percent, bool Charging)? _lastBattery;
 
     // The override this process applied, and the values it displaced. Authoritative over
@@ -254,6 +259,46 @@ internal static class LidDelayService
     /// connected power may deliver less than the machine draws, so the battery can drain while
     /// plugged in, and a connectivity test would hold that machine awake indefinitely.
     /// </summary>
+    /// <summary>
+    /// One gated temperature reading, from the application's own fixed-cadence history tick. Ends
+    /// the hold and sleeps the machine where a ceiling is armed and the reading has reached it.
+    /// </summary>
+    /// <remarks>
+    /// A machine held awake with its lid shut and then carried in a bag has nowhere to send its
+    /// heat, and the hold is what keeps it awake — so ending the hold on a temperature the
+    /// application can read is the application's own responsibility rather than Windows'.
+    /// <para>A missing reading stands the ceiling down rather than firing it: a value that is not
+    /// there is not a hot machine.</para>
+    /// </remarks>
+    public static void OnThermalReading(double? celsius)
+    {
+        LidThermalDecision decision;
+        lock (_sync)
+        {
+            decision = _thermal.OnReading(celsius);
+            if (decision is LidThermalDecision.CeilingReached)
+            {
+                _thermalEnded = true;
+                _trail.Arrived(LidWaitEnd.TooHot);
+            }
+        }
+
+        if (decision is not LidThermalDecision.CeilingReached) return;
+
+        double reached = celsius ?? 0;
+        PowerLog.Event($"The machine reached {reached:0.#} °C with the lid shut",
+                       "the lid-close temperature ceiling ended the wait early");
+
+        // Nobody sees a notification inside a closed bag, so the notice is left for the next wake.
+        SettingsService.Update(s =>
+        {
+            s.LidThermalSleptAtCelsius = reached;
+            s.LidThermalSleptAtUtc     = DateTimeOffset.UtcNow;
+        });
+
+        Complete();
+    }
+
     public static void OnBatteryReport(int percent, bool isCharging)
     {
         LidDischargeDecision decision;
@@ -534,6 +579,7 @@ internal static class LidDelayService
         var delay = LidDelayPolicy.DelayFor(s.LidDelayMinutes);
         bool armedTimer;
         LidTargetArm targetArm;
+        int? thermalCeiling;
         int targetPercent = LidDischargeWatch.Clamp(s.LidDischargeTargetPercent);
         int? levelAtClose;
         lock (_sync)
@@ -578,6 +624,16 @@ internal static class LidDelayService
 
             targetArm = LidTargetArming.Decide(s.LidDischargeEnabled, _lastBattery is not null, decision);
 
+            // The temperature safeguard, armed with the hold. Only where the machine offers a
+            // reading the gate has already vouched for: a ceiling watching a value that never
+            // arrives is a safeguard that cannot act, and one watching a stuck value would sleep a
+            // working machine the moment it armed.
+            _thermalEnded = false;
+            thermalCeiling = s.LidThermalCeilingEnabled && ThermalStatusService.PublishableCelsius is not null
+                           ? LidThermalWatch.Clamp(s.LidThermalCeilingCelsius)
+                           : null;
+            if (thermalCeiling is { } ceiling) _thermal.Arm(ceiling);
+
             _holdRequests.Add(NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
             _timer?.Dispose();
             _timer = null;
@@ -602,6 +658,13 @@ internal static class LidDelayService
         // configured and never armed is otherwise indistinguishable from one quietly holding.
         var (what, why) = LidTargetArming.Describe(targetArm, targetPercent, levelAtClose);
         PowerLog.Event(what, why);
+
+        if (thermalCeiling is { } armedCeiling)
+            PowerLog.Event($"Sleep also comes if the machine reaches {armedCeiling} °C",
+                           "lid closed with the temperature ceiling on");
+        else if (SettingsService.Current.LidThermalCeilingEnabled)
+            PowerLog.Event("No temperature ceiling on this lid close",
+                           "this machine offers no reading that has been shown to be trustworthy");
 
         // Whichever condition already stands satisfied ends the wait here, including the case where
         // neither was set at all.
@@ -647,7 +710,8 @@ internal static class LidDelayService
         string? ended = null;
         lock (_sync)
         {
-            bool over = LidDelayPolicy.WaitIsOver(_timeSet, _timeArrived, _targetSet, _targetArrived);
+            bool over = LidDelayPolicy.WaitIsOver(_timeSet, _timeArrived, _targetSet, _targetArrived,
+                                                  _thermalEnded);
             action = LidDelayPolicy.OnWaitProgress(SettingsService.Current.LidDelayEnabled, _delayPending,
                                                    KeepAwakeService.Current is not null, over);
             if (action is LidDelayAction.Suspend or LidDelayAction.Cancel)
@@ -716,6 +780,7 @@ internal static class LidDelayService
         {
             _generation++;   // invalidates a suspend that was already decided on
             _discharge.Disarm();
+            _thermal.Disarm();
             if (!_delayPending) return;
             ClearLocked();
         }
@@ -731,6 +796,8 @@ internal static class LidDelayService
         _targetArrived = false;
         _trail.Clear();
         _discharge.Disarm();
+        _thermal.Disarm();
+        _thermalEnded = false;
         _timer?.Dispose();
         _timer = null;
         _heartbeat?.Dispose();

@@ -492,6 +492,11 @@ internal sealed partial class SettingsWindow : Window
 
     private static readonly (string Label, int Value)[] StartupDelayPresets =
         [("None", 0), ("2 s", 2), ("5 s", 5), ("10 s", 10), ("20 s", 20), ("30 s", 30), ("60 s", 60)];
+    /// <summary>The offered ceilings. The band starts well above a machine at rest and stops short
+    /// of where firmware protection acts, which is the last resort this exists to stay ahead of.</summary>
+    private static readonly (string Label, int Value)[] LidThermalCeilingPresets =
+        [("70 °C", 70), ("75 °C", 75), ("80 °C", 80), ("85 °C", 85), ("90 °C", 90)];
+
     private static readonly (string Label, int Value)[] DowntimeGapPresets =
         [("None", 0), ("1 min", 1), ("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15), ("30 min", 30), ("60 min", 60)];
     private static readonly (string Label, int Value)[] LowBattPctPresets =
@@ -1373,6 +1378,9 @@ internal sealed partial class SettingsWindow : Window
             LidLockToggle.IsOn          = s.LidDelayLockOnClose;
             LidDelayTimeToggle.IsOn     = s.LidDelayTimeEnabled;
             LidDischargeToggle.IsOn     = s.LidDischargeEnabled;
+            LidThermalToggle.IsOn       = s.LidThermalCeilingEnabled;
+            LoadPresetCombo(LidThermalCeilingCombo, LidThermalCeilingPresets,
+                            LidThermalWatch.Clamp(s.LidThermalCeilingCelsius), v => $"{v} °C");
             LidOffAfterSleepToggle.IsOn = s.LidDelayOffAfterSleep;
         });
         RefreshLidDelayState();
@@ -1434,6 +1442,15 @@ internal sealed partial class SettingsWindow : Window
         LidOffAfterSleepToggle.IsEnabled = on;
         LidDelayTimeToggle.IsEnabled     = on;
         LidDischargeToggle.IsEnabled     = on;
+
+        // The ceiling is offered only where this machine has a reading to act on. Saying so beats
+        // showing a control that cannot do anything.
+        bool hasReading = ThermalStatusService.PublishableCelsius is not null;
+        LidThermalToggle.IsEnabled       = on && hasReading;
+        LidThermalCeilingCombo.IsEnabled = on && hasReading;
+        LidThermalCard.Description = hasReading
+            ? "Ends the wait early and sleeps the computer, ahead of the delay and the battery target."
+            : "This computer exposes no temperature reading that has been shown to be trustworthy, so there is nothing to act on.";
     }
 
     private void OnLidDelayToggled(object sender, RoutedEventArgs e)
@@ -1627,6 +1644,16 @@ internal sealed partial class SettingsWindow : Window
     // The lid-close discharge target: a level the battery drains to with the lid shut before sleep is
     // allowed. The rows are the same shell the keep-awake presets use, and the target in use is the
     // one marked active.
+
+    private void OnLidThermalToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = LidThermalToggle.IsOn;
+        SettingsService.Update(s => s.LidThermalCeilingEnabled = on);
+    }
+
+    private void OnLidThermalCeilingChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(LidThermalCeilingCombo, (s, v) => s.LidThermalCeilingCelsius = v);
 
     private void OnLidDischargeToggled(object sender, RoutedEventArgs e)
     {

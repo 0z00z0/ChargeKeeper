@@ -407,6 +407,20 @@
                     <StackPanel x:Name="LidDischargeTargetsListPanel" Spacing="4"/>
                     <Button x:Name="AddLidDischargeTargetBtn" Content="Add target"
                             Click="OnAddLidDischargeTarget" Margin="0,4,0,12"/>
+
+                    <local:SettingsSectionHeader Heading="Sleep if the computer gets hot" Subject="the temperature ceiling"
+                                                 Info="A computer held awake with its lid shut and then put in a bag has nowhere to send its heat, and it is this delay that keeps it awake. Crossing the ceiling ends the wait at once and the computer sleeps — never shuts down, so nothing open is lost. The reading is the one temperature this machine exposes; it is withheld until it has been shown to sit in a plausible range and actually move, and where it is withheld the ceiling does nothing rather than firing. Nobody sees a notification inside a closed bag, so what happened is said at the next wake."/>
+
+                    <controls:SettingsCard x:Name="LidThermalCard"
+                                            Header="Sleep if the computer reaches a temperature"
+                                            Description="Ends the wait early and sleeps the computer, ahead of the delay and the battery target.">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ComboBox x:Name="LidThermalCeilingCombo" MinWidth="110"
+                                      SelectionChanged="OnLidThermalCeilingChanged"/>
+                            <ToggleSwitch x:Name="LidThermalToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnLidThermalToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">

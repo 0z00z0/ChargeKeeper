@@ -73,6 +73,18 @@ internal static class ToastService
                 $"Lost {dropPercent}% over {span} while asleep — Modern Standby misbehaving?");
     }
 
+    /// <summary>
+    /// Said at the next wake rather than when it happened: nobody sees a notification inside a
+    /// closed bag. The wording states the fact and the reading, so the event is not mistaken for a
+    /// crash, a flat battery or a lid-close wait that failed.
+    /// </summary>
+    public static void NotifySleptWhileHot(double celsius, DateTimeOffset atUtc)
+    {
+        string when = atUtc.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        TryShow(NotificationKind.SleptWhileHot, null, "Slept early to cool down",
+                $"Reached {celsius:0.#} °C with the lid shut at {when}, so the lid-close wait ended and the computer slept.");
+    }
+
     public static void Cleanup()
     {
         try

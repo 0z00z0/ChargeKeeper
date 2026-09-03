@@ -55,6 +55,11 @@ internal static class SettingsChangeClassifier
         // PromoteTrayIcons, which is itself published; this is not.
         nameof(AppSettings.TrayPromotionRestore),
 
+        // The early sleep waiting to be said at the next wake. Recorded and then cleared as it is
+        // reported, so it moves twice per event and reaches no outward surface either time.
+        nameof(AppSettings.LidThermalSleptAtCelsius),
+        nameof(AppSettings.LidThermalSleptAtUtc),
+
         // Where the broker answered last. State rather than a setting, and written on every
         // successful connect — the single largest source of changes that move nothing.
         nameof(AppSettings.MqttLastGoodEndpoint),
