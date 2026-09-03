@@ -12,13 +12,10 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class TrayFlowMarkTests
 {
-    // The arc's own geometry, restated from RenderBatteryBitmap so a change there that breaks the
-    // fit shows up here rather than on a taskbar.
-    private static (float Cx, float Cy, float R, float Stroke) ArcGeometry(int size)
-    {
-        float stroke = size * 0.19f;
-        return (size / 2f, size / 2f, size / 2f - stroke / 2f - 1f, stroke);
-    }
+    // The arc's own geometry, taken from the renderer rather than restated, so the fit below is
+    // measured against what is actually drawn.
+    private static (float Cx, float Cy, float R, float Stroke) ArcGeometry(int size) =>
+        (size / 2f, size / 2f, IconGenerator.ArcRingRadius(size), IconGenerator.ArcStroke(size));
 
     /// <summary>Which side of centre the apex sits on IS the message. A sign slip here draws
     /// charging as a down arrow, which is worse than drawing nothing.</summary>

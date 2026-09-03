@@ -442,11 +442,10 @@ internal static class IconGenerator
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        // The outer arc edge lands ~1 px inside the icon edge so antialiasing doesn't clip.
-        float stroke = size * 0.19f;                    // ~6 px at 32 px
+        float stroke = ArcStroke(size);
         float cx     = size / 2f;
         float cy     = size / 2f;
-        float r      = cx - stroke / 2f - 1f;          // outer edge = cx + r + stroke/2 ≈ size-1
+        float r      = ArcRingRadius(size);
 
         // Track and halo are chosen from the taskbar theme: one setting cannot read on both.
         var contrast = CurrentContrast();
@@ -475,8 +474,8 @@ internal static class IconGenerator
         // Outside the fill branch: the marks say where the cap is, which is worth showing at a
         // reading of 0 % too. Start first, so the stop mark stays readable where the two nearly meet.
         var (stop, start) = ThresholdMarksFor(threshold);
-        if (start is { } startPct) DrawArcMark(g, size, cx, cy, r, stroke, startPct, contrast, minor: true);
-        if (stop  is { } stopPct)  DrawArcMark(g, size, cx, cy, r, stroke, stopPct,  contrast, minor: false);
+        if (start is { } startPct) DrawArcMark(g, size, cx, cy, startPct, contrast, minor: true);
+        if (stop  is { } stopPct)  DrawArcMark(g, size, cx, cy, stopPct,  contrast, minor: false);
 
         // Last: the mark clears a gap in whatever it overlaps, so anything drawn after it would
         // fill that gap back in.
@@ -485,6 +484,41 @@ internal static class IconGenerator
 
         return bmp;
     }
+
+    // ── The arc style's geometry ─────────────────────────────────────────────────────────────
+    // One declaration, because three renderers and their tests all measure against it. The ring is
+    // sized around the threshold marks rather than the other way round: the marks have to overhang
+    // it to read at 16 px, so the overhang and a sliver of bleed are subtracted from the frame
+    // first and the ring takes what is left.
+
+    /// <summary>The ring's stroke width at <paramref name="size"/> px.</summary>
+    internal static float ArcStroke(float size) => size * 0.17f;
+
+    /// <summary>How far the stop mark reaches past the ring's outer edge. Floored so it survives the
+    /// 16 px frame, where a fraction of the size alone rounds away to nothing.</summary>
+    internal static float ArcMarkOverhang(float size) => Math.Max(1.2f, size * 0.08f);
+
+    /// <summary>How far a mark reaches past the ring's INNER edge, into the hole the flow mark sits
+    /// in. Smaller than the outer overhang, which is the end that does the reading.</summary>
+    internal static float ArcMarkInnerOverhang(float size) => ArcMarkOverhang(size) * 0.45f;
+
+    /// <summary>The start mark's share of the outer overhang. Shorter than the stop's, which is one
+    /// of the two things telling them apart at 16 px; the other is width.</summary>
+    internal const float MinorMarkOverhangFraction = 0.55f;
+
+    /// <summary>Kept clear outside the longest mark's tip so antialiasing is not clipped.</summary>
+    private const float ArcFrameBleed = 0.25f;
+
+    /// <summary>The ring's centre-line radius.</summary>
+    internal static float ArcRingRadius(float size) =>
+        size / 2f - ArcFrameBleed - ArcMarkOverhang(size) - ArcStroke(size) / 2f;
+
+    /// <summary>The ring's outer edge, which is what a mark has to get past to be seen.</summary>
+    internal static float ArcRingOuterRadius(float size) => ArcRingRadius(size) + ArcStroke(size) / 2f;
+
+    /// <summary>The stop mark's outer tip — the furthest ink the arc style puts on the frame.</summary>
+    internal static float ArcMarkOuterRadius(float size) =>
+        ArcRingOuterRadius(size) + ArcMarkOverhang(size);
 
     /// <summary>The mark's bounding box inside the ring, from the transparent centre's diameter.
     /// Sized to leave room for the moat: a mark filling the hole fuses with the ring at 16 px.</summary>
@@ -546,19 +580,25 @@ internal static class IconGenerator
         return path;
     }
 
-    /// <summary>Draws one threshold tick radially across the ring at <paramref name="percent"/> on
-    /// the arc's sweep. <paramref name="minor"/> draws the thinner start mark.</summary>
-    private static void DrawArcMark(Graphics g, int size, float cx, float cy, float r, float stroke,
+    /// <summary>Draws one threshold tick across the ring at <paramref name="percent"/> on the arc's
+    /// sweep, overhanging the stroke at both ends so the tick reads against the empty space around
+    /// the ring rather than inside it. <paramref name="minor"/> draws the start mark, shorter and
+    /// thinner than the stop so the two are told apart at the tray's own size.</summary>
+    private static void DrawArcMark(Graphics g, int size, float cx, float cy,
                                     int percent, IconContrast contrast, bool minor)
     {
+        float inner = ArcRingRadius(size) - ArcStroke(size) / 2f - ArcMarkInnerOverhang(size);
+        float outer = ArcRingOuterRadius(size)
+                    + ArcMarkOverhang(size) * (minor ? MinorMarkOverhangFraction : 1f);
+
         // The ring runs 270° from 135° clock-face; DrawArc turns that into GDI's 0° = 3 o'clock.
         double rad = (135f + 270f * Math.Clamp(percent, 0, 100) / 100f - 90f) * Math.PI / 180.0;
         float  dx  = (float)Math.Cos(rad);
         float  dy  = (float)Math.Sin(rad);
-        float  x1  = cx + dx * (r - stroke / 2f), y1 = cy + dy * (r - stroke / 2f);
-        float  x2  = cx + dx * (r + stroke / 2f), y2 = cy + dy * (r + stroke / 2f);
+        float  x1  = cx + dx * inner, y1 = cy + dy * inner;
+        float  x2  = cx + dx * outer, y2 = cy + dy * outer;
 
-        float width = minor ? Math.Max(1f, size * 0.07f) : Math.Max(1.5f, size * 0.10f);
+        float width = minor ? Math.Max(1.2f, size * 0.075f) : Math.Max(1.8f, size * 0.115f);
         // A narrower halo than the arc's own: this one crosses the ring rather than tracing it, and
         // the arc's extra width would swallow a third of the ring at 16 px.
         using (var haloPen = new System.Drawing.Pen(contrast.Outline, width + Math.Max(1f, size * 0.04f)))
