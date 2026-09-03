@@ -3,7 +3,8 @@
 # release cannot build against something other than what CI tested.
 #
 # The value is a commit rather than a tag or branch name, so the pin cannot move under
-# a build. This commit is the one tag v0.6.0 points at.
+# a build. This commit carries the 0.7.0 release of every component, plus the fixes merged
+# after it; the thirteen <component>-v0.7.0 tags all point at an ancestor of it.
 #
 # A local build compiles against the live sibling working tree, not this commit, so a
 # green local build proves nothing about the pin. Build warning ZZ0001 reports the
@@ -11,4 +12,4 @@
 # the same change, or CI fails with CS0234.
 #
 # Blank lines and lines starting with '#' are ignored; the first remaining line is the ref.
-04ab2da1918ad6fec76fe38f19df37144aca5c5b
+fdaad1aaceca3fba8f9006ca9d03da2b51bb5ceb

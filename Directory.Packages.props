@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- Central package management, switched on by the family's pin file. Every package the family
+       shares is pinned there and nowhere else: a version attribute on a PackageReference, a second
+       declaration, an Update that moves a pin, or a VersionOverride each fail the build (ZZB006 /
+       NU1013). ChargeKeeper's own packages are declared below the import. -->
+
+  <Import Project="$(ZeroZeroSharedDir)\src\ZeroZero.Build\Sdk\ZeroZero.Packages.props" />
+
+  <ItemGroup>
+    <!-- Same toolkit family and version as the family's SettingsControls pin; the two ship together
+         and a mismatch between them is a binding failure at runtime rather than a build error. -->
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.2.251219" />
+    <!-- The MAJOR matters: NLog 6 removed FileTarget.concurrentWrites and silently ignores unknown
+         attributes, so nlog.config's concurrency settings are version-specific. Read AppLog's
+         remarks and NLogConfigTests before moving this. -->
+    <PackageVersion Include="NLog" Version="6.1.4" />
+    <!-- The 10.0.9 band: runtime-companion packages republished under the runtime's own number. -->
+    <PackageVersion Include="System.Diagnostics.PerformanceCounter" Version="10.0.9" />
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.9" />
+    <PackageVersion Include="System.Management" Version="10.0.9" />
+    <PackageVersion Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
+    <!-- WindowExtensions.CenterOnScreen only; not WindowEx and not PersistenceId, which persists
+         through Windows.Storage.ApplicationData and is unavailable to this unpackaged app. -->
+    <PackageVersion Include="WinUIEx" Version="2.9.2" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+<Project>
+
+  <!-- The build kit's guards, manifest writer and signing step. Pairs with the props import in
+       Directory.Build.props; importing one without the other fails with ZZB001. -->
+
+  <Import Project="$(ZeroZeroSharedDir)\src\ZeroZero.Build\Sdk\ZeroZero.Build.targets" />
+
+</Project>

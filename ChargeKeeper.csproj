@@ -1,10 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The build kit's WinUI application block: output type, target framework and minimum platform,
+       UseWinUI, WindowsPackageType None, EnableMsixTooling, WinUISDKReferences, the runtime
+       identifier from the process architecture, and DefaultLanguage en-GB. Imported at the top so
+       this project's own properties below still win. The kit's other three imports are at the
+       repository root. This project keeps its own app.manifest, so the kit writes none. -->
+  <Import Project="$(ZeroZeroBuildDir)Sdk\ZeroZero.WinUIApp.props" />
+
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.37.1</Version>
+    <Version>1.38.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -24,10 +29,6 @@
     <Copyright>Copyright © 2026 ZeroZero Software</Copyright>
     <RepositoryUrl>https://github.com/0z00z0/ChargeKeeper</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <!-- The neutral language of every resource the app ships. Stated rather than generated:
-         Package.appxmanifest carries the template's x-generate, which resolves to the build
-         machine's own language and is how en-US reaches a shipped package. -->
-    <DefaultLanguage>en-GB</DefaultLanguage>
 
     <!-- InvariantGlobalization is left OFF (default). It was briefly suspected of causing the
          dashboard's "Failed to assign to property RangeBase.Minimum" XamlParseException, but that
@@ -36,11 +37,6 @@
          sensitive WinUI controls (e.g. NumberBox); re-enable only if installer size matters and
          the UI is re-verified. -->
     <Platforms>x86;x64;ARM64</Platforms>
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
-    <UseWinUI>true</UseWinUI>
-    <WinUISDKReferences>false</WinUISDKReferences>
-    <WindowsPackageType>None</WindowsPackageType>
-    <EnableMsixTooling>false</EnableMsixTooling>
     <!-- Bundle the Windows App SDK runtime when publishing self-contained. Declared as a
          PROJECT-level property here (conditioned on the self-contained publish) rather than a
          command-line -p:WindowsAppSDKSelfContained=true global in build-installer.ps1, because a
@@ -48,8 +44,6 @@
          where the WindowsAppSDK targets reject it ("should not be applied to a class library").
          A project property stays local to this app and never reaches the reference. -->
     <WindowsAppSDKSelfContained Condition="'$(SelfContained)' == 'true'">true</WindowsAppSDKSelfContained>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <!-- Embeds the multi-size icon in the exe so it shows in Programs & Features,
          the uninstall entry, Explorer, and the UAC elevation prompt. -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
@@ -200,49 +194,43 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
+  <!-- No version attribute anywhere: every version is pinned centrally in
+       Directory.Packages.props, the family's pins above this repository's own. A version here fails
+       the build (ZZB006). -->
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.2.251219" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" />
     <!-- Same toolkit family/version as RangeSelector above (TODO #19 spec: do not bump/mismatch) —
          SettingsCard/SettingsExpander rows for the Settings window. -->
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
-    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
-    <!-- Pinned exact (not floating), like WinUIEx below — latest stable as of 2026-07-17. Backs
-         Services/AppLog; adopted to get bounded log rotation (app.log grew unbounded) rather than
-         re-inventing it. NB the MAJOR matters: NLog 6 removed FileTarget.concurrentWrites and
-         silently IGNORES unknown attributes, so nlog.config's concurrency settings are version-
-         specific — read AppLog's remarks and NLogConfigTests before bumping this. -->
-    <PackageReference Include="NLog" Version="6.1.4" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" />
+    <PackageReference Include="H.NotifyIcon.WinUI" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <!-- Backs Services/AppLog; adopted to get bounded log rotation (app.log grew unbounded) rather
+         than re-inventing it. -->
+    <PackageReference Include="NLog" />
+    <PackageReference Include="System.Drawing.Common" />
     <!-- WMI, for Services/HyperVUplinkBindings: MSFT_NetAdapterBindingSettingData is how Windows
          names the NIC an external Hyper-V switch is bound to, which the MAC walk-back can only
-         infer. Same 10.0.9 band as the two System.* references either side; the package ships in
-         a self-contained unpackaged publish, as HyperVManagerTray already does. -->
-    <PackageReference Include="System.Management" Version="10.0.9" />
+         infer. The package ships in a self-contained unpackaged publish. -->
+    <PackageReference Include="System.Management" />
     <!-- Services/ThermalZoneReader: the "Thermal Zone Information" performance-counter category is
          no longer part of the runtime on .NET Core/5+ — PerformanceCounter was forwarded out to this
-         package. Same 10.0.9 band as the System.* references either side. -->
-    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.9" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
-    <PackageReference Include="TaskScheduler" Version="2.12.2" />
-    <!-- Pinned exact (not floating) per TODO #19 spec — latest stable 2.9.x as of 2026-07-13.
-         Used for WindowExtensions.CenterOnScreen on the new Settings window; NOT for WindowEx or
-         PersistenceId (the latter persists via Windows.Storage.ApplicationData, unavailable to
-         this unpackaged app — the Settings window's rect persists through SettingsService/JSON
-         instead, like everything else in this app). -->
-    <PackageReference Include="WinUIEx" Version="2.9.2" />
+         package. -->
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
+    <PackageReference Include="TaskScheduler" />
+    <!-- WindowExtensions.CenterOnScreen on the Settings window; NOT WindowEx or PersistenceId (the
+         latter persists via Windows.Storage.ApplicationData, unavailable to this unpackaged app —
+         the Settings window's rect persists through SettingsService/JSON instead). -->
+    <PackageReference Include="WinUIEx" />
   </ItemGroup>
 
   <!-- Shared ZeroZero Software branding: the About window comes from here instead of a
        hand-rolled UI/AboutWindow. Plain sibling-folder ProjectReference (no NuGet feed yet) — the
        CI workflows git-clone 0z00z0/0z0-shared beside this repo and check out the commit pinned in
        .github/0z0-shared-ref; local dev uses the live sibling folder. Project name
-       ZeroZero.Brand.WinUI. Integration contract documented in README. -->
-  <PropertyGroup>
-    <ZeroZeroSharedDir Condition="'$(ZeroZeroSharedDir)' == ''">..\0z0-shared</ZeroZeroSharedDir>
-  </PropertyGroup>
-
+       ZeroZero.Brand.WinUI. Integration contract documented in README. ZeroZeroSharedDir is set in
+       Directory.Build.props, which the build kit's own import needs before this file is read. -->
   <ItemGroup>
     <ProjectReference Include="$(ZeroZeroSharedDir)\src\ZeroZero.Brand.WinUI\ZeroZero.Brand.WinUI.csproj" />
     <!--

@@ -349,10 +349,18 @@ declarations, the seven publish groups and the copy saying what it publishes; ev
 the endpoint sweep, the encryption model, the retained document, the eviction ledger and every
 protocol sentence in the panel — belongs to the module.
 
+The **build kit** comes from the same repository and is not a reference at all: `Directory.Build.props`,
+`Directory.Build.targets` and `Directory.Packages.props` at the repository root each import one of
+its files from the sibling checkout, and `ChargeKeeper.csproj` imports the WinUI application block.
+It decides the language settings, the studio identity, the signing step and every third-party
+package version, so **no `PackageReference` in this repository carries a `Version` attribute** —
+a version there fails the build. A package the family shares moves in the kit's own pin file; one
+only ChargeKeeper uses moves in `Directory.Packages.props` here.
+
 ### Resolving the shared library
 
-**Resolution:** pinned to the commit named in `.github/0z0-shared-ref`, which is the commit tag
-`v0.6.0` points at — 2026-09-02.
+**Resolution:** pinned to the commit named in `.github/0z0-shared-ref`. It carries the 0.7.0 release
+of every component in the library, plus the fixes merged after it — 2026-09-03.
 
 Both workflows read that one file and check the sibling clone out at the commit it names, so a
 release builds against exactly what CI tested, a release rebuilds identically later, and a change
@@ -365,9 +373,8 @@ clone sits at another commit — a warning, not an error, so local work against 
 not blocked. Adopting anything new from the shared library means bumping the pin in the same
 change; without it CI fails with CS0234.
 
-**The pin holds while 0z0-shared is restructured into extracted components.** ChargeKeeper adopts
-none of that work yet. Bump the pin at adoption, and expect `ZZ0001` in the meantime on a machine
-whose sibling clone follows the library's default branch.
+**Bump the pin in the same change that adopts something new.** Expect `ZZ0001` in the meantime on a
+machine whose sibling clone has moved past the pin.
 
 **Notice before a structural change.** 0z0-shared gives notice before renaming or relocating
 anything reachable from ChargeKeeper's source reference. On notice, build against the proposed shape,

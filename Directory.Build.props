@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    The ZeroZero build kit, taken by the sibling-checkout route. The kit is never a PackageReference:
+    that restores cleanly, delivers nothing and fails the build with ZZB011. Three imports, each in
+    the file the SDK reserves for it — the props here, the targets in Directory.Build.targets, the
+    pins in Directory.Packages.props — and a fourth in ChargeKeeper.csproj for the WinUI application
+    block.
+
+    ZeroZeroSharedDir is set before the import so the import can find the checkout, and it governs
+    every ProjectReference into the library as well. CI clones 0z00z0/0z0-shared beside this
+    repository at the commit named in .github/0z0-shared-ref; a local build compiles against the live
+    sibling working tree, which warning ZZ0001 reports when the two differ.
+  -->
+
+  <PropertyGroup>
+    <ZeroZeroSharedDir Condition="'$(ZeroZeroSharedDir)' == ''">$(MSBuildThisFileDirectory)..\0z0-shared</ZeroZeroSharedDir>
+  </PropertyGroup>
+
+  <Import Project="$(ZeroZeroSharedDir)\src\ZeroZero.Build\Sdk\ZeroZero.Build.props" />
+
+</Project>

@@ -12,7 +12,7 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class GraphLineGradientTests
 {
-    private const uint Accent = GaugePalette.SteelBlue;
+    private static readonly uint Accent = GaugePalette.SteelBlue;
     private const int  MaxStops = 200;
 
     /// <summary>The recorded window, parsed by the same reader the app uses.</summary>

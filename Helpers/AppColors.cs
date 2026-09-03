@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 using Windows.UI;
+using ZeroZero.Brand.Core;
 
 namespace ChargeKeeper.Helpers;
 
@@ -17,7 +18,9 @@ internal static class AppColors
     internal static readonly Color Orange      = Color.FromArgb(255, 0xFF, 0x8C, 0x00);
     internal static readonly Color Grey        = Color.FromArgb(255, 0x9E, 0x9E, 0x9E);
     internal static readonly Color Amber       = FromPacked(GaugePalette.Amber);   // brand amber
-    internal static readonly Color Blue        = Color.FromArgb(255, 0x36, 0xB0, 0xE6);  // brand blue (idle)
+    // The full/idle status glyph. Reads its value from the studio palette; the literal that stood
+    // here was #36b0e6, close enough to pass by eye and not the brand blue.
+    internal static readonly Color Blue        = FromPacked(GaugePalette.FromHex(Brand.ColorBlue));
 
     /// <summary>A packed 0xAARRGGBB value from <see cref="GaugePalette"/> as a WinUI colour.</summary>
     internal static Color FromPacked(uint argb) => Color.FromArgb(

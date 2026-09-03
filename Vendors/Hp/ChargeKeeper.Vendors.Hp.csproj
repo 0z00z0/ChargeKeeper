@@ -27,6 +27,6 @@
   <ItemGroup>
     <!-- WMI access to root\HP\InstrumentedBIOS. Unlike the Lenovo module there is NO native
          bridge to build: HP's BIOS surface is reachable straight from managed code. -->
-    <PackageReference Include="System.Management" Version="10.0.9" />
+    <PackageReference Include="System.Management" />
   </ItemGroup>
 </Project>

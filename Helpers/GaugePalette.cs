@@ -1,3 +1,5 @@
+using ZeroZero.Brand.Core;
+
 namespace ChargeKeeper.Helpers;
 
 /// <summary>One anchor on a gauge scale: the charge level and the colour the gauge reads exactly
@@ -14,17 +16,25 @@ internal readonly record struct GaugeStop(int Percent, uint Argb);
 /// between tiers; a scale carries the reading itself.</remarks>
 internal static class GaugePalette
 {
-    // Packed 0xAARRGGBB.
-    internal const uint Ember      = 0xFFC2593F;   // deep flat below the draining scale
-    internal const uint Terracotta = 0xFFC9926B;   // low on battery / charge-limit accent
-    internal const uint SageGreen  = 0xFF7AB88F;   // comfortable on battery / brand-mark interior
-    internal const uint Lavender   = 0xFF9C8FBD;   // near the top of both battery scales
-    internal const uint SteelBlue  = 0xFF7FA8B8;   // connected to mains + app accent
-    internal const uint Orchid     = 0xFFC2569B;   // held high on mains
+    /// <summary>An opaque packed 0xAARRGGBB value from a studio palette constant such as
+    /// "#7fa8b8". The only place in the app that turns a brand hex string into bytes.</summary>
+    internal static uint FromHex(string hex) =>
+        0xFF000000u | Convert.ToUInt32(hex.TrimStart('#'), 16);
+
+    // Packed 0xAARRGGBB. Three of these are studio palette colours and read their value from
+    // ZeroZero.Brand.Core rather than restating it; the rest are ChargeKeeper's own and the shared
+    // palette does not carry them. PaletteAdoptionTests pins the three against the studio values.
+    internal const uint Ember     = 0xFFC2593F;   // deep flat below the draining scale
+    internal const uint SageGreen = 0xFF7AB88F;   // comfortable on battery / brand-mark interior
+    internal const uint Lavender  = 0xFF9C8FBD;   // near the top of both battery scales
+    internal const uint Orchid    = 0xFFC2569B;   // held high on mains
+
+    internal static readonly uint Terracotta = FromHex(Brand.ColorTerracotta);  // low on battery / charge-limit accent
+    internal static readonly uint SteelBlue  = FromHex(Brand.ColorSteelBlue);   // connected to mains + app accent
 
     /// <summary>Brand amber. No gauge role: it read as a warning across most of the battery range.
     /// Still the discharging status glyph and the charge-limit tick marks.</summary>
-    internal const uint Amber = 0xFFD8A657;
+    internal static readonly uint Amber = FromHex(Brand.ColorAmber);
 
     /// <summary>On battery. Runs from a deep ember at the bottom through terracotta and sage to
     /// lavender at a level a laptop rarely sits at unplugged.</summary>

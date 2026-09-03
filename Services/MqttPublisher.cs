@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using ChargeKeeper.Helpers;
 using ZeroZero.Mqtt;
 using ZeroZero.Mqtt.Discovery;
+using ZeroZero.Primitives;
 
 namespace ChargeKeeper.Services;
 
@@ -311,9 +312,10 @@ internal sealed class MqttPublisher : IDisposable
     }
 }
 
-/// <summary>The module's log sink over <see cref="AppLog"/>. The module owns no logging framework and
-/// sanitises an exception before it gets here, so no staged credential reaches the file.</summary>
-internal sealed class AppMqttLog : IMqttLog
+/// <summary>The shared library's log sink over <see cref="AppLog"/>. A component owns no logging
+/// framework and sanitises an exception before it gets here, so no staged credential reaches the
+/// file.</summary>
+internal sealed class AppMqttLog : ILogSink
 {
     public void Info(string message) => AppLog.Info(message);
 
