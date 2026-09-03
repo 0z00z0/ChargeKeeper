@@ -1,7 +1,7 @@
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// Pure decisions behind the dashboard's Lid close section: whether the section belongs on this
+/// Pure decisions behind the dashboard's Lid delay section: whether the section belongs on this
 /// machine at all, which quick delays its chip row offers, and the line under its title. No power
 /// scheme and no window, so the rules are unit-testable — <see cref="LidDelayService"/> owns the OS
 /// side and remains the only writer.

@@ -156,7 +156,7 @@ internal sealed class AppSettings
 
     public int LidDelayMinutes { get; set; } = 10;
 
-    /// <summary>The selectable delays, edited on the Lid close page. The default set matches the
+    /// <summary>The selectable delays, edited on the Lid delay page. The default set matches the
     /// dashboard's own quick delays so both surfaces open on the same three figures.</summary>
     public List<LidDelayPreset> LidDelayPresets { get; set; } =
     [
@@ -184,7 +184,7 @@ internal sealed class AppSettings
     /// the feature on with no level at all.</summary>
     public int LidDischargeTargetPercent { get; set; } = 50;
 
-    /// <summary>The selectable discharge targets, edited on the Lid close page.</summary>
+    /// <summary>The selectable discharge targets, edited on the Lid delay page.</summary>
     public List<LidDischargeTarget> LidDischargePresets { get; set; } =
     [
         new(70),

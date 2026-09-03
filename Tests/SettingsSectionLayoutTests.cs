@@ -4,7 +4,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// The Smart Charge, Keep Awake and Lid close pages carry one layout: a section opens with a rule
+// The Smart Charge, Keep Awake and Lid delay pages carry one layout: a section opens with a rule
 // and a sub-heading, and the cards follow. The shape only holds while every page draws that chrome
 // from SettingsSectionHeader — a page that hand-rolls a divider and a heading looks right on the
 // day it is written and drifts afterwards. These assertions read the markup, so they hold without
@@ -54,7 +54,7 @@ public class SettingsSectionLayoutTests
     public void EverySectionOpensWithTheSharedHeader(string panelName, string[] headings) =>
         Assert.Equal(headings, SectionHeadings(panelName));
 
-    /// <summary>The Lid close master switch governs the whole page, so no section heading may stand
+    /// <summary>The Lid delay master switch governs the whole page, so no section heading may stand
     /// above it: a heading over it reads as though it belonged to that one section.</summary>
     [Fact]
     public void TheLidCloseMasterSwitchSitsAboveEverySectionHeading()
@@ -63,9 +63,9 @@ public class SettingsSectionLayoutTests
         int    master = page.IndexOf("x:Name=\"LidDelayToggle\"", StringComparison.Ordinal);
         int    first  = page.IndexOf("<local:SettingsSectionHeader", StringComparison.Ordinal);
 
-        Assert.True(master >= 0, "The Lid close master switch is no longer declared.");
-        Assert.True(first  >= 0, "The Lid close page no longer has any section heading.");
-        Assert.True(master < first, "A section heading stands above the Lid close master switch.");
+        Assert.True(master >= 0, "The Lid delay master switch is no longer declared.");
+        Assert.True(first  >= 0, "The Lid delay page no longer has any section heading.");
+        Assert.True(master < first, "A section heading stands above the Lid delay master switch.");
     }
 
     /// <summary>The two rows that apply to either kind of wait come before either preset group, so
@@ -119,7 +119,7 @@ public class SettingsSectionLayoutTests
         return match.Groups["text"].Value;
     }
 
-    // Lid close ends its wait on whichever condition arrives first. Both group switches once
+    // Lid delay ends its wait on whichever condition arrives first. Both group switches once
     // described their value as "one of the conditions for sleeping", which reads as a conjunction —
     // the behaviour the redesign removed — and contradicted the master switch's own bubble one level
     // up. The wording is the only place a user learns the rule, so it is asserted rather than left to
@@ -142,7 +142,7 @@ public class SettingsSectionLayoutTests
     public void NoLidCloseStringDescribesItsConditionsAsAConjunction() =>
         Assert.DoesNotContain("one of the conditions for", SettingsMarkup(), StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Every switch in the Lid close top block carries an info bubble. Each of the three
+    /// <summary>Every switch in the Lid delay top block carries an info bubble. Each of the three
     /// turns on behaviour whose reason does not fit the one-line description — the master switch
     /// changes a Windows setting, switching off after sleeping counts only sleeps, and locking exists
     /// because handling the lid removes the sign-in prompt. A row without one strands its reason in a

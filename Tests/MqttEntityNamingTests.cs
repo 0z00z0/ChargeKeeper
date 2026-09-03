@@ -146,7 +146,7 @@ public class MqttEntityNamingTests
         // with them whatever it is called.
         new()
         {
-            Group = MqttPublishGroups.LidClose, Word = "Lid-close",
+            Group = MqttPublishGroups.LidClose, Word = "Lid-delay",
             Exceptions = ["Smart Standby"],
         },
 

@@ -27,7 +27,7 @@ internal static class MqttPublishGroups
             Info: "The charge limit, the preset in force and the one-shot charge to full."),
         new(KeepAwake, "Keep Awake",
             Info: "Whether a session is holding the computer awake, and when it expires."),
-        new(LidClose, "Lid close",
+        new(LidClose, "Lid delay",
             Info: "The lid-close delay and whether the computer locks when the lid shuts."),
         new(Notifications, "Notifications",
             Info: "The battery and drain warning thresholds, and whether each is armed."),

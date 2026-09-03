@@ -5,7 +5,7 @@ namespace ChargeKeeper.UI;
 
 /// <summary>
 /// The rule and sub-heading that open a section on a Settings page, with an optional explanation
-/// beside the heading. Every sub-headed group on the Smart Charge, Keep Awake and Lid close pages
+/// beside the heading. Every sub-headed group on the Smart Charge, Keep Awake and Lid delay pages
 /// starts with one, so the chrome is declared once and the three pages cannot drift apart.
 /// </summary>
 /// <remarks>

@@ -9,7 +9,7 @@ namespace ChargeKeeper.Services;
 /// hold and the suspend.
 /// </summary>
 /// <remarks>
-/// Lid close is a power-policy action, not an idle timeout, so <c>SetThreadExecutionState</c> cannot
+/// Lid delay is a power-policy action, not an idle timeout, so <c>SetThreadExecutionState</c> cannot
 /// delay it: the only mechanism is to park the user's own lid-close action on "do nothing" while the
 /// feature is on, hold the machine awake, then suspend explicitly. Those values must reach disk
 /// BEFORE the scheme is written and are never re-captured while stored, or a crash strands the laptop
@@ -59,7 +59,7 @@ internal static class LidDelayService
 
     private static bool _started;
 
-    // Hardware, so it is asked once: the dashboard reconciles its Lid close section every refresh.
+    // Hardware, so it is asked once: the dashboard reconciles its Lid delay section every refresh.
     private static bool? _lidPresent;
 
     /// <summary>Raised (off the UI thread) whenever the feature is switched on or off, including when
@@ -88,7 +88,7 @@ internal static class LidDelayService
 
         var s = SettingsService.Current;
         if (!s.LidDelayEnabled && s.HasSavedLidAction)
-            PowerLog.Event("Lid-close action was left overridden by a previous run — restoring it",
+            PowerLog.Event("Lid-delay was left overridden by a previous run — restoring it",
                            "crash recovery at startup");
 
         Reconcile();
@@ -130,7 +130,7 @@ internal static class LidDelayService
             }
             SettingsService.Update(x => x.LidDelayEnabled = true);
             Subscribe();
-            PowerLog.Event($"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min",
+            PowerLog.Event($"Lid delay on, {SettingsService.Current.LidDelayMinutes} min",
                            cause ?? "the setting was turned on");
             RaiseStateChanged();
             return true;
@@ -140,8 +140,8 @@ internal static class LidDelayService
         CancelDelay();
         Unsubscribe();
         PowerLog.Event(RestoreSavedAction()
-            ? "Lid-close delay off, the Windows lid-close action is back to its own value"
-            : "Lid-close delay off, but the Windows lid-close action could not be restored — retrying at next start",
+            ? "Lid delay off, the Windows lid-close action is back to its own value"
+            : "Lid delay off, but the Windows lid-close action could not be restored — retrying at next start",
             cause ?? "the setting was turned off");
         RaiseStateChanged();
         return true;
@@ -184,7 +184,7 @@ internal static class LidDelayService
         SettingsService.Update(s => s.LidDischargeEnabled = enable);
         if (enable)
         {
-            PowerLog.Event($"Lid-close battery target on, {SettingsService.Current.LidDischargeTargetPercent} %",
+            PowerLog.Event($"Lid-delay battery target on, {SettingsService.Current.LidDischargeTargetPercent} %",
                            "the setting was turned on");
             return;
         }
@@ -196,7 +196,7 @@ internal static class LidDelayService
             _discharge.Disarm();
             if (wasWatching) _targetSet = false;
         }
-        PowerLog.Event("Lid-close battery target off", "the setting was turned off");
+        PowerLog.Event("Lid-delay battery target off", "the setting was turned off");
         if (wasWatching) Complete();
     }
 
@@ -208,8 +208,8 @@ internal static class LidDelayService
     {
         SettingsService.Update(s => s.LidDelayTimeEnabled = enable);
         PowerLog.Event(enable
-            ? $"Lid-close delay on, {SettingsService.Current.LidDelayMinutes} min"
-            : "Lid-close delay off",
+            ? $"Lid-delay timer on, {SettingsService.Current.LidDelayMinutes} min"
+            : "Lid-delay timer off",
             enable ? "the setting was turned on" : "the setting was turned off");
     }
 
@@ -250,7 +250,7 @@ internal static class LidDelayService
                                "the battery target was met");
                 break;
             case LidDischargeDecision.Charging:
-                PowerLog.Event($"Lid-close battery target given up at {percent} %",
+                PowerLog.Event($"Lid-delay battery target given up at {percent} %",
                                "the battery is charging, so the target cannot be reached");
                 break;
             default:
@@ -449,7 +449,7 @@ internal static class LidDelayService
                 break;
             case LidDelayAction.Cancel:
                 CancelDelay();
-                PowerLog.Event("Lid-close delay cancelled, the machine stays awake", "lid reopened");
+                PowerLog.Event("Lid delay cancelled, the machine stays awake", "lid reopened");
                 break;
         }
     }
@@ -536,8 +536,8 @@ internal static class LidDelayService
         }
 
         if (armedTimer)
-            PowerLog.Event($"Lid-close delay armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
-                           "lid closed with the lid-close delay on");
+            PowerLog.Event($"Lid-delay timer armed — suspending in {delay.TotalMinutes:0} min unless the lid reopens",
+                           "lid closed with the lid-delay timer on");
         if (watchingFor is { } target)
             PowerLog.Event($"Sleep also comes as soon as the battery reaches {target} %",
                            "lid closed with a battery target set");

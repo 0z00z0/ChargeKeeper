@@ -383,7 +383,7 @@
                                     Grid.Column="0" Spacing="1"
                                     Background="Transparent"
                                     Tapped="OnLidDelayLabelTapped">
-                            <TextBlock Text="Lid close"
+                            <TextBlock Text="Lid delay"
                                        Style="{StaticResource DashboardHeaderStyle}">
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
@@ -413,7 +413,7 @@
                                     Background="Transparent"
                                     Visibility="Collapsed"
                                     Tapped="OnLidDelayCollapsedRowTapped">
-                            <TextBlock Text="Lid close" Style="{StaticResource DashboardHeaderStyle}"/>
+                            <TextBlock Text="Lid delay" Style="{StaticResource DashboardHeaderStyle}"/>
                             <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
@@ -422,7 +422,7 @@
                                       OffContent=""
                                       MinWidth="0"
                                       VerticalAlignment="Center"
-                                      AutomationProperties.Name="Lid close delay"
+                                      AutomationProperties.Name="Lid delay"
                                       Toggled="OnLidDelayToggled"/>
                         <Border Grid.Column="2" x:Name="LidDelayChevronHost"
                                 Width="20" Height="20" Margin="4,0,0,0"

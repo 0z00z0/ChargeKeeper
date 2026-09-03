@@ -3,7 +3,7 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// The pure decisions behind the dashboard's Lid close section — no power scheme, no window.
+// The pure decisions behind the dashboard's Lid delay section — no power scheme, no window.
 public class LidDashboardPolicyTests
 {
     // ShouldShow

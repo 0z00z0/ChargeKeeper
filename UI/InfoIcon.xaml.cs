@@ -31,7 +31,7 @@ public sealed partial class InfoIcon : UserControl
     }
 
     /// <summary>
-    /// What the explanation is about, e.g. "Lid close". Screen readers meet several of these on one
+    /// What the explanation is about, e.g. "Lid delay". Screen readers meet several of these on one
     /// page, so the accessible name has to name the setting rather than repeat "more information".
     /// </summary>
     public string Subject

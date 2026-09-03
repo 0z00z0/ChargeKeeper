@@ -159,7 +159,7 @@ public sealed partial class DashboardWindow : Window
         ChargeControlService.StateChanged  += OnExternalStateChanged;
         TravelOverrideService.StateChanged += OnExternalStateChanged;
 
-        // Keep Awake and Lid close each have their own RPC-free reconcile; neither event above covers
+        // Keep Awake and Lid delay each have their own RPC-free reconcile; neither event above covers
         // them. The lid event carries the feature standing itself down after a lid close reached sleep.
         KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
         LidDelayService.StateChanged  += OnLidDelayStateChanged;
@@ -1021,7 +1021,7 @@ public sealed partial class DashboardWindow : Window
     private void OnLidDelayLabelTapped(object sender, TappedRoutedEventArgs e) =>
         LidDelayToggle.IsOn = !LidDelayToggle.IsOn;
 
-    /// <summary>Reconciles the whole Lid close badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
+    /// <summary>Reconciles the whole Lid delay badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
     private void ApplyLidBadge()
     {
         _updatingBadges = true;

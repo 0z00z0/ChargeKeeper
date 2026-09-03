@@ -427,13 +427,13 @@ internal static class MqttEntityCatalog
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetKeepAwakeDisplayOn(on)),
             },
 
-            // ── Lid close, and the standby scheduling the dashboard pairs with it ────────────────
+            // ── Lid delay, and the standby scheduling the dashboard pairs with it ────────────────
             // The master switch keeps its entity id: it is what "lid handling is on" has always meant
             // to an installation, and moving it would discard every entity registration built on it.
             // The clock it used to imply is now a condition of its own, on a new id.
             new MqttSwitch
             {
-                EntityId = LidDelay, Name = "Lid-close active", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDelay, Name = "Lid-delay active", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:laptop",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -442,7 +442,9 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = LidDelayTime, Name = "Lid-close delay", Group = MqttPublishGroups.LidClose,
+                // Disambiguated from the master switch's own "Lid-delay active": this is the time
+                // condition specifically, one of the two the master switch can wait on.
+                EntityId = LidDelayTime, Name = "Lid-delay timer", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:timer-outline",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -451,7 +453,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = LidDelayMinutes, Name = "Lid-close delay length", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDelayMinutes, Name = "Lid-delay timer length", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Unit = "min", Icon = "mdi:timer-outline",
                 Min = LidDelayPolicy.MinMinutes, Max = LidDelayPolicy.MaxMinutes,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -461,7 +463,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = LidDischarge, Name = "Lid-close battery target", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDischarge, Name = "Lid-delay battery target", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-arrow-down",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -470,7 +472,7 @@ internal static class MqttEntityCatalog
             },
             new MqttNumber
             {
-                EntityId = LidDischargePercent, Name = "Lid-close battery target level",
+                EntityId = LidDischargePercent, Name = "Lid-delay battery target level",
                 Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-arrow-down",
                 Min = LidDischargeWatch.MinPercent, Max = LidDischargeWatch.MaxPercent,
@@ -481,7 +483,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = LidDelayLock, Name = "Lid-close lock", Group = MqttPublishGroups.LidClose,
+                EntityId = LidDelayLock, Name = "Lid-delay lock", Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:lock",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -490,7 +492,7 @@ internal static class MqttEntityCatalog
             },
             new MqttSwitch
             {
-                EntityId = LidDelayOffAfterSleep, Name = "Lid-close off after sleeping",
+                EntityId = LidDelayOffAfterSleep, Name = "Lid-delay off after sleeping",
                 Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:numeric-1-box-outline",
                 Debounce = MqttConnection.ReflectDebounce,

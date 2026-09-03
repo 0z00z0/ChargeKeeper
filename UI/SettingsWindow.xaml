@@ -55,7 +55,7 @@
             <NavigationViewItem Content="Keep Awake"       Tag="KeepAwake">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/keep-awake.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Lid close"        Tag="LidClose">
+            <NavigationViewItem Content="Lid delay"        Tag="LidClose">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/lid-close.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>            <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
@@ -319,9 +319,9 @@
                      wording is blunt about which setting and how it comes back. -->
                 <StackPanel x:Name="LidClosePanel" Spacing="4" Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
-                        <TextBlock Text="Lid close" Style="{StaticResource SectionHeaderStyle}"
+                        <TextBlock Text="Lid delay" Style="{StaticResource SectionHeaderStyle}"
                                    Margin="0" VerticalAlignment="Center"/>
-                        <local:InfoIcon Subject="lid close"
+                        <local:InfoIcon Subject="lid delay"
                                         Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
                     </StackPanel>
 
