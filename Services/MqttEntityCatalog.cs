@@ -24,10 +24,19 @@ internal sealed record MqttEntitySources
     public required IChargeControlActions Charge { get; init; }
 
     public required ISettingsActions Settings { get; init; }
+
+    /// <summary>The system temperature in Celsius, already passed through the plausibility gate — see
+    /// <see cref="ThermalStatusService"/> — or null while it is withheld: no thermal zone on this
+    /// machine, an implausible reading, or one not yet shown to vary.</summary>
+    public required Func<double?> SystemTemperature { get; init; }
+
+    /// <summary>The firmware's own recommended ceiling in Celsius, or null when it cannot be read, or
+    /// when <see cref="SystemTemperature"/> itself is currently withheld.</summary>
+    public required Func<double?> SystemTemperatureMaximum { get; init; }
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: forty-six entities, their groups, their capability gates and
+/// ChargeKeeper's published surface: forty-eight entities, their groups, their capability gates and
 /// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -51,6 +60,8 @@ internal static class MqttEntityCatalog
     public const string CapacityFull        = "capacity_full";
     public const string CapacityDesign      = "capacity_design";
     public const string LowPowerMode        = "low_power_mode";
+    public const string SystemTemperature        = "system_temperature";
+    public const string SystemTemperatureMaximum = "system_temperature_maximum";
 
     public const string SmartCharge     = "smart_charge";
     public const string ChargeStart     = "charge_start";
@@ -192,6 +203,8 @@ internal static class MqttEntityCatalog
         var surface = s.Surface;
         var charge = s.Charge;
         var set = s.Settings;
+        var temperature = s.SystemTemperature;
+        var temperatureMax = s.SystemTemperatureMaximum;
 
         return new MqttEntitySet(
         [
@@ -280,6 +293,31 @@ internal static class MqttEntityCatalog
                 EntityId = LowPowerMode, Name = "Low power mode", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:leaf",
                 Read = () => live()?.LowPowerMode,
+            },
+            new MqttSensor
+            {
+                // Not literally the battery, like Adapter rating and Low power mode above — issue
+                // #157's own reading. Gated on ThermalStatusService rather than announced with a
+                // possibly-null value: a machine with no thermal zone, an implausible one, or one
+                // that has not yet been shown to vary gets no entity at all, not one reading unknown.
+                EntityId = SystemTemperature, Name = "System temperature", Group = MqttPublishGroups.BatteryStatus,
+                Category = MqttEntityCategory.Diagnostic, DeviceClass = "temperature", Unit = "°C",
+                StateClass = MqttStateClass.Measurement, Icon = "mdi:thermometer",
+                Include = () => temperature() is not null,
+                Read = () => MqttPayload.Number(temperature() is { } c ? Math.Round(c, 1) : null),
+            },
+            new MqttSensor
+            {
+                // The firmware's own declared ceiling, read once per session over WMI — see
+                // ThermalZoneReader. Gated separately from the reading above: an unreadable trip
+                // point (unelevated, or the class absent) must never withhold the temperature, so
+                // this entity alone goes missing rather than one of them publishing a null.
+                EntityId = SystemTemperatureMaximum, Name = "System temperature maximum",
+                Group = MqttPublishGroups.BatteryStatus,
+                Category = MqttEntityCategory.Diagnostic, DeviceClass = "temperature", Unit = "°C",
+                Icon = "mdi:thermometer-alert",
+                Include = () => temperatureMax() is not null,
+                Read = () => MqttPayload.Number(temperatureMax() is { } c ? Math.Round(c, 1) : null),
             },
 
             // ── Smart Charge ─────────────────────────────────────────────────────────────────────

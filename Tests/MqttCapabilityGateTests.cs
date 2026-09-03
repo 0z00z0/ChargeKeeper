@@ -36,7 +36,7 @@ public class MqttCapabilityGateTests
 
     [Fact]
     public void OnHardwareWithNumericThresholds_EveryEntityIsAnnounced() =>
-        Assert.Equal(46, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
+        Assert.Equal(48, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
 
     [Fact]
     public void OnHardwareWithNoChargeLimitInterface_NoSmartChargeEntityIsAnnounced()
@@ -212,5 +212,41 @@ public class MqttCapabilityGateTests
 
         foreach (var entity in MqttTestBed.Declared().All)
             Assert.Contains(entity.Group!, declared);
+    }
+
+    // ── System temperature: issue #157's own gate ──────────────────────────────────────────────
+
+    [Fact]
+    public void AMachineWithNoTrustworthyReading_AnnouncesNeitherThermalEntityAndDoesNotThrow()
+    {
+        MqttEntitySet set = null!;
+        var exception = Record.Exception(() =>
+            set = MqttTestBed.Build(MqttTestBed.Live(), MqttTestBed.Surface(),
+                                     systemTemperature: null, systemTemperatureMaximum: null));
+
+        Assert.Null(exception);
+        var published = Published(set);
+        Assert.DoesNotContain(MqttEntityCatalog.SystemTemperature, published);
+        Assert.DoesNotContain(MqttEntityCatalog.SystemTemperatureMaximum, published);
+    }
+
+    [Fact]
+    public void AReadingWithNoRecommendedMaximum_PublishesTheTemperatureAloneRatherThanInventingOne()
+    {
+        var published = Published(MqttTestBed.Build(MqttTestBed.Live(), MqttTestBed.Surface(),
+                                                      systemTemperature: 62.0, systemTemperatureMaximum: null));
+
+        Assert.Contains(MqttEntityCatalog.SystemTemperature, published);
+        Assert.DoesNotContain(MqttEntityCatalog.SystemTemperatureMaximum, published);
+    }
+
+    [Fact]
+    public void ATrustworthyReadingWithARecommendedMaximum_PublishesBoth()
+    {
+        var published = Published(MqttTestBed.Build(MqttTestBed.Live(), MqttTestBed.Surface(),
+                                                      systemTemperature: 62.0, systemTemperatureMaximum: 98.0));
+
+        Assert.Contains(MqttEntityCatalog.SystemTemperature, published);
+        Assert.Contains(MqttEntityCatalog.SystemTemperatureMaximum, published);
     }
 }

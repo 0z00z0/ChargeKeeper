@@ -44,6 +44,8 @@ public class MqttEntityNamingTests
         "chargekeeper_office_x1_capacity_full",
         "chargekeeper_office_x1_capacity_design",
         "chargekeeper_office_x1_low_power_mode",
+        "chargekeeper_office_x1_system_temperature",
+        "chargekeeper_office_x1_system_temperature_maximum",
         "chargekeeper_office_x1_smart_charge",
         "chargekeeper_office_x1_charge_start",
         "chargekeeper_office_x1_charge_stop",
@@ -121,11 +123,13 @@ public class MqttEntityNamingTests
         // The Sensors section holds nothing but Battery status, so a prefix earns no grouping there
         // and the two uncategorised readings keep their plain names. The adapter rating belongs to
         // the mains adapter and Energy Saver is an operating-system mode, so neither reads
-        // correctly as a battery reading.
+        // correctly as a battery reading — and the two thermal readings describe the machine the
+        // battery sits in, not the battery itself, per issue #157's own measurement notes.
         new()
         {
             Group = MqttPublishGroups.BatteryStatus, Word = "Battery",
-            Exceptions = ["Is charging", "On AC", "Adapter rating", "Low power mode"],
+            Exceptions = ["Is charging", "On AC", "Adapter rating", "Low power mode",
+                          "System temperature", "System temperature maximum"],
         },
 
         // Smart Charge keeps the product feature name the Settings page, the documentation and the

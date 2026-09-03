@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the forty-six entity ids, the component each is announced
+/// The published surface as a declaration: the forty-eight entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -60,6 +60,12 @@ public class MqttEntityCatalogTests
             DeviceClass: "energy_storage", Unit: "Wh"),
         new(MqttEntityCatalog.LowPowerMode, "binary_sensor", "Low power mode",
             MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic, Icon: "mdi:leaf"),
+        new(MqttEntityCatalog.SystemTemperature, "sensor", "System temperature",
+            MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic,
+            Icon: "mdi:thermometer", DeviceClass: "temperature", Unit: "°C"),
+        new(MqttEntityCatalog.SystemTemperatureMaximum, "sensor", "System temperature maximum",
+            MqttPublishGroups.BatteryStatus, MqttEntityCategory.Diagnostic,
+            Icon: "mdi:thermometer-alert", DeviceClass: "temperature", Unit: "°C"),
 
         new(MqttEntityCatalog.SmartCharge, "switch", "Smart Charge",
             MqttPublishGroups.SmartCharge, MqttEntityCategory.Primary, Icon: "mdi:battery-heart-variant"),
@@ -153,13 +159,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFortySixEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheFortyEightEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsFifteenSensorsThirteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsSeventeenSensorsThirteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -168,7 +174,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 15, ["switch"] = 13, ["number"] = 9,
+                ["sensor"] = 17, ["switch"] = 13, ["number"] = 9,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
@@ -346,8 +352,10 @@ public class MqttEntityCatalogTests
     [Fact]
     public void WithNoReadingAtAll_EveryEntityButTheTextOnePublishesTheResetLiteral()
     {
-        // Before the first battery tick and before the first surface read, both sources answer null.
-        var set = MqttTestBed.Build(live: null, surface: null);
+        // Before the first battery tick, before the first surface read, and before the thermal gate
+        // has anything to say, every source answers null.
+        var set = MqttTestBed.Build(live: null, surface: null,
+                                     systemTemperature: null, systemTemperatureMaximum: null);
 
         foreach (var entity in set.All.Where(e => e.HasState))
         {
@@ -477,7 +485,9 @@ public class MqttEntityCatalogTests
                                                or MqttEntityCatalog.LidDelayOffAfterSleep
                                                or MqttEntityCatalog.LidDelayTime
                                                or MqttEntityCatalog.LidDischarge
-                                               or MqttEntityCatalog.LidDischargePercent))
+                                               or MqttEntityCatalog.LidDischargePercent
+                                               or MqttEntityCatalog.SystemTemperature
+                                               or MqttEntityCatalog.SystemTemperatureMaximum))
                 .Select(e => (e.Platform, e.EntityId)).Order(),
             MqttEntityCatalog.Migrating
                 .Select(m => (m.Component, m.EntityId)).Order());

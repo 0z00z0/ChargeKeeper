@@ -276,6 +276,9 @@ public partial class App : Application
         _hostWindow = new MainWindow();
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         SubscribeBatteryEvents();
+        // Off the UI thread: the counter's first read in a fresh process costs roughly 30 s, which
+        // StartMonitoring must not block on. SampleHistory() reads through it once warmed.
+        Task.Run(ThermalZoneReader.WarmUp);
         StartHistorySampling();
         StartPerformanceSampling();
         ScheduleUpdateCheck();
@@ -567,6 +570,11 @@ public partial class App : Application
     {
         try
         {
+            // Independent of the battery reading below, and taken first: the thermal zone is on the
+            // machine whether or not a battery report has arrived yet, and the plausibility gate it
+            // feeds needs this tick's cadence regardless.
+            ThermalStatusService.Sample();
+
             // Runs on a timer pool thread, so snapshot the fields together — a row must not pair
             // this tick's SoC with the previous tick's limit and power. Record does disk I/O and
             // must stay outside the lock.

@@ -122,11 +122,19 @@ internal static class MqttTestBed
             networkAlias, networkIp, networkAdapter, matchedProfile, appVersion, startupDelay,
             iconMode, downtimeGap);
 
+    /// <summary>A plausible mid-range reading for the two thermal entities, matched to the default
+    /// <see cref="PublishCapabilities.Full"/> pattern: a test states only the field it is about, and
+    /// gets every other entity announced by default. Pass null explicitly to test the withheld case.</summary>
+    private const double DefaultSystemTemperature = 45.0;
+    private const double DefaultSystemTemperatureMaximum = 95.0;
+
     /// <summary>The sources, with every reader answering the same snapshot every time.</summary>
     public static MqttEntitySources Sources(
         LiveState? live = null, SurfaceState? surface = null,
         PublishCapabilities? capabilities = null, Func<PublishCapabilities>? capabilityReader = null,
-        IChargeControlActions? charge = null, ISettingsActions? settings = null)
+        IChargeControlActions? charge = null, ISettingsActions? settings = null,
+        double? systemTemperature = DefaultSystemTemperature,
+        double? systemTemperatureMaximum = DefaultSystemTemperatureMaximum)
     {
         var caps = capabilities ?? PublishCapabilities.Full;
         return new MqttEntitySources
@@ -136,6 +144,8 @@ internal static class MqttTestBed
             Capabilities = capabilityReader ?? (() => caps),
             Charge = charge ?? new FakeChargeControl(),
             Settings = settings ?? new FakeSettingsActions(),
+            SystemTemperature = () => systemTemperature,
+            SystemTemperatureMaximum = () => systemTemperatureMaximum,
         };
     }
 
@@ -143,9 +153,12 @@ internal static class MqttTestBed
     public static MqttEntitySet Build(
         LiveState? live = null, SurfaceState? surface = null,
         PublishCapabilities? capabilities = null, Func<PublishCapabilities>? capabilityReader = null,
-        IChargeControlActions? charge = null, ISettingsActions? settings = null) =>
+        IChargeControlActions? charge = null, ISettingsActions? settings = null,
+        double? systemTemperature = DefaultSystemTemperature,
+        double? systemTemperatureMaximum = DefaultSystemTemperatureMaximum) =>
         MqttEntityCatalog.Build(
-            Sources(live, surface, capabilities, capabilityReader, charge, settings));
+            Sources(live, surface, capabilities, capabilityReader, charge, settings,
+                    systemTemperature, systemTemperatureMaximum));
 
     /// <summary>The whole table with both snapshots present, for a test about declarations only.</summary>
     public static MqttEntitySet Declared() => Build(Live(), Surface());
