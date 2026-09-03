@@ -50,6 +50,9 @@ says the same in words, and `%AppData%\ChargeKeeper\app.log` carries the reason.
 - **Also show percentage** — a second, display-only tray icon carrying the charge level as a number
   beside whichever style the main icon uses. Off by default, and unavailable while the main style is
   already the number.
+- **Show icons in main tray (experimental)** — asks Windows to keep both tray icons on the taskbar
+  rather than behind the overflow chevron. Off by default, reversible, and does nothing at all on a
+  Windows that keeps the setting somewhere else.
 - **Settings window** — a proper titled window (tray icon → **Settings…**) with a General/Smart
   Charge/Notifications/MQTT/About sidebar, replacing the old nested tray submenus. Settings are
   stored as human-readable JSON at `%AppData%\ChargeKeeper\settings.json`

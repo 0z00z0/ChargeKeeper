@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ChargeKeeper.Helpers;
 using ZeroZero.Mqtt;
 
 namespace ChargeKeeper.Services;
@@ -116,6 +117,16 @@ internal sealed class AppSettings
     /// pair, so the tray, the Settings page and the tests cannot each decide it differently.</summary>
     [JsonIgnore]
     public bool PercentageIconWanted => ShowPercentageIcon && IconMode != TrayIconMode.Numeric;
+
+    /// <summary>Whether the application moves its own tray icons out of the overflow flyout. Opt-in
+    /// and off by default: there is no supported interface for it, so nothing is written unless
+    /// this is on.</summary>
+    public bool PromoteTrayIcons { get; set; }
+
+    /// <summary>What the shell held for each icon before <see cref="PromoteTrayIcons"/> was first
+    /// switched on, so switching it off puts each one back. Persisted because the two can be
+    /// separated by a restart. Bookkeeping, not a setting.</summary>
+    public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
 
     public GraphTimeScale GraphTimeScale { get; set; } = GraphTimeScale.OneHour;
 

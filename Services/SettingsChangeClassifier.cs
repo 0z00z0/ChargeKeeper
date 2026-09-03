@@ -51,6 +51,10 @@ internal static class SettingsChangeClassifier
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),
 
+        // What the shell held for each tray icon before it was promoted. Restore bookkeeping for
+        // PromoteTrayIcons, which is itself published; this is not.
+        nameof(AppSettings.TrayPromotionRestore),
+
         // Where the broker answered last. State rather than a setting, and written on every
         // successful connect — the single largest source of changes that move nothing.
         nameof(AppSettings.MqttLastGoodEndpoint),

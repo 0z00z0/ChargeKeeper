@@ -532,6 +532,7 @@ internal sealed partial class SettingsWindow : Window
             IconModeCombo.SelectedIndex   = (int)s.IconMode;
             PercentageIconToggle.IsOn     = s.ShowPercentageIcon;
             ApplyPercentageIconAvailability(s.IconMode);
+            PromoteIconsToggle.IsOn       = s.PromoteTrayIcons;
             GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
             SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
             GraphShadingToggle.IsOn       = s.GraphShadingEnabled;
@@ -589,6 +590,15 @@ internal sealed partial class SettingsWindow : Window
         bool on = PercentageIconToggle.IsOn;
         SettingsService.Update(s => s.ShowPercentageIcon = on);
         _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
+    }
+
+    private void OnPromoteIconsToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = PromoteIconsToggle.IsOn;
+        SettingsService.Update(s => s.PromoteTrayIcons = on);
+        // The same path the style change takes; the tray applies or reverses the promotion there.
+        _menu.ReconcileFromExternalChange();
     }
 
     /// <summary>The second icon is offered only where it would show something the main icon does

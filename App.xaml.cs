@@ -398,6 +398,10 @@ public partial class App : Application
             PowerLog.Say(HealthMessages.TrayIconMissing);
             AppLog.Error("InitTrayIcon.ForceCreate", ex);
         }
+
+        // After creation: the shell has no record of an icon it has never seen, so there is nothing
+        // to write until now. Does nothing at all unless the experimental setting is on.
+        ApplyTrayPromotion();
     }
 
     /// <summary>
@@ -1037,6 +1041,55 @@ public partial class App : Application
         previous?.Dispose();
     }
 
+    /// <summary>The identities the shell files this application's tray icons under. The second is
+    /// listed only while it exists, so nothing is written for an icon that is not registered.</summary>
+    private IReadOnlyList<Guid> RegisteredTrayIcons() =>
+        _percentageIcon is null
+            ? [TrayIconIdentity.Value]
+            : [TrayIconIdentity.Value, TrayIconIdentity.PercentageValue];
+
+    /// <summary>
+    /// Brings the tray icons' overflow position into line with the "Show icons in main tray"
+    /// setting. Experimental by declaration: it writes a value no interface documents, so every
+    /// outcome other than success is doing nothing at all. UI thread only — it re-registers the
+    /// icons when something moved.
+    /// </summary>
+    private void ApplyTrayPromotion()
+    {
+        try
+        {
+            bool wanted = SettingsService.Current.PromoteTrayIcons;
+            var  stored = SettingsService.Current.TrayPromotionRestore;
+
+            // Nothing to restore and nothing asked for: the ordinary state, and it must not touch
+            // the registry or write the settings file on every repaint.
+            if (!wanted && stored.Count == 0) return;
+
+            // On a copy, so the registry work happens outside the settings lock and the file is
+            // written only where the record actually moved.
+            var memory = new List<TrayPromotionMemory>(stored);
+            bool moved = TrayIconPromotion.Apply(wanted, RegisteredTrayIcons(), memory,
+                                                 new RegistryTrayPromotionStore());
+            if (memory.Count != stored.Count)
+                SettingsService.Update(s => s.TrayPromotionRestore = memory);
+
+            // The shell reads the flag when an icon registers, so an icon already on screen keeps
+            // its old position until it is re-added. Explorer is never restarted on anyone's behalf.
+            if (!moved) return;
+            foreach (var icon in new[] { _trayIcon, _percentageIcon })
+                if (icon is { } present)
+                {
+                    present.TrayIcon.TryRemove();
+                    present.TrayIcon.Create();
+                }
+        }
+        catch (Exception ex)
+        {
+            // A tray position is not worth a failed start-up or a killed repaint.
+            AppLog.Error("ApplyTrayPromotion", ex);
+        }
+    }
+
     /// <summary>Repaints from the last reading, for the sources that change the icon without a
     /// battery event of their own. Deduped by the latch, so an unrelated change costs nothing.</summary>
     private void RepaintTrayIconFromLastReading()
@@ -1094,6 +1147,11 @@ public partial class App : Application
         // The pixels changed without the request changing, so the latch has to be dropped first.
         _iconLatch.Invalidate();
         RepaintTrayIconFromLastReading();
+
+        // After the repaint, so a second icon this pass created is one of the icons considered.
+        // This is the path a Settings change comes back through, and it runs on a style, DPI or
+        // theme change rather than on every battery tick.
+        RunOnUi(ApplyTrayPromotion);
     }
 
     /// <summary>

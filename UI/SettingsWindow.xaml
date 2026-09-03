@@ -151,6 +151,16 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="Show icons in main tray (experimental)"
+                                            Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ToggleSwitch x:Name="PromoteIconsToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnPromoteIconsToggled"/>
+                            <local:InfoIcon Subject="Show icons in main tray"
+                                            Info="Experimental because Windows offers no supported way to do this. It writes the value the Windows 11 shell reads and does nothing at all on a version that stores it differently, so the icons simply stay where Windows put them. Switching it off puts back whatever was there before. Nothing is written while it is off."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="History graph range"
                                             Description="Default time span shown in the battery history graph.">
                         <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">
