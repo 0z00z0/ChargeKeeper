@@ -69,7 +69,7 @@
                     x:Name="GraphDisplayPanel"
                     Orientation="Horizontal"
                     Spacing="4">
-            <Button x:Name="BatteryDisplayButton" Content="Batteri" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource GraphDisplayButtonStyle}"/>
+            <Button x:Name="BatteryDisplayButton" Content="Battery" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource GraphDisplayButtonStyle}"/>
             <Button x:Name="SystemDisplayButton"  Content="System"  Tag="System"  Click="OnGraphDisplayButtonClick" Style="{StaticResource GraphDisplayButtonStyle}"/>
         </StackPanel>
 
