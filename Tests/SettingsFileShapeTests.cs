@@ -53,6 +53,7 @@ public class SettingsFileShapeTests : IDisposable
         "graph.GraphLineColouring",
         "graph.GraphShadingEnabled",
         "graph.DowntimeGapMinutes",
+        "graph.GraphDisplay",
         "smart_charge",
         "smart_charge.Presets",
         "smart_charge.TravelOverrideActive",

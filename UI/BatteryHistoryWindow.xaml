@@ -12,8 +12,8 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <!-- The same graph control at full size. ShowExpandButton is off: this window is where
-         expanding leads. -->
+    <!-- The same graph control at full size, plus the self-measurement graph as an alternative
+         view. ShowExpandButton is off: this window is where expanding leads. -->
     <Grid x:Name="RootGrid" Padding="20,16,20,20" RowSpacing="12">
         <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
              sits; nothing in this window wants the key for itself. -->
@@ -21,8 +21,27 @@
             <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked"/>
         </Grid.KeyboardAccelerators>
 
+        <Grid.Resources>
+            <!-- A copy of BatteryHistoryGraphControl's TimeScaleButtonStyle: that one is scoped to
+                 its own control's resources, out of reach here, and this row wants the identical
+                 chrome. Microsoft.UI.Xaml.Window has no Resources property, hence hosting this on
+                 the root Grid rather than the Window itself. The selection highlight is applied
+                 per button in code-behind, exactly as there. -->
+            <Style x:Key="GraphDisplayButtonStyle" TargetType="Button">
+                <Setter Property="Padding" Value="0,4"/>
+                <Setter Property="MinWidth" Value="36"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            </Style>
+        </Grid.Resources>
+
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- stats -->
+            <RowDefinition Height="Auto"/>  <!-- graph display selector -->
             <RowDefinition Height="*"/>     <!-- graph -->
             <RowDefinition Height="Auto"/>  <!-- health -->
         </Grid.RowDefinitions>
@@ -43,8 +62,23 @@
             </StackPanel>
         </StackPanel>
 
-        <local:BatteryHistoryGraphControl x:Name="HistoryGraph" Grid.Row="1" ShowExpandButton="False"/>
+        <!-- Battery is the graph that has always shown here; System is the self-measurement graph.
+             Only one of the two controls below is visible at a time — Visibility is set in
+             code-behind from the persisted GraphDisplay setting, never both together. -->
+        <StackPanel Grid.Row="1"
+                    x:Name="GraphDisplayPanel"
+                    Orientation="Horizontal"
+                    Spacing="4">
+            <Button x:Name="BatteryDisplayButton" Content="Batteri" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource GraphDisplayButtonStyle}"/>
+            <Button x:Name="SystemDisplayButton"  Content="System"  Tag="System"  Click="OnGraphDisplayButtonClick" Style="{StaticResource GraphDisplayButtonStyle}"/>
+        </StackPanel>
 
-        <local:BatteryHealthPanel x:Name="HealthPanel" Grid.Row="2"/>
+        <local:BatteryHistoryGraphControl x:Name="HistoryGraph" Grid.Row="2" ShowExpandButton="False"/>
+
+        <!-- The self-measurement graph, hidden by default so an existing installation's pop-out
+             looks unchanged until System is chosen. -->
+        <local:PerformanceGraphControl x:Name="PerformanceGraph" Grid.Row="2" Visibility="Collapsed"/>
+
+        <local:BatteryHealthPanel x:Name="HealthPanel" Grid.Row="3"/>
     </Grid>
 </Window>

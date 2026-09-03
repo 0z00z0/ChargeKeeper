@@ -84,6 +84,7 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(2)] public GraphLineColouring GraphLineColouring  { get; set; }
         [JsonPropertyOrder(3)] public bool               GraphShadingEnabled { get; set; }
         [JsonPropertyOrder(4)] public int                DowntimeGapMinutes  { get; set; }
+        [JsonPropertyOrder(5)] public GraphDisplay       GraphDisplay        { get; set; }
     }
 
     internal sealed class SmartChargeGroup
@@ -172,6 +173,7 @@ internal sealed class SettingsFile
             GraphLineColouring  = s.GraphLineColouring,
             GraphShadingEnabled = s.GraphShadingEnabled,
             DowntimeGapMinutes  = s.DowntimeGapMinutes,
+            GraphDisplay        = s.GraphDisplay,
         },
         SmartCharge = new SmartChargeGroup
         {
@@ -240,6 +242,7 @@ internal sealed class SettingsFile
         GraphLineColouring  = Graph.GraphLineColouring,
         GraphShadingEnabled = Graph.GraphShadingEnabled,
         DowntimeGapMinutes  = Graph.DowntimeGapMinutes,
+        GraphDisplay        = Graph.GraphDisplay,
 
         Presets                   = SmartCharge.Presets,
         TravelOverrideActive      = SmartCharge.TravelOverrideActive,

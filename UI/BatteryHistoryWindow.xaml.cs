@@ -1,5 +1,6 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Devices.Power;
 using Windows.Graphics;
@@ -66,6 +67,7 @@ public sealed partial class BatteryHistoryWindow : Window
         try { HistoryGraph.Render(); }
         catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
         RefreshStats();
+        ApplyGraphDisplay(SettingsService.Current.GraphDisplay);
 
         _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) =>
@@ -169,6 +171,59 @@ public sealed partial class BatteryHistoryWindow : Window
         catch (Exception ex)
         {
             AppLog.Error("BatteryHistoryWindow.RefreshStats", ex);
+        }
+    }
+
+    /// <summary>Applies the clicked Battery/System button, whose <c>Tag</c> names the
+    /// <see cref="GraphDisplay"/>.</summary>
+    private void OnGraphDisplayButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tagName } ||
+            !Enum.TryParse<GraphDisplay>(tagName, out var display))
+            return;
+
+        SettingsService.Update(s => s.GraphDisplay = display);
+        ApplyGraphDisplay(display);
+    }
+
+    /// <summary>Shows the chosen graph and hides the other, highlights the matching button, and
+    /// renders whichever control is now visible so the switch shows data immediately.</summary>
+    private void ApplyGraphDisplay(GraphDisplay display)
+    {
+        HistoryGraph.Visibility     = display == GraphDisplay.Battery ? Visibility.Visible : Visibility.Collapsed;
+        PerformanceGraph.Visibility = display == GraphDisplay.System  ? Visibility.Visible : Visibility.Collapsed;
+        SetSelectedDisplayButton(display);
+
+        if (display == GraphDisplay.Battery)
+        {
+            try { HistoryGraph.Render(); }
+            catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
+        }
+        else
+        {
+            PerformanceGraph.ApplySettings();
+        }
+    }
+
+    /// <summary>Highlights the button for <paramref name="display"/>; deselecting clears the local
+    /// value so its style wins. Mirrors BatteryHistoryGraphControl.SetSelectedScaleButton.</summary>
+    private void SetSelectedDisplayButton(GraphDisplay display)
+    {
+        foreach (var button in GraphDisplayPanel.Children.OfType<Button>())
+        {
+            bool selected = button.Tag is string tagName &&
+                             Enum.TryParse<GraphDisplay>(tagName, out var buttonDisplay) &&
+                             buttonDisplay == display;
+            if (selected)
+            {
+                button.Background = AppColors.TimeScaleSelectedBrush;
+                button.Foreground = AppColors.StatusChargingBrush;
+            }
+            else
+            {
+                button.ClearValue(Control.BackgroundProperty);
+                button.ClearValue(Control.ForegroundProperty);
+            }
         }
     }
 

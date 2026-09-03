@@ -37,6 +37,7 @@ internal static class SettingsChangeClassifier
         nameof(AppSettings.GraphTimeScale),
         nameof(AppSettings.GraphLineColouring),
         nameof(AppSettings.GraphShadingEnabled),
+        nameof(AppSettings.GraphDisplay),
 
         // The lid actions captured for crash recovery, and the scheme they belong to.
         nameof(AppSettings.LidDelaySavedAcAction),
