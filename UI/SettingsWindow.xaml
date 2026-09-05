@@ -140,17 +140,6 @@
                         </ComboBox>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard x:Name="PercentageIconCard"
-                                            Header="Also show percentage"
-                                            Description="Adds a second tray icon showing the charge level as a number.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
-                                          Toggled="OnPercentageIconToggled"/>
-                            <local:InfoIcon Subject="Also show percentage"
-                                            Info="A second icon that only shows the reading — the menu, the dashboard and the tooltip stay on the main one. Windows puts a new tray icon behind the overflow chevron, so drag it out to keep it on the taskbar. Unavailable while the tray icon style is Numeric %, which already shows the number."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
                     <controls:SettingsCard Header="Show icons in main tray (experimental)"
                                             Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -161,57 +150,10 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="History graph range"
-                                            Description="Default time span shown in the battery history graph.">
-                        <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">
-                            <ComboBoxItem Content="15 minutes"/>
-                            <ComboBoxItem Content="1 hour"/>
-                            <ComboBoxItem Content="6 hours"/>
-                            <ComboBoxItem Content="12 hours"/>
-                            <ComboBoxItem Content="1 day"/>
-                            <ComboBoxItem Content="1 week"/>
-                            <ComboBoxItem Content="14 days"/>
-                        </ComboBox>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="History graph line colour"
-                                            Description="How the charge line in the battery history graph is coloured.">
-                        <!-- Each item's Tag names its GraphLineColouring member and the load and save
-                             parse it, so item order carries no meaning here and inserting one is safe.
-                             The two combos above are coupled by position instead; leave them be. -->
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ComboBox x:Name="GraphLineColouringCombo" MinWidth="180"
-                                      SelectionChanged="OnGraphLineColouringChanged">
-                                <ComboBoxItem Content="One colour"         Tag="OneColour"/>
-                                <ComboBoxItem Content="By level"           Tag="ByLevel"/>
-                                <ComboBoxItem Content="By level and state" Tag="ByLevelAndState"/>
-                            </ComboBox>
-                            <local:InfoIcon Subject="colouring by level and state"
-                                            Info="By level uses the on-battery scale at each point. By level and state also follows whether the machine was on battery, charging or held on mains at that moment. Samples recorded before ChargeKeeper stored the power state keep the plain accent, because what was happening then was never written down."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="History graph shading"
-                                            Description="Draws the accent fade beneath the charge line. Independent of the line colour, which the fade never follows.">
-                        <ToggleSwitch x:Name="GraphShadingToggle" OnContent="On" OffContent="Off"
-                                      Toggled="OnGraphShadingToggled"/>
-                    </controls:SettingsCard>
-
                     <controls:SettingsCard Header="Downtime gap threshold"
                                             Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
                         <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
                                   SelectionChanged="OnDowntimeGapChanged"/>
-                    </controls:SettingsCard>
-
-                    <local:SettingsSectionHeader Heading="Advanced"/>
-                    <controls:SettingsCard Header="Settings file"
-                                            Description="ChargeKeeper stores its configuration in settings.json.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="OpenSettingsFolderBtn" Content="Open settings folder" Click="OnOpenSettingsFolder"/>
-                            <Button x:Name="ReloadSettingsBtn" Content="Reload settings from file" Click="OnReloadSettings"/>
-                            <local:InfoIcon Subject="the settings file"
-                                            Info="Reload reads settings.json again, picking up changes made outside the app: a manual edit, or a file synced in from another machine."/>
-                        </StackPanel>
                     </controls:SettingsCard>
                 </StackPanel>
 
@@ -499,6 +441,55 @@
                             <ToggleSwitch x:Name="OneLineUntilItMattersToggle" Toggled="OnOneLineUntilItMattersToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
+
+                    <controls:SettingsCard x:Name="PercentageIconCard"
+                                            Header="Also show percentage"
+                                            Description="Adds a second tray icon showing the charge level as a number.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnPercentageIconToggled"/>
+                            <local:InfoIcon Subject="Also show percentage"
+                                            Info="A second icon that only shows the reading — the menu, the dashboard and the tooltip stay on the main one. Windows puts a new tray icon behind the overflow chevron, so drag it out to keep it on the taskbar. Unavailable while the tray icon style is Numeric %, which already shows the number."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <!-- File section stays Graph, unchanged — only the on-screen placement of these
+                         three controls moves here from General. -->
+                    <controls:SettingsCard Header="History graph range"
+                                            Description="Default time span shown in the battery history graph.">
+                        <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">
+                            <ComboBoxItem Content="15 minutes"/>
+                            <ComboBoxItem Content="1 hour"/>
+                            <ComboBoxItem Content="6 hours"/>
+                            <ComboBoxItem Content="12 hours"/>
+                            <ComboBoxItem Content="1 day"/>
+                            <ComboBoxItem Content="1 week"/>
+                            <ComboBoxItem Content="14 days"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="History graph line colour"
+                                            Description="How the charge line in the battery history graph is coloured.">
+                        <!-- Each item's Tag names its GraphLineColouring member and the load and save
+                             parse it, so item order carries no meaning here and inserting one is safe.
+                             The two combos above are coupled by position instead; leave them be. -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="GraphLineColouringCombo" MinWidth="180"
+                                      SelectionChanged="OnGraphLineColouringChanged">
+                                <ComboBoxItem Content="One colour"         Tag="OneColour"/>
+                                <ComboBoxItem Content="By level"           Tag="ByLevel"/>
+                                <ComboBoxItem Content="By level and state" Tag="ByLevelAndState"/>
+                            </ComboBox>
+                            <local:InfoIcon Subject="colouring by level and state"
+                                            Info="By level uses the on-battery scale at each point. By level and state also follows whether the machine was on battery, charging or held on mains at that moment. Samples recorded before ChargeKeeper stored the power state keep the plain accent, because what was happening then was never written down."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="History graph shading"
+                                            Description="Draws the accent fade beneath the charge line. Independent of the line colour, which the fade never follows.">
+                        <ToggleSwitch x:Name="GraphShadingToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnGraphShadingToggled"/>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <StackPanel x:Name="AppDiagnosticsPanel" Spacing="4" Visibility="Collapsed">
@@ -534,6 +525,31 @@
                         <Button x:Name="OpenPerformanceLogButton"
                                 Content="Show in Explorer"
                                 Click="OnOpenPerformanceLogClick"/>
+                    </controls:SettingsCard>
+
+                    <local:SettingsSectionHeader Heading="Advanced"/>
+                    <controls:SettingsCard Header="Settings file"
+                                            Description="ChargeKeeper stores its configuration in settings.json.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="OpenSettingsFolderBtn" Content="Open settings folder" Click="OnOpenSettingsFolder"/>
+                            <Button x:Name="OpenSettingsFileBtn" Content="Open settings file" Click="OnOpenSettingsFile"/>
+                            <Button x:Name="ReloadSettingsBtn" Content="Reload settings from file" Click="OnReloadSettings"/>
+                            <local:InfoIcon Subject="the settings file"
+                                            Info="Reload reads settings.json again, picking up changes made outside the app: a manual edit, or a file synced in from another machine."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Logs"
+                                            Description="ChargeKeeper's own diagnostic trail: general activity, power events, and the performance history above.">
+                        <DropDownButton x:Name="OpenLogButton" Content="Open log">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="Bottom">
+                                    <MenuFlyoutItem Text="app.log" Click="OnOpenAppLogClick"/>
+                                    <MenuFlyoutItem Text="power.log" Click="OnOpenPowerLogClick"/>
+                                    <MenuFlyoutItem Text="performance-history.csv" Click="OnOpenPerformanceHistoryLogClick"/>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
                     </controls:SettingsCard>
                 </StackPanel>
 

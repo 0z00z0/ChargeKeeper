@@ -535,12 +535,7 @@ internal sealed partial class SettingsWindow : Window
         {
             LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
             IconModeCombo.SelectedIndex   = (int)s.IconMode;
-            PercentageIconToggle.IsOn     = s.ShowPercentageIcon;
-            ApplyPercentageIconAvailability(s.IconMode);
             PromoteIconsToggle.IsOn       = s.PromoteTrayIcons;
-            GraphScaleCombo.SelectedIndex = (int)s.GraphTimeScale;
-            SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
-            GraphShadingToggle.IsOn       = s.GraphShadingEnabled;
             LoadPresetCombo(DowntimeGapCombo, DowntimeGapPresets, s.DowntimeGapMinutes, v => $"{v} min");
         });
     }
@@ -589,14 +584,6 @@ internal sealed partial class SettingsWindow : Window
         _menu.ReconcileFromExternalChange();   // repaints the tray icon via the icon-mode callback
     }
 
-    private void OnPercentageIconToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        bool on = PercentageIconToggle.IsOn;
-        SettingsService.Update(s => s.ShowPercentageIcon = on);
-        _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
-    }
-
     /// <summary>Opens the "What's new" report. The tray menu owns that window, so the two entry
     /// points share one instance rather than each opening a copy.</summary>
     private void OnShowWhatsNew(object sender, RoutedEventArgs e) => _menu.ShowWhatsNew();
@@ -608,6 +595,40 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.PromoteTrayIcons = on);
         // The same path the style change takes; the tray applies or reverses the promotion there.
         _menu.ReconcileFromExternalChange();
+    }
+
+    // ── Appearance ──────────────────────────────────────────────────────────────────────────────
+    // ShowPercentageIcon and the three Graph controls below sit on this page, though the first
+    // isn't MQTT-published and the other three keep their file section under Graph — see
+    // SettingsFileShape's own remarks on why file section and UI page are independent here.
+
+    private void LoadAppearance()
+    {
+        var s = SettingsService.Current;
+        WithUpdatingSuppressed(() =>
+        {
+            OneLineUntilItMattersToggle.IsOn = s.OneLineUntilItMatters;
+            PercentageIconToggle.IsOn        = s.ShowPercentageIcon;
+            ApplyPercentageIconAvailability(s.IconMode);
+            GraphScaleCombo.SelectedIndex    = (int)s.GraphTimeScale;
+            SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
+            GraphShadingToggle.IsOn          = s.GraphShadingEnabled;
+        });
+    }
+
+    private void OnOneLineUntilItMattersToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = OneLineUntilItMattersToggle.IsOn;
+        SettingsService.Update(s => s.OneLineUntilItMatters = on);
+    }
+
+    private void OnPercentageIconToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = PercentageIconToggle.IsOn;
+        SettingsService.Update(s => s.ShowPercentageIcon = on);
+        _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
     }
 
     /// <summary>The second icon is offered only where it would show something the main icon does
@@ -656,21 +677,6 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.GraphShadingEnabled = on);
     }
 
-    // ── Appearance ──────────────────────────────────────────────────────────────────────────────
-
-    private void LoadAppearance()
-    {
-        WithUpdatingSuppressed(() =>
-            OneLineUntilItMattersToggle.IsOn = SettingsService.Current.OneLineUntilItMatters);
-    }
-
-    private void OnOneLineUntilItMattersToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        bool on = OneLineUntilItMattersToggle.IsOn;
-        SettingsService.Update(s => s.OneLineUntilItMatters = on);
-    }
-
     // ── App diagnostics ─────────────────────────────────────────────────────────────────────────
 
     private void LoadAppDiagnostics()
@@ -713,6 +719,18 @@ internal sealed partial class SettingsWindow : Window
 
     private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Reveal(SettingsService.FilePath);
+
+    private void OnOpenSettingsFile(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Open(SettingsService.FilePath);
+
+    private void OnOpenAppLogClick(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Open(AppPaths.DataFile("app.log"));
+
+    private void OnOpenPowerLogClick(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Open(AppPaths.DataFile(PowerLog.FileName));
+
+    private void OnOpenPerformanceHistoryLogClick(object sender, RoutedEventArgs e)
+        => ExplorerLauncher.Open(PerformanceHistoryService.FilePath);
 
     /// <summary>Re-reads settings.json — a manual edit, or a file synced in from another machine.</summary>
     private void OnReloadSettings(object sender, RoutedEventArgs e)

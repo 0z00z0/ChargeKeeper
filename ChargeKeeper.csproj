@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.41.0</Version>
+    <Version>1.42.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes

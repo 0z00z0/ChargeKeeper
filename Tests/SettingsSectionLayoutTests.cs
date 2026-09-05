@@ -47,10 +47,12 @@ public class SettingsSectionLayoutTests
              .ToArray();
 
     [Theory]
-    [InlineData("GeneralPanel",     new[] { "Advanced" })]
+    [InlineData("GeneralPanel",     new string[] { })]
     [InlineData("SmartChargePanel", new[] { "Charge limit", "Presets", "Network profiles" })]
     [InlineData("KeepAwakePanel",   new[] { "Presets", "Networks" })]
     [InlineData("LidClosePanel",    new[] { "Sleep after a time", "Sleep at a battery level", "Sleep if the computer gets hot" })]
+    // "Advanced" moved here from General with the settings-file and log-opening controls it heads.
+    [InlineData("AppDiagnosticsPanel", new[] { "Advanced" })]
     public void EverySectionOpensWithTheSharedHeader(string panelName, string[] headings) =>
         Assert.Equal(headings, SectionHeadings(panelName));
 

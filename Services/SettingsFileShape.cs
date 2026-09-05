@@ -83,10 +83,9 @@ internal sealed class SettingsFile
     {
         [JsonPropertyOrder(1)] public int          StartupDelaySeconds { get; set; }
         [JsonPropertyOrder(2)] public TrayIconMode IconMode            { get; set; }
-        [JsonPropertyOrder(3)] public bool         ShowPercentageIcon  { get; set; }
-        [JsonPropertyOrder(4)] public bool         PromoteTrayIcons    { get; set; }
-        [JsonPropertyOrder(5)] public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
-        [JsonPropertyOrder(6)] public string       LastSeenVersion     { get; set; } = "";
+        [JsonPropertyOrder(3)] public bool         PromoteTrayIcons    { get; set; }
+        [JsonPropertyOrder(4)] public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
+        [JsonPropertyOrder(5)] public string       LastSeenVersion     { get; set; } = "";
     }
 
     internal sealed class GraphGroup
@@ -172,6 +171,9 @@ internal sealed class SettingsFile
     internal sealed class AppearanceGroup
     {
         [JsonPropertyOrder(1)] public bool OneLineUntilItMatters { get; set; }
+        // Moved from GeneralGroup: the control sits on the Appearance page and is not MQTT-published,
+        // so the move carries no unique_id risk.
+        [JsonPropertyOrder(2)] public bool ShowPercentageIcon    { get; set; }
     }
 
     internal sealed class WindowGroup
@@ -188,7 +190,6 @@ internal sealed class SettingsFile
         {
             StartupDelaySeconds = s.StartupDelaySeconds,
             IconMode            = s.IconMode,
-            ShowPercentageIcon  = s.ShowPercentageIcon,
             PromoteTrayIcons    = s.PromoteTrayIcons,
             TrayPromotionRestore = s.TrayPromotionRestore,
             LastSeenVersion     = s.LastSeenVersion,
@@ -257,6 +258,7 @@ internal sealed class SettingsFile
         Appearance = new AppearanceGroup
         {
             OneLineUntilItMatters = s.OneLineUntilItMatters,
+            ShowPercentageIcon    = s.ShowPercentageIcon,
         },
         Window = new WindowGroup
         {
@@ -271,7 +273,6 @@ internal sealed class SettingsFile
     {
         StartupDelaySeconds = General.StartupDelaySeconds,
         IconMode            = General.IconMode,
-        ShowPercentageIcon  = General.ShowPercentageIcon,
         PromoteTrayIcons    = General.PromoteTrayIcons,
         TrayPromotionRestore = General.TrayPromotionRestore,
         LastSeenVersion     = General.LastSeenVersion,
@@ -325,6 +326,7 @@ internal sealed class SettingsFile
         PerformanceSampleRate   = Diagnostics.PerformanceSampleRate,
 
         OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
+        ShowPercentageIcon    = Appearance.ShowPercentageIcon,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

@@ -28,4 +28,21 @@ internal static class ExplorerLauncher
             UseShellExecute = true,
         });
     }
+
+    /// <summary>Opens <paramref name="filePath"/> with its OS file association, falling back to
+    /// <see cref="Reveal"/> on any failure — no association, a missing file, a handler error. Never
+    /// throws and never surfaces an error to the user: a missing file silently reveals the nearest
+    /// existing parent folder instead. No existence check up front, matching the reveal path.</summary>
+    internal static void Open(string filePath)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName        = filePath,
+                UseShellExecute = true,
+            });
+        }
+        catch { Reveal(filePath); }
+    }
 }
