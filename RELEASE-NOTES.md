@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.42.1
+
+- #163 Appearance now holds every visual setting — the tray percentage icon and the three history-
+  graph controls join it from General. App diagnostics gains "Open settings file" and an "Open log"
+  menu (app.log, power.log, performance-history.csv) alongside the settings-folder actions moved
+  there from General, so a config or log file is one click away instead of a trip to the file
+  system.
+
 ## 1.41.0
 
 - #160 The settings file now spells its section names the same way as everything inside them, so
