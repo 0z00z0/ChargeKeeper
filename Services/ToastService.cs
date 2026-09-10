@@ -106,6 +106,15 @@ internal static class ToastService
                 "The settings file could not be written, so the last change is not stored and will "
               + "be gone at the next start. The application log says why.");
 
+    /// <summary>
+    /// Said the first time a script fails and not again until one of its runs succeeds. The latch is
+    /// on the runner, which owns the failure; without the latch a script bound to the charger would
+    /// warn on every plug and unplug for as long as it stayed broken.
+    /// </summary>
+    public static void NotifyScriptFailed(string script, string reason) =>
+        TryShow(NotificationKind.ScriptFailed, null, "Script failed",
+                ScriptMessages.FailureNotice(script, reason));
+
     public static void Cleanup()
     {
         try

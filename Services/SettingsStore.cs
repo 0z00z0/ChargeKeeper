@@ -207,7 +207,7 @@ internal sealed class SettingsStore
         }
     }
 
-    /// <summary>The eleven sections as one file shape, and the first section whose spelling the
+    /// <summary>The twelve sections as one file shape, and the first section whose spelling the
     /// document contradicts. A conflicting key is the store's one silent failure, so it is read here
     /// and refused rather than left to hand back defaults.</summary>
     private (SettingsFile File, string? Conflict) ReadSections()
@@ -231,6 +231,7 @@ internal sealed class SettingsStore
             KeepAwake     = Bind<SettingsFile.KeepAwakeGroup>(SettingsFile.KeepAwakeKey),
             LidClose      = Bind<SettingsFile.LidCloseGroup>(SettingsFile.LidCloseKey),
             Notifications = Bind<SettingsFile.NotificationsGroup>(SettingsFile.NotificationsKey),
+            Scripts       = Bind<SettingsFile.ScriptsGroup>(SettingsFile.ScriptsKey),
             Mqtt          = Bind<SettingsFile.MqttGroup>(SettingsFile.MqttKey),
             Diagnostics   = Bind<SettingsFile.DiagnosticsGroup>(SettingsFile.DiagnosticsKey),
             Appearance    = Bind<SettingsFile.AppearanceGroup>(SettingsFile.AppearanceKey),
@@ -266,6 +267,7 @@ internal sealed class SettingsStore
         Put(SettingsFile.KeepAwakeKey,     file.KeepAwake);
         Put(SettingsFile.LidCloseKey,      file.LidClose);
         Put(SettingsFile.NotificationsKey, file.Notifications);
+        Put(SettingsFile.ScriptsKey,       file.Scripts);
         Put(SettingsFile.MqttKey,          file.Mqtt);
         Put(SettingsFile.DiagnosticsKey,   file.Diagnostics);
         Put(SettingsFile.AppearanceKey,    file.Appearance);

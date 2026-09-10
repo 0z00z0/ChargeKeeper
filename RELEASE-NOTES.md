@@ -9,6 +9,16 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.50.0
+
+- #178 A Scripts page runs a named PowerShell script when the charger goes in or comes out, or when
+  the lid closes or opens — one script per event and direction, typed into a plain box with a
+  coloured reading of it beneath, tried straight away with Run now, held to one run at a time and a
+  60-second limit so a stuck script cannot pile up, with everything it prints kept in the application
+  log and one notification the first time it fails rather than one every time; the page states that a
+  lid script only runs while Lid delay is switched on, and that a script — and any program it starts
+  — runs with administrator rights.
+
 ## 1.49.0
 
 - The Windows interface components carried inside the installation move up two releases, so the

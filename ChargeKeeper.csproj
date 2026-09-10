@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.49.0</Version>
+    <Version>1.50.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -213,6 +213,11 @@
        Directory.Packages.props, the family's pins above this repository's own. A version here fails
        the build (ZZB006). -->
   <ItemGroup>
+    <!-- Colours the PowerShell shown on the Scripts page. The same tokeniser a markdown renderer
+         uses for a code fence, and it brings only ColorCode.Core, which has no dependencies of its
+         own. It renders finished text into a RichTextBlock and offers no editable surface, which is
+         why the page pairs a plain editing box with a coloured preview. -->
+    <PackageReference Include="ColorCode.WinUI" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" />
     <!-- Same toolkit family/version as RangeSelector above (TODO #19 spec: do not bump/mismatch) —
          SettingsCard/SettingsExpander rows for the Settings window. -->

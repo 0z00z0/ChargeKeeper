@@ -146,6 +146,16 @@
     "DrainAnomalyPercentPerHour": 3,
     "DrainAnomalyWarningEnabled": true
   },
+  "Scripts": {
+    "Scripts": [
+      {
+        "Id": "6f1c2a94b7d24e1fa0c35e8d9b47a21c",
+        "Name": "Pause file sync",
+        "Trigger": "MainsDisconnected",
+        "Body": "Stop-Process -Name \u0027Nextcloud\u0027 -Force -ErrorAction SilentlyContinue"
+      }
+    ]
+  },
   "Mqtt": {
     "MqttLastGoodEndpoint": {
       "Host": "broker.example.invalid",

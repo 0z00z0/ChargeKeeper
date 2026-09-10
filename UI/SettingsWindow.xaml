@@ -62,6 +62,9 @@
             </NavigationViewItem>
             <!-- Network profiles have no nav item of their own: a profile's only effect is which
                  preset gets applied, so the two are unusable apart. -->
+            <NavigationViewItem Content="Scripts"          Tag="Scripts">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/scripts.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -424,6 +427,36 @@
                             <ToggleSwitch x:Name="DrainEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnDrainEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
+                </StackPanel>
+
+                <!-- The rows are built in code: a script's editor is a name, an event, a box for the
+                     script and a coloured reading of it, and a list of those cannot be written out
+                     in markup. The two lines under the heading are the page's standing facts, not
+                     settings, so they are markup. -->
+                <StackPanel x:Name="ScriptsPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock Text="Scripts" Style="{StaticResource SectionHeaderStyle}"/>
+                    <TextBlock Text="Runs a named Windows PowerShell script when the charger goes in or comes out, or when the lid closes or opens. Nothing is passed to a script, so a pair of named scripts covers the two directions of one event."
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                    <!-- Both facts are the platform's and neither is visible from the rows, so a
+                         script bound to the lid would otherwise do nothing with no explanation, and
+                         a program started from a script would be running with rights nobody chose. -->
+                    <TextBlock Text="A script bound to the lid only runs while Lid delay is switched on. Windows allows one lid listener per program, and ChargeKeeper only listens while that setting is on."
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Scripts run with administrator rights, because ChargeKeeper does. A program a script starts inherits them and keeps them for as long as it runs."
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                    <StackPanel x:Name="ScriptsListPanel" Spacing="4"/>
+                    <Button x:Name="AddScriptBtn" Content="Add script"
+                            Click="OnAddScript" Margin="0,4,0,12"/>
                 </StackPanel>
 
                 <!-- Five sections in the order the questions arise: whether to publish at all, what

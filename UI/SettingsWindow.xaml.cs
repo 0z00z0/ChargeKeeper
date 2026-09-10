@@ -118,6 +118,7 @@ internal sealed partial class SettingsWindow : Window
         LoadNotifications();
         LoadNetwork();
         LoadKeepAwake();
+        LoadScripts();
         LoadAppearance();
         LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
@@ -279,6 +280,9 @@ internal sealed partial class SettingsWindow : Window
             s.SettingsWindowHeight = h;
         });
 
+        // Before the timers stop: a script typed and not yet committed is minutes of work, and the
+        // debounce would otherwise be stopped with the edit still in it.
+        FlushScriptEdits();
         StopAllPresetDebounceTimers();
 
         // Static events, instance handlers: without these the closed window stays reachable from
@@ -344,6 +348,7 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
+        ScriptsPanel.Visibility       = tag == "Scripts"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AppearancePanel.Visibility     = tag == "Appearance"     ? Visibility.Visible : Visibility.Collapsed;
         AppDiagnosticsPanel.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
@@ -2259,4 +2264,235 @@ internal sealed partial class SettingsWindow : Window
 
     // The About section hosts BrandAboutControl inline, populated in the ctor, so it needs no
     // handler of its own.
+
+    // Script rows are keyed by list index, like the keep-awake and lid rows: the row's position is
+    // what the page has, and the script's own identifier is what the runner uses.
+
+    /// <summary>An edit typed into a script box and not yet saved, one per row. Run on close and
+    /// before a rebuild, because a script is minutes of typing rather than a preset's two fields, and
+    /// losing it to a re-activation would be the page's worst behaviour.</summary>
+    private readonly List<Action> _pendingScriptEdits = [];
+
+    private void LoadScripts() => RebuildScriptRows();
+
+    /// <summary>Saves anything typed into a script box and not yet committed. Safe to call twice: a
+    /// row with nothing outstanding does nothing.</summary>
+    internal void FlushScriptEdits()
+    {
+        foreach (var flush in _pendingScriptEdits.ToList()) flush();
+    }
+
+    private void RebuildScriptRows()
+    {
+        FlushScriptEdits();
+        _pendingScriptEdits.Clear();
+
+        ScriptsListPanel.Children.Clear();
+        var scripts = SettingsService.Current.Scripts;
+
+        if (scripts.Count == 0)
+        {
+            ScriptsListPanel.Children.Add(EmptyListText("No scripts yet. Add one below."));
+            return;
+        }
+
+        for (int i = 0; i < scripts.Count; i++)
+            ScriptsListPanel.Children.Add(BuildScriptRow(i, scripts[i]));
+    }
+
+    /// <summary>The row's subtitle: the event that runs it, and — for a lid script while Lid delay
+    /// is off — that it will not run. The page says the rule once; the row says whether it currently
+    /// bites.</summary>
+    private static string DescribeScript(ScriptDefinition script)
+    {
+        string when = ScriptTriggerLabels.For(script.Trigger);
+        return ScriptTriggerLabels.IsLid(script.Trigger) && !SettingsService.Current.LidDelayEnabled
+            ? $"{when} — does not run while Lid delay is off"
+            : when;
+    }
+
+    /// <summary>One script's editor row: its name and its event as cards, then the script itself, a
+    /// coloured reading of it, and Delete.</summary>
+    private SettingsExpander BuildScriptRow(int index, ScriptDefinition script)
+    {
+        var nameBox = new TextBox
+        {
+            Text            = script.Name,
+            MinWidth        = 260,
+            PlaceholderText = ScriptTriggerLabels.For(script.Trigger),
+        };
+
+        var triggerCombo = new ComboBox { MinWidth = 260 };
+        foreach (string label in ScriptTriggerLabels.All) triggerCombo.Items.Add(label);
+        triggerCombo.SelectedIndex = (int)script.Trigger;
+
+        var scriptBox = new TextBox
+        {
+            Text                = script.Body,
+            AcceptsReturn       = true,
+            TextWrapping        = TextWrapping.NoWrap,
+            Height              = 200,
+            IsSpellCheckEnabled = false,
+            PlaceholderText     = "The PowerShell to run. Nothing is passed in.",
+        };
+        // A script is wider and taller than the box: without both bars, a long line is unreachable
+        // and there is nothing to say so.
+        ScrollViewer.SetVerticalScrollBarVisibility(scriptBox, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(scriptBox, ScrollBarVisibility.Auto);
+
+        var preview = new RichTextBlock { IsTextSelectionEnabled = true };
+        var previewFrame = new Border
+        {
+            BorderThickness = new Thickness(1),
+            BorderBrush     = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
+            CornerRadius    = new CornerRadius(4),
+            Padding         = new Thickness(8),
+            MaxHeight       = 200,
+            Child           = new ScrollViewer
+            {
+                Content                     = preview,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+                HorizontalScrollMode          = ScrollMode.Auto,
+            },
+        };
+        PowerShellColouring.Apply(preview, script.Body);
+        // The colours are chosen for the theme the control renders in, so a theme change has to
+        // redraw them or half of them stop being legible.
+        preview.ActualThemeChanged += (_, _) => PowerShellColouring.Apply(preview, scriptBox.Text ?? "");
+
+        var headerText = new TextBlock { Text = script.DisplayName };
+        var runNow     = new Button { Content = "Run now", MinWidth = 88 };
+        ToolTipService.SetToolTip(runNow, "Runs the script now, without waiting for its event.");
+
+        var error = new TextBlock
+        {
+            FontSize     = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility   = Visibility.Collapsed,
+            Foreground   = CriticalBrush(),
+        };
+        var delete = new Button { Content = "Delete script" };
+
+        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
+        footer.Children.Add(SmallLabel("Script"));
+        footer.Children.Add(scriptBox);
+        footer.Children.Add(SmallLabel("Coloured reading"));
+        footer.Children.Add(previewFrame);
+        footer.Children.Add(error);
+        footer.Children.Add(delete);
+
+        var expander = new SettingsExpander
+        {
+            Header      = headerText,
+            Description = DescribeScript(script),
+            Content     = runNow,
+            ItemsSource = new List<SettingsCard>
+            {
+                new() { Header = "Name",     Description = "Optional — the event is shown when this is blank.", Content = nameBox },
+                new() { Header = "Runs when", Description = "One event and one direction. A pair of scripts covers both directions.", Content = triggerCombo },
+            },
+            ItemsFooter = footer,
+        };
+
+        void Commit() =>
+            CommitScriptRow(index, nameBox, triggerCombo, scriptBox, headerText, expander, preview, error);
+
+        nameBox.LostFocus += (_, _) => Commit();
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
+        triggerCombo.SelectionChanged += (_, _) => Commit();
+
+        // Debounced, same 700 ms as the preset rows: committing on every keystroke would write the
+        // settings document per character, and re-colouring on every one would fight the caret.
+        bool typed    = false;
+        var  debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        void Flush()
+        {
+            debounce.Stop();
+            if (!typed) return;
+            typed = false;
+            Commit();
+        }
+        debounce.Tick     += (_, _) => Flush();
+        scriptBox.TextChanged += (_, _) => { typed = true; debounce.Stop(); debounce.Start(); };
+        scriptBox.LostFocus   += (_, _) => Flush();
+        _pendingScriptEdits.Add(Flush);
+
+        runNow.Click += (_, _) => { Flush(); RunScriptNow(index, error); };
+        delete.Click += (_, _) => DeleteScript(index);
+
+        return expander;
+    }
+
+    /// <summary>The small caption above an editor block inside a row's footer.</summary>
+    private static TextBlock SmallLabel(string text) => new()
+    {
+        Text       = text,
+        FontSize   = 11,
+        Foreground = SecondaryBrush(),
+    };
+
+    /// <summary>Saves one script row. Nothing is rejected: an empty script is a script not finished
+    /// yet, and the runner leaves it alone rather than the page refusing to store it.</summary>
+    private void CommitScriptRow(int index, TextBox nameBox, ComboBox triggerCombo, TextBox scriptBox,
+        TextBlock header, SettingsExpander expander, RichTextBlock preview, TextBlock error)
+    {
+        var scripts = SettingsService.Current.Scripts;
+        if (index < 0 || index >= scripts.Count) return;
+
+        // A stored script written before identifiers existed gets one here rather than at load, so
+        // nothing rewrites the settings document just for having been read.
+        string id = scripts[index].Id is { Length: > 0 } existing ? existing : ScriptDefinition.NewId();
+
+        var updated = new ScriptDefinition(
+            id,
+            nameBox.Text?.Trim() ?? "",
+            (ScriptTrigger)Math.Max(triggerCombo.SelectedIndex, 0),
+            scriptBox.Text ?? "");
+
+        SettingsService.Update(s => { if (index < s.Scripts.Count) s.Scripts[index] = updated; });
+
+        header.Text             = updated.DisplayName;
+        expander.Description    = DescribeScript(updated);
+        nameBox.PlaceholderText = ScriptTriggerLabels.For(updated.Trigger);
+        error.Visibility        = Visibility.Collapsed;
+        PowerShellColouring.Apply(preview, updated.Body);
+    }
+
+    /// <summary>Runs one script from its row, re-read by position so an edit committed since the row
+    /// was built is what runs. The two reasons a run does not start are said on the row: nothing else
+    /// would show that the button did nothing.</summary>
+    private void RunScriptNow(int index, TextBlock error)
+    {
+        var scripts = SettingsService.Current.Scripts;
+        if (index < 0 || index >= scripts.Count) return;
+
+        var script = scripts[index];
+        if (script.IsEmpty)
+        {
+            ShowInlineError(error, "There is nothing in this script to run.");
+            return;
+        }
+
+        if (!ScriptRunner.Instance.Start(script, "the Run now button", ScriptRunner.TimeLimit))
+        {
+            ShowInlineError(error, "This script is already running. The application log says when it started.");
+            return;
+        }
+
+        error.Visibility = Visibility.Collapsed;
+    }
+
+    private void DeleteScript(int index)
+    {
+        SettingsService.Update(s => { if (index < s.Scripts.Count) s.Scripts.RemoveAt(index); });
+        RebuildScriptRows();
+    }
+
+    private void OnAddScript(object sender, RoutedEventArgs e)
+    {
+        SettingsService.Update(s => s.Scripts.Add(
+            new ScriptDefinition(ScriptDefinition.NewId(), "", ScriptTrigger.MainsDisconnected, "")));
+        RebuildScriptRows();
+    }
 }

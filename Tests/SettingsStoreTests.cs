@@ -108,7 +108,7 @@ public class SettingsStoreTests : IDisposable
         loaded!.LidDischargeTargetPercent = 42;
         Assert.True(SettingsService.WriteTo(loaded, File_));
 
-        // Still a document, still eleven sections and the two version keys.
+        // Still a document, still every section and the two version keys.
         using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
         Assert.Equal(
             $"{SettingsStore.StoreVersionKey},{SettingsFile.VersionKey}," +

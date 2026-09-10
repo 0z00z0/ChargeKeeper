@@ -279,6 +279,11 @@ internal sealed class AppSettings
     [JsonIgnore]
     public bool HasSavedLidAction => LidDelaySavedAcAction is not null || LidDelaySavedDcAction is not null;
 
+    /// <summary>The named PowerShell scripts run by the application's own state changes, edited on
+    /// the Scripts page. Empty by default: a script is something a person writes, so there is no
+    /// sensible one to ship.</summary>
+    public List<ScriptDefinition> Scripts { get; set; } = [];
+
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
 

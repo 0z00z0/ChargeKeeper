@@ -98,6 +98,8 @@ public class SettingsFileShapeTests : IDisposable
         "Notifications.HighBatteryWarningEnabled",
         "Notifications.DrainAnomalyPercentPerHour",
         "Notifications.DrainAnomalyWarningEnabled",
+        "Scripts",
+        "Scripts.Scripts",
         "Mqtt",
         "Mqtt.MqttLastGoodEndpoint",
         "Diagnostics",

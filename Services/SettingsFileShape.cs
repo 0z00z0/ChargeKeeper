@@ -34,6 +34,7 @@ internal sealed class SettingsFile
     public const string KeepAwakeKey    = "KeepAwake";
     public const string LidCloseKey     = "LidClose";
     public const string NotificationsKey = "Notifications";
+    public const string ScriptsKey      = "Scripts";
     public const string MqttKey         = "Mqtt";
     public const string DiagnosticsKey  = "Diagnostics";
     public const string AppearanceKey   = "Appearance";
@@ -45,7 +46,7 @@ internal sealed class SettingsFile
     public static readonly string[] SectionNames =
     [
         GeneralKey, GraphKey, SmartChargeKey, NetworkKey, KeepAwakeKey, LidCloseKey,
-        NotificationsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
+        NotificationsKey, ScriptsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
     ];
 
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
@@ -75,17 +76,20 @@ internal sealed class SettingsFile
     [JsonPropertyName(NotificationsKey), JsonPropertyOrder(7)]
     public NotificationsGroup Notifications { get; set; } = new();
 
-    [JsonPropertyName(MqttKey), JsonPropertyOrder(8)]
+    [JsonPropertyName(ScriptsKey), JsonPropertyOrder(8)]
+    public ScriptsGroup Scripts { get; set; } = new();
+
+    [JsonPropertyName(MqttKey), JsonPropertyOrder(9)]
     public MqttGroup Mqtt { get; set; } = new();
 
-    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(9)]
+    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(10)]
     public DiagnosticsGroup Diagnostics { get; set; } = new();
 
-    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(10)]
+    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(11)]
     public AppearanceGroup Appearance { get; set; } = new();
 
     // Window placement is state rather than a page: nothing on screen edits it, so it sits last.
-    [JsonPropertyName(WindowKey), JsonPropertyOrder(11)]
+    [JsonPropertyName(WindowKey), JsonPropertyOrder(12)]
     public WindowGroup Window { get; set; } = new();
 
     internal sealed class GeneralGroup
@@ -168,6 +172,11 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(4)] public bool HighBatteryWarningEnabled   { get; set; }
         [JsonPropertyOrder(5)] public int  DrainAnomalyPercentPerHour  { get; set; }
         [JsonPropertyOrder(6)] public bool DrainAnomalyWarningEnabled  { get; set; }
+    }
+
+    internal sealed class ScriptsGroup
+    {
+        [JsonPropertyOrder(1)] public List<ScriptDefinition> Scripts { get; set; } = [];
     }
 
     internal sealed class MqttGroup
@@ -263,6 +272,7 @@ internal sealed class SettingsFile
             DrainAnomalyPercentPerHour = s.DrainAnomalyPercentPerHour,
             DrainAnomalyWarningEnabled = s.DrainAnomalyWarningEnabled,
         },
+        Scripts     = new ScriptsGroup { Scripts = s.Scripts },
         Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
         Diagnostics = new DiagnosticsGroup
         {
@@ -334,6 +344,8 @@ internal sealed class SettingsFile
         HighBatteryWarningEnabled  = Notifications.HighBatteryWarningEnabled,
         DrainAnomalyPercentPerHour = Notifications.DrainAnomalyPercentPerHour,
         DrainAnomalyWarningEnabled = Notifications.DrainAnomalyWarningEnabled,
+
+        Scripts = Scripts.Scripts,
 
         MqttLastGoodEndpoint = Mqtt.MqttLastGoodEndpoint,
 

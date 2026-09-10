@@ -21,7 +21,7 @@ public class SettingsSectionLayoutTests
     private static readonly string[] Pages =
     [
         "GeneralPanel", "SmartChargePanel", "KeepAwakePanel", "LidClosePanel",
-        "NotificationsPanel", "HomeAssistantPanel", "AppDiagnosticsPanel", "AboutPanel",
+        "NotificationsPanel", "ScriptsPanel", "HomeAssistantPanel", "AppDiagnosticsPanel", "AboutPanel",
     ];
 
     /// <summary>The markup of one page panel.</summary>

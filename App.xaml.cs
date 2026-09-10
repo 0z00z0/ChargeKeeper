@@ -351,6 +351,16 @@ public partial class App : Application
         // an ignored event is exactly the one a receiver correlating a false close needs to see.
         LidEventLog.Recorded                += () => _mqtt?.PublishSurfaceNow();
         NetworkLocationService.LocationChanged += _ => _mqtt?.PublishSurfaceNow();
+        // A script that fails says so once and not again until one of its runs succeeds — the same
+        // shape as the settings latch above, and for the same reason: a script bound to the charger
+        // would otherwise warn on every plug and unplug for as long as it stayed broken.
+        ScriptRunner.Instance.RunFailed     += ToastService.NotifyScriptFailed;
+        // The one place outside this service that sees the lid move. Only a real movement runs a
+        // script; a repeat and the value Windows delivers at registration run nothing.
+        LidDelayService.LidNotification     += kind =>
+        {
+            if (ScriptTriggerPolicy.ForLid(kind) is { } trigger) ScriptRunner.Instance.Fire(trigger);
+        };
     }
 
     private MqttPublisher? _mqtt;
@@ -975,6 +985,11 @@ public partial class App : Application
             if (powerSourceEdge is { } onAc)
                 PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",
                                onAc ? "charger connected" : "charger disconnected");
+
+            // Only the edge runs a script. A reading arrives every few seconds and reports the same
+            // power source each time, so anything less than the edge would run a script continuously.
+            if (ScriptTriggerPolicy.ForPowerSource(powerSourceEdge) is { } scriptTrigger)
+                ScriptRunner.Instance.Fire(scriptTrigger);
 
             // The decision, recorded before the attempt to show it. Together with ToastService's own
             // shown/refused line this separates "never attempted" from "attempted and failed" —

@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- PowerShell colouring for the Scripts page, from the CommunityToolkit's own ColorCode. The
+         WinUI package is a formatter over ColorCode.Core and adds nothing else; Core is
+         netstandard2.0 with no dependencies. Its Windows App SDK floor is far below the one this
+         application builds against, so it takes whatever version the kit pins. -->
+    <PackageVersion Include="ColorCode.WinUI" Version="2.0.15" />
     <!-- Same toolkit family and version as the family's SettingsControls pin; the two ship together
          and a mismatch between them is a binding failure at runtime rather than a build error. -->
     <PackageVersion Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.2.251219" />

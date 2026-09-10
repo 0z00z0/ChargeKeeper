@@ -51,6 +51,10 @@ internal static class SettingsChangeClassifier
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),
 
+        // The named scripts. They run on this machine's own state changes and are deliberately
+        // absent from the MQTT surface, so editing one reaches nothing outside this process.
+        nameof(AppSettings.Scripts),
+
         // What the shell held for each tray icon before it was promoted. Restore bookkeeping for
         // PromoteTrayIcons, which is itself published; this is not.
         nameof(AppSettings.TrayPromotionRestore),

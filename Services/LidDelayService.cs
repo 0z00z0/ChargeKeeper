@@ -109,6 +109,17 @@ internal static class LidDelayService
     public static event Action? StateChanged;
 
     /// <summary>
+    /// Raised (on the OS callback thread) for a real lid movement, carrying what the delivery was.
+    /// Only this service holds the subscription, and Windows permits one per program, so anything
+    /// else that wants to know a lid moved follows this. A subscriber must not block: the callback
+    /// this runs on is the one a lid-close wait is armed from.
+    /// </summary>
+    /// <remarks>Every delivery is raised, repeats and the value delivered at registration included,
+    /// so the reading of what counts as a movement stays in one place —
+    /// <see cref="ScriptTriggerPolicy.ForLid"/> — rather than being decided here as well.</remarks>
+    public static event Action<LidEventKind>? LidNotification;
+
+    /// <summary>
     /// Whether this machine has a lid to delay. A failed capability query counts as present — hiding
     /// the feature on a laptop is worse than offering it on a machine that will never close a lid.
     /// </summary>
@@ -651,6 +662,10 @@ internal static class LidDelayService
         if (LidEventLog.SchemeWriteLine(observation) is { } echoed) PowerLog.Say(echoed);
 
         LidEventLog.Record(observation, now);
+
+        // Raised before the wait is acted on: a subscriber does its own work on a thread of its own,
+        // and a lid close is followed by a suspend this must not be queued behind.
+        LidNotification?.Invoke(observation.Kind);
 
         if (droppedOwedSleep) PowerLog.Say(LidWaitTrail.OwedSleepDroppedOnLidOpen);
 

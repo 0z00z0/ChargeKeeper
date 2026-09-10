@@ -11,6 +11,7 @@ internal enum NotificationKind
     SleptWhileHot,
     LidDelayStoodDown,
     SettingsNotSaved,
+    ScriptFailed,
 }
 
 /// <summary>
@@ -64,6 +65,7 @@ internal static class NotificationMessages
         NotificationKind.ChargingStarted => "A charging-started notice",
         NotificationKind.LidDelayStoodDown => "A lid-handling stand-down notice",
         NotificationKind.SettingsNotSaved  => "A settings-not-saved warning",
+        NotificationKind.ScriptFailed      => "A script-failed warning",
         _                                => "An unusual-drain warning",
     };
 
