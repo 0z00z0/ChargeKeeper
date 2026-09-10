@@ -39,6 +39,15 @@ internal sealed class SettingsFile
     public const string AppearanceKey   = "Appearance";
     public const string WindowKey       = "Window";
 
+    /// <summary>The section names, in the order the document carries them. Copied out of a real
+    /// document rather than derived from the type names: the store binds a section by its exact
+    /// spelling, and one spelled in another case binds nothing and hands back defaults.</summary>
+    public static readonly string[] SectionNames =
+    [
+        GeneralKey, GraphKey, SmartChargeKey, NetworkKey, KeepAwakeKey, LidCloseKey,
+        NotificationsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
+    ];
+
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
     [JsonPropertyName(VersionKey), JsonPropertyOrder(0)]
     public int Version { get; set; } = CurrentVersion;

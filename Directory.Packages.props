@@ -9,13 +9,15 @@
 
   <!-- The shared library, one pin per component. A component's package version is its own tag
        without the prefix, so the numbers move independently and a bump here is a deliberate
-       adoption. Two references carry the whole surface this application uses: the About window from
-       the brand component, and the MQTT module, which brings the MQTT discovery layer, the
-       primitives, the controls, the Win32 numbers and the single-type settings store with it. A
-       package that arrives transitively is never declared here — declaring one resolves the same
-       assembly twice. -->
+       adoption. Three references carry the whole surface this application uses: the About window
+       from the brand component, the MQTT module, which brings the MQTT discovery layer, the
+       primitives, the controls, the Win32 numbers and the single-type settings store with it, and
+       the sectioned settings store, which arrives with nothing and is therefore always a direct
+       reference. A package that arrives transitively is never declared here — declaring one
+       resolves the same assembly twice. -->
   <ItemGroup Label="ZeroZero shared library">
     <PackageVersion Include="ZeroZero.Brand.WinUI" Version="0.7.0" />
+    <PackageVersion Include="ZeroZero.Config.Sections" Version="0.8.0" />
     <PackageVersion Include="ZeroZero.Mqtt.WinUI" Version="0.7.2" />
   </ItemGroup>
 

@@ -1,6 +1,6 @@
 {
   "//": "The ZeroZero build kit is an MSBuild SDK package, not a PackageReference: referenced as an ordinary package it restores cleanly, delivers nothing and fails the build with ZZB011. Its version is named here and nowhere else, and the four imports that take it — the props, targets and pins at the repository root and the WinUI application block in ChargeKeeper.csproj — each carry Sdk=\"ZeroZero.Build\" and name their file. Resolving the SDK is a restore against the family feed, so the feed source and its credentials have to be in place before the first evaluation.",
   "msbuild-sdks": {
-    "ZeroZero.Build": "0.8.1"
+    "ZeroZero.Build": "0.8.2"
   }
 }

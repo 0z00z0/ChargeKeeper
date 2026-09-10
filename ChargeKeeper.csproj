@@ -241,17 +241,20 @@
   </ItemGroup>
 
   <!-- The shared library, as packages from the family feed. Versions are pinned centrally in
-       Directory.Packages.props and never on the reference. Two references cover everything this
+       Directory.Packages.props and never on the reference. Three references cover everything this
        application takes: the brand component for the About window, in place of a hand-rolled
-       UI/AboutWindow, and the MQTT module. ZeroZero.Mqtt.WinUI brings ZeroZero.Mqtt.Discovery,
-       ZeroZero.Mqtt, ZeroZero.Config, ZeroZero.Controls.WinUI, ZeroZero.Primitives and
-       ZeroZero.Win32 with it, and MQTTnet transitively inside ZeroZero.Mqtt, which is the only
-       assembly that sees it — no client-library type reaches a public signature, so this
-       application references MQTTnet nowhere. Declaring any of those here would resolve the same
-       assembly twice. Integration contract in README; implementation guide in the shared library's
-       own MQTT document. -->
+       UI/AboutWindow; the MQTT module; and the sectioned settings store, which holds
+       settings.json. ZeroZero.Mqtt.WinUI brings ZeroZero.Mqtt.Discovery, ZeroZero.Mqtt,
+       ZeroZero.Controls.WinUI, ZeroZero.Primitives and ZeroZero.Win32 with it, and MQTTnet
+       transitively inside ZeroZero.Mqtt, which is the only assembly that sees it — no
+       client-library type reaches a public signature, so this application references MQTTnet
+       nowhere. ZeroZero.Config.Sections is a direct reference because it arrives with nothing
+       whatever else is adopted; it brings ZeroZero.Config with it. Declaring any of the others here
+       would resolve the same assembly twice. Integration contract in README; implementation guide
+       in the shared library's own MQTT document. -->
   <ItemGroup>
     <PackageReference Include="ZeroZero.Brand.WinUI" />
+    <PackageReference Include="ZeroZero.Config.Sections" />
     <PackageReference Include="ZeroZero.Mqtt.WinUI" />
   </ItemGroup>
 

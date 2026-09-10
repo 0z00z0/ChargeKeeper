@@ -44,7 +44,10 @@ public class SettingsFileShapeTests : IDisposable
     /// </summary>
     private static readonly string[] ExpectedKeyOrder =
     [
-        "Version",
+        // The store's own document key, written first. This application's Version key is not written
+        // by this build; where an installed document already carries one it survives beside this,
+        // which AVersionKeyTheDocumentAlreadyCarriesSurvivesAWrite pins.
+        "ConfigVersion",
         "General",
         "General.StartupDelaySeconds",
         "General.IconMode",
@@ -257,9 +260,12 @@ public class SettingsFileShapeTests : IDisposable
         Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
 
         Assert.Empty(Directory.GetFiles(_dir, "settings.json.pre-grouping-backup-*"));
-        Assert.Empty(Directory.GetFiles(_dir, "settings.json.unreadable-*"));
+        Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
     }
 
+    /// <summary>An empty document reads as this application's defaults, not the section types'. The
+    /// two differ: a section type declares no preset list and no delay, so binding an empty document
+    /// as sections would leave every list empty and every level at zero.</summary>
     [Fact]
     public void AnAbsentFileYieldsNothingAndAnEmptyOneYieldsDefaults()
     {
@@ -273,52 +279,60 @@ public class SettingsFileShapeTests : IDisposable
         var defaults = new AppSettings();
         Assert.Equal(Describe(defaults), Describe(loaded!));
         Assert.Equal(defaults.LidDelayMinutes, loaded!.LidDelayMinutes);
-        Assert.Empty(Directory.GetFiles(_dir, "settings.json.unreadable-*"));
+        Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
     }
 
-    /// <summary>Genuinely broken JSON must still take the unreadable branch — the flat path widens
-    /// what counts as valid input, it does not remove the guard.</summary>
+    /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what
+    /// counts as valid input, it does not remove the guard. Nothing is returned rather than the
+    /// section types' own defaults, which are not this application's: handing those back would lower
+    /// every preset list and every level to zero without a word.</summary>
     [Fact]
-    public void ABrokenFileIsStillTreatedAsUnreadable()
+    public void ABrokenFileIsSetAsideAndYieldsNothing()
     {
         Directory.CreateDirectory(_dir);
         System.IO.File.WriteAllText(File_, "{ not json");
 
         Assert.Null(SettingsService.ReadFrom(File_));
-        Assert.Single(Directory.GetFiles(_dir, "settings.json.unreadable-*"));
+        Assert.Single(Directory.GetFiles(_dir, "settings.*.bad.json"));
     }
 
-    /// <summary>The discriminator, tested both ways: the flat file has no version key, and the file
-    /// this build writes declares the version this build reads.</summary>
+    /// <summary>The discriminator, tested both ways: the flat file carries neither version key, and
+    /// the document this build writes declares the store's own key at the version this build
+    /// writes.</summary>
     [Fact]
-    public void TheGroupedAndFlatShapesAreToldApartByTheVersionKey()
+    public void TheSectionedAndFlatShapesAreToldApartByTheVersionKey()
     {
         using var flat = JsonDocument.Parse(FlatFixture);
         Assert.Null(SettingsFile.ReadVersion(flat.RootElement));
+        Assert.False(flat.RootElement.TryGetProperty(SettingsStore.StoreVersionKey, out _));
 
         Assert.True(SettingsService.WriteTo(new AppSettings(), WriteFixture()));
-        using var grouped = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
-        Assert.Equal(SettingsFile.CurrentVersion, SettingsFile.ReadVersion(grouped.RootElement));
+        using var sectioned = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
+        Assert.True(sectioned.RootElement.TryGetProperty(SettingsStore.StoreVersionKey, out var version));
+        Assert.Equal(SettingsFile.CurrentVersion, version.GetInt32());
     }
 
-    /// <summary>A file from a newer build is neither read nor overwritten. Copying it aside as
-    /// unreadable would let the next save replace it with defaults.</summary>
-    [Fact]
-    public void AFileFromANewerBuildIsLeftUntouched()
+    /// <summary>A document from a newer build is neither read nor overwritten, on either version key.
+    /// Setting it aside as unreadable would let the next save replace it with defaults.</summary>
+    [Theory]
+    [InlineData(SettingsFile.VersionKey)]
+    [InlineData(SettingsStore.StoreVersionKey)]
+    public void AFileFromANewerBuildIsLeftUntouched(string versionKey)
     {
         Directory.CreateDirectory(_dir);
         Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
+
         string newer = System.IO.File.ReadAllText(File_)
-            .Replace($"\"Version\": {SettingsFile.CurrentVersion}",
-                     $"\"Version\": {SettingsFile.CurrentVersion + 1}", StringComparison.Ordinal);
-        Assert.Contains($"\"Version\": {SettingsFile.CurrentVersion + 1}", newer, StringComparison.Ordinal);
+            .Replace($"\"{SettingsStore.StoreVersionKey}\": {SettingsFile.CurrentVersion}",
+                     $"\"{versionKey}\": {SettingsFile.CurrentVersion + 1}", StringComparison.Ordinal);
+        Assert.Contains($"\"{versionKey}\": {SettingsFile.CurrentVersion + 1}", newer, StringComparison.Ordinal);
         System.IO.File.WriteAllText(File_, newer);
 
         Assert.Null(SettingsService.ReadFrom(File_));
         Assert.False(SettingsService.WriteTo(new AppSettings(), File_));
 
         Assert.Equal(newer, System.IO.File.ReadAllText(File_));
-        Assert.Empty(Directory.GetFiles(_dir, "settings.json.unreadable-*"));
+        Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
         Assert.Empty(Directory.GetFiles(_dir, "settings.json.pre-grouping-backup-*"));
     }
 }

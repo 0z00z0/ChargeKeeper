@@ -1,0 +1,172 @@
+{
+  "Version": 1,
+  "General": {
+    "StartupDelaySeconds": 0,
+    "IconMode": "Arc",
+    "PromoteTrayIcons": true,
+    "TrayPromotionRestore": [
+      {
+        "Icon": "{3C0B6A57-9E44-4E1B-B0A2-6D8F4C21B7E9}",
+        "Previous": null
+      }
+    ],
+    "LastSeenVersion": "1.47.1"
+  },
+  "Graph": {
+    "GraphTimeScale": "TwelveHours",
+    "GraphLineColouring": "ByLevelAndState",
+    "GraphShadingEnabled": true,
+    "DowntimeGapMinutes": 5,
+    "GraphDisplay": "System"
+  },
+  "SmartCharge": {
+    "Presets": [
+      {
+        "Name": "Daily",
+        "Start": 60,
+        "Stop": 80
+      },
+      {
+        "Name": "Travel",
+        "Start": 80,
+        "Stop": 100
+      },
+      {
+        "Name": "Docking",
+        "Start": 45,
+        "Stop": 55
+      }
+    ],
+    "TravelOverrideActive": false,
+    "TravelOverrideRevertStart": null,
+    "TravelOverrideRevertStop": null
+  },
+  "Network": {
+    "NetworkProfilesEnabled": true,
+    "NetworkLocationRules": [
+      {
+        "Name": "Office [Docking]",
+        "AdapterMac": "00:00:5E:00:53:01",
+        "IpCidr": "192.0.2.0/23",
+        "PresetName": "Docking",
+        "KeepAwakeHere": false
+      },
+      {
+        "Name": "Second home [Wireless]",
+        "AdapterMac": "00:00:5E:00:53:02",
+        "IpCidr": "198.51.100.0/24",
+        "PresetName": "Daily",
+        "KeepAwakeHere": false
+      }
+    ],
+    "UnknownNetworkPresetName": "Daily",
+    "NetworkRulesKeyedOnPhysicalAdapter": true
+  },
+  "KeepAwake": {
+    "KeepAwakeDisplayOn": false,
+    "KeepAwakePresets": [
+      {
+        "Kind": "Duration",
+        "Duration": "00:30:00",
+        "Until": null,
+        "Name": null
+      },
+      {
+        "Kind": "Duration",
+        "Duration": "01:00:00",
+        "Until": null,
+        "Name": null
+      },
+      {
+        "Kind": "Duration",
+        "Duration": "03:00:00",
+        "Until": null,
+        "Name": null
+      },
+      {
+        "Kind": "UntilTime",
+        "Duration": null,
+        "Until": "17:00:00",
+        "Name": null
+      },
+      {
+        "Kind": "UntilTime",
+        "Duration": null,
+        "Until": "06:00:00",
+        "Name": null
+      }
+    ]
+  },
+  "LidClose": {
+    "LidDelayEnabled": true,
+    "LidDelayOffAfterSleep": true,
+    "LidDelayOffWhenCharging": true,
+    "LidDelayLockOnClose": true,
+    "LidDelayTimeEnabled": false,
+    "LidDelayMinutes": 120,
+    "LidDelayPresets": [
+      {
+        "Minutes": 10,
+        "Name": null
+      },
+      {
+        "Minutes": 30,
+        "Name": null
+      },
+      {
+        "Minutes": 120,
+        "Name": null
+      }
+    ],
+    "LidDischargeEnabled": true,
+    "LidDischargeTargetPercent": 10,
+    "LidDischargePresets": [
+      {
+        "Percent": 30,
+        "Name": null
+      },
+      {
+        "Percent": 10,
+        "Name": null
+      }
+    ],
+    "LidThermalCeilingEnabled": true,
+    "LidThermalCeilingCelsius": 85,
+    "LidThermalSleptAtCelsius": null,
+    "LidThermalSleptAtUtc": null,
+    "LidDelaySavedAcAction": 1,
+    "LidDelaySavedDcAction": 1,
+    "LidDelaySavedScheme": "381b4222-f694-41f0-9685-ff5bb260df2e"
+  },
+  "Notifications": {
+    "LowBatteryWarningPct": 15,
+    "LowBatteryWarningEnabled": true,
+    "HighBatteryWarningPct": 90,
+    "HighBatteryWarningEnabled": true,
+    "DrainAnomalyPercentPerHour": 3,
+    "DrainAnomalyWarningEnabled": true
+  },
+  "Mqtt": {
+    "MqttLastGoodEndpoint": {
+      "Host": "broker.example.invalid",
+      "Username": "mqtt",
+      "Port": 443,
+      "Transport": "WebSocket",
+      "Encrypted": true
+    }
+  },
+  "Diagnostics": {
+    "PerformanceGraphEnabled": true,
+    "PerformanceSampleRate": "OneHz"
+  },
+  "Appearance": {
+    "OneLineUntilItMatters": true,
+    "ShowPercentageIcon": true
+  },
+  "Window": {
+    "SettingsWindowX": 870,
+    "SettingsWindowY": 0,
+    "SettingsWindowWidth": 2100,
+    "SettingsWindowHeight": 2316
+  }
+}

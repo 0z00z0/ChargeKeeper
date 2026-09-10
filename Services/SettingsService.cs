@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChargeKeeper.Helpers;
 using ZeroZero.Mqtt;
@@ -321,7 +320,9 @@ internal sealed class AppSettings
 }
 
 /// <summary>Loads and saves <see cref="AppSettings"/> to <c>%AppData%\ChargeKeeper\settings.json</c> —
-/// roaming AppData, so the file follows the user between machines on one profile.</summary>
+/// roaming AppData, so the file follows the user between machines on one profile. The document itself
+/// is held by <see cref="SettingsStore"/>; this class owns the in-memory copy, the lock and the
+/// notifications.</summary>
 internal static class SettingsService
 {
     private static readonly string _path = AppPaths.DataFile("settings.json");
@@ -329,11 +330,9 @@ internal static class SettingsService
     private static readonly Lock          _lock = new();
     private static          AppSettings?  _current;
 
-    private static readonly JsonSerializerOptions _opts = new()
-    {
-        WriteIndented          = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-    };
+    /// <summary>Latches the save-failure notice, so a document that stays unwritable reports once
+    /// rather than on every keystroke. Cleared by the first save that lands.</summary>
+    private static bool _saveFailureReported;
 
     public static AppSettings Current
     {
@@ -350,9 +349,12 @@ internal static class SettingsService
         lock (_lock) { return project(_current ??= ReadFrom(_path) ?? new AppSettings()); }
     }
 
-    /// <summary>Serialises <see cref="Current"/> to disk. Safe to call from any thread.</summary>
+    /// <summary>Writes <see cref="Current"/> to disk. Safe to call from any thread. A write that
+    /// cannot land raises <see cref="SaveFailed"/>, because a setting that never reached the file
+    /// looks saved on screen and is gone at the next start.</summary>
     public static void Save()
     {
+        bool report;
         lock (_lock)
         {
             var settings = _current ?? new AppSettings();
@@ -361,40 +363,27 @@ internal static class SettingsService
             // later start. Never overwrites an explicit false: that is a pending migration, and the
             // stamp must not pre-empt it.
             settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
-            WriteTo(settings, _path);
+
+            bool saved = WriteTo(settings, _path);
+            report = !saved && !_saveFailureReported;
+            _saveFailureReported = !saved;
         }
+        // Outside the lock — a subscriber shows a notification, which is a synchronous WinRT call.
+        if (report) SaveFailed?.Invoke();
     }
 
-    /// <summary>Writes one settings object to one file, atomically, and reports whether it landed.
-    /// Separated from <see cref="Save"/> so the write can be exercised against a real file without
-    /// touching the installed <c>settings.json</c> — <see cref="_path"/> is fixed, and a test that
-    /// swapped it would race every other test reading <see cref="Current"/>.</summary>
+    /// <summary>Raised the first time a save does not reach disk, and not again until one does. The
+    /// application wires it to a notification: a refused write is returned rather than thrown, so
+    /// nothing else would say the settings on screen are not the settings on disk.</summary>
+    public static event Action? SaveFailed;
+
+    /// <summary>Writes one settings object to one document, and reports whether every section
+    /// landed. Separated from <see cref="Save"/> so the write can be exercised against a real file
+    /// without touching the installed <c>settings.json</c> — <see cref="_path"/> is fixed, and a
+    /// test that swapped it would race every other test reading <see cref="Current"/>.</summary>
     /// <remarks>Never throws: callers are settings handlers with nothing to unwind.</remarks>
-    internal static bool WriteTo(AppSettings settings, string path)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            if (IsFromANewerBuild(path))
-            {
-                AppLog.Error("settings.json was written by a newer build; refusing to overwrite it.",
-                             new NotSupportedException(path));
-                return false;
-            }
-            BackUpFlatFile(path);
-            // Atomic write: serialise to a temp file, then replace the target, so a crash mid-write
-            // cannot truncate the existing settings.json.
-            var tmp = path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(SettingsFile.From(settings), _opts));
-            File.Move(tmp, path, overwrite: true);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error("SettingsService.Save", ex);
-            return false;
-        }
-    }
+    internal static bool WriteTo(AppSettings settings, string path) =>
+        SettingsStore.For(path).Write(settings);
 
     /// <summary>Reads, mutates and saves under one lock acquisition. Prefer this over mutating
     /// <see cref="Current"/> and calling <see cref="Save"/> separately — a <see cref="Reload"/> between
@@ -437,112 +426,10 @@ internal static class SettingsService
     /// notification and a change that moves nothing costs nothing.</summary>
     public static event Action<SettingsChange>? ChangeCommitted;
 
-    /// <summary>Deserialises settings JSON, or null when there is nothing usable. Reads both the
-    /// grouped shape and the flat one written before <see cref="SettingsFile"/> existed. A
-    /// present-but-unreadable file is copied aside first, or the next <see cref="Save"/> overwrites
-    /// the user's presets, network rules and MQTT credentials with defaults.</summary>
-    internal static AppSettings? ReadFrom(string path)
-    {
-        if (!File.Exists(path)) return null;
-
-        try
-        {
-            string text = File.ReadAllText(path);
-            using var doc = JsonDocument.Parse(text);
-            int? version = SettingsFile.ReadVersion(doc.RootElement);
-
-            if (version > SettingsFile.CurrentVersion)
-            {
-                // Deliberately not the unreadable branch: that copies the file aside and lets the
-                // next save write defaults over it. WriteTo refuses to overwrite this file, so the
-                // settings stay as they are and the app runs on defaults until the build catches up.
-                AppLog.Error($"settings.json declares version {version}, newer than this build reads "
-                           + $"(version {SettingsFile.CurrentVersion}). It is left untouched and not written to.",
-                             new NotSupportedException($"settings.json version {version}"));
-                return null;
-            }
-
-            if (version is not null)
-            {
-                if (JsonSerializer.Deserialize<SettingsFile>(text, _opts) is { } grouped)
-                    return grouped.ToSettings();
-            }
-            // No version key: the flat shape, valid input rather than corruption, and what every
-            // installation carries until the first save rewrites it grouped. Falling through to the
-            // unreadable branch here would load defaults over the user's presets and rules.
-            else if (JsonSerializer.Deserialize<AppSettings>(text, _opts) is { } flat)
-            {
-                return flat;
-            }
-
-            PreserveUnreadable(path, "the file contains no settings object");
-        }
-        catch (Exception ex)
-        {
-            PreserveUnreadable(path, $"{ex.GetType().Name}: {ex.Message}");
-        }
-        return null;
-    }
-
-    /// <summary>Whether the file on disk declares a version this build does not read. Overwriting it
-    /// would replace settings written by a newer build with whatever this one could not load.</summary>
-    private static bool IsFromANewerBuild(string path)
-    {
-        if (!File.Exists(path)) return false;
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            return SettingsFile.ReadVersion(doc.RootElement) > SettingsFile.CurrentVersion;
-        }
-        catch
-        {
-            return false;   // unreadable: not a newer file, and ReadFrom has already copied it aside
-        }
-    }
-
-    /// <summary>Copies a flat settings.json aside once, before the first grouped write replaces it.
-    /// The copy is a record, never a source: nothing reads or restores it.</summary>
-    internal static void BackUpFlatFile(string path)
-    {
-        if (!File.Exists(path)) return;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
-            if (SettingsFile.ReadVersion(doc.RootElement) is not null) return;
-            // An empty object carries nothing worth keeping.
-            if (!doc.RootElement.EnumerateObject().Any()) return;
-        }
-        catch
-        {
-            return;   // unreadable: ReadFrom has already copied it aside under its own tag
-        }
-
-        PreserveCopy(path, "pre-grouping-backup",
-                     "regrouped into per-page objects; the copy is kept for reference and nothing restores it");
-    }
-
-    private static void PreserveUnreadable(string path, string reason) =>
-        PreserveCopy(path, "unreadable", $"could not be read ({reason}), defaults loaded");
-
-    /// <summary>Copies settings.json aside as <c>settings.json.&lt;tag&gt;-&lt;timestamp&gt;</c>.
-    /// Best-effort: callers have nothing to do about a failed copy, so it is logged, never thrown.</summary>
-    private static void PreserveCopy(string path, string tag, string reason)
-    {
-        if (!File.Exists(path)) return;
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
-        string copy  = $"{path}.{tag}-{stamp}";
-        try
-        {
-            File.Copy(path, copy, overwrite: true);
-            AppLog.Info($"settings.json {reason}; original kept as '{Path.GetFileName(copy)}'.");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error($"SettingsService: settings.json {reason}, and copying it aside as '{tag}' failed", ex);
-        }
-    }
+    /// <summary>The settings one document carries, or null when there is nothing usable: no file, a
+    /// document from a newer build, or one whose section spelling this build cannot bind. A document
+    /// that cannot be parsed is set aside by the store before defaults replace it.</summary>
+    internal static AppSettings? ReadFrom(string path) => SettingsStore.For(path).Read();
 
     /// <summary>
     /// Drops network location rules written before locations were keyed on the physical adapter: those
@@ -570,7 +457,8 @@ internal static class SettingsService
             // Save below. Skipping the empty case is what keeps an earlier copy from being joined by
             // a useless one — the copies are per-second-stamped, never a single overwritten slot.
             if (FindRoutedAdapterRules(settings, adapters).Count > 0)
-                PreserveCopy(_path, "backup", "network location rules keyed on a virtual adapter removed");
+                SettingsStore.PreserveCopy(_path, "backup",
+                                           "network location rules keyed on a virtual adapter removed");
 
             int dropped = ClearRoutedAdapterRules(settings, adapters) ?? 0;
             Save();

@@ -338,6 +338,11 @@ public partial class App : Application
         // The tray style is one of those values, and an icon-mode command from Home Assistant has no
         // battery tick of its own. The latch carries the style, so this repaints only when it moved.
         SettingsService.ChangeCommitted     += c => { if (c.IsMaterial) RepaintTrayIconFromLastReading(); };
+        // The one settings outcome nothing else shows. The store returns a refused write rather than
+        // raising it, so a change that never reached disk would otherwise look saved until the next
+        // start came back with the old value. Latched in the service, so an unwritable file says so
+        // once rather than on every keystroke.
+        SettingsService.SaveFailed          += ToastService.NotifySettingsNotSaved;
         KeepAwakeService.StateChanged       += () => _mqtt?.PublishSurfaceNow();
         // A lid close, a wait ending and a keep-awake transition all move the surface without
         // touching a setting, so the recorder is the signal for all three.

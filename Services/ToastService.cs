@@ -95,6 +95,17 @@ internal static class ToastService
                 $"A charger was connected at {percent} %, so the battery target can no longer be " +
                 "reached. The computer stayed awake and Windows handles the lid again.");
 
+    /// <summary>
+    /// Said as it happens, because the setting on screen and the setting on disk have parted and
+    /// nothing else shows it: the page keeps the new value, the next start comes back with the old
+    /// one. The store returns a refused write rather than raising it, so without this the change
+    /// simply disappears.
+    /// </summary>
+    public static void NotifySettingsNotSaved() =>
+        TryShow(NotificationKind.SettingsNotSaved, null, "Settings not saved",
+                "The settings file could not be written, so the last change is not stored and will "
+              + "be gone at the next start. The application log says why.");
+
     public static void Cleanup()
     {
         try
