@@ -102,23 +102,23 @@ jobs:
       # signs and ships. Suppressing the initializer would rewrite bin\ ChargeKeeper.dll
       # without it, and in release.yml risk shipping an exe that cannot start.
       #
-      # PINNED to 2.2.0 to match the Microsoft.WindowsAppSDK version the build kit pins for the
+      # PINNED to 2.4.0 to match the Microsoft.WindowsAppSDK version the build kit pins for the
       # whole family — the runtime the bootstrapper asks for
-      # (Microsoft.WindowsAppSDK.Runtime 2.2.0's WindowsAppSDK-VersionInfo.cs: framework
-      # package family Microsoft.WindowsAppRuntime.2, version 2.2.0.0). Not `latest`: that
+      # (Microsoft.WindowsAppSDK.Runtime 2.4.0's WindowsAppSDK-VersionInfo.cs: framework
+      # package family Microsoft.WindowsAppRuntime.2, version 2.4.0.0). Not `latest`: that
       # aka.ms link already resolves to a DIFFERENT, larger build, so `latest` would silently
       # drift the runtime out of step with the SDK the app compiles against. Bump both
-      # together.
+      # together — the pin here and the kit version in global.json move as one change.
       #
       # The SHA256 is the measured hash of that pinned download. It makes a re-published
       # binary at the same version fail here by name instead of changing the gate's
       # environment silently; if it ever fires, re-verify the download and update the hash.
-      - name: Install Windows App Runtime 2.2.0 (x64)
+      - name: Install Windows App Runtime 2.4.0 (x64)
         shell: pwsh
         timeout-minutes: 5
         run: |
-          $url    = 'https://aka.ms/windowsappsdk/2.2/2.2.0/windowsappruntimeinstall-x64.exe'
-          $sha256 = 'E14ABFEEDD61CCF1E1B9618A9D4E8E5CAD6B6A0BECBACF159A50718D047EB927'
+          $url    = 'https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = '851C35B0B0A59CE4C55F9171F601193322FC3413143B0DC3390EA11E14CFA7FC'
           $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
 
           Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
@@ -130,8 +130,9 @@ jobs:
           # Inventory before and after. The DELTA is the record of what the install actually
           # changed — better evidence than the installer's own text, and the first thing worth
           # reading if the hang ever comes back. It is not decoration: the runner image already
-          # ships a framework package (2.3.1.0 in run 31874075888), so "a package exists" alone
-          # proves nothing about whether this step did anything.
+          # ships a framework package of this very family (2.3.1.0 in run 31874075888), so "a
+          # package exists" alone proves nothing about whether this step did anything — and
+          # 2.3.1.0 is below the 2.4.0.0 the bootstrapper now asks for, so it would not do.
           function Show-Runtime([string]$when) {
             Write-Host "Windows App Runtime packages $when :"
             $all = Get-AppxPackage | Where-Object { $_.Name -like '*WindowsAppRuntime*' -or $_.Name -like '*WinAppRuntime*' }
@@ -147,13 +148,13 @@ jobs:
 
           # Assert the bootstrapper's OWN requirement, not merely that something is installed:
           # MddBootstrapInitialize2 asks family Microsoft.WindowsAppRuntime.2 for a framework
-          # package of at least 2.2.0.0 for this process architecture. Anything weaker passes on
+          # package of at least 2.4.0.0 for this process architecture. Anything weaker passes on
           # an image that happens to carry an unrelated runtime and would let a silent no-op put
           # the six-hour hang straight back.
           $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
-                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.2.0.0' }
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.4.0.0' }
           if (-not $fw) {
-            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.2.0.0 is registered after install.'
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.4.0.0 is registered after install.'
           }
           Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
 

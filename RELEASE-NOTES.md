@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.49.0
+
+- The Windows interface components carried inside the installation move up two releases, so the
+  application's windows, controls and text rendering take the fixes made across that span, and
+  nothing has to be added to the machine for it.
+
 ## 1.48.0
 
 - #176 Settings are held in the shared library's sectioned settings store. A change that cannot be
