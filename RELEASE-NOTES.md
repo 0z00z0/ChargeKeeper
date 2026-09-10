@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.48.0
+
+- #176 Settings are held in the shared library's sectioned settings store. A change that cannot be
+  written to disk says so, rather than looking saved and being gone at the next start; an existing
+  settings file is read and kept exactly as it stands, with every value carried across; and a file
+  that will not parse, or that a build reading more than this one wrote, is refused rather than
+  quietly replaced by defaults.
+
 ## 1.47.1
 
 - Building the installer here now stops when the application or the installer cannot be signed with
