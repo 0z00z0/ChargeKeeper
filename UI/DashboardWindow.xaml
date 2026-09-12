@@ -52,16 +52,13 @@
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
             </StackPanel>
 
-            <!-- Set inline rather than through TimeScaleButtonStyle, which lives in
-                 BatteryHistoryGraphControl's resources and is not in scope here. -->
+            <!-- The shared quick-button chrome, with the square footprint and zero padding a glyph
+                 needs in place of the row metrics. -->
             <Button Grid.Column="1"
                     x:Name="SettingsButton"
+                    Style="{StaticResource TimeScaleButtonStyle}"
                     Width="28" Height="28"
                     Padding="0"
-                    CornerRadius="4"
-                    BorderThickness="0"
-                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     VerticalAlignment="Center"
                     ToolTipService.ToolTip="Settings"
                     AutomationProperties.Name="Settings"
@@ -151,6 +148,25 @@
                                            Grid.Row="2"
                                            Margin="0,0,0,8"
                                            PlotAreaHeight="126"/>
+
+        <!-- Stands in for the graph while "Hide graph in dashboard" is on. In the same row and with
+             the same margin, so the rows below keep their spacing and the badges are not stretched
+             into the height the graph gave up — every row of this grid is Auto. It raises the
+             control's own ExpandRequested rather than calling the window itself, so there is one
+             route to the pop-out graph and not two. -->
+        <Button x:Name="ShowGraphButton"
+                Grid.Row="2"
+                Style="{StaticResource TimeScaleButtonStyle}"
+                HorizontalAlignment="Stretch"
+                Margin="0,0,0,8"
+                Visibility="Collapsed"
+                AutomationProperties.Name="Battery history"
+                Click="OnShowGraphButton">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="⛶" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Text="Battery history" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
 
         <Border Grid.Row="3"
                 Height="1"
@@ -442,8 +458,8 @@
 
                     <!-- Both kinds of preset, each in its own labelled group. Built in code
                          (BuildLidChips) for the same reason the keep-awake row is: the sets come
-                         from settings, and their look is set there rather than by a style out of
-                         scope here. Columns and rows of this outer grid come from
+                         from settings. The chips take TimeScaleButtonStyle from App.xaml. Columns
+                         and rows of this outer grid come from
                          LidDashboardPolicy.GroupsSideBySide. -->
                     <Grid x:Name="LidPresetGroups"
                           Margin="0,6,0,0"
@@ -515,10 +531,19 @@
                                              Background of its own, so the Border also carries the fill
                                              that makes this hit-testable at all. The tint matches the
                                              badge's own on/costly brushes (set in code from AppColors). -->
+                                        <!-- An inline element is placed with its bottom edge on the
+                                             text baseline, which lifts the pill above the line by
+                                             its own bottom padding and the font's descent. The
+                                             negative bottom margin drops it back onto the line so
+                                             the phrase reads as part of the sentence. -->
                                         <Border x:Name="KeepAwakeScreenPhraseHost"
                                                 CornerRadius="4"
                                                 Padding="4,1,4,1"
+                                                Margin="0,0,0,-4"
+                                                BorderThickness="1"
                                                 Visibility="Collapsed"
+                                                PointerEntered="OnKeepAwakeScreenPhrasePointerEntered"
+                                                PointerExited="OnKeepAwakeScreenPhrasePointerExited"
                                                 Tapped="OnKeepAwakeScreenPhraseTapped">
                                             <TextBlock x:Name="KeepAwakeScreenPhrase"
                                                        FontSize="11"/>
@@ -557,8 +582,9 @@
                         </Border>
                     </Grid>
 
-                    <!-- Built in code because the spans come from settings, and styled inline there
-                         because TimeScaleButtonStyle is not in scope here. -->
+                    <!-- Built in code because the spans come from settings; the chips take
+                         TimeScaleButtonStyle from App.xaml, the same chrome as the graph's range
+                         buttons. -->
                     <StackPanel x:Name="KeepAwakePresetPanel"
                                 Orientation="Horizontal"
                                 Spacing="4"

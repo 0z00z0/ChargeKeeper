@@ -187,6 +187,12 @@ internal sealed class AppSettings
     /// exactly as before until this is turned on.</summary>
     public bool OneLineUntilItMatters { get; set; } = false;
 
+    /// <summary>Whether the dashboard popup leaves out the history graph — range buttons, plot and
+    /// legend — and offers a single button onto the pop-out graph window in its place. Off by
+    /// default, so an existing installation's dashboard looks exactly as before until this is
+    /// turned on.</summary>
+    public bool HideGraphInDashboard { get; set; } = false;
+
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
     [

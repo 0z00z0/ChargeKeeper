@@ -8,18 +8,8 @@
     mc:Ignorable="d">
 
     <UserControl.Resources>
-        <!-- The resting, hover and pressed look shared by the time-scale buttons. The selection
-             highlight changes at runtime and is applied per button in code-behind. -->
-        <Style x:Key="TimeScaleButtonStyle" TargetType="Button">
-            <Setter Property="Padding" Value="0,4"/>
-            <Setter Property="MinWidth" Value="36"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-        </Style>
+        <!-- TimeScaleButtonStyle, the chrome these buttons share with every other quick-button row,
+             is declared in App.xaml so all four surfaces reach the one declaration. -->
 
         <!-- The time-scale row and legend's rest opacity, restored to 1 on pointer-enter over the
              graph card (RootGrid) in code-behind. Midpoint of the approved 35-45% range. The plotted

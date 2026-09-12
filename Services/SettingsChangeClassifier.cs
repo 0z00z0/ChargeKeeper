@@ -43,6 +43,10 @@ internal static class SettingsChangeClassifier
         // window draws, like the graph settings above — deliberately absent from the MQTT surface.
         nameof(AppSettings.OneLineUntilItMatters),
 
+        // Whether the dashboard popup draws its history graph at all. Decides how one window draws,
+        // like the graph settings above — deliberately absent from the MQTT surface.
+        nameof(AppSettings.HideGraphInDashboard),
+
         // The lid actions captured for crash recovery, and the scheme they belong to.
         nameof(AppSettings.LidDelaySavedAcAction),
         nameof(AppSettings.LidDelaySavedDcAction),

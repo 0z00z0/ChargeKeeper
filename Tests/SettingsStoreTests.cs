@@ -68,7 +68,7 @@ public class SettingsStoreTests : IDisposable
         s.MqttLastGoodEndpoint?.Host, s.MqttLastGoodEndpoint?.Username, s.MqttLastGoodEndpoint?.Port,
         s.MqttLastGoodEndpoint?.Transport, s.MqttLastGoodEndpoint?.Encrypted,
         s.PerformanceGraphEnabled, s.PerformanceSampleRate,
-        s.OneLineUntilItMatters, s.ShowPercentageIcon,
+        s.OneLineUntilItMatters, s.ShowPercentageIcon, s.HideGraphInDashboard,
         s.SettingsWindowX, s.SettingsWindowY, s.SettingsWindowWidth, s.SettingsWindowHeight);
 
     /// <summary>The value of every setting the installed document carries, spelled out rather than
@@ -86,7 +86,7 @@ public class SettingsStoreTests : IDisposable
         "381b4222-f694-41f0-9685-ff5bb260df2e|" +
         "15|True|90|True|3|True|" +
         "broker.example.invalid|mqtt|443|WebSocket|True|" +
-        "True|OneHz|True|True|870|0|2100|2316";
+        "True|OneHz|True|True|False|870|0|2100|2316";
 
     [Fact]
     public void EverySectionOfAnInstalledDocumentReadsBack()

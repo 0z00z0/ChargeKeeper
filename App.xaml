@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:tb="using:H.NotifyIcon"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     RequestedTheme="Dark">
     <Application.Resources>
         <ResourceDictionary>
@@ -170,6 +171,31 @@
                 <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </Style>
+
+            <!-- The small square chip shared by every row of quick buttons: the graph's time-scale
+                 range, the history window's graph selector, the dashboard's keep-awake and lid-delay
+                 rows, and the dashboard's settings glyph. Application-level so all four surfaces
+                 resolve it; a control's own resources would put it out of reach of the others and is
+                 what let three copies of these setters drift apart.
+
+                 TargetType is ButtonBase rather than Button so the dashboard rows, which are
+                 ToggleButton so a chip can show which value is in force, take the same chrome from
+                 this one declaration. A Style whose TargetType is a base class applies to every
+                 control derived from it, and none of these setters is declared below ButtonBase.
+
+                 Selection is not here: it changes at runtime and is applied per button in
+                 code-behind on the Button surfaces, and by the Checked visual state on the
+                 ToggleButton ones. -->
+            <Style x:Key="TimeScaleButtonStyle" TargetType="primitives:ButtonBase">
+                <Setter Property="Padding" Value="0,4"/>
+                <Setter Property="MinWidth" Value="36"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
             </Style>
 
             <!-- One heading treatment for both surfaces: colour, weight and tracking are shared and

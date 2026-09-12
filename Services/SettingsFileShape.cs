@@ -196,6 +196,7 @@ internal sealed class SettingsFile
         // Moved from GeneralGroup: the control sits on the Appearance page and is not MQTT-published,
         // so the move carries no unique_id risk.
         [JsonPropertyOrder(2)] public bool ShowPercentageIcon    { get; set; }
+        [JsonPropertyOrder(3)] public bool HideGraphInDashboard  { get; set; }
     }
 
     internal sealed class WindowGroup
@@ -283,6 +284,7 @@ internal sealed class SettingsFile
         {
             OneLineUntilItMatters = s.OneLineUntilItMatters,
             ShowPercentageIcon    = s.ShowPercentageIcon,
+            HideGraphInDashboard  = s.HideGraphInDashboard,
         },
         Window = new WindowGroup
         {
@@ -354,6 +356,7 @@ internal sealed class SettingsFile
 
         OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
         ShowPercentageIcon    = Appearance.ShowPercentageIcon,
+        HideGraphInDashboard  = Appearance.HideGraphInDashboard,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

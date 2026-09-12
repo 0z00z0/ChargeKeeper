@@ -131,8 +131,12 @@ public sealed partial class BatteryHistoryGraphControl : UserControl
         catch (Exception ex) { AppLog.Error("BatteryHistoryGraphControl.RunOnUi", ex); }
     });
 
-    private void OnExpandGlyphClick(object sender, RoutedEventArgs e) =>
-        ExpandRequested?.Invoke(this, EventArgs.Empty);
+    private void OnExpandGlyphClick(object sender, RoutedEventArgs e) => RequestExpand();
+
+    /// <summary>Asks the host to expand, as the glyph and a double-click do. Public so a host that
+    /// leaves this control out of its layout can still reach the pop-out through the one event
+    /// rather than opening the window itself.</summary>
+    public void RequestExpand() => ExpandRequested?.Invoke(this, EventArgs.Empty);
 
     // Gated so a double-click inside the already-open pop-out doesn't re-signal itself.
     private void OnCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)

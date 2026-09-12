@@ -45,14 +45,15 @@ public sealed partial class DashboardWindow : Window
     private static readonly Thickness NoBorder    = new(0);
     private static readonly Thickness BadgeBorder = new(1);
 
-    // Preset-chip "shrink and dim": the chip's own on-state metrics (unchanged from before this
-    // existed) versus the shrunk, dimmed off-state one. Font size is 11 either way at rest — only
-    // the off state drops it, so there is one dimmed size for both chip rows.
-    private const double        ChipOnFontSize     = 11;
-    private const double        ChipDimmedFontSize = 10;
-    private static readonly Thickness KeepAwakeChipOnPadding = new(8, 3, 8, 3);
-    private static readonly Thickness LidChipOnPadding       = new(4, 3, 4, 3);
-    private static readonly Thickness ChipDimmedPadding      = new(5, 1, 5, 1);
+    // Preset-chip "shrink and dim": the shrunk, dimmed off-state metrics only. The on state carries
+    // none of its own — it clears back to TimeScaleButtonStyle, so a chip at rest reads exactly as
+    // the graph's range buttons do.
+    private const double              ChipDimmedFontSize = 10;
+    private static readonly Thickness ChipDimmedPadding  = new(5, 1, 5, 1);
+
+    /// <summary>The chrome every row of quick buttons in the app shares, declared in App.xaml. The
+    /// chip rows are built in code, so it is fetched rather than named in markup.</summary>
+    private static Style QuickButtonStyle => (Style)Application.Current.Resources["TimeScaleButtonStyle"];
 
     // Margin between window edge and work-area boundary (DIPs, scaled per monitor).
     private const int EdgeMargin = 12;
@@ -366,6 +367,8 @@ public sealed partial class DashboardWindow : Window
 
     private void Refresh()
     {
+        ApplyGraphVisibility();
+
         // Battery info uses WinRT APIs that must stay on the UI thread.
         RefreshBatteryInfo();
 
@@ -412,6 +415,22 @@ public sealed partial class DashboardWindow : Window
         });
     }
 
+    /// <summary>
+    /// Shows either the graph or the single button that opens the pop-out in its place, from the
+    /// Appearance setting. Both sit in the same Auto row, so the badges below keep their spacing
+    /// either way.
+    /// </summary>
+    private void ApplyGraphVisibility()
+    {
+        bool hidden = SettingsService.Current.HideGraphInDashboard;
+        HistoryGraph.Visibility    = hidden ? Visibility.Collapsed : Visibility.Visible;
+        ShowGraphButton.Visibility = hidden ? Visibility.Visible   : Visibility.Collapsed;
+    }
+
+    /// <summary>The stand-in for the hidden graph. Goes through the graph control's own expand
+    /// event, so the pop-out has exactly one way in however it is reached.</summary>
+    private void OnShowGraphButton(object sender, RoutedEventArgs e) => HistoryGraph.RequestExpand();
+
     private void RefreshBatteryInfo()
     {
         try
@@ -448,7 +467,8 @@ public sealed partial class DashboardWindow : Window
             // at the resolution SoC is stored at, so this extrapolates from a real elapsed span.
             ChargeRateText.Text = BatteryStatsFormatter.FormatChargeRate(BatteryHistoryService.CurrentRatePercentPerHour());
 
-            HistoryGraph.Render();
+            // Drawing a hidden graph costs a full render per tick and shows nothing.
+            if (HistoryGraph.Visibility == Visibility.Visible) HistoryGraph.Render();
         }
         catch
         {
@@ -742,14 +762,14 @@ public sealed partial class DashboardWindow : Window
     /// and the Keep Awake session both leave every chip unchecked while their own switch is off, so
     /// there is no active-preset highlight to conflict with the dimmed look.
     /// </summary>
-    private static void ApplyChipRowDimming(Panel panel, bool dimmed, Thickness onPadding)
+    private static void ApplyChipRowDimming(Panel panel, bool dimmed)
     {
         foreach (var chip in panel.Children.OfType<ToggleButton>())
         {
-            chip.FontSize = dimmed ? ChipDimmedFontSize : ChipOnFontSize;
-            chip.Padding  = dimmed ? ChipDimmedPadding  : onPadding;
             if (dimmed)
             {
+                chip.FontSize        = ChipDimmedFontSize;
+                chip.Padding         = ChipDimmedPadding;
                 chip.Foreground      = AppColors.ChipMutedForegroundBrush;
                 chip.Background      = AppColors.BadgeInactiveBrush;   // transparent
                 chip.BorderBrush     = AppColors.BadgeBorderBrush;
@@ -757,10 +777,14 @@ public sealed partial class DashboardWindow : Window
             }
             else
             {
+                // Every metric and brush clears rather than being written back, so the on state is
+                // whatever the shared style says and cannot drift from it.
+                chip.ClearValue(Control.FontSizeProperty);
+                chip.ClearValue(Control.PaddingProperty);
                 chip.ClearValue(Control.ForegroundProperty);
                 chip.ClearValue(Control.BackgroundProperty);
                 chip.ClearValue(Control.BorderBrushProperty);
-                chip.BorderThickness = NoBorder;
+                chip.ClearValue(Control.BorderThicknessProperty);
             }
         }
     }
@@ -778,6 +802,10 @@ public sealed partial class DashboardWindow : Window
     /// its header (chip rows, Smart Charge's threshold controls) — forced collapsed together with
     /// the header, left exactly as the caller already set it otherwise, since that is governed by
     /// each badge's own on/off logic and is not this method's business to decide.
+    ///
+    /// This hides and never shows: every caller must therefore write its own extra content visible
+    /// on each pass, or that content stays collapsed for the life of the window once the setting has
+    /// put the badge into the dense row even once — including after the setting is turned back off.
     /// </summary>
     private static void ApplyOneLineCollapse(bool on, bool expanded, bool oneLineSetting,
         StackPanel expandedHeader, StackPanel collapsedHeader, Border chevronHost, FontIcon chevronGlyph,
@@ -930,6 +958,17 @@ public sealed partial class DashboardWindow : Window
         ApplyKeepAwakeBadge();
     }
 
+    /// <summary>
+    /// The pill's hover state. A Border carries no visual states of its own, so the outline is
+    /// lifted to the phrase's own colour by hand. Reading the brush back off the phrase keeps the
+    /// hover correct in both the normal and the costly tint without a second copy of that choice.
+    /// </summary>
+    private void OnKeepAwakeScreenPhrasePointerEntered(object sender, PointerRoutedEventArgs e) =>
+        KeepAwakeScreenPhraseHost.BorderBrush = KeepAwakeScreenPhrase.Foreground;
+
+    private void OnKeepAwakeScreenPhrasePointerExited(object sender, PointerRoutedEventArgs e) =>
+        KeepAwakeScreenPhraseHost.BorderBrush = AppColors.BadgeBorderBrush;
+
     /// <summary>Reconciles the whole Keep Awake badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
     private void ApplyKeepAwakeBadge()
     {
@@ -969,12 +1008,20 @@ public sealed partial class DashboardWindow : Window
             // makes the Border hit-testable at all — see the comment on KeepAwakeScreenPhraseHost.
             KeepAwakeScreenPhraseHost.Background =
                 costly ? AppColors.BadgeCostlyBrush : AppColors.BadgeActiveBrush;
+            // The hairline every other chip carries at rest, so the pill reads as something to
+            // press rather than as a label.
+            KeepAwakeScreenPhraseHost.BorderBrush = AppColors.BadgeBorderBrush;
             KeepAwakeScreenPhraseHost.Visibility = Visibility.Visible;
             KeepAwakeDetailTailRun.Text          = costly ? ", on battery" : "";
         }
 
         BuildKeepAwakeChips();
-        ApplyChipRowDimming(KeepAwakePresetPanel, dimmed: session is null, KeepAwakeChipOnPadding);
+        ApplyChipRowDimming(KeepAwakePresetPanel, dimmed: session is null);
+
+        // The chip row's own visibility, written on every pass. ApplyOneLineCollapse below only ever
+        // hides what it is given, so a row that does not assert itself here stays hidden for the
+        // life of the window once the dense collapsed state has been shown even once.
+        KeepAwakePresetPanel.Visibility = Visibility.Visible;
 
         // KeepAwakeRequest is a record, so this compares the span itself, not where it started.
         foreach (var chip in KeepAwakePresetPanel.Children.OfType<ToggleButton>())
@@ -1010,13 +1057,9 @@ public sealed partial class DashboardWindow : Window
         {
             var chip = new ToggleButton
             {
-                Content         = KeepAwakePolicy.ShortLabel(request),
-                Tag             = request,
-                FontSize        = ChipOnFontSize,
-                Padding         = KeepAwakeChipOnPadding,
-                MinWidth        = 0,   // the default would spend width this row hasn't got
-                CornerRadius    = new CornerRadius(4),
-                BorderThickness = NoBorder,
+                Content = KeepAwakePolicy.ShortLabel(request),
+                Tag     = request,
+                Style   = QuickButtonStyle,
             };
             chip.Checked   += OnKeepAwakePresetChecked;
             chip.Unchecked += OnKeepAwakePresetUnchecked;
@@ -1114,8 +1157,11 @@ public sealed partial class DashboardWindow : Window
                      LidDashboardPolicy.ActiveLevelChip(s.LidDelayEnabled, s.LidDischargeEnabled,
                                                         s.LidDischargeTargetPercent));
 
-        ApplyChipRowDimming(LidDelayPresetPanel, dimmed: !s.LidDelayEnabled, LidChipOnPadding);
-        ApplyChipRowDimming(LidLevelPresetPanel, dimmed: !s.LidDelayEnabled, LidChipOnPadding);
+        ApplyChipRowDimming(LidDelayPresetPanel, dimmed: !s.LidDelayEnabled);
+        ApplyChipRowDimming(LidLevelPresetPanel, dimmed: !s.LidDelayEnabled);
+
+        // Asserted on every pass, for the reason given on the keep-awake row above.
+        LidPresetGroups.Visibility = Visibility.Visible;
 
         ApplyLidDelayCollapse();
     }
@@ -1212,12 +1258,8 @@ public sealed partial class DashboardWindow : Window
             {
                 Content             = label(value),
                 Tag                 = value,
-                FontSize            = ChipOnFontSize,
-                Padding             = LidChipOnPadding,
-                MinWidth            = 0,
+                Style               = QuickButtonStyle,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                CornerRadius        = new CornerRadius(4),
-                BorderThickness     = NoBorder,
             };
             ToolTipService.SetToolTip(chip, tip(value));
             chip.Checked   += onChecked;

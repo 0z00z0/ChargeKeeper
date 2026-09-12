@@ -514,6 +514,17 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard x:Name="HideGraphInDashboardCard"
+                                            Header="Hide graph in dashboard"
+                                            Description="Leaves the history graph out of the dashboard popup and puts a button to open it in its place.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="Hide graph in dashboard"
+                                            Info="The range buttons, the plot and the legend are left out, and a single button opens the same larger graph window the expand control in the graph's corner opens. The feature cards keep their own spacing; nothing stretches to fill the room the graph gave up."/>
+                            <ToggleSwitch x:Name="HideGraphInDashboardToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnHideGraphInDashboardToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <!-- File section stays Graph, unchanged — only the on-screen placement of these
                          three controls moves here from General. -->
                     <controls:SettingsCard Header="History graph range"
