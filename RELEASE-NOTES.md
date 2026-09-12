@@ -9,6 +9,15 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.52.0
+
+- #186 A script of more than one line opens with all of its lines in the box instead of only the
+  first, so reopening the Settings window no longer hides the rest of a script — or loses them the
+  next time that script is edited.
+- #180 The About box shows its text in the studio typeface rather than falling back to a system
+  font, closes on its own when it loses focus, and opens tall enough to reach the list of libraries
+  without scrolling.
+
 ## 1.51.0
 
 - #183 The duration buttons on Keep Awake, and the delay and battery rows on Lid delay, are drawn
