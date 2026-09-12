@@ -2334,10 +2334,13 @@ internal sealed partial class SettingsWindow : Window
         foreach (string label in ScriptTriggerLabels.All) triggerCombo.Items.Add(label);
         triggerCombo.SelectedIndex = (int)script.Trigger;
 
+        // AcceptsReturn before Text: a TextBox that is still single-line when Text is assigned keeps
+        // only the first line, and turning it multi-line afterwards does not bring the rest back.
+        // microsoft-ui-xaml#10956.
         var scriptBox = new TextBox
         {
-            Text                = script.Body,
             AcceptsReturn       = true,
+            Text                = script.Body,
             TextWrapping        = TextWrapping.NoWrap,
             Height              = 200,
             IsSpellCheckEnabled = false,
