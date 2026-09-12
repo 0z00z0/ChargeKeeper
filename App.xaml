@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Application
     x:Class="ChargeKeeper.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -132,14 +132,15 @@
             <SolidColorBrush x:Key="BrandIndigoBrush" Color="#3f5be0"/>
 
             <!-- Cascadia Mono is the studio's UI face throughout, not only for code. The .ttf comes
-                 from ZeroZero.Brand.WinUI's output under Assets\Fonts\, so it is not re-bundled. -->
-            <FontFamily x:Key="BrandFont">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+                 from ZeroZero.Brand.WinUI's output, under a folder named for that assembly, so it is not
+                 re-bundled and the path has to name the assembly. -->
+            <FontFamily x:Key="BrandFont">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
             <!-- Templated controls resolve these two theme resources rather than the implicit
                  TextBlock style, so both are needed for the font to reach every control. A literal
                  URI, because a FontFamily resource cannot take another resource as its value. -->
-            <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
-            <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+            <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
 
             <!-- Cascadia Mono renders larger than WinUI's default sans at the same point size, so
                  the control-content size drops a notch to compensate. -->

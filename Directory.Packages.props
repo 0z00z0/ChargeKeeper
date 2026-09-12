@@ -16,7 +16,7 @@
        reference. A package that arrives transitively is never declared here — declaring one
        resolves the same assembly twice. -->
   <ItemGroup Label="ZeroZero shared library">
-    <PackageVersion Include="ZeroZero.Brand.WinUI" Version="0.7.0" />
+    <PackageVersion Include="ZeroZero.Brand.WinUI" Version="0.8.0" />
     <PackageVersion Include="ZeroZero.Config.Sections" Version="0.8.0" />
     <PackageVersion Include="ZeroZero.Mqtt.WinUI" Version="0.7.2" />
   </ItemGroup>
