@@ -2311,8 +2311,8 @@ internal sealed partial class SettingsWindow : Window
             : when;
     }
 
-    /// <summary>One script's editor row: its name and its event as cards, then the script itself, a
-    /// coloured reading of it, and Delete.</summary>
+    /// <summary>One script's editor row: its name and its event as cards, then the script itself and
+    /// Delete.</summary>
     private SettingsExpander BuildScriptRow(int index, ScriptDefinition script)
     {
         var nameBox = new TextBox
@@ -2340,27 +2340,6 @@ internal sealed partial class SettingsWindow : Window
         ScrollViewer.SetVerticalScrollBarVisibility(scriptBox, ScrollBarVisibility.Auto);
         ScrollViewer.SetHorizontalScrollBarVisibility(scriptBox, ScrollBarVisibility.Auto);
 
-        var preview = new RichTextBlock { IsTextSelectionEnabled = true };
-        var previewFrame = new Border
-        {
-            BorderThickness = new Thickness(1),
-            BorderBrush     = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
-            CornerRadius    = new CornerRadius(4),
-            Padding         = new Thickness(8),
-            MaxHeight       = 200,
-            Child           = new ScrollViewer
-            {
-                Content                     = preview,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-                HorizontalScrollMode          = ScrollMode.Auto,
-            },
-        };
-        PowerShellColouring.Apply(preview, script.Body);
-        // The colours are chosen for the theme the control renders in, so a theme change has to
-        // redraw them or half of them stop being legible.
-        preview.ActualThemeChanged += (_, _) => PowerShellColouring.Apply(preview, scriptBox.Text ?? "");
-
         var headerText = new TextBlock { Text = script.DisplayName };
         var runNow     = new Button { Content = "Run now", MinWidth = 88 };
         ToolTipService.SetToolTip(runNow, "Runs the script now, without waiting for its event.");
@@ -2377,8 +2356,6 @@ internal sealed partial class SettingsWindow : Window
         var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
         footer.Children.Add(SmallLabel("Script"));
         footer.Children.Add(scriptBox);
-        footer.Children.Add(SmallLabel("Coloured reading"));
-        footer.Children.Add(previewFrame);
         footer.Children.Add(error);
         footer.Children.Add(delete);
 
@@ -2396,7 +2373,7 @@ internal sealed partial class SettingsWindow : Window
         };
 
         void Commit() =>
-            CommitScriptRow(index, nameBox, triggerCombo, scriptBox, headerText, expander, preview, error);
+            CommitScriptRow(index, nameBox, triggerCombo, scriptBox, headerText, expander, error);
 
         nameBox.LostFocus += (_, _) => Commit();
         nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
@@ -2435,7 +2412,7 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>Saves one script row. Nothing is rejected: an empty script is a script not finished
     /// yet, and the runner leaves it alone rather than the page refusing to store it.</summary>
     private void CommitScriptRow(int index, TextBox nameBox, ComboBox triggerCombo, TextBox scriptBox,
-        TextBlock header, SettingsExpander expander, RichTextBlock preview, TextBlock error)
+        TextBlock header, SettingsExpander expander, TextBlock error)
     {
         var scripts = SettingsService.Current.Scripts;
         if (index < 0 || index >= scripts.Count) return;
@@ -2456,7 +2433,6 @@ internal sealed partial class SettingsWindow : Window
         expander.Description    = DescribeScript(updated);
         nameBox.PlaceholderText = ScriptTriggerLabels.For(updated.Trigger);
         error.Visibility        = Visibility.Collapsed;
-        PowerShellColouring.Apply(preview, updated.Body);
     }
 
     /// <summary>Runs one script from its row, re-read by position so an edit committed since the row
