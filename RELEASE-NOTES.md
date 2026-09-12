@@ -9,6 +9,22 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.51.0
+
+- #183 The duration buttons on Keep Awake, and the delay and battery rows on Lid delay, are drawn
+  again and stay drawn: once "One line until it matters" had folded a card away, those rows stayed
+  missing for the rest of the session even after the feature was switched back on and after the
+  setting itself was turned off again — and they now carry the same look as the range buttons above
+  the history graph, as every row of quick buttons in the application does.
+- #184 The screen-hold chip in the Keep Awake line sits on the line rather than riding above it, and
+  takes an outline and a pointer-over highlight so it reads as something to press instead of as a
+  label.
+- #181 A new Appearance setting leaves the history graph out of the dashboard popup and puts a single
+  button in its place that opens the larger graph window; the feature cards below keep the spacing
+  they already have.
+- #182 The Scripts page shows a script as plain text only: the coloured reading beneath the editing
+  box is gone, and the component that drew it leaves the installation with it.
+
 ## 1.50.0
 
 - #178 A Scripts page runs a named PowerShell script when the charger goes in or comes out, or when
