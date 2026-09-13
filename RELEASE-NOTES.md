@@ -9,6 +9,26 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.53.0
+
+- #187 Logs and history files sit in their own Logs and History folders inside the data folder, so
+  settings are what is found at the top; files an earlier version left there move into place by
+  themselves at the next start, and one that cannot be moved stays where it is rather than being lost.
+- #188 The Settings window no longer grows towards the full height of the display: the first time it
+  opens it fits the tallest page, up to four fifths of the screen, and after that it opens at the size
+  it was left at.
+- #189 The App diagnostics page drops the performance log's own Show in Explorer button, since the Logs
+  card already opens that file and now says how long it is kept, and the settings-file text sits above
+  its buttons instead of being squeezed beside them.
+- #190 The Settings pages run General, Appearance, Smart Charge, Keep Awake, Lid delay, Notifications,
+  Scripts, MQTT, App diagnostics, About, and Appearance gathers the tray icon style, the main-tray
+  option and the downtime gap threshold from General under Tray, Dashboard and Graph headings.
+- #185 The Off word beside a folded dashboard card's title sits on the title's line rather than above
+  it.
+- #77 A build made on a developer's own machine is signed without asking a timestamp server, so it no
+  longer fails when that server cannot be reached; published installers are still signed with a
+  timestamp.
+
 ## 1.52.0
 
 - #186 A script of more than one line opens with all of its lines in the box instead of only the
