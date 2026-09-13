@@ -480,6 +480,18 @@
                         </ComboBox>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard x:Name="DigitStyleCard"
+                                            Header="Percentage digit style"
+                                            Description="How the number is drawn in the tray icon.">
+                        <!-- Item order IS the TrayDigitStyle order, as the style combo above:
+                             the load and save cast by position. Append, never insert. -->
+                        <ComboBox x:Name="DigitStyleCombo" MinWidth="160" SelectionChanged="OnDigitStyleChanged">
+                            <ComboBoxItem Content="Standard"/>
+                            <ComboBoxItem Content="Cropped"/>
+                            <ComboBoxItem Content="Clock cells"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="Show icons in main tray (experimental)"
                                             Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
                         <StackPanel Orientation="Horizontal" Spacing="8">

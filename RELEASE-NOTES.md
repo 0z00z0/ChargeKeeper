@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.57.0
+
+- #193 The Numeric % tray icon can be drawn in three digit styles, chosen on the Appearance page
+  beside the tray icon style: the one it has always had, a heavier face that runs past all four
+  edges, and one after a smart clock's display, where each digit is cut by its own cell with a seam
+  between them and the cells sit at slightly different heights. All three now draw 100 as tall as
+  any other reading, in a condensed face, instead of shrinking it to fit.
+
 ## 1.56.0
 
 - #165 Measuring itself now costs ChargeKeeper almost nothing: the once-a-second reading of memory

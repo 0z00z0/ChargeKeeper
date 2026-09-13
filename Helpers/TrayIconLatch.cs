@@ -14,9 +14,13 @@ namespace ChargeKeeper.Helpers;
 /// adapter supplies turns the flow round while the state and the level stand still.</remarks>
 /// <param name="Percentage">Whether the second, display-only icon is drawn. Part of the key because
 /// switching it on or off moves the tray without moving the reading.</param>
+/// <param name="DigitStyle">How the digits are drawn wherever the tray shows a reading as a number.
+/// Part of the key for the same reason the mode is: it redraws the icon at an unchanged level, and
+/// it is the only thing that repaints on a style change — the setting reaches no other surface.</param>
 internal readonly record struct TrayIconRequest(
     int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold,
-    PowerFlow? Flow = null, bool Percentage = false);
+    PowerFlow? Flow = null, bool Percentage = false,
+    TrayDigitStyle DigitStyle = TrayDigitStyle.Standard);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the

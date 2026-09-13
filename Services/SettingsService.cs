@@ -46,6 +46,23 @@ internal static class TrayIconModeLabels
     public static string For(TrayIconMode mode) => _labels[(int)mode];
 }
 
+/// <summary>How the percentage reading is drawn in the tray. The figures behind each are in
+/// design\tray-oversized-digits\PROPOSAL.md and in <c>IconGenerator.MetricsFor</c>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+// APPEND new members, never insert: SettingsWindow casts between the ComboBox's SelectedIndex and
+// this enum by position, so the two orders have to stay in lockstep.
+internal enum TrayDigitStyle
+{
+    /// <summary>Segoe UI Bold, fitted to the frame with a small bleed.</summary>
+    Standard,
+
+    /// <summary>Segoe UI Black, running past the top, the bottom and both sides.</summary>
+    Cropped,
+
+    /// <summary>Segoe UI Black, each digit cut by its own cell, with a seam and a stagger.</summary>
+    ClockCells,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum GraphTimeScale { FifteenMinutes, OneHour, SixHours, TwelveHours, OneDay, OneWeek, FourteenDays }
 
@@ -123,6 +140,12 @@ internal sealed class AppSettings
     /// <see cref="TrayIconMode.Numeric"/>, which draws the same thing — the Settings page refuses
     /// the combination and <see cref="PercentageIconWanted"/> is the single reading of it.</summary>
     public bool ShowPercentageIcon { get; set; }
+
+    /// <summary>How the reading is drawn wherever the tray shows it as digits — the Numeric % style
+    /// and the second icon both. Standard is what every installation already has, so an update
+    /// changes no icon until the style is chosen. Deliberately absent from the MQTT surface: it
+    /// decides how one icon on this machine is drawn.</summary>
+    public TrayDigitStyle PercentageDigitStyle { get; set; } = TrayDigitStyle.Standard;
 
     /// <summary>Whether a second icon is actually drawn. Numeric % already puts the reading in the
     /// tray, so the two never appear together whatever the stored flag says — one reading of the

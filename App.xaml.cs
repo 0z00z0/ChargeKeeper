@@ -341,7 +341,10 @@ public partial class App : Application
         SettingsService.ChangeCommitted     += c => { if (c.IsMaterial) _mqtt?.PublishSurfaceNow(); };
         // The tray style is one of those values, and an icon-mode command from Home Assistant has no
         // battery tick of its own. The latch carries the style, so this repaints only when it moved.
-        SettingsService.ChangeCommitted     += c => { if (c.IsMaterial) RepaintTrayIconFromLastReading(); };
+        // Every committed change, not only a material one: the icon's own dedupe is the tray's
+        // filter, and a setting that reaches no MQTT entity can still redraw the icon — the digit
+        // style is one. A change that draws the same icon stops at the latch.
+        SettingsService.ChangeCommitted     += _ => RepaintTrayIconFromLastReading();
         // The one settings outcome nothing else shows. The store returns a refused write rather than
         // raising it, so a change that never reached disk would otherwise look saved until the next
         // start came back with the old value. Latched in the service, so an unwritable file says so
@@ -404,7 +407,12 @@ public partial class App : Application
         {
             AppLog.Error("InitTrayIcon.BrandIcon", ex);
             // The in-memory renderer needs no disk at all.
-            try { _trayIcon.Icon = IconGenerator.RenderBatteryIcon(0, PowerState.Discharging, SettingsService.Current.IconMode); }
+            try
+            {
+                var s = SettingsService.Current;
+                _trayIcon.Icon = IconGenerator.RenderBatteryIcon(0, PowerState.Discharging, s.IconMode,
+                                                                 digits: s.PercentageDigitStyle);
+            }
             catch (Exception fallbackEx) { AppLog.Error("InitTrayIcon.FallbackIcon", fallbackEx); }
         }
 
@@ -1055,7 +1063,7 @@ public partial class App : Application
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
         var settings = SettingsService.Current;
         var request  = new TrayIconRequest(pct, state, settings.IconMode, _lastThresholdState, flow,
-                                           settings.PercentageIconWanted);
+                                           settings.PercentageIconWanted, settings.PercentageDigitStyle);
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -1074,7 +1082,7 @@ public partial class App : Application
         try
         {
             var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.State, request.Mode,
-                                                          request.Threshold, request.Flow);
+                                                          request.Threshold, request.Flow, request.DigitStyle);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
@@ -1136,7 +1144,7 @@ public partial class App : Application
             _percentageIcon = icon;
         }
 
-        var next     = IconGenerator.RenderPercentageIcon(request.Pct, request.State);
+        var next     = IconGenerator.RenderPercentageIcon(request.Pct, request.State, request.DigitStyle);
         var previous = _currentPercentageIcon;
         _percentageIcon.Icon    = next;
         _currentPercentageIcon  = next;

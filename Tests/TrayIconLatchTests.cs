@@ -70,6 +70,17 @@ public class TrayIconLatchTests
     }
 
     [Fact]
+    public void ADigitStyleChangeAloneRepaints_BecauseNothingElseWouldDrawIt()
+    {
+        // The digit style reaches no other surface: the latch is the whole of what makes a style
+        // change appear in the notification area.
+        var latch = new TrayIconLatch();
+        latch.MarkPainted(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Numeric, null));
+        Assert.True(latch.NeedsRepaint(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Numeric,
+                                                           null, null, false, TrayDigitStyle.ClockCells)));
+    }
+
+    [Fact]
     public void AThresholdChangeAloneRepaints_BecauseTheIconCarriesTheMarks()
     {
         var latch = new TrayIconLatch();

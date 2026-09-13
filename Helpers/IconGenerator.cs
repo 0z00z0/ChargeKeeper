@@ -169,9 +169,10 @@ internal static class IconGenerator
     /// </summary>
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, PowerState state, TrayIconMode mode = TrayIconMode.Arc,
-        ChargeThresholdState? threshold = null, PowerFlow? flow = null)
+        ChargeThresholdState? threshold = null, PowerFlow? flow = null,
+        TrayDigitStyle digits = TrayDigitStyle.Standard)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow);
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow, digits);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -182,9 +183,10 @@ internal static class IconGenerator
     /// <summary>The second, display-only tray icon: the reading and nothing else, at the current
     /// tray-slot size. Draws exactly what <see cref="TrayIconMode.Numeric"/> draws, so the two can
     /// never disagree about the same number.</summary>
-    internal static System.Drawing.Icon RenderPercentageIcon(int percent, PowerState state)
+    internal static System.Drawing.Icon RenderPercentageIcon(
+        int percent, PowerState state, TrayDigitStyle digits = TrayDigitStyle.Standard)
     {
-        Bitmap Render(int size) => RenderPercentageBitmap(size, percent, state);
+        Bitmap Render(int size) => RenderPercentageBitmap(size, percent, state, digits);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -212,14 +214,15 @@ internal static class IconGenerator
     /// <see cref="RenderBatteryIcon"/> so a caller can render a known size rather than whatever the
     /// live tray slot happens to be.</summary>
     internal static Bitmap RenderStyleBitmap(int size, int percent, PowerState state, TrayIconMode mode,
-                                             ChargeThresholdState? threshold = null, PowerFlow? flow = null) =>
+                                             ChargeThresholdState? threshold = null, PowerFlow? flow = null,
+                                             TrayDigitStyle digits = TrayDigitStyle.Standard) =>
         mode switch
         {
             // Only the arc carries the flow mark. Numeric's frame is already spent on the digits, and
             // every placement tried clipped them at 16 px. The brand mark's payload IS its interior
             // fill band, and the moat that keeps the mark legible erases the band it sits on. Both
             // keep the power state in their colour, as before.
-            TrayIconMode.Numeric   => RenderPercentageBitmap(size, percent, state),
+            TrayIconMode.Numeric   => RenderPercentageBitmap(size, percent, state, digits),
             TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, FillFor(percent, state), threshold,
                                                       TraySlotHeights),
             _                      => RenderBatteryBitmap(size, percent, state, threshold, flow),
@@ -235,36 +238,100 @@ internal static class IconGenerator
             ? (null, null)
             : (state.Stop, state.HasStartThreshold ? state.Start : null);
 
-    /// <summary>Renders the percentage as digits filling the whole frame. Public so the second,
-    /// display-only tray icon draws the same thing as the numeric style rather than a copy.</summary>
-    internal static Bitmap RenderPercentageBitmap(int size, int percent, PowerState state) =>
-        RenderFullBleedDigits(size, percent > 0 ? $"{percent}" : "?", FillFor(percent, state),
-                              CurrentContrast());
+    /// <summary>Renders the percentage as digits filling the whole frame, in the digit style
+    /// <paramref name="digits"/> selects. Public so the second, display-only tray icon draws the
+    /// same thing as the numeric style rather than a copy.</summary>
+    internal static Bitmap RenderPercentageBitmap(int size, int percent, PowerState state,
+                                                  TrayDigitStyle digits = TrayDigitStyle.Standard)
+    {
+        string label   = percent > 0 ? $"{percent}" : "?";
+        var    metrics = MetricsFor(digits);
+        Color  fill    = FillFor(percent, state);
+        var    contrast = CurrentContrast();
+
+        // 100 leaves the cells behind: in them the two zeros read as "|00" at 16 px, measured on the
+        // light taskbar, so the widest reading is drawn as one whole number in every style.
+        return metrics.Cells && label.Length < 3
+            ? RenderCellDigits(size, label, metrics, fill, contrast)
+            : RenderFullBleedDigits(size, label, metrics, fill, contrast);
+    }
 
     /// <summary>How far the digits are allowed past the top and bottom of the frame, as a fraction
     /// of it. The reading is what the icon is for, so the numerals are sized to the frame and
-    /// cropped by it rather than letterboxed inside it.</summary>
+    /// cropped by it rather than letterboxed inside it. The Standard style's value; the other two
+    /// carry their own in <see cref="MetricsFor"/>.</summary>
     internal const float DigitOverflowFraction = 0.04f;
 
     /// <summary>The narrowest the digits may be squeezed, as a fraction of their natural width. Two
     /// digits tall enough to fill a 16 px frame are wider than it, so they are condensed to fit; a
-    /// floor stops three digits collapsing into a smear.</summary>
+    /// floor stops three digits collapsing into a smear. The Standard style's value.</summary>
     internal const float DigitMinimumCondense = 0.62f;
 
+    /// <summary>One face and how far a reading drawn in it may pass the frame.
+    /// <paramref name="Overflow"/> is per edge as a fraction of the frame,
+    /// <paramref name="SideOverflow"/> the total extra width the ink may take against it, and
+    /// <paramref name="Condense"/> the narrowest the digits may be squeezed.</summary>
+    internal readonly record struct DigitFace(
+        string Family, System.Drawing.FontStyle Weight,
+        float Overflow, float SideOverflow, float Condense);
+
+    /// <summary>Everything one <see cref="TrayDigitStyle"/> draws with. The three-digit face is a
+    /// second face for one reading: 100 in a two-digit style's face condenses to a smear, so every
+    /// style hands it to a condensed one with its own overflow and floor.</summary>
+    /// <param name="Cells">Whether each digit is cut by its own cell. The cell figures below are
+    /// read only then.</param>
+    /// <param name="CellSideOverflow">How far a digit may pass each side of its own cell.</param>
+    /// <param name="SeamFraction">The gap between two cells, as a fraction of the frame.</param>
+    /// <param name="StaggerFraction">How far the cells are staggered in height, as a fraction of
+    /// the frame.</param>
+    internal readonly record struct DigitStyleMetrics(
+        DigitFace Reading, DigitFace ThreeDigits, bool Cells,
+        float CellSideOverflow, float SeamFraction, float StaggerFraction);
+
+    // Bahnschrift Bold Condensed carries three digits at full height where a text face cannot. The
+    // figures come from design\tray-oversized-digits\PROPOSAL.md, which is where the whole table is
+    // reasoned about; changing one here without it leaves the two disagreeing.
+    private static readonly DigitFace ThreeDigitFace =
+        new("Bahnschrift Condensed", System.Drawing.FontStyle.Bold, 0.10f, 0f, 0.70f);
+
+    /// <summary>The drawing figures for <paramref name="style"/>.</summary>
+    internal static DigitStyleMetrics MetricsFor(TrayDigitStyle style) => style switch
+    {
+        TrayDigitStyle.Cropped => new(
+            new("Segoe UI Black", System.Drawing.FontStyle.Regular, 0.14f, 0.12f, 0.62f),
+            ThreeDigitFace, Cells: false, CellSideOverflow: 0f, SeamFraction: 0f, StaggerFraction: 0f),
+
+        TrayDigitStyle.ClockCells => new(
+            new("Segoe UI Black", System.Drawing.FontStyle.Regular, 0.12f, 0f, 0.70f),
+            ThreeDigitFace, Cells: true, CellSideOverflow: 0.10f, SeamFraction: 0.06f,
+            StaggerFraction: 0.11f),
+
+        _ => new(
+            new("Segoe UI", System.Drawing.FontStyle.Bold, DigitOverflowFraction, 0f, DigitMinimumCondense),
+            ThreeDigitFace, Cells: false, CellSideOverflow: 0f, SeamFraction: 0f, StaggerFraction: 0f),
+    };
+
     /// <summary>The em size and horizontal squeeze that make <paramref name="glyphs"/> fill a
-    /// <paramref name="size"/> px frame: height first, because that is what a reader resolves, then
-    /// as much condensing as the floor allows before the em size gives way.</summary>
-    internal static (float EmSize, float Condense) DigitFit(float size, RectangleF glyphs)
+    /// <paramref name="size"/> px frame in the Standard style's face.</summary>
+    internal static (float EmSize, float Condense) DigitFit(float size, RectangleF glyphs) =>
+        DigitFit(size, glyphs, MetricsFor(TrayDigitStyle.Standard).Reading);
+
+    /// <summary>The em size and horizontal squeeze that make <paramref name="glyphs"/> fill a
+    /// <paramref name="size"/> px frame in <paramref name="face"/>: height first, because that is
+    /// what a reader resolves, then as much condensing as the floor allows before the em size gives
+    /// way.</summary>
+    internal static (float EmSize, float Condense) DigitFit(float size, RectangleF glyphs, DigitFace face)
     {
         if (glyphs.Height <= 0 || glyphs.Width <= 0) return (size, 1f);
 
-        float target = size * (1f + 2f * DigitOverflowFraction);
-        float em     = DigitReferenceEm * target / glyphs.Height;
-        float width  = glyphs.Width * target / glyphs.Height;
-        float squeeze = Math.Clamp(size / width, DigitMinimumCondense, 1f);
+        float target  = size * (1f + 2f * face.Overflow);
+        float allowed = size * (1f + face.SideOverflow);
+        float em      = DigitReferenceEm * target / glyphs.Height;
+        float width   = glyphs.Width * target / glyphs.Height;
+        float squeeze = Math.Clamp(allowed / width, face.Condense, 1f);
 
         // Condensing alone could not close the gap, so the whole reading steps down until it does.
-        if (width * squeeze > size) em *= size / (width * squeeze);
+        if (width * squeeze > allowed) em *= allowed / (width * squeeze);
         return (em, squeeze);
     }
 
@@ -272,13 +339,24 @@ internal static class IconGenerator
     /// quantise on a small frame.</summary>
     private const float DigitReferenceEm = 100f;
 
+    /// <summary>The named family, or Segoe UI where Windows does not carry it. GDI+ throws on an
+    /// unknown family, and a throw on this path leaves the tray showing the previous icon; the
+    /// condensed face the three-digit reading asks for was measured on one machine only.</summary>
+    private static FontFamily OpenFamily(string name)
+    {
+        try   { return new FontFamily(name); }
+        catch (ArgumentException) { return new FontFamily("Segoe UI"); }
+    }
+
     /// <summary>
     /// The reading as heavy numerals filling the frame: sized to its height, condensed to its width,
-    /// and cropped by its top and bottom edges rather than sitting inside a margin. The tier colour
-    /// carries the level, as it does on every other style, and a dark halo underneath is what makes
-    /// a mid-luminance colour read on a light taskbar.
+    /// and cropped by its edges rather than sitting inside a margin. The face and how far the ink
+    /// may pass each edge come from <paramref name="metrics"/>, three digits from its own face. The
+    /// tier colour carries the level, as it does on every other style, and a dark halo underneath is
+    /// what makes a mid-luminance colour read on a light taskbar.
     /// </summary>
-    private static Bitmap RenderFullBleedDigits(int size, string label, Color fill, IconContrast contrast)
+    private static Bitmap RenderFullBleedDigits(int size, string label, DigitStyleMetrics metrics,
+                                                Color fill, IconContrast contrast)
     {
         var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bmp);
@@ -286,7 +364,8 @@ internal static class IconGenerator
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Color.Transparent);
 
-        using var family = new FontFamily("Segoe UI");
+        DigitFace face   = label.Length >= 3 ? metrics.ThreeDigits : metrics.Reading;
+        using var family = OpenFamily(face.Family);
         using var sf     = new StringFormat(StringFormat.GenericTypographic)
         {
             FormatFlags = StringFormatFlags.NoWrap,
@@ -294,15 +373,14 @@ internal static class IconGenerator
         };
 
         using var path = new GraphicsPath();
-        path.AddString(label, family, (int)System.Drawing.FontStyle.Bold, DigitReferenceEm,
-                       new PointF(0, 0), sf);
+        path.AddString(label, family, (int)face.Weight, DigitReferenceEm, new PointF(0, 0), sf);
 
         // The ink's own bounds, not the font's line box: a digit's advance carries side bearings and
         // an ascent nothing in "80" reaches, and fitting to those letterboxes the reading again.
         RectangleF ink = path.GetBounds();
         if (ink.Width <= 0 || ink.Height <= 0) return bmp;
 
-        var (em, condense) = DigitFit(size, ink);
+        var (em, condense) = DigitFit(size, ink, face);
         float scale = em / DigitReferenceEm;
 
         using var transform = new Matrix();
@@ -319,6 +397,88 @@ internal static class IconGenerator
             g.DrawPath(halo, path);
         using (var brush = new SolidBrush(fill))
             g.FillPath(brush, path);
+
+        return bmp;
+    }
+
+    /// <summary>
+    /// The reading with every digit in its own cell, cut hard on all four sides and the cells
+    /// staggered in height, after the smart clock the treatment is taken from. One scale for the
+    /// whole reading, from the height of a zero, so a 1 and a 0 share a baseline rather than each
+    /// filling its cell. Two digits at most: 100 is drawn as a whole number by
+    /// <see cref="RenderPercentageBitmap"/>.
+    /// </summary>
+    private static Bitmap RenderCellDigits(int size, string label, DigitStyleMetrics metrics,
+                                           Color fill, IconContrast contrast)
+    {
+        int  n    = label.Length;
+        var  face = metrics.Reading;
+        using var family = OpenFamily(face.Family);
+
+        var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode   = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.Clear(Color.Transparent);
+
+        using var sf = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap,
+            Trimming    = StringTrimming.None,
+        };
+
+        RectangleF zero;
+        using (var probe = new GraphicsPath())
+        {
+            probe.AddString("0", family, (int)face.Weight, DigitReferenceEm, PointF.Empty, sf);
+            zero = probe.GetBounds();
+        }
+        if (zero.Height <= 0) return bmp;
+        float scale = size * (1f + 2f * face.Overflow) / zero.Height;
+
+        // Floored at a pixel each: a fraction of a 16 px frame rounds away to nothing, and the seam
+        // is what tells one cell from the next.
+        int seam = n >= 2 ? Math.Max(1, (int)Math.Round(size * metrics.SeamFraction, MidpointRounding.AwayFromZero)) : 0;
+        int drop = n >= 2 ? Math.Max(1, (int)Math.Round(size * metrics.StaggerFraction, MidpointRounding.AwayFromZero)) : 0;
+        int rise = drop / 2, fall = drop - rise;
+
+        // Whole-pixel cell edges: rounding fractional ones closes the 1 px seam at 16 px.
+        int available = size - seam * (n - 1);
+        for (int i = 0; i < n; i++)
+        {
+            int left      = (int)Math.Round(available * i       / (float)n, MidpointRounding.AwayFromZero) + seam * i;
+            int right     = i == n - 1 ? size
+                          : (int)Math.Round(available * (i + 1) / (float)n, MidpointRounding.AwayFromZero) + seam * i;
+            int cellWidth = right - left;
+
+            // Later digits sit lower, as on the clock. Whole pixels only, and the clip rectangle
+            // moves with the glyph: a fractional offset blurs the cut at 16 px.
+            int dy = drop == 0 ? 0 : i == n - 1 ? fall : -rise;
+
+            using var path = new GraphicsPath();
+            path.AddString(label[i].ToString(), family, (int)face.Weight, DigitReferenceEm, PointF.Empty, sf);
+            RectangleF ink = path.GetBounds();
+            if (ink.Width <= 0) continue;
+
+            float allowed = cellWidth * (1f + 2f * metrics.CellSideOverflow);
+            float width   = ink.Width * scale;
+            float squeeze = width > allowed ? Math.Max(allowed / width, face.Condense) : 1f;
+
+            using var transform = new Matrix();
+            transform.Translate((left + right) / 2f, size / 2f + dy);
+            transform.Scale(scale * squeeze, scale);
+            transform.Translate(-(ink.X + ink.Width / 2f), -(zero.Y + zero.Height / 2f));
+            path.Transform(transform);
+
+            // A hard clip, so the cut edge is the device's own and carries no antialiasing.
+            g.SetClip(new Rectangle(left, dy, cellWidth, size));
+            using (var halo = new System.Drawing.Pen(contrast.Outline, Math.Max(1f, size * 0.07f))
+                              { LineJoin = LineJoin.Round })
+                g.DrawPath(halo, path);
+            using (var brush = new SolidBrush(fill))
+                g.FillPath(brush, path);
+            g.ResetClip();
+        }
 
         return bmp;
     }

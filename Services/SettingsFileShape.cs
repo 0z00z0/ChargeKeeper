@@ -193,6 +193,9 @@ internal sealed class SettingsFile
         // so the move carries no unique_id risk.
         [JsonPropertyOrder(2)] public bool ShowPercentageIcon    { get; set; }
         [JsonPropertyOrder(3)] public bool HideGraphInDashboard  { get; set; }
+        // Beside the second icon's switch: it is the other tray setting the Appearance page carries,
+        // and this one governs the digits both it and the Numeric % style draw.
+        [JsonPropertyOrder(4)] public TrayDigitStyle PercentageDigitStyle { get; set; }
     }
 
     internal sealed class WindowGroup
@@ -280,6 +283,7 @@ internal sealed class SettingsFile
             OneLineUntilItMatters = s.OneLineUntilItMatters,
             ShowPercentageIcon    = s.ShowPercentageIcon,
             HideGraphInDashboard  = s.HideGraphInDashboard,
+            PercentageDigitStyle  = s.PercentageDigitStyle,
         },
         Window = new WindowGroup
         {
@@ -351,6 +355,7 @@ internal sealed class SettingsFile
         OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
         ShowPercentageIcon    = Appearance.ShowPercentageIcon,
         HideGraphInDashboard  = Appearance.HideGraphInDashboard,
+        PercentageDigitStyle  = Appearance.PercentageDigitStyle,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

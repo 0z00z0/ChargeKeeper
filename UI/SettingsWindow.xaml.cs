@@ -617,6 +617,7 @@ internal sealed partial class SettingsWindow : Window
         {
             if (clearSecond) PercentageIconToggle.IsOn = false;
             ApplyPercentageIconAvailability(mode);
+            ApplyDigitStyleAvailability(mode);
         });
 
         _menu.ReconcileFromExternalChange();   // repaints the tray icon via the icon-mode callback
@@ -657,7 +658,9 @@ internal sealed partial class SettingsWindow : Window
             OneLineUntilItMattersToggle.IsOn = s.OneLineUntilItMatters;
             PercentageIconToggle.IsOn        = s.ShowPercentageIcon;
             HideGraphInDashboardToggle.IsOn  = s.HideGraphInDashboard;
+            DigitStyleCombo.SelectedIndex    = (int)s.PercentageDigitStyle;
             ApplyPercentageIconAvailability(s.IconMode);
+            ApplyDigitStyleAvailability(s.IconMode);
             GraphScaleCombo.SelectedIndex    = (int)s.GraphTimeScale;
             SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
             GraphShadingToggle.IsOn          = s.GraphShadingEnabled;
@@ -686,6 +689,24 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.ShowPercentageIcon = on);
         _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
     }
+
+    private void OnDigitStyleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || DigitStyleCombo.SelectedIndex < 0) return;
+        var style = (TrayDigitStyle)DigitStyleCombo.SelectedIndex;
+
+        // Nothing else to do: the icon request carries the style, so the repaint the committed
+        // change starts draws the new digits.
+        SettingsService.Update(s => s.PercentageDigitStyle = style);
+    }
+
+    /// <summary>The digit style is shown only while the tray icon style is the one that draws
+    /// digits. Hidden rather than disabled: it qualifies a style that is not in use, so there is
+    /// nothing for a disabled row to explain.</summary>
+    private void ApplyDigitStyleAvailability(TrayIconMode mode) =>
+        DigitStyleCard.Visibility = mode == TrayIconMode.Numeric
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     /// <summary>The second icon is offered only where it would show something the main icon does
     /// not. Disabling rather than ignoring is what makes the reason visible.</summary>

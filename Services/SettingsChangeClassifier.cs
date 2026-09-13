@@ -22,8 +22,9 @@ internal readonly record struct SettingsChange(bool IsMaterial);
 internal static class SettingsChangeClassifier
 {
     /// <summary>
-    /// The properties whose movement reaches no outward surface — neither an MQTT entity nor the
-    /// tray icon. An exclusion list by design: a property added later lands in the comparison on
+    /// The properties whose movement reaches no MQTT entity. The tray icon is not on this list's
+    /// account: every committed change is offered to it, and <c>TrayIconLatch</c> drops the ones
+    /// that draw the same icon. An exclusion list by design: a property added later lands in the comparison on
     /// its own and is treated as mattering, so the cost of forgetting is a redundant republish
     /// rather than a setting that silently stops being announced. A skip is earned by name here.
     /// </summary>
@@ -46,6 +47,11 @@ internal static class SettingsChangeClassifier
         // Whether the dashboard popup draws its history graph at all. Decides how one window draws,
         // like the graph settings above — deliberately absent from the MQTT surface.
         nameof(AppSettings.HideGraphInDashboard),
+
+        // How the tray draws the percentage digits. It moves an icon on this machine and nothing
+        // outside the process: the tray repaint is driven by the icon request rather than by this
+        // classifier, so the style reaches the icon without a republish behind it.
+        nameof(AppSettings.PercentageDigitStyle),
 
         // The lid actions captured for crash recovery, and the scheme they belong to.
         nameof(AppSettings.LidDelaySavedAcAction),

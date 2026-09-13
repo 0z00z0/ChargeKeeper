@@ -169,6 +169,67 @@ public class PercentageTrayIconTests
         Assert.False(same, "Two different readings render identically.");
     }
 
+    // The three digit styles. A style that draws the same pixels as another, or one that cannot
+    // reach the tray, is a setting that does nothing and says nothing about why.
+
+    [Fact]
+    public void TheIconRequestCarriesTheDigitStyle()
+    {
+        // The request is the repaint dedupe key, so a style it omits is a style change that never
+        // reaches the notification area.
+        string body = SourceMethods.Body(AppSourceWithoutComments(), "UpdateTrayIcon");
+
+        Assert.Contains("settings.PercentageDigitStyle", body, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Standard")]
+    [InlineData("Cropped")]
+    [InlineData("ClockCells")]
+    public void EveryStyleDrawsAHundredAtFullHeight(string style)
+    {
+        // The widest reading is the one a style can letterbox away, and it is what the three styles
+        // were chosen against: 100 fills the frame's height in all of them.
+        using var bmp = IconGenerator.RenderPercentageBitmap(
+            16, 100, PowerState.Discharging, Enum.Parse<TrayDigitStyle>(style));
+
+        int top = int.MaxValue, bottom = -1;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+                if (bmp.GetPixel(x, y).A > 40) { top = Math.Min(top, y); bottom = Math.Max(bottom, y); }
+
+        Assert.True(bottom >= 0, "Nothing was drawn.");
+        Assert.True(bottom - top + 1 >= 15, $"100 spans {bottom - top + 1} of 16 px down in {style}.");
+    }
+
+    [Fact]
+    public void TheThreeStylesDrawDifferentReadings()
+    {
+        var styles = new[] { TrayDigitStyle.Standard, TrayDigitStyle.Cropped, TrayDigitStyle.ClockCells };
+        var frames = Array.ConvertAll(styles,
+            s => IconGenerator.RenderPercentageBitmap(16, 42, PowerState.Discharging, s));
+
+        try
+        {
+            for (int a = 0; a < frames.Length; a++)
+                for (int b = a + 1; b < frames.Length; b++)
+                    Assert.True(Differs(frames[a], frames[b]),
+                                $"{styles[a]} and {styles[b]} render identically.");
+        }
+        finally
+        {
+            foreach (var frame in frames) frame.Dispose();
+        }
+
+        static bool Differs(Bitmap one, Bitmap other)
+        {
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                    if (one.GetPixel(x, y) != other.GetPixel(x, y)) return true;
+            return false;
+        }
+    }
+
     [Fact]
     public void ThreeDigitsAreCondensedRatherThanShrunkAwayFromTheFrame()
     {

@@ -108,6 +108,7 @@ public class SettingsFileShapeTests : IDisposable
         "Appearance.OneLineUntilItMatters",
         "Appearance.ShowPercentageIcon",
         "Appearance.HideGraphInDashboard",
+        "Appearance.PercentageDigitStyle",
         "Window",
         "Window.SettingsWindowX",
         "Window.SettingsWindowY",
