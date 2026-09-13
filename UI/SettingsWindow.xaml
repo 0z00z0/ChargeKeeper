@@ -256,6 +256,15 @@
                     <local:SettingsSectionHeader Heading="Networks" Subject="keep-awake networks"
                                                  Info="The hold starts on arrival at a network and ends on leaving it. These are the same network rules the Smart Charge page uses; this page sets their keep-awake side and that page sets the preset. “Enable network profiles” must be on there for them to act, and deleting a rule removes it from both pages."/>
 
+                    <!-- The same setting the Smart Charge page carries. It is repeated here because
+                         it decides whether these rules act at all, and that page's copy is out of
+                         reach on fixed-mode hardware. -->
+                    <controls:SettingsCard Header="Enable network profiles"
+                                            Description="Profiles act only while this is on — on the keep-awake side as much as on the charge side.">
+                        <ToggleSwitch x:Name="KeepAwakeNetworkEnabledToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnNetworkEnabledToggled"/>
+                    </controls:SettingsCard>
+
                     <local:CurrentNetworkCard x:Name="KeepAwakeCurrentNetwork"/>
 
                     <StackPanel x:Name="KeepAwakeNetworkRulesListPanel" Spacing="4"/>

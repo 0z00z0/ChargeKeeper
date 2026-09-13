@@ -408,6 +408,9 @@ public partial class App : Application
         IToggleFeature[] features = [new AutoStartFeature()];
         _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
                              windowsReady: WindowsReady);
+        // One apply for every surface that puts a network profile into effect — the tray's own, which
+        // marshals its threads and its refresh; the Settings page and an MQTT command reach it here.
+        NetworkProfiles.ApplyPreset = _menu.ApplyPresetByName;
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());

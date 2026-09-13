@@ -40,6 +40,26 @@ internal sealed partial class SettingsWindow : Window
     // discarded can be stopped before it fires against a detached row or a closed window.
     private readonly List<DispatcherTimer> _presetDebounceTimers = [];
 
+    // The six saved-value lists, all on the one shared mechanism. Two of them are the same network
+    // profiles rendered on both pages. Assigned in the constructor, before anything loads a page.
+    private PresetRows.Section _thresholdList      = null!;
+    private PresetRows.Section _networkProfileList = null!;
+    private PresetRows.Section _keepAwakeProfileList = null!;
+    private PresetRows.Section _keepAwakePresetList  = null!;
+    private PresetRows.Section _lidDelayList         = null!;
+    private PresetRows.Section _lidDischargeList     = null!;
+
+    // What the threshold rows are marked against: the vendor read blocks, so it is taken once per
+    // refresh rather than per row.
+    private ChargeThresholdState? _thresholdState;
+
+    // Resolved once per rebuild of the profile rows and read by every row: the adapter enumeration
+    // is expensive, and both pages must mark the same profile.
+    private NetworkLocation _profileRowLocation;
+    private IReadOnlyList<BridgePeer> _profileRowAdapters = [];
+    private IReadOnlyList<string> _profileRowPresets = [];
+    private int _winningProfileRow = -1;
+
     public SettingsWindow(TrayMenu menu, Services.MqttPublisher? mqtt)
     {
         _menu = menu;
@@ -53,6 +73,9 @@ internal sealed partial class SettingsWindow : Window
         // Nothing below may throw out of the constructor: App.ShowSettingsWindow only stores the
         // window and calls Activate() once the ctor returns, so a throw here leaves an orphaned,
         // never-shown window and every later "Settings…" click leaks another.
+        // Before anything loads a page: every list below is rebuilt through one of these.
+        BuildSavedValueLists();
+
         SafeInit(nameof(ConfigureWindowChrome), ConfigureWindowChrome);
         SafeInit("AttachBrandMark", () => BrandMarkImage.Attach(BrandMark));
         // Before RefreshAllSections, which reloads the panel: an uninitialised one ignores a reload,
@@ -83,6 +106,8 @@ internal sealed partial class SettingsWindow : Window
     {
         RefreshCurrentNetworkText();
         RefreshKeepAwakeCurrentNetworkText();
+        // Which profile is in use has just moved, and so has every row's reading of the match key.
+        RebuildNetworkRuleRows();
     });
 
     private bool _aboutLoaded;
@@ -841,13 +866,89 @@ internal sealed partial class SettingsWindow : Window
             ? brush as Microsoft.UI.Xaml.Media.Brush
             : null;
 
-    /// <summary>The placeholder for an empty list. One builder, so the four cannot drift apart.</summary>
-    private static TextBlock EmptyListText(string text) => new()
+    /// <summary>
+    /// Every saved-value list this window shows, each describing itself to the one shared mechanism:
+    /// where its rows go, what it says when empty, how a row is built, what "in use" means for it,
+    /// whether activation can be offered at all, and the feature switch that decides whether the
+    /// marking means anything. Built once per window; each list reads its values afresh on every
+    /// rebuild.
+    /// </summary>
+    private void BuildSavedValueLists()
     {
-        Text         = text,
-        TextWrapping = TextWrapping.Wrap,
-        Opacity      = 0.7,
-        Margin       = new Thickness(0, 4, 0, 4),
+        _thresholdList = new PresetRows.Section
+        {
+            Panel     = PresetsListPanel,
+            EmptyText = "No presets yet. Add one below.",
+            Count     = () => SettingsService.Current.Presets.Count,
+            BuildRow  = i => BuildPresetRow(SettingsService.Current.Presets[i]),
+            // The thresholds the firmware is actually running, not the stored choice.
+            ActiveTag = () => ActivePresetPolicy.Match(SettingsService.Current.Presets, _thresholdState)?.Name,
+            // Hidden entirely where the vendor refuses threshold writes.
+            OffersActivation = _ => _thresholdState is { Capable: true },
+            ActiveTip = "These thresholds are the ones in use.",
+            IdleTip   = "Applies these thresholds now.",
+        };
+
+        _networkProfileList   = NetworkProfileList(NetworkRulesListPanel, BuildSmartChargeNetworkRow);
+        _keepAwakeProfileList = NetworkProfileList(KeepAwakeNetworkRulesListPanel, BuildKeepAwakeNetworkRow);
+
+        _keepAwakePresetList = new PresetRows.Section
+        {
+            Panel     = KeepAwakePresetsListPanel,
+            EmptyText = "No presets yet. Add one below.",
+            Count     = () => SettingsService.Current.KeepAwakePresets.Count,
+            BuildRow  = i => BuildKeepAwakePresetRow(i, SettingsService.Current.KeepAwakePresets[i]),
+            // The preset the running session came from. Always offered: no hardware can refuse a
+            // keep-awake hold the way fixed-mode firmware refuses thresholds.
+            ActiveTag = () => ActiveKeepAwakePresetPolicy.MatchIndex(
+                                  SettingsService.Current.KeepAwakePresets, KeepAwakeService.Current) is int i and >= 0
+                              ? i : null,
+            ActiveTip = "A session from this preset is running.",
+            IdleTip   = "Starts a session from this preset now.",
+        };
+
+        _lidDelayList = new PresetRows.Section
+        {
+            Panel     = LidDelayPresetsListPanel,
+            EmptyText = "No delays yet. Add one below.",
+            Count     = () => SettingsService.Current.LidDelayPresets.Count,
+            BuildRow  = i => BuildLidDelayPresetRow(i, SettingsService.Current.LidDelayPresets[i]),
+            ActiveTag = DelayPresetInUse,
+            // Nothing can act on a delay while the lid-close wait itself is off.
+            OffersActivation = _ => SettingsService.Current.LidDelayEnabled,
+            FeatureOn = () => SettingsService.Current is { LidDelayEnabled: true, LidDelayTimeEnabled: true },
+            ActiveTip = "This is the delay the lid-close wait runs.",
+            IdleTip   = "Makes this the delay the lid-close wait runs.",
+        };
+
+        _lidDischargeList = new PresetRows.Section
+        {
+            Panel     = LidDischargeTargetsListPanel,
+            EmptyText = "No targets yet. Add one below.",
+            Count     = () => SettingsService.Current.LidDischargePresets.Count,
+            BuildRow  = i => BuildLidDischargeTargetRow(i, SettingsService.Current.LidDischargePresets[i]),
+            ActiveTag = DischargeTargetInUse,
+            OffersActivation = _ => SettingsService.Current.LidDelayEnabled,
+            FeatureOn = () => SettingsService.Current is { LidDelayEnabled: true, LidDischargeEnabled: true },
+            ActiveTip = "This is the level the lid-close wait drains to.",
+            IdleTip   = "Makes this the level the lid-close wait drains to.",
+        };
+    }
+
+    /// <summary>One page's rendering of the shared network-profile list. Both pages mark the same
+    /// profile — the one the network we are on matches — and only that row offers activation, since
+    /// activating any other would apply the winner rather than itself.</summary>
+    private PresetRows.Section NetworkProfileList(StackPanel panel, Func<int, SettingsExpander> buildRow) => new()
+    {
+        Panel     = panel,
+        EmptyText = NoNetworkRulesText,
+        Count     = () => SettingsService.Current.NetworkLocationRules.Count,
+        BuildRow  = buildRow,
+        ActiveTag = () => _winningProfileRow >= 0 ? _winningProfileRow : null,
+        OffersActivation = tag => _winningProfileRow >= 0 && Equals(tag, _winningProfileRow),
+        FeatureOn = () => SettingsService.Current.NetworkProfilesEnabled,
+        ActiveTip = "This profile matches the network this computer is on, and is the one being applied.",
+        IdleTip   = "Switches network profiles on and applies this profile now.",
     };
 
     private void RebuildPresetRows()
@@ -856,22 +957,9 @@ internal sealed partial class SettingsWindow : Window
         // still settling can fire afterwards and commit a stale value against a detached row.
         StopAllPresetDebounceTimers();
 
-        PresetsListPanel.Children.Clear();
-        var presets = SettingsService.Current.Presets;
-
-        PresetRows.ApplyActiveResources(PresetsListPanel);
-
-        if (presets.Count == 0)
-        {
-            PresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
-        }
-        else
-        {
-            foreach (var preset in presets)
-                PresetsListPanel.Children.Add(BuildPresetRow(preset));
-        }
-
-        RefreshPresetActivationStates(ChargeThresholdService.Read());
+        // Read once here rather than per row: the vendor read blocks.
+        _thresholdState = ChargeThresholdService.Read();
+        _thresholdList.Rebuild();
         RefreshUnknownPresetCombo();
     }
 
@@ -884,16 +972,11 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// <summary>Marks the row whose thresholds the firmware is running and leaves the rest offering
-    /// activation. Hidden entirely where the vendor refuses threshold writes — an affordance that
-    /// cannot work is worse than none.</summary>
+    /// activation.</summary>
     private void RefreshPresetActivationStates(ChargeThresholdState? state)
     {
-        string? activeName = SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
-
-        PresetRows.RefreshActivation(
-            PresetsListPanel, activeName, state is { Capable: true } ? Visibility.Visible : Visibility.Collapsed,
-            "These thresholds are the ones in use.",
-            "Applies these thresholds now.");
+        _thresholdState = state;
+        _thresholdList.RefreshActivation();
     }
 
     /// <summary>Applies a preset from its row, through the same composition every other trigger
@@ -1138,16 +1221,40 @@ internal sealed partial class SettingsWindow : Window
 
     private void LoadNetwork()
     {
-        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = SettingsService.Current.NetworkProfilesEnabled);
+        bool on = SettingsService.Current.NetworkProfilesEnabled;
+        WithUpdatingSuppressed(() =>
+        {
+            NetworkEnabledToggle.IsOn          = on;
+            KeepAwakeNetworkEnabledToggle.IsOn = on;
+        });
         RefreshCurrentNetworkText();
         RebuildNetworkRuleRows();
     }
 
+    /// <summary>Both pages carry the switch, because the Smart Charge page's copy sits inside the
+    /// block that collapses on fixed-mode hardware, where the keep-awake side still has to be
+    /// reachable. Either copy drives the one setting.</summary>
     private void OnNetworkEnabledToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
-        bool on = NetworkEnabledToggle.IsOn;
-        SettingsService.Update(s => s.NetworkProfilesEnabled = on);
+        SetNetworkProfilesEnabled(((ToggleSwitch)sender).IsOn);
+    }
+
+    private void SetNetworkProfilesEnabled(bool on)
+    {
+        // Through the service, which applies the profile that wins here when it goes on and releases
+        // the hold a profile took when it goes off. A plain settings write leaves both behind.
+        NetworkProfiles.SetEnabled(on, "the Settings page");
+
+        WithUpdatingSuppressed(() =>
+        {
+            NetworkEnabledToggle.IsOn          = on;
+            KeepAwakeNetworkEnabledToggle.IsOn = on;
+        });
+        // A rebuild rather than a refresh: the rows say whether a keep-awake tick acts, which has
+        // just moved, as well as which profile is in use.
+        RebuildNetworkRuleRows();
+        RefreshKeepAwakeState();
     }
 
     private void RefreshCurrentNetworkText() =>
@@ -1158,47 +1265,45 @@ internal sealed partial class SettingsWindow : Window
     /// showing a rule the other just deleted or renamed.</summary>
     private void RebuildNetworkRuleRows()
     {
-        RebuildSmartChargeNetworkRows();
-        RebuildKeepAwakeNetworkRows();
+        // All three resolved ONCE per rebuild, not per row: the adapter enumeration is the expensive
+        // one, and the winning profile must be the same answer on both pages.
+        _profileRowLocation = NetworkProfiles.CurrentLocation();
+        _profileRowAdapters = NetworkLocationService.EnumerateAdapters();
+        _profileRowPresets  = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        _winningProfileRow  = WinningProfileRow(_profileRowLocation);
+
+        _networkProfileList.Rebuild();
+        _keepAwakeProfileList.Rebuild();
     }
+
+    /// <summary>The position of the profile that matches <paramref name="location"/>, or -1 when
+    /// none does. First match wins, the one resolution the whole feature uses.</summary>
+    private static int WinningProfileRow(NetworkLocation location) =>
+        SettingsService.Current.NetworkLocationRules.FindIndex(r => r.Matches(location));
 
     /// <summary>One wording for both pages, so an empty list reads the same wherever it is met.</summary>
     private const string NoNetworkRulesText =
         "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected.";
 
-    private void RebuildSmartChargeNetworkRows()
+    /// <summary>One profile's row on the Smart Charge page, where its facet is the charge preset.</summary>
+    private SettingsExpander BuildSmartChargeNetworkRow(int index)
     {
-        NetworkRulesListPanel.Children.Clear();
-        var rules = SettingsService.Current.NetworkLocationRules;
+        var rule = SettingsService.Current.NetworkLocationRules[index];
 
-        if (rules.Count == 0)
+        var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
+        foreach (var n in _profileRowPresets) presetCombo.Items.Add(n);
+        presetCombo.SelectedItem = _profileRowPresets.Contains(rule.PresetName) ? rule.PresetName : null;
+
+        var row = BuildNetworkRuleRow(
+            index, rule, DescribeRulePresetSummary(rule),
+            new SettingsCard { Header = "Preset", Content = presetCombo },
+            () => _keepAwakeProfileList.Rebuild());
+
+        presetCombo.SelectionChanged += (_, _) =>
         {
-            NetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
-            return;
-        }
-
-        var presetNames = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-        // Both resolved ONCE per rebuild, not per row.
-        var current  = CurrentLocation();
-        var adapters = NetworkLocationService.EnumerateAdapters();
-        for (int i = 0; i < rules.Count; i++)
-        {
-            int index = i;
-            var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
-            foreach (var n in presetNames) presetCombo.Items.Add(n);
-            presetCombo.SelectedItem = presetNames.Contains(rules[i].PresetName) ? rules[i].PresetName : null;
-
-            var expander = BuildNetworkRuleRow(
-                index, rules[i], current, adapters, DescribeRulePresetSummary(rules[i]),
-                new SettingsCard { Header = "Preset", Content = presetCombo },
-                RebuildKeepAwakeNetworkRows);
-
-            presetCombo.SelectionChanged += (_, _) =>
-            {
-                if (presetCombo.SelectedItem is string preset) CommitNetworkRulePreset(index, preset, expander);
-            };
-            NetworkRulesListPanel.Children.Add(expander);
-        }
+            if (presetCombo.SelectedItem is string preset) CommitNetworkRulePreset(index, preset, row.Expander);
+        };
+        return row.Expander;
     }
 
     /// <summary>The rule's match key, plus a hint when the key no longer fits: its MAC belongs to a
@@ -1218,8 +1323,13 @@ internal sealed partial class SettingsWindow : Window
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
         string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
 
+    /// <summary>The keep-awake facet as the row reads it. A tick nothing acts on says so: the switch
+    /// that decides whether it acts is on the page too, and a stored tick with no visible effect is
+    /// the one state that reads as broken.</summary>
     private static string DescribeRuleKeepAwakeSummary(bool keepAwakeHere) =>
-        keepAwakeHere ? "Keeps this computer awake" : "No keep-awake here";
+        !keepAwakeHere                                     ? "No keep-awake here"
+        : SettingsService.Current.NetworkProfilesEnabled    ? "Keeps this computer awake"
+                                                            : "Keeps this computer awake — nothing acts on it while network profiles are off";
 
     /// <summary>Builds one network rule's editor row for either page: both carry the name, the match
     /// key and Delete, and differ only in <paramref name="pageCard"/> and the summary line, so a rule
@@ -1228,40 +1338,38 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     /// <param name="rebuildOtherPage">The other page's rebuild, run after a rename: both pages show
     /// the rule's name, and the row being edited keeps its focus rather than being rebuilt under it.</param>
-    private SettingsExpander BuildNetworkRuleRow(
-        int index, NetworkLocationRule rule, NetworkLocation current, IReadOnlyList<BridgePeer> adapters,
-        string summary, SettingsCard pageCard, Action rebuildOtherPage)
+    private PresetRows.Parts BuildNetworkRuleRow(
+        int index, NetworkLocationRule rule, string summary, SettingsCard pageCard, Action rebuildOtherPage)
     {
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
         // Deleting is offered on both pages because there is one rule, not one per page — its
         // keep-awake side and its preset side go together.
-        var deleteBtn = new Button { Content = "Delete profile" };
-        var footer = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 2) };
-        footer.Children.Add(deleteBtn);
-
-        var expander = new SettingsExpander
-        {
-            Header      = rule.Name,
-            Description = summary,
-            ItemsSource = new List<SettingsCard>
-            {
+        var row = PresetRows.Build(
+            rule.Name, summary, index,
+            [
                 new SettingsCard { Header = "Name",    Content = nameBox },
-                new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, current, adapters) },
+                new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, _profileRowLocation, _profileRowAdapters) },
                 pageCard,
-            },
-            ItemsFooter = footer,
-        };
+            ],
+            CriticalBrush(), deleteLabel: "Delete profile");
 
-        void CommitName() => CommitNetworkRuleName(index, nameBox.Text, expander, rebuildOtherPage);
+        row.Activate.Click += (_, _) => ActivateNetworkProfile();
+
+        void CommitName() => CommitNetworkRuleName(index, nameBox.Text, row.Header, rebuildOtherPage);
         nameBox.LostFocus += (_, _) => CommitName();
         nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitName(); };
-        deleteBtn.Click   += (_, _) => DeleteNetworkRule(index);
+        row.Delete.Click  += (_, _) => DeleteNetworkRule(index);
 
-        return expander;
+        return row;
     }
 
-    private void CommitNetworkRuleName(int index, string? newNameRaw, SettingsExpander expander,
+    /// <summary>Puts the profile for the network we are on into effect: the feature goes on if it was
+    /// off, and the profile that wins here is applied at once. Only the winning row offers this, so
+    /// there is exactly one profile it can mean.</summary>
+    private void ActivateNetworkProfile() => SetNetworkProfilesEnabled(true);
+
+    private void CommitNetworkRuleName(int index, string? newNameRaw, TextBlock header,
         Action rebuildOtherPage)
     {
         var rules = SettingsService.Current.NetworkLocationRules;
@@ -1272,7 +1380,7 @@ internal sealed partial class SettingsWindow : Window
         {
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].Name = newName;
         });
-        expander.Header = newName;
+        header.Text = newName;
         rebuildOtherPage();
     }
 
@@ -1288,25 +1396,7 @@ internal sealed partial class SettingsWindow : Window
 
         // Apply whatever profile now wins for the network we are on, so an edit to the active
         // network's rule takes effect immediately.
-        ApplyWinningProfile(CurrentLocation());
-    }
-
-    // LastKnown is the cheap cached value; fall back to a live read only before it has resolved.
-    private static NetworkLocation CurrentLocation()
-    {
-        var loc = NetworkLocationService.LastKnown;
-        return loc.IsEmpty ? NetworkLocationService.DetectCurrent() : loc;
-    }
-
-    /// <summary>Applies the preset of whatever rule wins for <paramref name="location"/>, resolved
-    /// through <see cref="AppSettings.FindNetworkRule"/> exactly as the tray's auto-apply does —
-    /// the same resolution is what stops an immediate apply from being reverted by the next network
-    /// change.</summary>
-    private void ApplyWinningProfile(NetworkLocation location)
-    {
-        var s = SettingsService.Current;
-        if (!s.NetworkProfilesEnabled) return;
-        if (s.FindNetworkRule(location) is { } rule) _menu.ApplyPresetByName(rule.PresetName);
+        NetworkProfiles.ApplyWinner(NetworkProfiles.CurrentLocation());
     }
 
     private void DeleteNetworkRule(int index)
@@ -1323,8 +1413,9 @@ internal sealed partial class SettingsWindow : Window
         // Deleting the winning rule hands the current network to a later (or no) rule — apply
         // whatever wins now, so the device stops running the deleted rule's preset and any hold the
         // rule was keeping is released.
-        ApplyWinningProfile(CurrentLocation());
-        ReconcileKeepAwakeForCurrentNetwork();
+        var location = NetworkProfiles.CurrentLocation();
+        NetworkProfiles.ApplyWinner(location);
+        KeepAwakeService.ReconcileNetworkHold(location, "a network profile was deleted");
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
@@ -1366,7 +1457,11 @@ internal sealed partial class SettingsWindow : Window
             s.NetworkProfilesEnabled = true;
         });
 
-        WithUpdatingSuppressed(() => NetworkEnabledToggle.IsOn = true);
+        WithUpdatingSuppressed(() =>
+        {
+            NetworkEnabledToggle.IsOn          = true;
+            KeepAwakeNetworkEnabledToggle.IsOn = true;
+        });
         RebuildNetworkRuleRows();   // rebuilds both pages' renderings of the rule list
         return location;
     }
@@ -1382,7 +1477,7 @@ internal sealed partial class SettingsWindow : Window
 
             // Usually the rule just added, unless an earlier one shadows it. Same first-match
             // resolution the tray uses, so this write agrees with the next reconcile.
-            ApplyWinningProfile(location);
+            NetworkProfiles.ApplyWinner(location);
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddNetworkRule", ex); }
     }
@@ -1536,6 +1631,10 @@ internal sealed partial class SettingsWindow : Window
         string? caveat = StandbyCapability.LidWaitCaveat(StandbyCapability.Read());
         LidStandbyCaveatText.Text       = caveat ?? string.Empty;
         LidStandbyCaveatText.Visibility = caveat is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // Both lists are marked against conditions this switch gates, so their marking moves with it.
+        RefreshLidDelayPresetActivationStates();
+        RefreshLidDischargeActivationStates();
     }
 
     private void OnLidDelayToggled(object sender, RoutedEventArgs e)
@@ -1584,39 +1683,20 @@ internal sealed partial class SettingsWindow : Window
     private static string DescribeDelaySpan(LidDelayPreset p) =>
         $"After {LidDelayPolicy.DelayFor(p.Minutes).TotalMinutes:0} min";
 
-    private void RebuildLidDelayPresetRows()
-    {
-        LidDelayPresetsListPanel.Children.Clear();
-        var presets = SettingsService.Current.LidDelayPresets;
+    private void RebuildLidDelayPresetRows() => _lidDelayList.Rebuild();
 
-        PresetRows.ApplyActiveResources(LidDelayPresetsListPanel);
+    /// <summary>Marks the row whose span is the configured delay.</summary>
+    private void RefreshLidDelayPresetActivationStates() => _lidDelayList.RefreshActivation();
 
-        if (presets.Count == 0)
-        {
-            LidDelayPresetsListPanel.Children.Add(EmptyListText("No delays yet. Add one below."));
-            return;
-        }
-
-        for (int i = 0; i < presets.Count; i++)
-            LidDelayPresetsListPanel.Children.Add(BuildLidDelayPresetRow(i, presets[i]));
-
-        RefreshLidDelayPresetActivationStates();
-    }
-
-    /// <summary>Marks the row whose span is the configured delay. Always visible: nothing about the
-    /// hardware can refuse a delay.</summary>
-    private void RefreshLidDelayPresetActivationStates()
+    /// <summary>The saved delay the lid-close wait runs, by position, or null when none matches.
+    /// Matched on the clamped span rather than by position, so two rows at the same span both read
+    /// as in use rather than one of them arbitrarily.</summary>
+    private static object? DelayPresetInUse()
     {
         var s = SettingsService.Current;
         int minutes = (int)LidDelayPolicy.DelayFor(s.LidDelayMinutes).TotalMinutes;
-        // Matched on the clamped span rather than by position, so two rows at the same span both
-        // read as in use rather than one of them arbitrarily.
         int active = s.LidDelayPresets.FindIndex(p => (int)LidDelayPolicy.DelayFor(p.Minutes).TotalMinutes == minutes);
-
-        PresetRows.RefreshActivation(
-            LidDelayPresetsListPanel, active >= 0 ? active : null, Visibility.Visible,
-            "This is the delay the lid-close wait runs.",
-            "Makes this the delay the lid-close wait runs.");
+        return active >= 0 ? active : null;
     }
 
     /// <summary>One delay's editor row — a name and the span, entered as whole minutes.</summary>
@@ -1707,6 +1787,10 @@ internal sealed partial class SettingsWindow : Window
         if (index < 0 || index >= presets.Count) return;
         int minutes = (int)LidDelayPolicy.DelayFor(presets[index].Minutes).TotalMinutes;
         LidDelayService.SetDelayMinutes(minutes, "the Settings page");
+        // Choosing a delay is asking for the condition it belongs to: a delay that is stored and not
+        // run is the state the marking would otherwise claim was in use.
+        if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true);
+        WithUpdatingSuppressed(() => LidDelayTimeToggle.IsOn = true);
         RefreshLidDelayPresetActivationStates();
     }
 
@@ -1746,6 +1830,7 @@ internal sealed partial class SettingsWindow : Window
         // Through the service, which also drops an outstanding target when this goes off — a plain
         // settings write would leave the machine held awake for a target no longer configured.
         LidDelayService.SetDischargeEnabled(LidDischargeToggle.IsOn);
+        RefreshLidDischargeActivationStates();
     }
 
     /// <summary>A saved target as its row header reads — its name when it has one, else the level.</summary>
@@ -1759,39 +1844,20 @@ internal sealed partial class SettingsWindow : Window
     private static string DescribeDischargeLevel(LidDischargeTarget t) =>
         $"Down to {LidDischargeWatch.Clamp(t.Percent)} %";
 
-    private void RebuildLidDischargeTargetRows()
-    {
-        LidDischargeTargetsListPanel.Children.Clear();
-        var targets = SettingsService.Current.LidDischargePresets;
+    private void RebuildLidDischargeTargetRows() => _lidDischargeList.Rebuild();
 
-        PresetRows.ApplyActiveResources(LidDischargeTargetsListPanel);
+    /// <summary>Marks the row whose level is the configured target.</summary>
+    private void RefreshLidDischargeActivationStates() => _lidDischargeList.RefreshActivation();
 
-        if (targets.Count == 0)
-        {
-            LidDischargeTargetsListPanel.Children.Add(EmptyListText("No targets yet. Add one below."));
-            return;
-        }
-
-        for (int i = 0; i < targets.Count; i++)
-            LidDischargeTargetsListPanel.Children.Add(BuildLidDischargeTargetRow(i, targets[i]));
-
-        RefreshLidDischargeActivationStates();
-    }
-
-    /// <summary>Marks the row whose level is the configured target. Always visible: no hardware can
-    /// refuse a target the way fixed-mode firmware refuses thresholds.</summary>
-    private void RefreshLidDischargeActivationStates()
+    /// <summary>The saved target the lid-close wait drains to, by position, or null when none
+    /// matches. Matched on the clamped level rather than by position, so two rows at the same level
+    /// both read as in use rather than one of them arbitrarily.</summary>
+    private static object? DischargeTargetInUse()
     {
         var s = SettingsService.Current;
         int target = LidDischargeWatch.Clamp(s.LidDischargeTargetPercent);
-        // Matched on the clamped level rather than by position, so two rows at the same level both
-        // read as in use rather than one of them arbitrarily.
         int active = s.LidDischargePresets.FindIndex(t => LidDischargeWatch.Clamp(t.Percent) == target);
-
-        PresetRows.RefreshActivation(
-            LidDischargeTargetsListPanel, active >= 0 ? active : null, Visibility.Visible,
-            "This is the level the lid-close wait drains to.",
-            "Makes this the level the lid-close wait drains to.");
+        return active >= 0 ? active : null;
     }
 
     /// <summary>One target's editor row — a name and the level, entered as a plain percentage.</summary>
@@ -1882,6 +1948,10 @@ internal sealed partial class SettingsWindow : Window
         if (index < 0 || index >= targets.Count) return;
         int percent = LidDischargeWatch.Clamp(targets[index].Percent);
         SettingsService.Update(s => s.LidDischargeTargetPercent = percent);
+        // Choosing a target is asking for the condition it belongs to; through the service, which
+        // pairs the setting with the wait in flight.
+        if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true);
+        WithUpdatingSuppressed(() => LidDischargeToggle.IsOn = true);
         RefreshLidDischargeActivationStates();
     }
 
@@ -2004,37 +2074,10 @@ internal sealed partial class SettingsWindow : Window
     // Keep-awake preset rows are keyed by list index, same reasoning as the network rule rows: a
     // KeepAwakeRequest is a value with no identity of its own and two presets may be identical.
 
-    private void RebuildKeepAwakePresetRows()
-    {
-        KeepAwakePresetsListPanel.Children.Clear();
-        var presets = SettingsService.Current.KeepAwakePresets;
+    private void RebuildKeepAwakePresetRows() => _keepAwakePresetList.Rebuild();
 
-        PresetRows.ApplyActiveResources(KeepAwakePresetsListPanel);
-
-        if (presets.Count == 0)
-        {
-            KeepAwakePresetsListPanel.Children.Add(EmptyListText("No presets yet. Add one below."));
-            return;
-        }
-
-        for (int i = 0; i < presets.Count; i++)
-            KeepAwakePresetsListPanel.Children.Add(BuildKeepAwakePresetRow(i, presets[i]));
-
-        RefreshKeepAwakeActivationStates();
-    }
-
-    /// <summary>Marks the row whose preset started the running session. Always visible: no hardware
-    /// can refuse a keep-awake hold the way fixed-mode firmware refuses thresholds.</summary>
-    private void RefreshKeepAwakeActivationStates()
-    {
-        int active = ActiveKeepAwakePresetPolicy.MatchIndex(
-            SettingsService.Current.KeepAwakePresets, KeepAwakeService.Current);
-
-        PresetRows.RefreshActivation(
-            KeepAwakePresetsListPanel, active >= 0 ? active : null, Visibility.Visible,
-            "A session from this preset is running.",
-            "Starts a session from this preset now.");
-    }
+    /// <summary>Marks the row whose preset started the running session.</summary>
+    private void RefreshKeepAwakeActivationStates() => _keepAwakePresetList.RefreshActivation();
 
     /// <summary>Starts a session from a saved preset, re-read by position so an edit committed since
     /// the row was built is the span that starts. Goes through
@@ -2148,39 +2191,25 @@ internal sealed partial class SettingsWindow : Window
     private void RefreshKeepAwakeCurrentNetworkText() =>
         KeepAwakeCurrentNetwork.Value = NetworkLocationService.DescribeCurrentLocation();
 
-    private void RebuildKeepAwakeNetworkRows()
+    /// <summary>One profile's row on the Keep Awake page, where its facet is the hold.</summary>
+    private SettingsExpander BuildKeepAwakeNetworkRow(int index)
     {
-        KeepAwakeNetworkRulesListPanel.Children.Clear();
-        var rules = SettingsService.Current.NetworkLocationRules;
+        var rule   = SettingsService.Current.NetworkLocationRules[index];
+        var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rule.KeepAwakeHere };
 
-        if (rules.Count == 0)
+        var row = BuildNetworkRuleRow(
+            index, rule, DescribeRuleKeepAwakeSummary(rule.KeepAwakeHere),
+            new SettingsCard { Header = "Keep awake here", Content = toggle },
+            () => _networkProfileList.Rebuild());
+
+        // Attached after the initial IsOn, so seeding the switch cannot commit anything.
+        toggle.Toggled += (_, _) =>
         {
-            KeepAwakeNetworkRulesListPanel.Children.Add(EmptyListText(NoNetworkRulesText));
-            return;
-        }
-
-        // Both resolved ONCE per rebuild, not per row.
-        var current  = CurrentLocation();
-        var adapters = NetworkLocationService.EnumerateAdapters();
-        for (int i = 0; i < rules.Count; i++)
-        {
-            int index = i;
-            var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rules[i].KeepAwakeHere };
-
-            var expander = BuildNetworkRuleRow(
-                index, rules[i], current, adapters, DescribeRuleKeepAwakeSummary(rules[i].KeepAwakeHere),
-                new SettingsCard { Header = "Keep awake here", Content = toggle },
-                RebuildSmartChargeNetworkRows);
-
-            // Attached after the initial IsOn, so seeding the switch cannot commit anything.
-            toggle.Toggled += (_, _) =>
-            {
-                if (_updating) return;
-                CommitKeepAwakeHere(index, toggle.IsOn);
-                expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
-            };
-            KeepAwakeNetworkRulesListPanel.Children.Add(expander);
-        }
+            if (_updating) return;
+            CommitKeepAwakeHere(index, toggle.IsOn);
+            row.Expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
+        };
+        return row.Expander;
     }
 
     private void CommitKeepAwakeHere(int index, bool on)
@@ -2190,27 +2219,15 @@ internal sealed partial class SettingsWindow : Window
         {
             if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].KeepAwakeHere = on;
         });
-        ReconcileKeepAwakeForCurrentNetwork();
-    }
-
-    /// <summary>Applies the keep-awake facet of the rule that wins for the network we are on now.
-    /// Without it, ticking "keep awake here" does nothing until you leave and come back, since the
-    /// service only reacts to a location change. Never overrides a hand-started session.</summary>
-    private static void ReconcileKeepAwakeForCurrentNetwork()
-    {
-        var s = SettingsService.Current;
-        bool wantsHold = s.NetworkProfilesEnabled &&
-                         s.FindNetworkRule(CurrentLocation()) is { KeepAwakeHere: true };
-
-        var current = KeepAwakeService.Current;
-        if (wantsHold && current is null)
-            KeepAwakeService.Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null));
-        else if (!wantsHold && current?.Request.Kind == KeepAwakeKind.UntilNetworkChange)
-            KeepAwakeService.Deactivate();
+        // Without this, ticking "keep awake here" does nothing until you leave and come back, since
+        // the service only reacts to a location change.
+        KeepAwakeService.ReconcileNetworkHold(NetworkProfiles.CurrentLocation(),
+                                              "a network profile's keep-awake was changed");
+        RefreshKeepAwakeState();
     }
 
     /// <summary>The Smart Charge page's add flow with the keep-awake facet filled in instead. No
-    /// <c>ApplyWinningProfile</c>: the charge preset is the other page's facet, and fixed-mode
+    /// charge apply: the charge preset is the other page's facet, and fixed-mode
     /// hardware may have no presets to apply at all.</summary>
     private async void OnAddKeepAwakeNetworkRule(object sender, RoutedEventArgs e)
     {
@@ -2220,7 +2237,9 @@ internal sealed partial class SettingsWindow : Window
             if (await AddNetworkRuleAsync(keepAwakeHere: true) is null) return;
             RefreshKeepAwakeCurrentNetworkText();
             RefreshCurrentNetworkText();
-            ReconcileKeepAwakeForCurrentNetwork();
+            KeepAwakeService.ReconcileNetworkHold(NetworkProfiles.CurrentLocation(),
+                                                  "a network profile was added");
+            RefreshKeepAwakeState();
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddKeepAwakeNetworkRule", ex); }
     }
@@ -2300,7 +2319,7 @@ internal sealed partial class SettingsWindow : Window
 
         if (scripts.Count == 0)
         {
-            ScriptsListPanel.Children.Add(EmptyListText("No scripts yet. Add one below."));
+            ScriptsListPanel.Children.Add(PresetRows.EmptyListText("No scripts yet. Add one below."));
             return;
         }
 

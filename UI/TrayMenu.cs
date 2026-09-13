@@ -243,9 +243,9 @@ internal sealed class TrayMenu
         var s = SettingsService.Current;
         if (s.NetworkProfilesEnabled)
         {
-            // No network at all is not an "unknown network" — it is nothing to react to.
-            string? presetName = s.FindNetworkRule(location)?.PresetName
-                ?? (!location.IsEmpty ? s.UnknownNetworkPresetName : null);
+            // One resolution for every surface, so an apply here and an apply from the Settings page
+            // cannot pick different presets for one network.
+            string? presetName = NetworkProfiles.WinningPresetName(s, location);
             var preset = presetName is not null
                 ? s.Presets.FirstOrDefault(p => p.Name == presetName)
                 : null;

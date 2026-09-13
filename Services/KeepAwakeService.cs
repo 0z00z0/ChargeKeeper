@@ -139,6 +139,25 @@ internal static class KeepAwakeService
                      $"network rule for '{location.DisplayHint ?? location.IpCidr ?? "this network"}'");
     }
 
+    /// <summary>
+    /// Starts or ends the hold the network profiles ask for at <paramref name="location"/>, without
+    /// waiting for a location change. What the feature's own switch, a rule edit and a rule delete
+    /// all need: the service reacts to the machine moving, and none of those move it. A session
+    /// started by hand is never overridden.
+    /// </summary>
+    public static void ReconcileNetworkHold(NetworkLocation location, string cause)
+    {
+        var s = SettingsService.Current;
+        bool wantsHold = s.NetworkProfilesEnabled &&
+                         s.FindNetworkRule(location) is { KeepAwakeHere: true };
+
+        var current = Current;
+        if (wantsHold && current is null)
+            Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null), cause);
+        else if (!wantsHold && current?.Request.Kind == KeepAwakeKind.UntilNetworkChange)
+            Deactivate(cause);
+    }
+
     private static uint HoldFlags() =>
         NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED |
         (SettingsService.Current.KeepAwakeDisplayOn ? NativeMethods.ES_DISPLAY_REQUIRED : 0);

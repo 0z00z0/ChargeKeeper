@@ -212,7 +212,16 @@ internal sealed class SettingsActions : ISettingsActions
     public void SetHighBatteryLevel(int percent)=> Write(s => s.HighBatteryWarningPct = percent);
     public void SetDrainWarning(bool on)        => Write(s => s.DrainAnomalyWarningEnabled = on);
     public void SetDrainRate(int percentPerHour)=> Write(s => s.DrainAnomalyPercentPerHour = percentPerHour);
-    public void SetNetworkProfiles(bool on)     => Write(s => s.NetworkProfilesEnabled = on);
+
+    // Through the service, like SetSmartStandby above: switching the feature on applies the profile
+    // that wins here and switching it off releases the hold one took, which a plain settings write
+    // leaves behind on either side.
+    public void SetNetworkProfiles(bool on)
+    {
+        NetworkProfiles.SetEnabled(on, "Home Assistant");
+        Raise();
+    }
+
     public void SetUnknownNetworkPreset(string? name) => Write(s => s.UnknownNetworkPresetName = name);
     public void SetStartupDelay(int seconds)    => Write(s => s.StartupDelaySeconds = seconds);
     public void SetIconMode(TrayIconMode mode)  => Write(s => s.IconMode = mode);
