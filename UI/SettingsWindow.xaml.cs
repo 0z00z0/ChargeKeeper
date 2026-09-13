@@ -139,7 +139,7 @@ internal sealed partial class SettingsWindow : Window
 
     private void ConfigureWindowChrome()
     {
-        var rect = ComputeInitialRect();
+        var rect = ComputeInitialRect(out _opensAtStoredRect);
         // Guarded: a placement failure must never stop the window from showing.
         try { AppWindow.MoveAndResize(rect); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); }
@@ -153,6 +153,10 @@ internal sealed partial class SettingsWindow : Window
 
     private bool _fittedToContent;
 
+    /// <summary>Whether the window opened at the size stored when it last closed. That size is the
+    /// one the person left it at, so it is applied as it stands and never grown to fit a page.</summary>
+    private bool _opensAtStoredRect;
+
     private void OnContentScrollerLoaded(object sender, RoutedEventArgs e)
     {
         ContentScroller.Loaded -= OnContentScrollerLoaded;
@@ -160,6 +164,7 @@ internal sealed partial class SettingsWindow : Window
         _fittedToContent = true;
         try { ApplyMinimumSize(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.ApplyMinimumSize", ex); }
+        if (_opensAtStoredRect) return;
         try { FitWindowToContent(); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.FitWindowToContent", ex); }
     }
@@ -183,9 +188,11 @@ internal sealed partial class SettingsWindow : Window
                   + $"{presenter.PreferredMinimumWidth}x{presenter.PreferredMinimumHeight} px.");
     }
 
-    /// <summary>Grows the window so the tallest page fits without a scrollbar, then re-clamps it to
-    /// the work area. The extra height comes from the ScrollViewer's own overflow rather than a sum
-    /// of padding, header and title bar, so it cannot drift when the chrome changes.</summary>
+    /// <summary>Grows a window opened with no stored size so the tallest page fits without a
+    /// scrollbar, no taller than <see cref="WindowFit.FirstOpenHeightFraction"/> of the work area,
+    /// then re-clamps it to the work area. The extra height comes from the ScrollViewer's own
+    /// overflow rather than a sum of padding, header and title bar, so it cannot drift when the
+    /// chrome changes.</summary>
     private void FitWindowToContent()
     {
         double viewport = ContentScroller.ViewportHeight;
@@ -201,6 +208,7 @@ internal sealed partial class SettingsWindow : Window
         int required = size.Height + (int)Math.Ceiling(Math.Max(0, extent - viewport) * scale);
 
         if (NativeMethods.WorkAreaForRect(pos.X, pos.Y, size.Width, size.Height) is not { } work) return;
+        required = Math.Min(required, WindowFit.FirstOpenHeightCap(work.H));
 
         var (x, y, w, h) = WindowFit.Fit((pos.X, pos.Y, size.Width, size.Height), required, work);
         AppLog.Info($"SettingsWindow fit: extent={extent:F0} viewport={viewport:F0} scale={scale} " +
@@ -218,7 +226,8 @@ internal sealed partial class SettingsWindow : Window
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel, HomeAssistantPanel, AboutPanel];
+            [GeneralPanel, AppearancePanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel,
+             ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -244,17 +253,19 @@ internal sealed partial class SettingsWindow : Window
     /// connected monitor, else a default centred on the monitor under the cursor. Both paths use
     /// the native MonitorFromPoint route, not DisplayArea.FindAll, which faults on some
     /// multi-monitor setups.</summary>
-    private static RectInt32 ComputeInitialRect()
+    private static RectInt32 ComputeInitialRect(out bool isStored)
     {
         var s = SettingsService.Current;
         if (s.SettingsWindowX is { } x && s.SettingsWindowY is { } y &&
             s.SettingsWindowWidth is { } w && s.SettingsWindowHeight is { } h &&
             w > 0 && h > 0)
         {
+            isStored = true;
             var (cx, cy, cw, ch) = NativeMethods.ClampRectToNearestMonitor(x, y, w, h);
             return new RectInt32(cx, cy, cw, ch);
         }
 
+        isStored = false;
         return NativeMethods.CentreRectOnCursorMonitor(DefaultWidth, DefaultHeight);
     }
 

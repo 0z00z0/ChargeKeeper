@@ -51,6 +51,14 @@ internal static class WindowFit
                                          double viewportHeight, int minHeight)
         => Math.Max(minHeight, (int)Math.Ceiling(currentHeight + contentHeight - viewportHeight));
 
+    /// <summary>The share of the work area the Settings window may grow to on an open with no stored
+    /// size. A taller page scrolls instead of the window reaching the full height of the display.</summary>
+    internal const double FirstOpenHeightFraction = 0.8;
+
+    /// <summary>The tallest a first open may grow to, in the work area's own unit.</summary>
+    internal static int FirstOpenHeightCap(int workAreaHeight) =>
+        (int)(workAreaHeight * FirstOpenHeightFraction);
+
     // The Settings window's furniture that does not reflow, in DIPs. Everything else on the page —
     // the SettingsCard header text above all — wraps, so it sets no floor of its own.
     private const double ScrollBarGutterDip   = 16;   // the expanded vertical scrollbar

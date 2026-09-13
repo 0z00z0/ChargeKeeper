@@ -123,11 +123,11 @@ public class WindowFitTests
         Assert.Equal(371, WindowFit.HeightForContent(660, contentHeight: 330.2, viewportHeight: 620, minHeight: 320));
     }
 
-    // The resize floor. The live values are the Settings window's own: a 320 DIP nav pane, seven nav
+    // The resize floor. The live values are the Settings window's own: a 320 DIP nav pane, ten nav
     // items, and the ScrollViewer's 20,8,20,12 padding.
 
     private const double NavPane      = 320;
-    private const int    NavItems     = 7;
+    private const int    NavItems     = 10;
     private const double PaddingH     = 40;
     private const double PaddingV     = 20;
 
@@ -150,16 +150,16 @@ public class WindowFitTests
     [Fact]
     public void MinimumHeightDip_IsGovernedByTheNavPane_NotTheScrollingContent()
     {
-        // 32 title bar + 48 pane header + 7x40 items + 69 footer. The content side is far shorter,
+        // 32 title bar + 48 pane header + 10x40 items + 69 footer. The content side is far shorter,
         // and it scrolls anyway.
-        Assert.Equal(429, WindowFit.MinimumHeightDip(NavItems, PaddingV));
-        Assert.Equal(429, WindowFit.MinimumHeightDip(NavItems, scrollerPadding: 200));
+        Assert.Equal(549, WindowFit.MinimumHeightDip(NavItems, PaddingV));
+        Assert.Equal(549, WindowFit.MinimumHeightDip(NavItems, scrollerPadding: 200));
     }
 
     [Fact]
     public void MinimumHeightDip_GrowsWithTheNavItems_SoANewPageIsNotCutOff()
     {
-        Assert.Equal(469, WindowFit.MinimumHeightDip(NavItems + 1, PaddingV));
+        Assert.Equal(589, WindowFit.MinimumHeightDip(NavItems + 1, PaddingV));
     }
 
     [Fact]
