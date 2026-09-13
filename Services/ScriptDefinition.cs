@@ -21,6 +21,12 @@ internal enum ScriptTrigger
 
     /// <summary>The lid was opened. Delivered only while Lid delay is switched on.</summary>
     LidOpened,
+
+    /// <summary>The machine arrived on the network one named profile matches.</summary>
+    NetworkJoined,
+
+    /// <summary>The machine left the network one named profile matches.</summary>
+    NetworkLeft,
 }
 
 /// <summary>The label each <see cref="ScriptTrigger"/> carries on screen and in the log, in enum
@@ -33,6 +39,8 @@ internal static class ScriptTriggerLabels
         "Charger disconnected",
         "Lid closed",
         "Lid opened",
+        "Network joined",
+        "Network left",
     ];
 
     public static string For(ScriptTrigger trigger) => _labels[(int)trigger];
@@ -65,17 +73,23 @@ internal sealed class ScriptDefinition
     /// <summary>The script itself, as PowerShell source.</summary>
     public string Body { get; set; } = "";
 
+    /// <summary>The network profile joining or leaving runs this script, by
+    /// <see cref="NetworkLocationRule.Id"/> rather than by name or position: a profile is renamed and
+    /// reordered freely, and a script bound to one must not silently follow another. Null on every
+    /// trigger that names no profile.</summary>
+    public string? NetworkProfileId { get; set; }
+
     // Parameterless ctor required for JSON deserialisation.
     public ScriptDefinition() { }
 
-    public ScriptDefinition(string id, string name, ScriptTrigger trigger, string body)
+    public ScriptDefinition(string id, string name, ScriptTrigger trigger, string body,
+                            string? networkProfileId = null)
     {
-        Id = id; Name = name; Trigger = trigger; Body = body;
+        Id = id; Name = name; Trigger = trigger; Body = body; NetworkProfileId = networkProfileId;
     }
 
-    /// <summary>A fresh identifier. Format-free hexadecimal, so it carries no punctuation a log line
-    /// or a file name would have to escape.</summary>
-    public static string NewId() => Guid.NewGuid().ToString("N");
+    /// <inheritdoc cref="ChargeKeeper.Helpers.StableId.New"/>
+    public static string NewId() => Helpers.StableId.New();
 
     /// <summary>The name a script is referred to by. A script with no name is still a script, so it
     /// falls back to its trigger rather than to an empty string.</summary>

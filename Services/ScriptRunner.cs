@@ -87,13 +87,23 @@ internal sealed class ScriptRunner
 
     /// <summary>Runs every script bound to <paramref name="trigger"/>. Safe to call from an OS
     /// callback: nothing here waits on a run.</summary>
-    public void Fire(ScriptTrigger trigger)
-    {
-        var scripts = ScriptTriggerPolicy.Matching(
-            SettingsService.Read(s => s.Scripts.ToList()), trigger);
+    public void Fire(ScriptTrigger trigger) => Fire(trigger, null, null);
 
-        foreach (var script in scripts)
-            Start(script, $"the '{ScriptTriggerLabels.For(trigger)}' event", TimeLimit);
+    /// <summary>
+    /// The same, for a trigger that names a network profile: only the scripts bound to that profile
+    /// run. <paramref name="profileName"/> reaches the log alone — what is bound is the identifier.
+    /// </summary>
+    public void Fire(ScriptTrigger trigger, string? profileId, string? profileName)
+    {
+        var (scripts, profiles) = SettingsService.Read(
+            s => (s.Scripts.ToList(), s.NetworkLocationRules.Select(r => r.Id).ToList()));
+
+        string cause = profileName is { Length: > 0 } named
+            ? $"the '{ScriptTriggerLabels.For(trigger)}' event for '{named}'"
+            : $"the '{ScriptTriggerLabels.For(trigger)}' event";
+
+        foreach (var script in ScriptTriggerPolicy.Matching(scripts, trigger, profileId, profiles))
+            Start(script, cause, TimeLimit);
     }
 
     /// <summary>

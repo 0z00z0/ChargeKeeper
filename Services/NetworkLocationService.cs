@@ -9,6 +9,11 @@ namespace ChargeKeeper.Services;
 /// match key; at least one must be set for a rule to ever match.</summary>
 internal sealed class NetworkLocationRule
 {
+    /// <summary>Stable for the life of the profile. What a script bound to this profile holds, since
+    /// a name is editable and a position moves. Blank only until <see cref="StampMissingIds"/> has
+    /// seen a document written before the key existed.</summary>
+    public string Id { get; set; } = "";
+
     public string  Name       { get; set; } = "";
     public string? AdapterMac { get; set; }
     public string? IpCidr     { get; set; }
@@ -33,6 +38,22 @@ internal sealed class NetworkLocationRule
         (AdapterMac is not null || IpCidr is not null) &&
         (AdapterMac is null || AdapterMac == location.AdapterMac) &&
         (IpCidr     is null || IpCidr     == location.IpCidr || SubnetIgnoredOn(location));
+
+    /// <summary>
+    /// Gives every profile that carries no identifier one, and reports whether any did. Run as a
+    /// document is read, and the result saved once: an identifier generated afresh on every read
+    /// would unbind a script from its profile at every restart.
+    /// </summary>
+    internal static bool StampMissingIds(IEnumerable<NetworkLocationRule> rules)
+    {
+        bool stamped = false;
+        foreach (var rule in rules.Where(r => r.Id.Length == 0))
+        {
+            rule.Id = Helpers.StableId.New();
+            stamped = true;
+        }
+        return stamped;
+    }
 }
 
 /// <summary>
@@ -149,6 +170,11 @@ internal static class NetworkLocationService
     /// <summary>Raised (off the UI thread, after the debounce settles) whenever the detected location changes.</summary>
     public static event Action<NetworkLocation>? LocationChanged;
 
+    /// <summary>Raised once per <see cref="Start"/>, with the reading the machine was already on when
+    /// the application started. Not a change, and nothing that reacts to a change may react to it:
+    /// it exists so a subscriber that compares against the previous reading has one at all.</summary>
+    public static event Action<NetworkLocation>? LocationSeeded;
+
     /// <summary>The cheap read for status display, with no adapter enumeration. Empty until the
     /// first post-<see cref="Start"/> evaluation lands.</summary>
     public static NetworkLocation LastKnown { get { lock (_sync) return _last; } }
@@ -209,6 +235,7 @@ internal static class NetworkLocationService
         {
             var (current, adapter) = DetectCurrentDetailed();
             bool changed;
+            bool seeding;
             lock (_sync)
             {
                 // Stored before the early return: the alias and the lease can move without the match
@@ -216,10 +243,12 @@ internal static class NetworkLocationService
                 _lastAdapter = adapter;
                 changed = IsLocationChange(_seeded, current, _last);
                 if (_seeded && !changed) return;
+                seeding = !_seeded;
                 _seeded = true;
                 _last   = current;
             }
             if (changed) LocationChanged?.Invoke(current);
+            if (seeding) LocationSeeded?.Invoke(current);
         }
         catch (Exception ex)
         {

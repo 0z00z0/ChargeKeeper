@@ -1447,6 +1447,7 @@ internal sealed partial class SettingsWindow : Window
         {
             s.NetworkLocationRules.Add(new NetworkLocationRule
             {
+                Id            = StableId.New(),
                 Name          = name,
                 AdapterMac    = location.AdapterMac,
                 IpCidr        = location.IpCidr,
@@ -2333,10 +2334,23 @@ internal sealed partial class SettingsWindow : Window
     private static string DescribeScript(ScriptDefinition script)
     {
         string when = ScriptTriggerLabels.For(script.Trigger);
-        return ScriptTriggerLabels.IsLid(script.Trigger) && !SettingsService.Current.LidDelayEnabled
-            ? $"{when} — does not run while Lid delay is off"
-            : when;
+
+        if (ScriptTriggerLabels.IsLid(script.Trigger) && !SettingsService.Current.LidDelayEnabled)
+            return $"{when} — does not run while Lid delay is off";
+
+        if (!ScriptTriggerPolicy.NamesANetworkProfile(script.Trigger)) return when;
+
+        if (ProfileOf(script) is { } profile)                     return $"{when} — {profile.Name}";
+        if (string.IsNullOrEmpty(script.NetworkProfileId))         return $"{when} — no network profile chosen, so it does not run";
+        return $"{when} — the network profile it was bound to has been deleted, so it does not run";
     }
+
+    /// <summary>The profile a script is bound to, or null when it names none or names one that has
+    /// been deleted.</summary>
+    private static NetworkLocationRule? ProfileOf(ScriptDefinition script) =>
+        script.NetworkProfileId is { Length: > 0 } bound
+            ? SettingsService.Current.NetworkLocationRules.FirstOrDefault(r => r.Id == bound)
+            : null;
 
     /// <summary>One script's editor row: its name and its event as cards, then the script itself and
     /// Delete.</summary>
@@ -2352,6 +2366,19 @@ internal sealed partial class SettingsWindow : Window
         var triggerCombo = new ComboBox { MinWidth = 260 };
         foreach (string label in ScriptTriggerLabels.All) triggerCombo.Items.Add(label);
         triggerCombo.SelectedIndex = (int)script.Trigger;
+
+        // Offered only for the triggers that name a profile; the row is rebuilt when the trigger
+        // crosses that line, so the card is either there or not rather than there and inert.
+        bool namesProfile = ScriptTriggerPolicy.NamesANetworkProfile(script.Trigger);
+        var profiles      = SettingsService.Current.NetworkLocationRules;
+        var profileCombo  = new ComboBox { MinWidth = 260, PlaceholderText = "Choose a network profile" };
+        if (namesProfile)
+        {
+            foreach (var profile in profiles) profileCombo.Items.Add(profile.Name);
+            profileCombo.SelectedIndex = profiles.FindIndex(p => p.Id == script.NetworkProfileId);
+            if (profileCombo.SelectedIndex < 0 && script.NetworkProfileId is { Length: > 0 })
+                profileCombo.PlaceholderText = "The profile this script was bound to has been deleted.";
+        }
 
         // AcceptsReturn before Text: a TextBox that is still single-line when Text is assigned keeps
         // only the first line, and turning it multi-line afterwards does not bring the rest back.
@@ -2389,25 +2416,35 @@ internal sealed partial class SettingsWindow : Window
         footer.Children.Add(error);
         footer.Children.Add(delete);
 
+        var cards = new List<SettingsCard>
+        {
+            new() { Header = "Name",     Description = "Optional — the event is shown when this is blank.", Content = nameBox },
+            new() { Header = "Runs when", Description = "One event and one direction. A pair of scripts covers both directions.", Content = triggerCombo },
+        };
+        if (namesProfile)
+            cards.Add(new SettingsCard
+            {
+                Header      = "Network profile",
+                Description = "Joining or leaving this profile's network runs the script. Profiles are added on the Smart Charge page.",
+                Content     = profileCombo,
+            });
+
         var expander = new SettingsExpander
         {
             Header      = headerText,
             Description = DescribeScript(script),
             Content     = runNow,
-            ItemsSource = new List<SettingsCard>
-            {
-                new() { Header = "Name",     Description = "Optional — the event is shown when this is blank.", Content = nameBox },
-                new() { Header = "Runs when", Description = "One event and one direction. A pair of scripts covers both directions.", Content = triggerCombo },
-            },
+            ItemsSource = cards,
             ItemsFooter = footer,
         };
 
         void Commit() =>
-            CommitScriptRow(index, nameBox, triggerCombo, scriptBox, headerText, expander, error);
+            CommitScriptRow(index, nameBox, triggerCombo, profileCombo, scriptBox, headerText, expander, error);
 
         nameBox.LostFocus += (_, _) => Commit();
         nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) Commit(); };
         triggerCombo.SelectionChanged += (_, _) => Commit();
+        profileCombo.SelectionChanged += (_, _) => Commit();
 
         // Debounced, same 700 ms as the preset rows: committing on every keystroke would write the
         // settings document per character, and re-colouring on every one would fight the caret.
@@ -2441,8 +2478,8 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>Saves one script row. Nothing is rejected: an empty script is a script not finished
     /// yet, and the runner leaves it alone rather than the page refusing to store it.</summary>
-    private void CommitScriptRow(int index, TextBox nameBox, ComboBox triggerCombo, TextBox scriptBox,
-        TextBlock header, SettingsExpander expander, TextBlock error)
+    private void CommitScriptRow(int index, TextBox nameBox, ComboBox triggerCombo, ComboBox profileCombo,
+        TextBox scriptBox, TextBlock header, SettingsExpander expander, TextBlock error)
     {
         var scripts = SettingsService.Current.Scripts;
         if (index < 0 || index >= scripts.Count) return;
@@ -2451,18 +2488,43 @@ internal sealed partial class SettingsWindow : Window
         // nothing rewrites the settings document just for having been read.
         string id = scripts[index].Id is { Length: > 0 } existing ? existing : ScriptDefinition.NewId();
 
+        var trigger  = (ScriptTrigger)Math.Max(triggerCombo.SelectedIndex, 0);
+        bool wasNamingAProfile = ScriptTriggerPolicy.NamesANetworkProfile(scripts[index].Trigger);
+
         var updated = new ScriptDefinition(
             id,
             nameBox.Text?.Trim() ?? "",
-            (ScriptTrigger)Math.Max(triggerCombo.SelectedIndex, 0),
-            scriptBox.Text ?? "");
+            trigger,
+            scriptBox.Text ?? "",
+            ChosenProfileId(trigger, profileCombo, scripts[index].NetworkProfileId));
 
         SettingsService.Update(s => { if (index < s.Scripts.Count) s.Scripts[index] = updated; });
+
+        // The row carries the profile picker or it does not, so a trigger that crossed that line
+        // needs its row built again rather than edited in place.
+        if (ScriptTriggerPolicy.NamesANetworkProfile(trigger) != wasNamingAProfile)
+        {
+            RebuildScriptRows();
+            return;
+        }
 
         header.Text             = updated.DisplayName;
         expander.Description    = DescribeScript(updated);
         nameBox.PlaceholderText = ScriptTriggerLabels.For(updated.Trigger);
         error.Visibility        = Visibility.Collapsed;
+    }
+
+    /// <summary>The profile the row's picker names, keeping the stored binding where nothing is
+    /// picked — a profile deleted behind a script is reported on the row rather than cleared, which
+    /// would leave a script bound to nothing with no sign of what it once ran for.</summary>
+    private static string? ChosenProfileId(ScriptTrigger trigger, ComboBox profileCombo, string? stored)
+    {
+        if (!ScriptTriggerPolicy.NamesANetworkProfile(trigger)) return null;
+
+        var profiles = SettingsService.Current.NetworkLocationRules;
+        return profileCombo.SelectedIndex >= 0 && profileCombo.SelectedIndex < profiles.Count
+            ? profiles[profileCombo.SelectedIndex].Id
+            : stored;
     }
 
     /// <summary>Runs one script from its row, re-read by position so an edit committed since the row

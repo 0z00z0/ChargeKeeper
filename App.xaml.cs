@@ -296,6 +296,10 @@ public partial class App : Application
         // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
         // and applying its preset is exactly what this drops the rule to avoid.
         SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
+        // Before the first evaluation, so a script bound to a profile is bound to the identifier the
+        // document keeps rather than one this run invented.
+        SettingsService.PersistNewNetworkProfileIds();
+        NetworkScriptWatcher.Instance.Start();
         NetworkLocationService.Start();
         // Once, at startup. Nothing branches on it — every later entry in the power trail simply
         // belongs to a machine whose sleep type is on the record above it.

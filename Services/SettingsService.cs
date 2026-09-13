@@ -289,6 +289,12 @@ internal sealed class AppSettings
 
     public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
 
+    /// <summary>Whether a profile was given an identifier as the document was read, so the document
+    /// is written back once and the identifier a script is bound to survives the next start. Not a
+    /// setting: it describes this copy of the settings rather than anything a person chose.</summary>
+    [JsonIgnore]
+    public bool NetworkProfileIdsAreUnsaved { get; set; }
+
     /// <summary>
     /// Three-valued on purpose. True once the rules keyed on the routed adapter have been dropped —
     /// persisted, because clearing on every start would also drop the rules saved since. Null means
@@ -434,7 +440,28 @@ internal static class SettingsService
     /// <summary>The settings one document carries, or null when there is nothing usable: no file, a
     /// document from a newer build, or one whose section spelling this build cannot bind. A document
     /// that cannot be parsed is set aside by the store before defaults replace it.</summary>
-    internal static AppSettings? ReadFrom(string path) => SettingsStore.For(path).Read();
+    internal static AppSettings? ReadFrom(string path)
+    {
+        var settings = SettingsStore.For(path).Read();
+        // As the document is read rather than when a profile is next edited: a script binds to a
+        // profile's identifier, and one generated afresh on every read would unbind it at every start.
+        if (settings is not null && NetworkLocationRule.StampMissingIds(settings.NetworkLocationRules))
+            settings.NetworkProfileIdsAreUnsaved = true;
+        return settings;
+    }
+
+    /// <summary>Writes back the identifiers stamped onto profiles that had none. Called once at
+    /// startup; a document whose profiles all carry one costs nothing.</summary>
+    public static void PersistNewNetworkProfileIds()
+    {
+        lock (_lock)
+        {
+            var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
+            if (!settings.NetworkProfileIdsAreUnsaved) return;
+            settings.NetworkProfileIdsAreUnsaved = false;
+            Save();
+        }
+    }
 
     /// <summary>
     /// Drops network location rules written before locations were keyed on the physical adapter: those

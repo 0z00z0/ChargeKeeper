@@ -97,6 +97,40 @@ public class SettingsStoreTests : IDisposable
         Assert.Equal(InstalledValues, Describe(loaded!));
     }
 
+    /// <summary>
+    /// Profiles in a document written before they carried an identifier are given one as the document
+    /// is read, and keep it across a save and a further read. A script binds to a profile by that
+    /// identifier, so one that moved would unbind the script silently — and a document that lost a
+    /// profile on the way through would take a configured network with it.
+    /// </summary>
+    [Fact]
+    public void NetworkProfilesWithoutAnIdentifierGainOneAndKeepItAcrossASave()
+    {
+        // The profiles in the installed document carry no identifier; the scripts in it do, so the
+        // check is scoped to the profile list rather than the whole document.
+        string fixture = GroupedFixture;
+        string profiles = fixture[fixture.IndexOf("NetworkLocationRules", StringComparison.Ordinal)
+                                  ..fixture.IndexOf("UnknownNetworkPresetName", StringComparison.Ordinal)];
+        Assert.DoesNotContain("\"Id\"", profiles, StringComparison.Ordinal);
+
+        var loaded = SettingsService.ReadFrom(WriteFixture());
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded!.NetworkLocationRules.Count);
+
+        var stamped = loaded.NetworkLocationRules.Select(r => r.Id).ToList();
+        Assert.All(stamped, id => Assert.NotEmpty(id));
+        Assert.Equal(2, stamped.Distinct(StringComparer.Ordinal).Count());
+
+        Assert.True(SettingsService.WriteTo(loaded, File_));
+        var reread = SettingsService.ReadFrom(File_);
+
+        Assert.NotNull(reread);
+        Assert.Equal(stamped, reread!.NetworkLocationRules.Select(r => r.Id));
+        Assert.Equal(
+            loaded.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName}"),
+            reread.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName}"));
+    }
+
     /// <summary>The installed document still carries the charger switch this build no longer reads.
     /// A member the section type does not declare must neither refuse the document nor stop a write
     /// landing: a refused document is every setting in it lost to the next start.</summary>
@@ -203,7 +237,12 @@ public class SettingsStoreTests : IDisposable
     [Fact]
     public void ASaveThatMovesNothingRewritesNothing()
     {
-        string before = System.IO.File.ReadAllText(WriteFixture());
+        // The installed document carries profiles written before they had identifiers, and reading
+        // one stamps them — a move, and the one this save is meant to make. The comparison therefore
+        // starts from the document as it stands once that has landed.
+        WriteFixture();
+        Assert.True(SettingsService.WriteTo(SettingsService.ReadFrom(File_)!, File_));
+        string before = System.IO.File.ReadAllText(File_);
 
         Assert.True(SettingsService.WriteTo(SettingsService.ReadFrom(File_)!, File_));
 

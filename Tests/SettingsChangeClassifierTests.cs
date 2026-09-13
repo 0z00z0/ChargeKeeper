@@ -68,7 +68,9 @@ public class SettingsChangeClassifierTests
     /// notification.
     /// </summary>
     /// <remarks>Read-only properties are skipped: they are derived from the settable ones and
-    /// cannot move on their own.</remarks>
+    /// cannot move on their own. So are the ones the document never carries: a value that is not
+    /// persisted describes this copy of the settings rather than anything a person chose, and
+    /// nothing outside the process could hear it move.</remarks>
     [Fact]
     public void EverySettingsPropertyIsEitherExcludedByNameOrReachesTheComparison()
     {
@@ -108,6 +110,7 @@ public class SettingsChangeClassifierTests
         typeof(AppSettings)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead && p.CanWrite)
+            .Where(p => p.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>() is null)
             .ToArray();
 
     /// <summary>Moves one property to a value it does not already hold, whatever its type. An
