@@ -46,7 +46,7 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
 - **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings
   window → General).
 - **Three tray icon styles** — the arc gauge, the reading as a number, or a battery whose interior
-  fills to the level (Settings window → General).
+  fills to the level (Settings window → Appearance).
 - **Also show percentage** — a second, display-only tray icon carrying the charge level as a number
   beside whichever style the main icon uses. Off by default, and unavailable while the main style is
   already the number.

@@ -550,9 +550,6 @@ internal sealed partial class SettingsWindow : Window
         WithUpdatingSuppressed(() =>
         {
             LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
-            IconModeCombo.SelectedIndex   = (int)s.IconMode;
-            PromoteIconsToggle.IsOn       = s.PromoteTrayIcons;
-            LoadPresetCombo(DowntimeGapCombo, DowntimeGapPresets, s.DowntimeGapMinutes, v => $"{v} min");
         });
     }
 
@@ -620,15 +617,18 @@ internal sealed partial class SettingsWindow : Window
     }
 
     // ── Appearance ──────────────────────────────────────────────────────────────────────────────
-    // ShowPercentageIcon and the three Graph controls below sit on this page, though the first
-    // isn't MQTT-published and the other three keep their file section under Graph — see
-    // SettingsFileShape's own remarks on why file section and UI page are independent here.
+    // The page's Tray, Dashboard and Graph headings group controls for the screen only; each keeps
+    // its own file section, including the tray style, the main-tray setting and the downtime gap
+    // that sit here rather than on General — see SettingsFileShape's own remarks on why file section
+    // and UI page are independent.
 
     private void LoadAppearance()
     {
         var s = SettingsService.Current;
         WithUpdatingSuppressed(() =>
         {
+            IconModeCombo.SelectedIndex      = (int)s.IconMode;
+            PromoteIconsToggle.IsOn          = s.PromoteTrayIcons;
             OneLineUntilItMattersToggle.IsOn = s.OneLineUntilItMatters;
             PercentageIconToggle.IsOn        = s.ShowPercentageIcon;
             HideGraphInDashboardToggle.IsOn  = s.HideGraphInDashboard;
@@ -636,6 +636,7 @@ internal sealed partial class SettingsWindow : Window
             GraphScaleCombo.SelectedIndex    = (int)s.GraphTimeScale;
             SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
             GraphShadingToggle.IsOn          = s.GraphShadingEnabled;
+            LoadPresetCombo(DowntimeGapCombo, DowntimeGapPresets, s.DowntimeGapMinutes, v => $"{v} min");
         });
     }
 

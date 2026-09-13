@@ -35,7 +35,7 @@ internal static class BatteryHistoryService
     public const int SampleIntervalSeconds = 20;
 
     /// <summary>
-    /// The graph's downtime threshold, from Settings → General; larger gaps are drawn as a break. A
+    /// The graph's downtime threshold, from Settings → Appearance; larger gaps are drawn as a break. A
     /// setting of 0 means "None" and maps to <see cref="TimeSpan.MaxValue"/>, drawing no breaks at
     /// all — not a zero-minute threshold. Presentation only; see <see cref="AnomalyGapThreshold"/>.
     /// </summary>

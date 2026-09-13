@@ -49,6 +49,9 @@
             <NavigationViewItem Content="General"         Tag="General">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/general.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="Appearance"       Tag="Appearance">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/appearance.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="Smart Charge"     Tag="SmartCharge">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/smart-charge.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -67,9 +70,6 @@
             </NavigationViewItem>
             <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Appearance"     Tag="Appearance">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/appearance.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="App diagnostics" Tag="AppDiagnostics">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/diagnostics.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
@@ -127,36 +127,6 @@
                             <local:InfoIcon Subject="Startup delay"
                                             Info="The delay keeps ChargeKeeper off the critical sign-in path. Sign-in completes first, then the app initialises."/>
                         </StackPanel>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Tray icon style"
-                                            Description="How the battery level is drawn in the system tray.">
-                        <!-- Item order IS the TrayIconMode order: the load and save cast between the
-                             enum and SelectedIndex by position. Append, never insert. -->
-                        <ComboBox x:Name="IconModeCombo" MinWidth="160" SelectionChanged="OnIconModeChanged">
-                            <ComboBoxItem Content="Arc gauge"/>
-                            <ComboBoxItem Content="Numeric %"/>
-                            <!-- Named for what appears in the notification area, not for where the
-                                 drawing comes from. The persisted value is still TrayIconMode
-                                 .BrandMark; only the label reads differently. -->
-                            <ComboBoxItem Content="Battery fill"/>
-                        </ComboBox>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Show icons in main tray (experimental)"
-                                            Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ToggleSwitch x:Name="PromoteIconsToggle" OnContent="On" OffContent="Off"
-                                          Toggled="OnPromoteIconsToggled"/>
-                            <local:InfoIcon Subject="Show icons in main tray"
-                                            Info="Experimental because Windows offers no supported way to do this. It writes the value the Windows 11 shell reads and does nothing at all on a version that stores it differently, so the icons simply stay where Windows put them. Switching it off puts back whatever was there before. Nothing is written while it is off."/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Downtime gap threshold"
-                                            Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
-                        <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
-                                  SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
                 </StackPanel>
 
@@ -494,12 +464,32 @@
                 <StackPanel x:Name="AppearancePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <controls:SettingsCard Header="One line until it matters"
-                                            Description="Collapse an off feature on the dashboard popup to its name, its switch and nothing else.">
+                    <!-- Grouped for the page only: every control here keeps its own section in
+                         settings.json, whose spelling is load-bearing, so moving a card between these
+                         headings or from General changes nothing in the file. -->
+                    <local:SettingsSectionHeader Heading="Tray"/>
+
+                    <controls:SettingsCard Header="Tray icon style"
+                                            Description="How the battery level is drawn in the system tray.">
+                        <!-- Item order IS the TrayIconMode order: the load and save cast between the
+                             enum and SelectedIndex by position. Append, never insert. -->
+                        <ComboBox x:Name="IconModeCombo" MinWidth="160" SelectionChanged="OnIconModeChanged">
+                            <ComboBoxItem Content="Arc gauge"/>
+                            <ComboBoxItem Content="Numeric %"/>
+                            <!-- Named for what appears in the notification area, not for where the
+                                 drawing comes from. The persisted value is still TrayIconMode
+                                 .BrandMark; only the label reads differently. -->
+                            <ComboBoxItem Content="Battery fill"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Show icons in main tray (experimental)"
+                                            Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <local:InfoIcon Subject="One line until it matters"
-                                            Info="A feature that is off shows only its name and switch, with a small arrow to open it back up. A feature that is on is never collapsed, whatever this says."/>
-                            <ToggleSwitch x:Name="OneLineUntilItMattersToggle" Toggled="OnOneLineUntilItMattersToggled"/>
+                            <ToggleSwitch x:Name="PromoteIconsToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnPromoteIconsToggled"/>
+                            <local:InfoIcon Subject="Show icons in main tray"
+                                            Info="Experimental because Windows offers no supported way to do this. It writes the value the Windows 11 shell reads and does nothing at all on a version that stores it differently, so the icons simply stay where Windows put them. Switching it off puts back whatever was there before. Nothing is written while it is off."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
@@ -514,6 +504,17 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <local:SettingsSectionHeader Heading="Dashboard"/>
+
+                    <controls:SettingsCard Header="One line until it matters"
+                                            Description="Collapse an off feature on the dashboard popup to its name, its switch and nothing else.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <local:InfoIcon Subject="One line until it matters"
+                                            Info="A feature that is off shows only its name and switch, with a small arrow to open it back up. A feature that is on is never collapsed, whatever this says."/>
+                            <ToggleSwitch x:Name="OneLineUntilItMattersToggle" Toggled="OnOneLineUntilItMattersToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard x:Name="HideGraphInDashboardCard"
                                             Header="Hide graph in dashboard"
                                             Description="Leaves the history graph out of the dashboard popup and puts a button to open it in its place.">
@@ -525,8 +526,8 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <!-- File section stays Graph, unchanged — only the on-screen placement of these
-                         three controls moves here from General. -->
+                    <local:SettingsSectionHeader Heading="Graph"/>
+
                     <controls:SettingsCard Header="History graph range"
                                             Description="Default time span shown in the battery history graph.">
                         <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">
@@ -561,6 +562,12 @@
                                             Description="Draws the accent fade beneath the charge line. Independent of the line colour, which the fade never follows.">
                         <ToggleSwitch x:Name="GraphShadingToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnGraphShadingToggled"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Downtime gap threshold"
+                                            Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
+                        <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
+                                  SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
                 </StackPanel>
 

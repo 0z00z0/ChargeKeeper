@@ -21,7 +21,8 @@ public class SettingsSectionLayoutTests
     private static readonly string[] Pages =
     [
         "GeneralPanel", "SmartChargePanel", "KeepAwakePanel", "LidClosePanel",
-        "NotificationsPanel", "ScriptsPanel", "HomeAssistantPanel", "AppDiagnosticsPanel", "AboutPanel",
+        "NotificationsPanel", "ScriptsPanel", "HomeAssistantPanel", "AppearancePanel", "AppDiagnosticsPanel",
+        "AboutPanel",
     ];
 
     /// <summary>The markup of one page panel.</summary>
@@ -51,6 +52,7 @@ public class SettingsSectionLayoutTests
     [InlineData("SmartChargePanel", new[] { "Charge limit", "Presets", "Network profiles" })]
     [InlineData("KeepAwakePanel",   new[] { "Presets", "Networks" })]
     [InlineData("LidClosePanel",    new[] { "Sleep after a time", "Sleep at a battery level", "Sleep if the computer gets hot" })]
+    [InlineData("AppearancePanel",  new[] { "Tray", "Dashboard", "Graph" })]
     // "Advanced" moved here from General with the settings-file and log-opening controls it heads.
     [InlineData("AppDiagnosticsPanel", new[] { "Advanced" })]
     public void EverySectionOpensWithTheSharedHeader(string panelName, string[] headings) =>
