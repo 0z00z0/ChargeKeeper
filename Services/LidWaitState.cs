@@ -22,8 +22,8 @@ internal enum LidWaitState
     /// <summary>Waiting on both conditions; whichever arrives first ends the wait.</summary>
     WaitingForEither,
 
-    /// <summary>Waiting with neither condition left: a charger took the battery target out of
-    /// reach and the timer was never set, so nothing outstanding can arrive.</summary>
+    /// <summary>Waiting with nothing that can arrive yet: a charger has paused the battery target
+    /// and the timer was never set, so the machine is held awake until the charger is removed.</summary>
     WaitingWithNothingLeftToReach,
 }
 

@@ -9,7 +9,8 @@ internal enum LidDischargeDecision
     Hold,
     /// <summary>At or below the target — the machine may sleep.</summary>
     TargetReached,
-    /// <summary>The pack is taking charge, so the target cannot be reached — the machine may sleep.</summary>
+    /// <summary>The pack is taking charge, so the target cannot arrive until the charger is removed.
+    /// The target stays armed, and the machine stays awake.</summary>
     Charging,
 }
 
@@ -60,8 +61,10 @@ internal sealed class LidDischargeWatch
     }
 
     /// <summary>
-    /// Judges one battery reading. Anything but <see cref="LidDischargeDecision.Hold"/> disarms the
-    /// watch, so a release is reported once and a later reading cannot repeat it.
+    /// Judges one battery reading. <see cref="LidDischargeDecision.TargetReached"/> disarms the
+    /// watch, so a release is reported once and a later reading cannot repeat it;
+    /// <see cref="LidDischargeDecision.Charging"/> leaves it armed, so the next reading taken off the
+    /// charger carries on towards the same target.
     /// </summary>
     public LidDischargeDecision OnReading(int percent, bool isCharging)
     {
@@ -79,12 +82,9 @@ internal sealed class LidDischargeWatch
 
             // Charging is a reading of the pack, not of the socket. An underpowered adapter leaves
             // the battery discharging and that machine keeps waiting; a pack actually gaining charge
-            // can never come down to a target below it, and a hold waiting for one would never end.
-            if (isCharging)
-            {
-                _target = null;
-                return LidDischargeDecision.Charging;
-            }
+            // cannot come down to a target below it while the charger stays in, so the target is
+            // paused rather than dropped.
+            if (isCharging) return LidDischargeDecision.Charging;
 
             return LidDischargeDecision.Hold;
         }

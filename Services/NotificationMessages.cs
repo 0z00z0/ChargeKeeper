@@ -9,7 +9,6 @@ internal enum NotificationKind
     ChargingStarted,
     DrainAnomaly,
     SleptWhileHot,
-    LidDelayStoodDown,
     SettingsNotSaved,
     ScriptFailed,
 }
@@ -63,7 +62,6 @@ internal static class NotificationMessages
         NotificationKind.HighBattery     => "A high-battery warning",
         NotificationKind.ChargeComplete  => "A charge-complete notice",
         NotificationKind.ChargingStarted => "A charging-started notice",
-        NotificationKind.LidDelayStoodDown => "A lid-handling stand-down notice",
         NotificationKind.SettingsNotSaved  => "A settings-not-saved warning",
         NotificationKind.ScriptFailed      => "A script-failed warning",
         _                                => "An unusual-drain warning",

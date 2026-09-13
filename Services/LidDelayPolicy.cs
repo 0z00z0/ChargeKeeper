@@ -40,20 +40,6 @@ internal enum LidDelayOutcome
     StoppedShort,
 }
 
-/// <summary>What a charger connecting mid-wait does to a wait that was watching for a battery
-/// target. Sleeping is not among them: the target became unreachable rather than met.</summary>
-internal enum LidChargerResponse
-{
-    /// <summary>No wait is running, so the reading settles nothing.</summary>
-    Nothing,
-    /// <summary>Carry on waiting. Whatever else was set decides the end, and with nothing else set
-    /// the wait runs until the lid opens.</summary>
-    KeepWaiting,
-    /// <summary>End the wait without sleeping and switch the feature off, so Windows' own lid-close
-    /// action serves the next close.</summary>
-    StandDown,
-}
-
 /// <summary>The feature parks the user's own LIDACTION on "do nothing"; these are the four states
 /// that pairing can be found in.</summary>
 internal enum LidActionOverride
@@ -123,37 +109,21 @@ internal static class LidDelayPolicy
     /// battery past a target, and a fifteen-per-cent target must not hold the machine awake for an
     /// hour, so the two are alternatives rather than a pair that both have to be satisfied. A
     /// condition that is not set never arrives and therefore never ends the wait on its own; with
-    /// neither set there is nothing to wait for and the wait is over at once — unless the last one
-    /// was withdrawn as unreachable, which is a condition that was never met rather than one that
-    /// was never asked for.
+    /// neither set there is nothing to wait for and the wait is over at once.
     /// </summary>
     /// <param name="endedEarly">A safeguard has ended the hold ahead of every condition — the
     /// temperature ceiling. It outranks them rather than joining them: the point of the ceiling is
     /// to act before the wait would have.</param>
-    /// <param name="targetGivenUp">The battery target was withdrawn mid-wait because a charger put
-    /// it out of reach. A wait that has had its only condition taken away is not the same as one
-    /// that never had a condition at all: the first was never met and must not end in sleep, while
-    /// the second has nothing to wait for. The current flags alone cannot tell them apart, which is
-    /// why the history is carried in.</param>
+    /// <param name="targetPaused">A charger is connected, so the battery target cannot arrive until
+    /// it is removed. A paused target is still a condition: a wait whose only condition is paused
+    /// holds the machine awake while it charges, and a wait that never had a condition has nothing
+    /// to wait for. A paused target never counts as arrived and never counts as absent.</param>
     public static bool WaitIsOver(bool timeSet, bool timeArrived, bool targetSet, bool targetArrived,
-                                  bool endedEarly = false, bool targetGivenUp = false)
+                                  bool endedEarly = false, bool targetPaused = false)
     {
         if (endedEarly) return true;
-        if (!timeSet && !targetSet) return !targetGivenUp;
-        return (timeSet && timeArrived) || (targetSet && targetArrived);
-    }
-
-    /// <summary>
-    /// What a charging reading means for a wait that was watching the battery come down to a target.
-    /// The target can no longer arrive, and neither answer here sleeps the machine: connecting a
-    /// charger is the plainest signal that a machine is wanted awake.
-    /// </summary>
-    /// <param name="offWhenCharging">Whether the feature switches itself off on this signal rather
-    /// than holding the wait open.</param>
-    public static LidChargerResponse OnChargerConnected(bool offWhenCharging, bool delayPending)
-    {
-        if (!delayPending) return LidChargerResponse.Nothing;
-        return offWhenCharging ? LidChargerResponse.StandDown : LidChargerResponse.KeepWaiting;
+        if (!timeSet && !targetSet && !targetPaused) return true;
+        return (timeSet && timeArrived) || (targetSet && targetArrived && !targetPaused);
     }
 
     /// <summary>

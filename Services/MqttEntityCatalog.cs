@@ -36,7 +36,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: fifty-six entities, their groups, their capability gates and
+/// ChargeKeeper's published surface: fifty-five entities, their groups, their capability gates and
 /// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -80,7 +80,6 @@ internal static class MqttEntityCatalog
     public const string LidDelayMinutes         = "lid_delay_minutes";
     public const string LidDelayLock            = "lid_delay_lock";
     public const string LidDelayOffAfterSleep   = "lid_delay_off_after_sleep";
-    public const string LidDelayOffWhenCharging = "lid_delay_off_when_charging";
     public const string LidDischarge            = "lid_discharge";
     public const string LidDischargePercent     = "lid_discharge_percent";
     public const string SmartStandby            = "smart_standby";
@@ -507,16 +506,6 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayOffAfterSleep,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayOffAfterSleep(on)),
-            },
-            new MqttSwitch
-            {
-                EntityId = LidDelayOffWhenCharging, Name = "Lid-delay off when charging",
-                Group = MqttPublishGroups.LidClose,
-                Category = MqttEntityCategory.Config, Icon = "mdi:power-plug",
-                Debounce = MqttConnection.ReflectDebounce,
-                Include = () => s.Capabilities().LidClose,
-                Read = () => surface()?.LidDelayOffWhenCharging,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayOffWhenCharging(on)),
             },
             new MqttSwitch
             {

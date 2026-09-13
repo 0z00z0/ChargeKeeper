@@ -39,7 +39,6 @@ internal interface ISettingsActions
     void SetLidDischargePercent(int percent);
     void SetLidDelayLock(bool on);
     void SetLidDelayOffAfterSleep(bool on);
-    void SetLidDelayOffWhenCharging(bool on);
     void SetSmartStandby(bool on);
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
@@ -200,10 +199,6 @@ internal sealed class SettingsActions : ISettingsActions
     // A plain settings write: it changes what the end of the next lid close does, and nothing about
     // the power scheme or a hold in flight.
     public void SetLidDelayOffAfterSleep(bool on) => Write(s => s.LidDelayOffAfterSleep = on);
-
-    // A plain settings write for the same reason: it changes what a charger connecting during the
-    // next wait does, and nothing about a hold already in flight.
-    public void SetLidDelayOffWhenCharging(bool on) => Write(s => s.LidDelayOffWhenCharging = on);
 
     public void SetSmartStandby(bool on)
     {

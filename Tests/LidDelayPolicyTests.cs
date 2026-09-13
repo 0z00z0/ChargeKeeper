@@ -138,86 +138,56 @@ public class LidDelayPolicyTests
                                               targetSet: false, targetArrived: false));
     }
 
-    // A condition withdrawn mid-wait — the defect in issue #168. The flags a withdrawal leaves behind
-    // are identical to the flags of a wait nobody ever configured, and the two have opposite answers:
-    // one condition was never met, the other was never asked for. Only the history separates them.
+    // A battery target paused by a charger — issues #168 and #169. The flags a dropped target left
+    // behind were identical to those of a wait nobody configured, and the two have opposite answers:
+    // one holds the machine awake while it charges, the other has nothing to wait for.
 
     [Fact]
-    public void WaitIsOver_TheOnlyConditionWasWithdrawnAsUnreachable_IsNotOver()
+    public void WaitIsOver_TheOnlyConditionIsPausedWhileCharging_IsNotOver()
     {
-        // The shipped defect: a battery target dropped when the charger went in landed on the
-        // "nothing to wait for" short-circuit and suspended a machine at 45 % against a 10 % target.
-        // Unreachable is not satisfied, so the wait cannot end here.
+        // The shipped defect: a target dropped when the charger went in landed on the "nothing to
+        // wait for" short-circuit and suspended a machine at 45 % against a 10 % target.
+        Assert.False(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
+                                               targetSet: true, targetArrived: false,
+                                               endedEarly: false, targetPaused: true));
+        // Still not over where a caller has cleared the target as well: paused is not absent.
         Assert.False(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
                                                targetSet: false, targetArrived: false,
-                                               endedEarly: false, targetGivenUp: true));
+                                               endedEarly: false, targetPaused: true));
     }
 
     [Fact]
-    public void WaitIsOver_TheTargetWasWithdrawnWithADelayStillRunning_TheClockCarriesTheWait()
+    public void WaitIsOver_APausedTargetWithADelayRunning_TheClockCarriesTheWait()
     {
-        // The configuration that hid the defect: with a delay set the wait already held, and it must
-        // go on holding until the delay itself arrives.
         Assert.False(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: false,
-                                               targetSet: false, targetArrived: false,
-                                               endedEarly: false, targetGivenUp: true));
+                                               targetSet: true, targetArrived: false,
+                                               endedEarly: false, targetPaused: true));
         Assert.True(LidDelayPolicy.WaitIsOver(timeSet: true, timeArrived: true,
-                                              targetSet: false, targetArrived: false,
-                                              endedEarly: false, targetGivenUp: true));
+                                              targetSet: true, targetArrived: false,
+                                              endedEarly: false, targetPaused: true));
     }
 
     [Fact]
-    public void WaitIsOver_TheTemperatureCeilingStillOutranksAWithdrawnTarget() =>
-        // The safeguard acts ahead of every condition, and a withdrawal is not a condition.
+    public void WaitIsOver_TheTemperatureCeilingStillOutranksAPausedTarget() =>
+        // The safeguard acts ahead of every condition, charging or not.
         Assert.True(LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
-                                              targetSet: false, targetArrived: false,
-                                              endedEarly: true, targetGivenUp: true));
+                                              targetSet: true, targetArrived: false,
+                                              endedEarly: true, targetPaused: true));
 
-    // OnChargerConnected — what a charger going in mid-wait does, in both switch positions.
-
-    [Fact]
-    public void OnChargerConnected_WithTheSwitchOn_StandsTheFeatureDown() =>
-        Assert.Equal(LidChargerResponse.StandDown,
-            LidDelayPolicy.OnChargerConnected(offWhenCharging: true, delayPending: true));
-
-    [Fact]
-    public void OnChargerConnected_WithTheSwitchOff_KeepsWaiting() =>
-        Assert.Equal(LidChargerResponse.KeepWaiting,
-            LidDelayPolicy.OnChargerConnected(offWhenCharging: false, delayPending: true));
-
-    [Fact]
-    public void OnChargerConnected_WithNoWaitRunning_SettlesNothingInEitherPosition()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AChargerOnATargetOnlyWait_HoldsTheMachineAwake_WithOrWithoutAKeepAwakeSession(bool keepAwakeActive)
     {
-        // A charging reading outside a lid close is an ordinary reading, whatever the switch says.
-        Assert.Equal(LidChargerResponse.Nothing,
-            LidDelayPolicy.OnChargerConnected(offWhenCharging: true, delayPending: false));
-        Assert.Equal(LidChargerResponse.Nothing,
-            LidDelayPolicy.OnChargerConnected(offWhenCharging: false, delayPending: false));
-    }
+        // Composed the way the service composes it. A running session used to mask the fault: the
+        // same wait ended as a sleep owed rather than taken, and the machine slept when the session
+        // ended with nothing reached.
+        bool over = LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
+                                              targetSet: true, targetArrived: false,
+                                              endedEarly: false, targetPaused: true);
 
-    [Fact]
-    public void AChargerConnectingMidWait_NeverSuspends_InEitherSwitchPosition()
-    {
-        // The guard the fix exists for, composed the way the service composes it: the charger
-        // response, then the completion test carrying the withdrawal, then the action. The battery
-        // target is the only condition set, which is the configuration that shipped broken.
-        foreach (bool offWhenCharging in new[] { true, false })
-        {
-            var response = LidDelayPolicy.OnChargerConnected(offWhenCharging, delayPending: true);
-            Assert.NotEqual(LidChargerResponse.Nothing, response);
-
-            // Standing down never reaches the completion test at all — it ends the wait itself.
-            if (response is LidChargerResponse.StandDown) continue;
-
-            bool over = LidDelayPolicy.WaitIsOver(timeSet: false, timeArrived: false,
-                                                  targetSet: false, targetArrived: false,
-                                                  endedEarly: false, targetGivenUp: true);
-            var action = LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true,
-                                                       keepAwakeActive: false, waitIsOver: over);
-
-            Assert.NotEqual(LidDelayAction.Suspend, action);
-            Assert.Equal(LidDelayAction.Hold, action);
-        }
+        Assert.Equal(LidDelayAction.Hold,
+            LidDelayPolicy.OnWaitProgress(enabled: true, delayPending: true, keepAwakeActive, waitIsOver: over));
     }
 
     // OnWaitProgress
@@ -591,52 +561,30 @@ public class LidDelayPolicyTests
         Assert.True(loaded!.LidDelayOffAfterSleep);
     }
 
-    /// <summary>The service side of the same guard. It owns a power scheme, a lid subscription and a
-    /// suspend, so the wiring is read out of the source rather than driven.</summary>
+    /// <summary>The service side of the same guard, at both entry points: a charger connected during
+    /// the wait (#168) and a machine already charging as the lid closes (#169). The service owns a
+    /// power scheme, a lid subscription and a suspend, so the wiring is read out of the source.</summary>
     [Fact]
-    public void TheChargingReading_RecordsTheWithdrawalAndAsksWhichPositionTheSwitchIsIn()
+    public void AChargingReading_PausesTheTargetAtArmingAndMidWait_AndNeverDropsIt()
     {
         string source = File.ReadAllText(RepoFiles.Find("Services/LidDelayService.cs"));
         string report = SourceMethods.Body(source, "OnBatteryReport");
+        string arming = SourceMethods.Body(source, "StartDelay");
 
-        Assert.Contains("_targetGivenUp = true", report, StringComparison.Ordinal);
-        Assert.Contains("LidDelayPolicy.OnChargerConnected", report, StringComparison.Ordinal);
-        Assert.Contains("LidDelayOffWhenCharging", report, StringComparison.Ordinal);
-        Assert.Contains("StandDownOnCharger", report, StringComparison.Ordinal);
+        Assert.Contains("_targetPaused = paused = true", report, StringComparison.Ordinal);
+        Assert.Contains("_targetPaused  = true", arming, StringComparison.Ordinal);
 
-        // The withdrawal has to reach the completion test, or the wait ends on flags that cannot
-        // tell it from a lid close nobody configured.
-        Assert.Contains("_thermalEnded, _targetGivenUp",
+        foreach (string body in new[] { report, arming })
+        {
+            // A dropped target is the wait with no condition that suspended the machine.
+            Assert.DoesNotMatch(@"_targetSet\s*=\s*false", body);
+            // Arming runs on the lid callback, where switching the feature off deadlocks.
+            Assert.DoesNotContain("SetEnabled(", body, StringComparison.Ordinal);
+        }
+
+        // The pause has to reach the completion test, or a paused target reads as no target.
+        Assert.Contains("_thermalEnded, _targetPaused",
                         SourceMethods.Body(source, "Complete"), StringComparison.Ordinal);
-
-        // The stand-down ends the wait and switches the feature off. It never suspends.
-        string standDown = SourceMethods.Body(source, "StandDownOnCharger");
-        Assert.Contains("SetEnabled(false", standDown, StringComparison.Ordinal);
-        Assert.Contains("ToastService.NotifyLidDelayStoodDown", standDown, StringComparison.Ordinal);
-        Assert.DoesNotContain("Suspend", standDown, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void OffWhenCharging_IsOnByDefault_IncludingForASettingsFileWrittenBeforeIt()
-    {
-        // The only position of the two that always ends: off, a wait whose battery target was the
-        // sole condition runs until the lid opens.
-        Assert.True(new AppSettings().LidDelayOffWhenCharging);
-
-        var loaded = JsonSerializer.Deserialize<AppSettings>("""{"LidDelayEnabled":true}""");
-
-        Assert.NotNull(loaded);
-        Assert.True(loaded!.LidDelayOffWhenCharging);
-    }
-
-    [Fact]
-    public void OffWhenCharging_SurvivesSettingsJson()
-    {
-        var loaded = JsonSerializer.Deserialize<AppSettings>(
-            JsonSerializer.Serialize(new AppSettings { LidDelayOffWhenCharging = false }));
-
-        Assert.NotNull(loaded);
-        Assert.False(loaded!.LidDelayOffWhenCharging);
     }
 
     // ── ShouldLockOnLidClose ───────────────────────────────────────────

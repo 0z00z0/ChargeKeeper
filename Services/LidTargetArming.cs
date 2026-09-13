@@ -17,7 +17,8 @@ internal enum LidTargetArm
     /// <summary>The battery was already at or below the target as the lid closed.</summary>
     AlreadyThere,
 
-    /// <summary>The pack was taking charge, so the target could never arrive.</summary>
+    /// <summary>The pack was taking charge, so the target is armed but paused until the charger is
+    /// removed.</summary>
     Charging,
 }
 
@@ -66,8 +67,9 @@ internal static class LidTargetArming
              $"the target is {target} % and the battery was at {level} %"),
 
         LidTargetArm.Charging =>
-            ("No battery target on this lid close",
-             "the battery is charging, so the target can never arrive"),
+            ($"Sleep comes when the battery reaches {target} % once the charger is removed",
+             $"lid closed with a battery target set while the battery was charging at {level} %, " +
+             "so the machine is held awake while it charges"),
 
         LidTargetArm.SwitchedOff =>
             ("No battery target on this lid close", "the setting is off"),

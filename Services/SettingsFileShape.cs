@@ -136,32 +136,28 @@ internal sealed class SettingsFile
     {
         [JsonPropertyOrder(1)] public bool                      LidDelayEnabled           { get; set; }
         [JsonPropertyOrder(2)] public bool                      LidDelayOffAfterSleep     { get; set; }
-        // Nullable so a file written before the setting existed reads as the new default rather than
-        // as off, which would leave such a file waiting on a target a charger had already put out of
-        // reach.
-        [JsonPropertyOrder(3)] public bool?                     LidDelayOffWhenCharging   { get; set; }
-        [JsonPropertyOrder(4)] public bool                      LidDelayLockOnClose       { get; set; }
+        [JsonPropertyOrder(3)] public bool                      LidDelayLockOnClose       { get; set; }
         // Nullable so a file written before the clock became one condition of two reads as "on",
         // which is the only thing it can have meant; a plain bool would read as off and silently
         // drop the delay such a file was relying on.
-        [JsonPropertyOrder(5)] public bool?                     LidDelayTimeEnabled       { get; set; }
-        [JsonPropertyOrder(6)] public int                       LidDelayMinutes           { get; set; }
+        [JsonPropertyOrder(4)] public bool?                     LidDelayTimeEnabled       { get; set; }
+        [JsonPropertyOrder(5)] public int                       LidDelayMinutes           { get; set; }
         // Nullable for the same reason: absent means the built-in delays, empty means a list the
         // user emptied.
-        [JsonPropertyOrder(7)] public List<LidDelayPreset>?     LidDelayPresets           { get; set; }
-        [JsonPropertyOrder(8)] public bool                      LidDischargeEnabled       { get; set; }
-        [JsonPropertyOrder(9)] public int                       LidDischargeTargetPercent { get; set; }
-        [JsonPropertyOrder(10)] public List<LidDischargeTarget> LidDischargePresets       { get; set; } = [];
-        [JsonPropertyOrder(11)] public bool  LidThermalCeilingEnabled { get; set; }
-        [JsonPropertyOrder(12)] public int   LidThermalCeilingCelsius { get; set; }
+        [JsonPropertyOrder(6)] public List<LidDelayPreset>?     LidDelayPresets           { get; set; }
+        [JsonPropertyOrder(7)] public bool                      LidDischargeEnabled       { get; set; }
+        [JsonPropertyOrder(8)] public int                       LidDischargeTargetPercent { get; set; }
+        [JsonPropertyOrder(9)] public List<LidDischargeTarget>  LidDischargePresets       { get; set; } = [];
+        [JsonPropertyOrder(10)] public bool  LidThermalCeilingEnabled { get; set; }
+        [JsonPropertyOrder(11)] public int   LidThermalCeilingCelsius { get; set; }
         // The early sleep waiting to be reported at the next wake. State rather than a setting, so
         // it trails the visible rows with the saved power-scheme values.
-        [JsonPropertyOrder(13)] public double?         LidThermalSleptAtCelsius { get; set; }
-        [JsonPropertyOrder(14)] public DateTimeOffset? LidThermalSleptAtUtc     { get; set; }
+        [JsonPropertyOrder(12)] public double?         LidThermalSleptAtCelsius { get; set; }
+        [JsonPropertyOrder(13)] public DateTimeOffset? LidThermalSleptAtUtc     { get; set; }
         // Saved power-scheme state, edited by nothing on the page, so it trails the visible rows.
-        [JsonPropertyOrder(15)] public int?    LidDelaySavedAcAction { get; set; }
-        [JsonPropertyOrder(16)] public int?    LidDelaySavedDcAction { get; set; }
-        [JsonPropertyOrder(17)] public string? LidDelaySavedScheme   { get; set; }
+        [JsonPropertyOrder(14)] public int?    LidDelaySavedAcAction { get; set; }
+        [JsonPropertyOrder(15)] public int?    LidDelaySavedDcAction { get; set; }
+        [JsonPropertyOrder(16)] public string? LidDelaySavedScheme   { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -248,7 +244,6 @@ internal sealed class SettingsFile
         {
             LidDelayEnabled           = s.LidDelayEnabled,
             LidDelayOffAfterSleep     = s.LidDelayOffAfterSleep,
-            LidDelayOffWhenCharging   = s.LidDelayOffWhenCharging,
             LidDelayLockOnClose       = s.LidDelayLockOnClose,
             LidDelayTimeEnabled       = s.LidDelayTimeEnabled,
             LidDelayMinutes           = s.LidDelayMinutes,
@@ -324,7 +319,6 @@ internal sealed class SettingsFile
 
         LidDelayEnabled           = LidClose.LidDelayEnabled,
         LidDelayOffAfterSleep     = LidClose.LidDelayOffAfterSleep,
-        LidDelayOffWhenCharging   = LidClose.LidDelayOffWhenCharging ?? new AppSettings().LidDelayOffWhenCharging,
         LidDelayLockOnClose       = LidClose.LidDelayLockOnClose,
         LidDelayTimeEnabled       = LidClose.LidDelayTimeEnabled ?? true,
         LidDelayMinutes           = LidClose.LidDelayMinutes,

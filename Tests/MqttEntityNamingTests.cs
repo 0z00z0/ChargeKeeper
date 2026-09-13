@@ -63,7 +63,6 @@ public class MqttEntityNamingTests
         "chargekeeper_office_x1_lid_discharge_percent",
         "chargekeeper_office_x1_lid_delay_lock",
         "chargekeeper_office_x1_lid_delay_off_after_sleep",
-        "chargekeeper_office_x1_lid_delay_off_when_charging",
         "chargekeeper_office_x1_smart_standby",
         "chargekeeper_office_x1_low_battery_warning",
         "chargekeeper_office_x1_low_battery_level",

@@ -233,12 +233,6 @@ internal sealed class AppSettings
     /// default, which leaves the feature standing as it always did.</summary>
     public bool LidDelayOffAfterSleep { get; set; } = false;
 
-    /// <summary>Switches <see cref="LidDelayEnabled"/> off when a charger is connected during a wait,
-    /// which puts the battery target out of reach. On by default, because it is the only setting of
-    /// the two that always ends: with it off a wait whose battery target was the sole condition runs
-    /// until the lid opens. Neither setting sleeps the machine on a connected charger.</summary>
-    public bool LidDelayOffWhenCharging { get; set; } = true;
-
     /// <summary>Whether the battery level is one of the conditions that ends a lid-close wait. Off by
     /// default, leaving the clock as the only condition.</summary>
     public bool LidDischargeEnabled { get; set; } = false;

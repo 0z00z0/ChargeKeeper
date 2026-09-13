@@ -86,16 +86,6 @@ internal static class ToastService
     }
 
     /// <summary>
-    /// Said as it happens rather than at the next wake: the machine is awake, which is the whole
-    /// point of the notice. The wording states that nothing slept, because the feature switching
-    /// itself off is otherwise indistinguishable from the defect where it slept instead.
-    /// </summary>
-    public static void NotifyLidDelayStoodDown(int percent) =>
-        TryShow(NotificationKind.LidDelayStoodDown, percent, "Lid handling switched off",
-                $"A charger was connected at {percent} %, so the battery target can no longer be " +
-                "reached. The computer stayed awake and Windows handles the lid again.");
-
-    /// <summary>
     /// Said as it happens, because the setting on screen and the setting on disk have parted and
     /// nothing else shows it: the page keeps the new value, the next start comes back with the old
     /// one. The store returns a refused write rather than raising it, so without this the change

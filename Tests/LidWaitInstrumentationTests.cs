@@ -132,13 +132,10 @@ public class LidWaitInstrumentationTests
     [Fact]
     public void ABatteryTargetThatWasNotInPlay_SaysWhyRatherThanNothing()
     {
-        var off      = LidTargetArming.Describe(LidTargetArm.SwitchedOff, 10, 55);
-        var charging = LidTargetArming.Describe(LidTargetArm.Charging,    10, 55);
+        var off = LidTargetArming.Describe(LidTargetArm.SwitchedOff, 10, 55);
 
         Assert.Equal("No battery target on this lid close", off.What);
         Assert.Equal("the setting is off", off.Why);
-        Assert.Equal("No battery target on this lid close", charging.What);
-        Assert.Equal("the battery is charging, so the target can never arrive", charging.Why);
     }
 
     // ---- the awake reading reaches every place a wait can end ----------------------------------

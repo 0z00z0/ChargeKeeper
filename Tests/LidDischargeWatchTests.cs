@@ -51,11 +51,13 @@ public class LidDischargeWatchTests
     }
 
     [Fact]
-    public void Charging_GivesTheTargetUpRatherThanHoldingForALevelThatWillNeverArrive()
+    public void Charging_PausesTheTargetWithoutGivingItUp()
     {
-        // A pack gaining charge cannot reach a target below it, and a hold waiting for one would
-        // never end.
-        Assert.Equal(LidDischargeDecision.Charging, Armed(50).OnReading(percent: 80, isCharging: true));
+        // A pack gaining charge cannot come down to a target below it while the charger stays in,
+        // and the target is still wanted once the charger comes out.
+        var watch = Armed(50);
+        Assert.Equal(LidDischargeDecision.Charging, watch.OnReading(percent: 80, isCharging: true));
+        Assert.True(watch.IsWatching);
     }
 
     [Fact]
@@ -84,11 +86,15 @@ public class LidDischargeWatchTests
     }
 
     [Fact]
-    public void AGivenUpWatch_DecidesNothingFurther()
+    public void APausedWatch_CarriesOnTowardsTheSameTargetOnceTheChargerIsRemoved()
     {
+        // The countdown resumes rather than restarting or ending: a machine charged while the lid was
+        // shut still sleeps at the target once it has drained back down to it.
         var watch = Armed(50);
         Assert.Equal(LidDischargeDecision.Charging, watch.OnReading(80, isCharging: true));
-        Assert.Equal(LidDischargeDecision.NotWatching, watch.OnReading(70, isCharging: false));
+        Assert.Equal(LidDischargeDecision.Charging, watch.OnReading(85, isCharging: true));
+        Assert.Equal(LidDischargeDecision.Hold, watch.OnReading(84, isCharging: false));
+        Assert.Equal(LidDischargeDecision.TargetReached, watch.OnReading(50, isCharging: false));
     }
 
     [Fact]

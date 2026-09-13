@@ -47,7 +47,6 @@ public class MqttEnumSensorTests
                 "Wait ended on the delay",
                 "Wait ended on the battery target",
                 "Wait ended on the temperature ceiling",
-                "Wait ended on a charger",
                 "Keep awake started",
                 "Keep awake ended",
             ],

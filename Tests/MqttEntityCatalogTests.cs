@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the fifty-six entity ids, the component each is announced
+/// The published surface as a declaration: the fifty-five entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -106,8 +106,6 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:lock"),
         new(MqttEntityCatalog.LidDelayOffAfterSleep, "switch", "Lid-delay off after sleeping",
             MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:numeric-1-box-outline"),
-        new(MqttEntityCatalog.LidDelayOffWhenCharging, "switch", "Lid-delay off when charging",
-            MqttPublishGroups.LidClose, MqttEntityCategory.Config, Icon: "mdi:power-plug"),
         new(MqttEntityCatalog.SmartStandby, "switch", "Smart Standby",
             MqttPublishGroups.LidClose, MqttEntityCategory.Primary, Icon: "mdi:sleep"),
 
@@ -333,7 +331,7 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.LidDelay, MqttEntityCatalog.LidDelayTime, MqttEntityCatalog.LidDelayMinutes,
             MqttEntityCatalog.LidDischarge, MqttEntityCatalog.LidDischargePercent,
             MqttEntityCatalog.LidDelayLock,
-            MqttEntityCatalog.LidDelayOffAfterSleep, MqttEntityCatalog.LidDelayOffWhenCharging,
+            MqttEntityCatalog.LidDelayOffAfterSleep,
             MqttEntityCatalog.SmartStandby,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
@@ -508,7 +506,6 @@ public class MqttEntityCatalogTests
             MqttTestBed.Declared().All
                 .Where(e => e.EntityId is not (MqttEntityCatalog.LowPowerMode or MqttEntityCatalog.PowerState
                                                or MqttEntityCatalog.LidDelayOffAfterSleep
-                                               or MqttEntityCatalog.LidDelayOffWhenCharging
                                                or MqttEntityCatalog.LidDelayTime
                                                or MqttEntityCatalog.LidDischarge
                                                or MqttEntityCatalog.LidDischargePercent

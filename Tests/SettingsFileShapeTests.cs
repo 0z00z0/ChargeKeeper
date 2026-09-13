@@ -76,7 +76,6 @@ public class SettingsFileShapeTests : IDisposable
         "LidClose",
         "LidClose.LidDelayEnabled",
         "LidClose.LidDelayOffAfterSleep",
-        "LidClose.LidDelayOffWhenCharging",
         "LidClose.LidDelayLockOnClose",
         "LidClose.LidDelayTimeEnabled",
         "LidClose.LidDelayMinutes",

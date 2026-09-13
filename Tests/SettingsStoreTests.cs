@@ -54,7 +54,7 @@ public class SettingsStoreTests : IDisposable
         s.KeepAwakeDisplayOn,
         // TimeOnly renders per culture; the TimeSpan it maps to does not.
         string.Join(";", s.KeepAwakePresets.Select(k => $"{k.Kind}/{k.Duration}/{k.Until?.ToTimeSpan()}/{k.Name}")),
-        s.LidDelayEnabled, s.LidDelayOffAfterSleep, s.LidDelayOffWhenCharging, s.LidDelayLockOnClose,
+        s.LidDelayEnabled, s.LidDelayOffAfterSleep, s.LidDelayLockOnClose,
         s.LidDelayTimeEnabled, s.LidDelayMinutes,
         string.Join(";", s.LidDelayPresets.Select(p => $"{p.Minutes}/{p.Name}")),
         s.LidDischargeEnabled, s.LidDischargeTargetPercent,
@@ -82,7 +82,7 @@ public class SettingsStoreTests : IDisposable
         "Second home [Wireless]@00:00:5E:00:53:02/198.51.100.0/24>Daily awake=False|Daily|True|" +
         "False|Duration/00:30:00//;Duration/01:00:00//;Duration/03:00:00//;" +
         "UntilTime//17:00:00/;UntilTime//06:00:00/|" +
-        "True|True|True|True|False|120|10/;30/;120/|True|10|30/;10/|True|85|||1|1|" +
+        "True|True|True|False|120|10/;30/;120/|True|10|30/;10/|True|85|||1|1|" +
         "381b4222-f694-41f0-9685-ff5bb260df2e|" +
         "15|True|90|True|3|True|" +
         "broker.example.invalid|mqtt|443|WebSocket|True|" +
@@ -95,6 +95,23 @@ public class SettingsStoreTests : IDisposable
 
         Assert.NotNull(loaded);
         Assert.Equal(InstalledValues, Describe(loaded!));
+    }
+
+    /// <summary>The installed document still carries the charger switch this build no longer reads.
+    /// A member the section type does not declare must neither refuse the document nor stop a write
+    /// landing: a refused document is every setting in it lost to the next start.</summary>
+    [Fact]
+    public void ADocumentStillCarryingTheRemovedChargerSwitch_ReadsAndWrites()
+    {
+        Assert.Contains("\"LidDelayOffWhenCharging\"", GroupedFixture, StringComparison.Ordinal);
+
+        var loaded = SettingsService.ReadFrom(WriteFixture());
+        Assert.NotNull(loaded);
+        Assert.Equal(InstalledValues, Describe(loaded!));
+
+        loaded!.LidDelayMinutes = 45;
+        Assert.True(SettingsService.WriteTo(loaded, File_));
+        Assert.Equal(45, SettingsService.ReadFrom(File_)?.LidDelayMinutes);
     }
 
     /// <summary>A write lands, the document is still valid afterwards, and the values survive a

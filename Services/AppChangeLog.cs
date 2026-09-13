@@ -22,9 +22,6 @@ internal enum AppChange
     /// <summary>The machine reached its temperature ceiling.</summary>
     WaitEndedOnTheTemperatureCeiling,
 
-    /// <summary>A charger was connected, putting the battery target out of reach.</summary>
-    WaitEndedOnACharger,
-
     /// <summary>A keep-awake session took the hold.</summary>
     KeepAwakeStarted,
 
@@ -70,7 +67,6 @@ internal static class AppChangeLog
         LidWaitEnd.DelayElapsed     => AppChange.WaitEndedOnTheDelay,
         LidWaitEnd.BatteryTarget    => AppChange.WaitEndedOnTheBatteryTarget,
         LidWaitEnd.TooHot           => AppChange.WaitEndedOnTheTemperatureCeiling,
-        LidWaitEnd.ChargerConnected => AppChange.WaitEndedOnACharger,
         _                           => AppChange.WaitEndedWithNothingToWaitFor,
     };
 
@@ -83,7 +79,6 @@ internal static class AppChangeLog
         AppChange.WaitEndedOnTheDelay              => "Wait ended on the delay",
         AppChange.WaitEndedOnTheBatteryTarget      => "Wait ended on the battery target",
         AppChange.WaitEndedOnTheTemperatureCeiling => "Wait ended on the temperature ceiling",
-        AppChange.WaitEndedOnACharger              => "Wait ended on a charger",
         AppChange.KeepAwakeStarted                 => "Keep awake started",
         _                                          => "Keep awake ended",
     };

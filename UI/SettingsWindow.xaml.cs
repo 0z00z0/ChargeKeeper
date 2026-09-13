@@ -1427,8 +1427,7 @@ internal sealed partial class SettingsWindow : Window
             LidThermalToggle.IsOn       = s.LidThermalCeilingEnabled;
             LoadPresetCombo(LidThermalCeilingCombo, LidThermalCeilingPresets,
                             LidThermalWatch.Clamp(s.LidThermalCeilingCelsius), v => $"{v} °C");
-            LidOffAfterSleepToggle.IsOn   = s.LidDelayOffAfterSleep;
-            LidOffWhenChargingToggle.IsOn = s.LidDelayOffWhenCharging;
+            LidOffAfterSleepToggle.IsOn = s.LidDelayOffAfterSleep;
         });
         RefreshLidDelayState();
         RefreshKeepAwakeState();
@@ -1518,8 +1517,7 @@ internal sealed partial class SettingsWindow : Window
         bool on = SettingsService.Current.LidDelayEnabled;
         WithUpdatingSuppressed(() => LidDelayToggle.IsOn = on);
         LidLockToggle.IsEnabled          = on;
-        LidOffAfterSleepToggle.IsEnabled   = on;
-        LidOffWhenChargingToggle.IsEnabled = on;
+        LidOffAfterSleepToggle.IsEnabled = on;
         LidDelayTimeToggle.IsEnabled     = on;
         LidDischargeToggle.IsEnabled     = on;
 
@@ -1555,13 +1553,6 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         bool on = LidOffAfterSleepToggle.IsOn;
         SettingsService.Update(s => s.LidDelayOffAfterSleep = on);
-    }
-
-    private void OnLidOffWhenChargingToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        bool on = LidOffWhenChargingToggle.IsOn;
-        SettingsService.Update(s => s.LidDelayOffWhenCharging = on);
     }
 
     private void OnLidDelayTimeToggled(object sender, RoutedEventArgs e)
