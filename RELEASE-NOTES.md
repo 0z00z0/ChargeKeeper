@@ -9,6 +9,22 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.55.0
+
+- #144 Every saved list on the Settings pages now works the same way: network profiles gain the
+  Activate button and the in-use marking the other lists had, the profile matching the network this
+  computer is on is the one marked, and a list stops marking anything once its own feature is
+  switched off while keeping the choice for when it is switched back on.
+- #143 Switching network profiles off releases the keep-awake hold a profile was keeping, whichever
+  way it was switched — the Settings page or Home Assistant — and a "keep awake here" tick that
+  cannot act while profiles are off now says so on its row, with the switch that decides it repeated
+  on the Keep Awake page.
+- #167 Switching network profiles on applies the profile for the network this computer is already on
+  straight away, instead of leaving it until the next dock, roam or restart.
+- #191 A script can run when this computer joins or leaves a named network profile: the script stays
+  with its profile through a rename, a brief drop in the network while docking runs nothing, and
+  starting the application runs nothing at all.
+
 ## 1.54.0
 
 - #168 Connecting a charger while the lid is shut and a battery target is waiting no longer puts the
