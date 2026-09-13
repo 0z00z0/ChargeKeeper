@@ -226,6 +226,10 @@
                         <!-- "One line until it matters" (Settings > Appearance), off by default: the
                              dense alternative shown instead of the row above while Smart Charge is
                              off and not expanded. Never shown while Smart Charge is on. -->
+                        <!-- The state word is smaller than the title, and a StackPanel draws both from the
+                             top of the row, which lifts the word's baseline above the title's. Bottom
+                             alignment on the word lines the two up; the same holds for all four
+                             collapsed headers. -->
                         <StackPanel x:Name="SmartChargeCollapsedHeader"
                                     Grid.Column="0" Orientation="Horizontal" Spacing="6"
                                     VerticalAlignment="Center"
@@ -233,7 +237,7 @@
                                     Visibility="Collapsed"
                                     Tapped="OnSmartChargeCollapsedRowTapped">
                             <TextBlock Text="Smart Charge" Style="{StaticResource DashboardHeaderStyle}"/>
-                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <!-- Empty On/OffContent and MinWidth 0 strip the default 154 px label
                              track, so the switch takes only the space it needs. The badge
@@ -363,7 +367,7 @@
                                 Visibility="Collapsed"
                                 Tapped="OnSmartStandbyCollapsedRowTapped">
                         <TextBlock Text="Smart Standby" Style="{StaticResource DashboardHeaderStyle}"/>
-                        <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
                     <ToggleSwitch Grid.Column="1"
                                   x:Name="SmartStandbyToggle"
@@ -434,7 +438,7 @@
                                     Visibility="Collapsed"
                                     Tapped="OnLidDelayCollapsedRowTapped">
                             <TextBlock Text="Lid delay" Style="{StaticResource DashboardHeaderStyle}"/>
-                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="LidDelayToggle"
@@ -560,7 +564,7 @@
                                     Visibility="Collapsed"
                                     Tapped="OnKeepAwakeCollapsedRowTapped">
                             <TextBlock Text="Keep Awake" Style="{StaticResource DashboardHeaderStyle}"/>
-                            <TextBlock Text="Off" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       x:Name="KeepAwakeToggle"
