@@ -9,6 +9,17 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.54.0
+
+- #168 Connecting a charger while the lid is shut and a battery target is waiting no longer puts the
+  computer to sleep: the target pauses, the computer stays awake while it charges, and the countdown
+  towards the target carries on once the charger is removed, whether or not a keep-awake session is
+  running.
+- #169 Closing the lid on a computer that is already charging, with a battery target set, holds it
+  awake while it charges instead of sleeping it at once, and the countdown starts when the charger is
+  removed; the "Switch off when a charger is connected" setting and its Home Assistant switch are gone,
+  since a charger no longer ends a wait.
+
 ## 1.53.0
 
 - #187 Logs and history files sit in their own Logs and History folders inside the data folder, so
