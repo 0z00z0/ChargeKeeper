@@ -592,16 +592,13 @@
 
                     <local:PerformanceGraphControl x:Name="PerformanceGraph" Margin="0,8,0,0"/>
 
-                    <controls:SettingsCard Header="Performance log"
-                                            Description="Kept beside the battery history, on the same retention.">
-                        <Button x:Name="OpenPerformanceLogButton"
-                                Content="Show in Explorer"
-                                Click="OnOpenPerformanceLogClick"/>
-                    </controls:SettingsCard>
-
                     <local:SettingsSectionHeader Heading="Advanced"/>
+                    <!-- Vertical, as the Keep Awake page's session card: beside a row of three buttons
+                         the description is squeezed into a narrow column. -->
                     <controls:SettingsCard Header="Settings file"
-                                            Description="ChargeKeeper stores its configuration in settings.json.">
+                                            Description="ChargeKeeper stores its configuration in settings.json."
+                                            ContentAlignment="Vertical"
+                                            HorizontalContentAlignment="Stretch">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="OpenSettingsFolderBtn" Content="Open settings folder" Click="OnOpenSettingsFolder"/>
                             <Button x:Name="OpenSettingsFileBtn" Content="Open settings file" Click="OnOpenSettingsFile"/>
@@ -612,7 +609,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Logs"
-                                            Description="ChargeKeeper's own diagnostic trail: general activity, power events, and the performance history above.">
+                                            Description="ChargeKeeper's own diagnostic trail: general activity, power events, and the performance history above, which is kept beside the battery history on the same retention.">
                         <DropDownButton x:Name="OpenLogButton" Content="Open log">
                             <DropDownButton.Flyout>
                                 <MenuFlyout Placement="Bottom">

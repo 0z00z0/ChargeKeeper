@@ -744,9 +744,6 @@ internal sealed partial class SettingsWindow : Window
         PerformanceGraph.ApplySettings();
     }
 
-    private void OnOpenPerformanceLogClick(object sender, RoutedEventArgs e)
-        => ExplorerLauncher.Reveal(PerformanceHistoryService.FilePath);
-
     private void OnOpenSettingsFolder(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Reveal(SettingsService.FilePath);
 
