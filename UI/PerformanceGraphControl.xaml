@@ -87,6 +87,14 @@
                     <TextBlock x:Name="LegendProcessorText" Text="Processor" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
+                <!-- The mean carries the processor line's own colour, dashed: it is the same series
+                     read another way, not a third quantity. -->
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Line x:Name="LegendMeanSwatch" X1="0" Y1="0" X2="14" Y2="0"
+                          StrokeThickness="2" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="LegendMeanText" Text="Processor mean" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Border x:Name="LegendMemorySwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendMemoryText" Text="Memory" FontSize="12"

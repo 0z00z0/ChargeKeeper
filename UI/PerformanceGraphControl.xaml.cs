@@ -13,9 +13,12 @@ namespace ChargeKeeper.UI;
 /// the right, over one fixed window.
 /// </summary>
 /// <remarks>
-/// <para>The two lines are sampled at different rates on purpose, so the legend names each rate
+/// <para>The two sampled lines run at different rates on purpose, so the legend names each rate
 /// beside its own swatch. At the slow end of the range the once-a-second memory line is the denser
 /// of the two, which reads as a defect unless the interface says which is which.</para>
+/// <para>A third line, the processor series averaged across the window, is drawn dashed in the
+/// processor line's own colour. It exists because a single processor sample cannot resolve this
+/// application: see <see cref="RollingMean"/>.</para>
 /// <para>The curve comes from <see cref="MonotoneCubic"/> and <see cref="MonotonePath"/>, the same
 /// interpolation and figure builder the battery history graph draws with, and the colours from
 /// <see cref="AppColors"/>. Nothing here decides a colour or fits a curve of its own.</para>
@@ -26,6 +29,11 @@ public sealed partial class PerformanceGraphControl : UserControl
 {
     private const double ProcessorStrokeWidth = 2.5;
     private const double MemoryStrokeWidth    = 2.0;
+    private const double MeanStrokeWidth      = 1.5;
+
+    // Dash pattern for the mean, in multiples of its own stroke width. The mean shares the processor
+    // line's colour, so the dash is what separates the two.
+    private static readonly double[] MeanDashPattern = [4, 3];
 
     // Below this the processor axis stops shrinking: an idle tray app would otherwise have its own
     // rounding noise drawn as a full-height mountain range.
@@ -52,6 +60,9 @@ public sealed partial class PerformanceGraphControl : UserControl
         LegendProcessorSwatch.Background = AppColors.PerformanceProcessorBrush;
         LegendMemorySwatch.Background    = AppColors.PerformanceMemoryBrush;
 
+        LegendMeanSwatch.Stroke = AppColors.PerformanceProcessorBrush;
+        foreach (double d in MeanDashPattern) LegendMeanSwatch.StrokeDashArray.Add(d);
+
         _repaintTimer = new DispatcherTimer { Interval = RepaintInterval };
         _repaintTimer.Tick += (_, _) => Render();
 
@@ -69,6 +80,7 @@ public sealed partial class PerformanceGraphControl : UserControl
         bool on = settings.PerformanceGraphEnabled;
 
         LegendProcessorText.Text = $"Processor · {settings.PerformanceSampleRate.Label()}";
+        LegendMeanText.Text      = $"Processor mean · {SpanLabel(PerformanceHistoryService.WindowSpan)}";
         LegendMemoryText.Text    = "Memory · 1 Hz";
 
         if (on && _loaded)
@@ -148,6 +160,12 @@ public sealed partial class PerformanceGraphControl : UserControl
             AppColors.PerformanceProcessorBrush, ProcessorStrokeWidth,
             fill: AppColors.PerformanceProcessorFillBrush);
 
+        // Last, so the reading that resolves the app sits on top of the line that cannot.
+        DrawSeries(
+            [.. RollingMean(processor).Select(p => Project(p.AtUtc, p.Percent, 0, processorTop))],
+            AppColors.PerformanceProcessorBrush, MeanStrokeWidth, fill: null,
+            dash: MeanDashPattern);
+
         Point Project(DateTime atUtc, double value, double low, double high)
         {
             double x = (atUtc - startUtc) / span * w;
@@ -158,11 +176,39 @@ public sealed partial class PerformanceGraphControl : UserControl
     }
 
     /// <summary>
-    /// Draws one series as a monotone curve, optionally with a fade beneath it. A single point is
-    /// drawn as a dot: a curve needs two, and at the slow end of the rate range a fresh window holds
-    /// exactly one processor sample for the first ten seconds.
+    /// The processor series averaged across the window, point by point: each point is the mean of
+    /// every sample from the start of the window up to and including it.
     /// </summary>
-    private void DrawSeries(IReadOnlyList<Point> points, Brush stroke, double thickness, Brush? fill)
+    /// <remarks>
+    /// Process processor time is accounted in fixed quanta of 15.625 ms, so at the fast rates one
+    /// sample is either zero or a spike many times what this application actually costs — the raw
+    /// line cannot resolve its own subject. Averaging divides that quantum by the number of samples
+    /// behind the point, so the right-hand end, which has the whole two-minute window behind it,
+    /// resolves to well under a thousandth of a percent at every rate. The left-hand end has little
+    /// behind it and sits on the raw line; the line steadies from left to right.
+    /// </remarks>
+    private static IReadOnlyList<ProcessorReading> RollingMean(IReadOnlyList<ProcessorReading> series)
+    {
+        if (series.Count == 0) return [];
+
+        var mean  = new ProcessorReading[series.Count];
+        double sum = 0;
+        for (int i = 0; i < series.Count; i++)
+        {
+            sum += series[i].Percent;
+            mean[i] = new ProcessorReading(series[i].AtUtc, sum / (i + 1));
+        }
+        return mean;
+    }
+
+    /// <summary>
+    /// Draws one series as a monotone curve, optionally with a fade beneath it or a dash pattern. A
+    /// single point is drawn as a dot: a curve needs two, and at the slow end of the rate range a
+    /// fresh window holds exactly one processor sample for the first ten seconds.
+    /// </summary>
+    private void DrawSeries(
+        IReadOnlyList<Point> points, Brush stroke, double thickness, Brush? fill,
+        IReadOnlyList<double>? dash = null)
     {
         if (points.Count == 0) return;
 
@@ -192,13 +238,15 @@ public sealed partial class PerformanceGraphControl : UserControl
 
         var lineGeometry = new PathGeometry();
         lineGeometry.Figures.Add(MonotonePath.Figure(points, tangents));
-        PlotCanvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
+        var path = new Microsoft.UI.Xaml.Shapes.Path
         {
             Data            = lineGeometry,
             Stroke          = stroke,
             StrokeThickness = thickness,
             StrokeLineJoin  = PenLineJoin.Round,
-        });
+        };
+        if (dash is not null) foreach (double d in dash) path.StrokeDashArray.Add(d);
+        PlotCanvas.Children.Add(path);
     }
 
     private void UpdateStateLabel(int processorPoints, int memoryPoints)
@@ -223,10 +271,12 @@ public sealed partial class PerformanceGraphControl : UserControl
     private static string Megabytes(double value) =>
         string.Create(CultureInfo.CurrentCulture, $"{value:0.#} MB");
 
-    private static string FormatSpan(TimeSpan span) =>
+    private static string SpanLabel(TimeSpan span) =>
         span.TotalMinutes >= 1
-            ? string.Create(CultureInfo.CurrentCulture, $"−{span.TotalMinutes:0} min")
-            : string.Create(CultureInfo.CurrentCulture, $"−{span.TotalSeconds:0} s");
+            ? string.Create(CultureInfo.CurrentCulture, $"{span.TotalMinutes:0} min")
+            : string.Create(CultureInfo.CurrentCulture, $"{span.TotalSeconds:0} s");
+
+    private static string FormatSpan(TimeSpan span) => "−" + SpanLabel(span);
 
     /// <summary>Rounds an axis top up to something a reader can divide in half in their head.</summary>
     private static double NiceCeiling(double value)
