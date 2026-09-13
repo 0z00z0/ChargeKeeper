@@ -36,11 +36,12 @@ internal readonly record struct StandbyCapability(bool ModernStandby, bool Suppo
     /// <remarks>
     /// On a Modern Standby machine the delay's central promise does not always hold. Parking the
     /// Windows lid-close action on "do nothing" stops the lid sleeping the computer, and the hold the
-    /// wait takes is the primitive against traditional S3 sleep — but a low-power-idle machine enters
-    /// standby on its own idle rules regardless, which a wait armed for two hours has been measured
-    /// doing thirty-two seconds after the lid closed. Saying so is the whole of the remedy: appearing
-    /// to work is the fault, and a wait that arms, records its conditions and reports progress while
-    /// the computer is already asleep is exactly that.
+    /// wait takes is the primitive against traditional S3 sleep. On a low-power-idle machine Windows
+    /// honours that hold indefinitely on mains but only for a limited time past the sleep timeout on
+    /// battery, after which standby can arrive mid-wait. The screen turning off thirty seconds after
+    /// the lock taken at lid close is not standby: on mains the application keeps sampling through it.
+    /// Saying so is the whole of the remedy: appearing to work is the fault, and a wait that arms,
+    /// records its conditions and reports progress while the computer is already asleep is exactly that.
     /// <para>Null for every other reading, the failed one included. A machine whose sleep type could
     /// not be read is not known to have the problem, and a warning on a guess is a worse surface than
     /// none.</para>

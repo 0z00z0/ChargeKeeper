@@ -16,6 +16,8 @@ in `ChargeKeeper.csproj`.
   edges, and one after a smart clock's display, where each digit is cut by its own cell with a seam
   between them and the cells sit at slightly different heights. All three now draw 100 as tall as
   any other reading, in a condensed face, instead of shrinking it to fit.
+- This release also carries everything listed under 1.54.0 (#168, #169), 1.55.0 (#144, #143, #167,
+  #191) and 1.56.0 (#165, #166) below, since those versions were never published.
 
 ## 1.56.0
 

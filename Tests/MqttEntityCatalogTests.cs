@@ -187,7 +187,7 @@ public class MqttEntityCatalogTests
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsTwentyFourSensorsFourteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsTwentyFourSensorsThirteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -196,7 +196,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 24, ["switch"] = 14, ["number"] = 9,
+                ["sensor"] = 24, ["switch"] = 13, ["number"] = 9,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
             },
             byPlatform);
