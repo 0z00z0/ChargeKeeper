@@ -17,6 +17,9 @@
     arrived without a timestamp (ZZS013) — an outcome Set-AuthenticodeSignature reports
     as Valid, and one that stops verifying the day the certificate expires.
 
+    -NoTimestamp signs without asking a timestamp server. A local build passes it, following the
+    ZeroZeroSignNoTimestamp property in ChargeKeeper.csproj; a GitHub Actions build does not.
+
     To use a real CA-issued certificate instead, import it into Cert:\CurrentUser\My
     with the same -Subject and skip -Setup; signing picks it up by subject name.
 
@@ -36,7 +39,9 @@ param(
     # The build kit's signing script. The Release build passes the path the kit itself publishes;
     # a hand run resolves it from the restored package. Resolved in the body, not here:
     # $PSScriptRoot is still empty while a parameter default is evaluated under Windows PowerShell.
-    [string] $Signer
+    [string] $Signer,
+    # Signs without a timestamp. Passed by local builds only; see ZeroZeroSignNoTimestamp.
+    [switch] $NoTimestamp
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,9 +136,12 @@ if (-not (Test-Path $Signer)) {
     return
 }
 
+$signerArguments = @('-Path', $Path, '-Thumbprint', $cert.Thumbprint)
+if ($NoTimestamp) { $signerArguments += '-NoTimestamp' }
+else              { $signerArguments += @('-TimestampServer', $TimestampUrl) }
+
 Write-Host "Signing $Path ..."
-& powershell -NoProfile -ExecutionPolicy Bypass -File $Signer `
-    -Path $Path -Thumbprint $cert.Thumbprint -TimestampServer $TimestampUrl
+& powershell -NoProfile -ExecutionPolicy Bypass -File $Signer @signerArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Signing failed: the build kit's signer exited $LASTEXITCODE."
 }

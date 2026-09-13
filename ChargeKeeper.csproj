@@ -265,8 +265,19 @@
     The signing itself belongs to the build kit's own script, whose path the kit publishes as
     ZeroZeroSigningScript and which resolves inside the restored SDK package.
   -->
+  <!-- A local build signs without a timestamp, so it needs no timestamp server and still carries a
+       real signature. GITHUB_ACTIONS is "true" on every GitHub Actions runner, so CI leaves this
+       unset and an untimestamped signature there still fails ZZS013. installer\build-installer.ps1
+       reads the property back rather than repeating the condition. -->
+  <PropertyGroup>
+    <ZeroZeroSignNoTimestamp Condition="'$(GITHUB_ACTIONS)' != 'true'">true</ZeroZeroSignNoTimestamp>
+  </PropertyGroup>
+
   <Target Name="SignOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\sign.ps1&quot; -Path &quot;$(TargetDir)$(AssemblyName).exe&quot; -Signer &quot;$(ZeroZeroSigningScript)&quot;" ContinueOnError="true" />
+    <PropertyGroup>
+      <_SignNoTimestampSwitch Condition="'$(ZeroZeroSignNoTimestamp)' == 'true'"> -NoTimestamp</_SignNoTimestampSwitch>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\sign.ps1&quot; -Path &quot;$(TargetDir)$(AssemblyName).exe&quot; -Signer &quot;$(ZeroZeroSigningScript)&quot;$(_SignNoTimestampSwitch)" ContinueOnError="true" />
   </Target>
 
   <!-- Publish properties: ReadyToRun on Release; trimming OFF (WinUI + reflection-y bits are

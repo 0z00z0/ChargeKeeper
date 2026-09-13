@@ -84,13 +84,19 @@ if (-not (Test-Path (Join-Path $publishDir "ChargeKeeper.pri"))) {
 # dotnet publish creates a fresh apphost in the publish folder — a separate binary
 # from the bin\ build output that SignOutput already signed. Sign this copy so the
 # installed exe is not flagged as Unsigned by security tools.
+# Read from the project rather than decided here, so a local build and a CI build agree with
+# SignOutput: true locally, unset on GitHub Actions.
+$noTimestampValue = dotnet msbuild $proj -nologo -getProperty:ZeroZeroSignNoTimestamp
+if ($LASTEXITCODE -ne 0) { throw "Reading ZeroZeroSignNoTimestamp from $proj failed ($LASTEXITCODE)." }
+$signSwitches = if ("$noTimestampValue".Trim() -eq 'true') { @('-NoTimestamp') } else { @() }
+
 $publishedExe = Join-Path $publishDir "ChargeKeeper.exe"
 if (Test-Path $publishedExe) {
     Write-Host "==> Signing published exe..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\sign.ps1") -Path $publishedExe
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\sign.ps1") -Path $publishedExe @signSwitches
     # A machine with no certificate exits 0 and is signed by CI instead. A non-zero exit is a real
-    # failure — the signature refused, or one that came out without a timestamp — and the file it
-    # left behind must not be packed.
+    # failure — the signature refused, or on CI one that came out without a timestamp — and the
+    # file it left behind must not be packed.
     if ($LASTEXITCODE -ne 0) { throw "Signing the published exe failed ($LASTEXITCODE)." }
 }
 
@@ -123,9 +129,9 @@ $setup = Join-Path $installerDir "Output\ChargeKeeper-Setup-$Version.exe"
 # Sign before computing the SHA so the printed hash matches the distributed file.
 if (Test-Path $setup) {
     Write-Host "==> Signing installer..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\sign.ps1") -Path $setup
-    # As above: absent certificate exits 0, a refused or untimestamped signature does not, and an
-    # installer nobody can verify once the certificate expires must not be handed on as finished.
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\sign.ps1") -Path $setup @signSwitches
+    # As above: absent certificate exits 0, a refused signature does not, and on CI neither does an
+    # untimestamped one — an installer nobody can verify once the certificate expires.
     if ($LASTEXITCODE -ne 0) { throw "Signing the installer failed ($LASTEXITCODE)." }
 }
 
