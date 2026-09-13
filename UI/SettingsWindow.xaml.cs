@@ -743,10 +743,10 @@ internal sealed partial class SettingsWindow : Window
         => ExplorerLauncher.Open(SettingsService.FilePath);
 
     private void OnOpenAppLogClick(object sender, RoutedEventArgs e)
-        => ExplorerLauncher.Open(AppPaths.DataFile("app.log"));
+        => ExplorerLauncher.Open(AppPaths.LogFile(AppLog.FileName));
 
     private void OnOpenPowerLogClick(object sender, RoutedEventArgs e)
-        => ExplorerLauncher.Open(AppPaths.DataFile(PowerLog.FileName));
+        => ExplorerLauncher.Open(AppPaths.LogFile(PowerLog.FileName));
 
     private void OnOpenPerformanceHistoryLogClick(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Open(PerformanceHistoryService.FilePath);

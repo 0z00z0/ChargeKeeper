@@ -26,7 +26,7 @@ dotnet run
 
 | Switch | Purpose |
 |--------|---------|
-| `/debug [on\|off]` | **Command, not a launch mode.** Turns **crash-dump capture** on or off (WER LocalDumps → `%AppData%\ChargeKeeper\dumps`), then exits — it never starts the tray. Off by default on release builds so a shipped app never quietly writes minidumps of itself into your profile; debug builds arm it regardless. |
+| `/debug [on\|off]` | **Command, not a launch mode.** Turns **crash-dump capture** on or off (WER LocalDumps → `%AppData%\ChargeKeeper\Logs\dumps`), then exits — it never starts the tray. Off by default on release builds so a shipped app never quietly writes minidumps of itself into your profile; debug builds arm it regardless. |
 | `--watchdog-relaunch` | Internal. Used by the `ChargeKeeper Watchdog` scheduled task's 5-minute probe — not meant to be typed by hand. |
 | `--auto-relaunch` | Internal. Set when the app restarts itself after a GPU-reset teardown. |
 
@@ -49,7 +49,7 @@ ChargeKeeper.exe /debug off   # disarm again
 ```
 
 Each invocation shows a UAC prompt (the app is `requireAdministrator`, and the registration lives in
-**HKLM**) and reports what it did to `%AppData%\ChargeKeeper\app.log` — there is no console output,
+**HKLM**) and reports what it did to `%AppData%\ChargeKeeper\Logs\app.log` — there is no console output,
 because the exe is a windowed app.
 
 Because the choice is stored rather than read from the command line, **every** way the app can start
@@ -130,6 +130,15 @@ Settings persist to `%AppData%\ChargeKeeper\settings.json` — a roaming, human-
 The MQTT broker block is the one exception: it lives beside it in `mqtt.json`, together with
 `mqtt-discovery.json`, which records what has actually been put on the broker.
 
+The rest of that folder is split in two. **`Logs`** holds `app.log` and `power.log` with their daily
+archives, the installer's `update-install.log` and the `dumps` folder; **`History`** holds
+`battery-level-history.csv`, `battery-capacity-history.csv` and `performance-history.csv`. The small
+state files — the relaunch history, the update handover and refusal notes, and the marker files — stay
+at the top beside `settings.json`. A version that finds any of the logs or histories still at the top,
+where earlier versions wrote them, moves them into their subfolder as it starts; a file it cannot
+move, because another program holds it or a file of that name is already in the subfolder, stays
+where it is and the reason goes to `app.log`.
+
 > **Upgrading from Lenovo Power Tray?** On first launch the app automatically moves the old
 > `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper`, so settings and battery history
 > carry over.
@@ -165,7 +174,7 @@ ChargeKeeper itself is costing, plotted live.
   threads are read once a second whatever the rate says, because they cost a snapshot of every
   process on the machine while reading processor time does not. At the slowest rate the memory line
   is therefore the denser of the two; the legend names each line's own rate.
-- **The log** is `%AppData%\ChargeKeeper\performance-history.csv`, separate from `app.log` and from
+- **The log** is `%AppData%\ChargeKeeper\History\performance-history.csv`, separate from `app.log` and from
   the battery histories, and on the same retention mechanism as the battery level history: rows past
   the retention age are dropped, and because the rate is adjustable this file also carries a row cap.
 
@@ -193,7 +202,7 @@ An accepted update installs **unattended** — no wizard, no page to advance. Th
 app closes, the installer runs showing a progress window only, and the app starts again on the new
 version and reports what changed. It does not wait on the installer: waiting would hold the very
 files the installer replaces. An update that does not complete is stated the next time the app
-starts, alongside the installer's own log at `%AppData%\ChargeKeeper\update-install.log`.
+starts, alongside the installer's own log at `%AppData%\ChargeKeeper\Logs\update-install.log`.
 
 An installer carrying the older `ChargeKeeper AutoUpdate` logon task removes it on install: that task
 ran `winget upgrade`, and the package is not in a winget source.

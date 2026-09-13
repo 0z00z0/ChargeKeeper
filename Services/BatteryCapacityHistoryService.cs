@@ -27,7 +27,9 @@ internal static class BatteryCapacityHistoryService
     internal const string HeaderColumns = "timestamp,full_charge_mwh,design_capacity_mwh";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
-    private static readonly CsvSampleStore _store = new("battery-capacity-history.csv", Header);
+    internal const string FileName = "battery-capacity-history.csv";
+
+    private static readonly CsvSampleStore _store = new(FileName, Header);
 
     private static readonly Lock _lock = new();
 

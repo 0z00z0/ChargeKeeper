@@ -7,7 +7,7 @@ namespace ChargeKeeper.Services;
 internal enum CsvRowVerdict { NotARow, Keep, Expired }
 
 /// <summary>
-/// Append-only CSV file store under <c>%AppData%\ChargeKeeper</c>, shared by the two history
+/// Append-only CSV file store under <c>%AppData%\ChargeKeeper\History</c>, shared by the history
 /// services. Pure file plumbing — row format, pruning and windowing stay in the services.
 /// </summary>
 /// <remarks>
@@ -21,12 +21,12 @@ internal sealed class CsvSampleStore
     private bool _dirEnsured;
     private readonly string? _header;
 
-    /// <param name="fileName">File name inside <c>%AppData%\ChargeKeeper</c>.</param>
+    /// <param name="fileName">File name inside <c>%AppData%\ChargeKeeper\History</c>.</param>
     /// <param name="header">Header block written when the file is created; its lines fail every
     /// service's <c>TryParse</c>, so readers skip them for free.</param>
     internal CsvSampleStore(string fileName, string? header = null)
     {
-        _path = AppPaths.DataFile(fileName);
+        _path = AppPaths.HistoryFile(fileName);
         _header = header;
     }
 

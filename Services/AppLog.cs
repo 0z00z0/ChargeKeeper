@@ -7,7 +7,7 @@ using NLog.Targets.Wrappers;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// The app's Info/Error log at <c>%AppData%\ChargeKeeper\app.log</c>, a facade over NLog configured
+/// The app's Info/Error log at <c>%AppData%\ChargeKeeper\Logs\app.log</c>, a facade over NLog configured
 /// by <c>nlog.config</c> beside the exe.
 /// </summary>
 /// <remarks>
@@ -18,6 +18,10 @@ namespace ChargeKeeper.Services;
 /// </remarks>
 internal static class AppLog
 {
+    /// <summary>Spelt again in <c>nlog.config</c>, which cannot read it; <c>NLogConfigTests</c>
+    /// asserts the two resolve to the same path.</summary>
+    internal const string FileName = "app.log";
+
     /// <summary>Mirrored from <c>nlog.config</c> for <see cref="BuildFallbackConfiguration"/> only —
     /// a fallback cannot read the missing file. <c>NLogConfigTests</c> asserts they match.</summary>
     internal const long ArchiveAboveSizeBytes = 10L * 1024 * 1024;
@@ -154,7 +158,7 @@ internal static class AppLog
     {
         var file = new FileTarget("appfile_file")
         {
-            FileName            = AppPaths.DataFile("app.log"),
+            FileName            = AppPaths.LogFile(FileName),
             Layout              = LineLayout,
             LineEnding          = LineEndingMode.LF,
             KeepFileOpen        = false,   // see the remarks: concurrent processes write this file
@@ -178,7 +182,7 @@ internal static class AppLog
         // Same policy, second file — see PowerLog.
         var powerFile = new FileTarget("powerfile_file")
         {
-            FileName            = AppPaths.DataFile(PowerLog.FileName),
+            FileName            = AppPaths.LogFile(PowerLog.FileName),
             Layout              = PowerLog.LineLayout,
             LineEnding          = LineEndingMode.LF,
             KeepFileOpen        = false,

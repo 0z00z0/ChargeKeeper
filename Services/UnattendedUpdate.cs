@@ -54,7 +54,7 @@ internal static class UnattendedUpdate
 
     internal static string HandoverPath     => AppPaths.DataFile(HandoverFileName);
     internal static string RefusalPath      => AppPaths.DataFile(RefusalFileName);
-    internal static string InstallerLogPath => AppPaths.DataFile(InstallerLogFileName);
+    internal static string InstallerLogPath => AppPaths.LogFile(InstallerLogFileName);
 
     /// <summary>
     /// What Setup is started with. <c>/SILENT</c> rather than <c>/VERYSILENT</c>: neither shows a
@@ -80,6 +80,8 @@ internal static class UnattendedUpdate
         try
         {
             Directory.CreateDirectory(AppPaths.DataDir);
+            // Setup is handed a /LOG path inside it and is not relied on to create the folder.
+            Directory.CreateDirectory(AppPaths.LogsDir);
             // A refusal from an earlier attempt says nothing about this one.
             Discard(RefusalPath);
             File.WriteAllText(HandoverPath, JsonSerializer.Serialize(new Handover

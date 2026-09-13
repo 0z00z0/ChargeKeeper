@@ -79,7 +79,7 @@ public class NLogConfigTests
         var file = FileTargetOf(LoadShippedConfigStrictly());
         var rendered = file.FileName.Render(LogEventInfo.CreateNullEvent());
 
-        Assert.Equal(AppPaths.DataFile("app.log"), rendered, ignoreCase: true);
+        Assert.Equal(AppPaths.LogFile(AppLog.FileName), rendered, ignoreCase: true);
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class NLogConfigTests
         var config = LoadShippedConfigStrictly();
 
         Assert.Contains("powerfile", TargetsFor(config, PowerLog.LoggerName));
-        Assert.Equal(AppPaths.DataFile(PowerLog.FileName),
+        Assert.Equal(AppPaths.LogFile(PowerLog.FileName),
                      FileTargetOf(config, "powerfile").FileName.Render(LogEventInfo.CreateNullEvent()),
                      ignoreCase: true);
     }

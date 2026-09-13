@@ -202,7 +202,7 @@ public partial class App : Application
         // it only has to be armed before a FUTURE crash, not before the tray icon appears.
         _ = Task.Run(() =>
         {
-            string dumpDir = AppPaths.DataFile("dumps");
+            string dumpDir = CrashDumps.DumpDir;
             CrashDumps.ApplyPolicy(dumpDir);
             CrashDumps.TryDisarmSilentExitMonitor();
             CrashDumps.TryCleanupOldDumps(dumpDir);

@@ -58,7 +58,9 @@ internal static class PerformanceHistoryService
         "timestamp,cpu_percent,working_set_kb,private_kb,handles,threads";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
-    private static readonly CsvSampleStore _store = new("performance-history.csv", Header);
+    internal const string FileName = "performance-history.csv";
+
+    private static readonly CsvSampleStore _store = new(FileName, Header);
 
     private static readonly Lock _lock = new();
 

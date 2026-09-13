@@ -18,6 +18,12 @@ internal static class CrashDumps
 
     private const string DebugOffValue = "off";
 
+    /// <summary>The dump folder's name inside the Logs subfolder.</summary>
+    internal const string DumpFolderName = "dumps";
+
+    /// <summary>Where WER is told to write this exe's minidumps.</summary>
+    internal static string DumpDir => AppPaths.LogFile(DumpFolderName);
+
     /// <summary>The armed intent — a marker file whose mere existence means "capture is on". A file
     /// of its own rather than an <see cref="AppSettings"/> field, because the tray app rewrites the
     /// whole settings file on save and would clobber a flag written under it.</summary>

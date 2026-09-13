@@ -22,7 +22,7 @@ internal readonly record struct DowntimeGapInfo(int SocDropPercent, TimeSpan Gap
 
 /// <summary>
 /// File-backed battery history. Every sample (SoC %, Smart-Charge limit %, charge power mW) is
-/// appended to <c>%AppData%\ChargeKeeper\battery-level-history.csv</c> with an ISO-8601 timestamp, so
+/// appended to <c>%AppData%\ChargeKeeper\History\battery-level-history.csv</c> with an ISO-8601 timestamp, so
 /// the graph survives restarts and downtime shows up as a gap. Rows are kept for 14 days, and only
 /// the currently-selected time window is held in memory.
 /// </summary>
@@ -82,7 +82,9 @@ internal static class BatteryHistoryService
         "timestamp,soc_percent,charge_limit_percent,power_mw,power_state,temperature_c";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
-    private static readonly CsvSampleStore _store = new("battery-level-history.csv", Header);
+    internal const string FileName = "battery-level-history.csv";
+
+    private static readonly CsvSampleStore _store = new(FileName, Header);
 
     private static readonly Lock _lock = new();
 

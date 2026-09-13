@@ -16,15 +16,24 @@ internal static class Program
         // Must run before ANYTHING touches %AppData%\ChargeKeeper — a log write, a marker, a settings
         // read — because Directory.Move refuses an existing destination, and a half-created new
         // folder would strand the user's settings and battery history in the old one forever.
-        MigrateLegacyAppDataFolder();
+        var reportLegacyMigration = MigrateLegacyAppDataFolder();
+
+        // Also before the first log line: logging creates Logs\app.log, and an app.log still at the
+        // top level could then not be moved onto it.
+        var layoutMoves = DataFolderLayout.MoveIntoSubfolders(AppPaths.DataDir);
 
         var startup = StartupArgs.Parse(Environment.GetCommandLineArgs());
+
+        reportLegacyMigration?.Invoke();
+        // A file left in place is found again at every start, and a watchdog probe starts every five
+        // minutes, so a probe reports only what moved.
+        DataFolderLayout.Report(layoutMoves, includeLeftInPlace: !startup.IsWatchdogProbe);
 
         // "/debug [on|off]" is a command, not a launch, and must be handled ahead of the
         // single-instance guard: the tray app is normally already running and would win the mutex.
         if (startup.IsDebugCommand)
         {
-            CrashDumps.TryHandleDebugCommand(Environment.GetCommandLineArgs(), AppPaths.DataFile("dumps"));
+            CrashDumps.TryHandleDebugCommand(Environment.GetCommandLineArgs(), CrashDumps.DumpDir);
             return;
         }
 
@@ -59,24 +68,26 @@ internal static class Program
 
     /// <summary>
     /// One-time migration for the Lenovo Power Tray → ChargeKeeper rename: moves
-    /// <c>%AppData%\LenovoPowerTray</c> to <c>%AppData%\ChargeKeeper</c>, logging any failure.
+    /// <c>%AppData%\LenovoPowerTray</c> to <c>%AppData%\ChargeKeeper</c>. Returns the log line to
+    /// write, or null when there is nothing to say.
     /// </summary>
-    private static void MigrateLegacyAppDataFolder()
+    /// <remarks>Returned rather than logged: a log line creates the Logs folder and its app.log, which
+    /// has to wait until <see cref="DataFolderLayout"/> has moved the folder's older files.</remarks>
+    private static Action? MigrateLegacyAppDataFolder()
     {
         try
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var oldDir  = Path.Combine(appData, "LenovoPowerTray");   // legacy name — kept as-is
             var newDir  = AppPaths.DataDir;
-            if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return;
+            if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return null;
 
             Directory.Move(oldDir, newDir);
-            AppLog.Info("Migrated legacy %AppData%\\LenovoPowerTray folder to %AppData%\\ChargeKeeper.");
+            return () => AppLog.Info("Migrated legacy %AppData%\\LenovoPowerTray folder to %AppData%\\ChargeKeeper.");
         }
         catch (Exception ex)
         {
-            // Logged only AFTER the move attempt — AppLog itself creates the new folder.
-            AppLog.Error("MigrateLegacyAppDataFolder", ex);
+            return () => AppLog.Error("MigrateLegacyAppDataFolder", ex);
         }
     }
 }

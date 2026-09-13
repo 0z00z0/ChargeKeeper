@@ -4,7 +4,7 @@ using NLog;
 namespace ChargeKeeper.Services;
 
 /// <summary>
-/// The power/sleep trail at <c>%AppData%\ChargeKeeper\power.log</c>: suspend/resume, the lid, the
+/// The power/sleep trail at <c>%AppData%\ChargeKeeper\Logs\power.log</c>: suspend/resume, the lid, the
 /// lid-close delay, keep-awake holds, Smart Standby scheduling and AC↔battery transitions. The
 /// nlog.config rule matching <see cref="LoggerName"/> is not <c>final</c>, so every line here also
 /// reaches app.log, where it can be correlated with the surrounding startup/teardown chatter.

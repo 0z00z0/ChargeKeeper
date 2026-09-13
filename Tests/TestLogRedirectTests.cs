@@ -64,7 +64,7 @@ public class TestLogRedirectTests
         Assert.True(File.Exists(redirected), $"nothing was written to {redirected}");
         Assert.Contains(marker, ReadShared(redirected), StringComparison.Ordinal);
 
-        string real = Path.Combine(TestLogRedirect.RealDataDirectory, "app.log");
+        string real = AppPaths.LogFile(AppLog.FileName);
         if (File.Exists(real))
             Assert.DoesNotContain(marker, ReadShared(real), StringComparison.Ordinal);
     }
@@ -82,7 +82,7 @@ public class TestLogRedirectTests
         Assert.True(File.Exists(redirected), $"nothing was written to {redirected}");
         Assert.Contains(marker, ReadShared(redirected), StringComparison.Ordinal);
 
-        string real = Path.Combine(TestLogRedirect.RealDataDirectory, PowerLog.FileName);
+        string real = AppPaths.LogFile(PowerLog.FileName);
         if (File.Exists(real))
             Assert.DoesNotContain(marker, ReadShared(real), StringComparison.Ordinal);
     }
