@@ -9,6 +9,19 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.56.0
+
+- #165 Measuring itself now costs ChargeKeeper almost nothing: the once-a-second reading of memory
+  and handles no longer takes a snapshot of every process on the computer, which on this machine had
+  grown to 12.5 ms and a large share of what the application itself was using, and is now under four
+  microseconds. Thread count is the one figure with no cheap route, so it is re-read once a minute
+  and the last count stands in between, and the history file gains how much the application has read
+  from and written to disk.
+- #166 The performance graph draws the processor line's two-minute average as a dashed line beside
+  it. Windows accounts processor time in steps of 15.625 ms, so at the faster sampling rates a single
+  sample is either nothing or a spike many times what ChargeKeeper costs; the average is the line to
+  read for the real figure.
+
 ## 1.55.0
 
 - #144 Every saved list on the Settings pages now works the same way: network profiles gain the
