@@ -4,10 +4,12 @@ namespace ChargeKeeper.Services;
 /// interval that ended at <paramref name="AtUtc"/>.</summary>
 internal readonly record struct ProcessorReading(DateTime AtUtc, double Percent);
 
-/// <summary>One resource reading. All four come from a single process snapshot, which is why they
-/// are one record and are sampled together.</summary>
+/// <summary>One resource reading. Memory, handles and the two cumulative I/O totals come from three
+/// direct queries against the process handle; the thread count is the last one read, because it has
+/// no cheap route and is refreshed on its own slow cadence.</summary>
 internal readonly record struct ResourceReading(
-    DateTime AtUtc, int WorkingSetKb, int PrivateBytesKb, int Handles, int Threads);
+    DateTime AtUtc, int WorkingSetKb, int PrivateBytesKb, int Handles, int Threads,
+    long ReadKb, long WriteKb);
 
 /// <summary>Where readings go. Behind an interface so the sampler can be exercised without touching
 /// a file.</summary>
@@ -28,8 +30,8 @@ internal interface IPerformanceProbe
     /// a few microseconds, no allocation, no machine-wide snapshot.</summary>
     TimeSpan ProcessorTime { get; }
 
-    /// <summary>Memory, handles and threads. Forces a snapshot of every process on the machine, so
-    /// all four are taken from that one snapshot and never at the processor rate.</summary>
+    /// <summary>Memory, handles, I/O and threads. The first three are direct queries costing a
+    /// microsecond or two; the thread count is the expensive one and carries its own cadence.</summary>
     ResourceReading ReadResources(DateTime atUtc);
 }
 
@@ -64,21 +66,22 @@ internal static class ProcessorLoad
 
 /// <summary>
 /// Samples this process at two rates: processor time at the rate the user chose, and memory, handles
-/// and threads once a second whatever that rate is.
+/// and I/O once a second whatever that rate is.
 /// </summary>
 /// <remarks>
-/// <para>The two rates are not a compromise. Reading processor time goes to the process handle and
-/// costs microseconds; the other four force a snapshot of every process on the machine, which costs
-/// milliseconds. Sampling all five at 10 Hz would spend a measurable fraction of a core on the act
-/// of measuring, which is the one thing a self-measurement graph must not do.</para>
+/// <para>The two rates are not a compromise. The once-a-second series also carries a flush, which is
+/// what fixes its cadence: at 10 Hz a write per sample would be ten file opens a second. The
+/// readings themselves are now cheap enough that the rate is a file-writing decision rather than a
+/// cost one — a self-measurement graph must not spend a measurable fraction of a core on the act of
+/// measuring.</para>
 /// <para>Switched off, this schedules NOTHING: no timer exists, so no callback runs and no reading
 /// is allocated. A timer that fires and returns early would still cost a wake per tick and is not
 /// what off means here. <c>PerformanceSamplerTests</c> holds that promise.</para>
 /// </remarks>
 internal sealed class PerformanceSampler : IDisposable
 {
-    /// <summary>The fixed rate for the snapshot-backed readings, independent of the chosen rate.
-    /// Also the flush cadence, so the file write rides on a tick that happens anyway.</summary>
+    /// <summary>The fixed rate for the resource readings, independent of the chosen rate. Also the
+    /// flush cadence, so the file write rides on a tick that happens anyway.</summary>
     public static readonly TimeSpan ResourcePeriod = TimeSpan.FromSeconds(1);
 
     private readonly IPerformanceProbe  _probe;

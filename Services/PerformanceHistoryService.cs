@@ -6,7 +6,8 @@ namespace ChargeKeeper.Services;
 /// reading, never both, because the two are sampled at different rates.</summary>
 internal readonly record struct PerformanceRow(
     DateTime AtUtc, double? ProcessorPercent,
-    int? WorkingSetKb, int? PrivateBytesKb, int? Handles, int? Threads);
+    int? WorkingSetKb, int? PrivateBytesKb, int? Handles, int? Threads,
+    long? ReadKb, long? WriteKb);
 
 /// <summary>
 /// File-backed self-measurement history, in its own file beside the two battery histories and
@@ -28,7 +29,12 @@ internal static class PerformanceHistoryService
     /// <summary>Rows older than this are dropped, as the battery history drops its own.</summary>
     internal const int RetentionDays = 7;
 
-    /// <summary>The ceiling age alone cannot supply here. Around 8 MB of rows.</summary>
+    /// <summary>
+    /// The ceiling age alone cannot supply here. Measured against an installed file: 209 840 rows in
+    /// 9.77 MB, about 47 bytes a row at the six-field width, so the cap is roughly 9.3 MB and not the
+    /// 8 MB first estimated. The two I/O columns add nine bytes to a resource row, putting the cap
+    /// near 10 MB.
+    /// </summary>
     internal const int MaxRows = 200_000;
 
     /// <summary>Appends between prunes. At 10 Hz this is roughly half an hour, so the file cannot
@@ -52,10 +58,14 @@ internal static class PerformanceHistoryService
         "timestamp = ISO 8601 with local UTC offset; " +
         "cpu_percent = share of the whole machine over the interval ending at that timestamp, " +
         "sampled at the rate chosen on the App diagnostics page (blank on a resource row); " +
-        "working_set_kb, private_kb, handles, threads = one process snapshot, " +
-        "sampled once per second whatever that rate is (blank on a processor row).";
+        "working_set_kb, private_kb, handles, read_kb, write_kb = read directly from the process " +
+        "handle once per second whatever that rate is (blank on a processor row); " +
+        "read_kb and write_kb are cumulative since the process started; " +
+        "threads = re-read once a minute, because every route to it enumerates the whole machine, " +
+        "so the last value read stands on the rows in between. " +
+        "A row written before 1.56.0 ends at threads and carries no I/O figures.";
     internal const string HeaderColumns =
-        "timestamp,cpu_percent,working_set_kb,private_kb,handles,threads";
+        "timestamp,cpu_percent,working_set_kb,private_kb,handles,threads,read_kb,write_kb";
     internal const string Header = HeaderComment + "\n" + HeaderColumns;
 
     internal const string FileName = "performance-history.csv";
@@ -234,20 +244,27 @@ internal static class PerformanceHistoryService
         }
     }
 
-    // Row: timestamp,cpu_percent,working_set_kb,private_kb,handles,threads. The timestamp is ISO
-    // 8601 with the machine's local UTC offset, as both battery histories write it; the numbers are
-    // InvariantCulture because this is a machine-readable file, not a display.
+    // Row: timestamp,cpu_percent,working_set_kb,private_kb,handles,threads,read_kb,write_kb. The
+    // timestamp is ISO 8601 with the machine's local UTC offset, as both battery histories write it;
+    // the numbers are InvariantCulture because this is a machine-readable file, not a display.
     internal static string Format(ProcessorReading r) => string.Create(CultureInfo.InvariantCulture,
-        $"{Stamp(r.AtUtc)},{r.Percent:0.###},,,,");
+        $"{Stamp(r.AtUtc)},{r.Percent:0.###},,,,,,");
 
     internal static string Format(ResourceReading r) => string.Create(CultureInfo.InvariantCulture,
-        $"{Stamp(r.AtUtc)},,{r.WorkingSetKb},{r.PrivateBytesKb},{r.Handles},{r.Threads}");
+        $"{Stamp(r.AtUtc)},,{r.WorkingSetKb},{r.PrivateBytesKb},{r.Handles},{r.Threads},{r.ReadKb},{r.WriteKb}");
 
     private static string Stamp(DateTime atUtc) => new DateTimeOffset(atUtc).ToLocalTime()
         .ToString("yyyy-MM-ddTHH:mm:ss.fffzzz", CultureInfo.InvariantCulture);
 
-    /// <summary>Parses either kind of row. The header lines and anything corrupt fail here, which is
-    /// how every reader skips them for free.</summary>
+    /// <summary>
+    /// Parses either kind of row, at either width. The header lines and anything corrupt fail here,
+    /// which is how every reader skips them for free.
+    /// </summary>
+    /// <remarks>
+    /// Six fields is a row written before 1.56.0, which ends at the thread count; eight carries the
+    /// two cumulative I/O totals as well. Both must keep parsing for as long as a file written by an
+    /// older build can still be on disk, and an installed file is months of rows.
+    /// </remarks>
     internal static bool TryParse(string line, out PerformanceRow row)
     {
         row = default;
@@ -263,12 +280,19 @@ internal static class PerformanceHistoryService
         int? handles = int.TryParse(p[4], NumberStyles.Integer, ci, out var h) ? h : null;
         int? threads = int.TryParse(p[5], NumberStyles.Integer, ci, out var t) ? t : null;
 
+        long? read  = Long(p, 6);
+        long? write = Long(p, 7);
+
         // A row is one kind or the other. Neither present means a line that split into six fields
         // without being a row at all.
         if (cpu is null && working is null) return false;
 
-        row = new PerformanceRow(dto.UtcDateTime, cpu, working, priv, handles, threads);
+        row = new PerformanceRow(dto.UtcDateTime, cpu, working, priv, handles, threads, read, write);
         return true;
+
+        static long? Long(string[] fields, int index) =>
+            index < fields.Length && long.TryParse(fields[index], NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out var value) ? value : null;
     }
 }
 

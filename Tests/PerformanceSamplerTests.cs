@@ -53,7 +53,7 @@ public class PerformanceSamplerTests
         public ResourceReading ReadResources(DateTime atUtc)
         {
             ResourceReads++;
-            return new ResourceReading(atUtc, 51_200, 61_440, 412, 37);
+            return new ResourceReading(atUtc, 51_200, 61_440, 412, 37, 8_192, 4_096);
         }
     }
 
@@ -381,4 +381,43 @@ public class PerformanceSamplerTests
     public void AProcessorCounterThatWentBackwardsReportsZeroRatherThanANegative() =>
         Assert.Equal(0, ProcessorLoad.Percent(
             TimeSpan.FromSeconds(-1), TimeSpan.FromSeconds(1), processorCount: 8));
+
+    // ── The shipped probe ───────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The readings come from platform calls rather than a managed snapshot, so a wrong structure
+    /// layout or a failed query would hand the graph zeros and draw a flat line at the floor with
+    /// nothing said anywhere. Read against the test process itself, which has a working set, handles
+    /// and threads by definition.
+    /// </summary>
+    [Fact]
+    public void TheShippedProbeReadsThisProcessRatherThanZeros()
+    {
+        var at = new DateTime(2026, 9, 13, 12, 0, 0, DateTimeKind.Utc);
+
+        var reading = new SystemPerformanceProbe(() => at).ReadResources(at);
+
+        Assert.True(reading.WorkingSetKb > 0, "working set read as zero");
+        Assert.True(reading.PrivateBytesKb > 0, "private bytes read as zero");
+        Assert.True(reading.Handles > 0, "handle count read as zero");
+        Assert.True(reading.Threads > 0, "thread count read as zero");
+        Assert.True(reading.ReadKb >= 0 && reading.WriteKb >= 0, "I/O totals read as negative");
+    }
+
+    /// <summary>The thread count is re-read once a minute because every route to it enumerates the
+    /// whole machine. Between reads the last value stands — a blank would put "0 threads" on the
+    /// readout for 59 seconds out of every 60.</summary>
+    [Fact]
+    public void BetweenThreadReadsTheLastCountStands()
+    {
+        var at    = new DateTime(2026, 9, 13, 12, 0, 0, DateTimeKind.Utc);
+        var probe = new SystemPerformanceProbe(() => at);
+
+        int first  = probe.ReadResources(at).Threads;
+        int second = probe.ReadResources(at.AddSeconds(1)).Threads;
+
+        Assert.True(first > 0);
+        Assert.Equal(first, second);
+        Assert.Equal(TimeSpan.FromMinutes(1), SystemPerformanceProbe.ThreadCountPeriod);
+    }
 }

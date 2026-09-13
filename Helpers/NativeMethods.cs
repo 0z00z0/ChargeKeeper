@@ -697,4 +697,88 @@ internal static class NativeMethods
         }
     }
 
+    // ── This process's own resource use ─────────────────────────────────────────────────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_MEMORY_COUNTERS_EX
+    {
+        public uint  cb;
+        public uint  PageFaultCount;
+        public nuint PeakWorkingSetSize;
+        public nuint WorkingSetSize;
+        public nuint QuotaPeakPagedPoolUsage;
+        public nuint QuotaPagedPoolUsage;
+        public nuint QuotaPeakNonPagedPoolUsage;
+        public nuint QuotaNonPagedPoolUsage;
+        public nuint PagefileUsage;
+        public nuint PeakPagefileUsage;
+        public nuint PrivateUsage;      // the EX member; absent from the plain structure
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    // A pseudo-handle for the calling process. Constant, never closed.
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("psapi.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool GetProcessMemoryInfo(
+        IntPtr process, out PROCESS_MEMORY_COUNTERS_EX counters, uint size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool GetProcessHandleCount(IntPtr process, out uint count);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool GetProcessIoCounters(IntPtr process, out IO_COUNTERS counters);
+
+    /// <summary>What this process is using, as Windows accounts it. Byte figures are absolute;
+    /// the two transfer totals are cumulative since the process started.</summary>
+    internal readonly record struct ProcessResourceCounters(
+        long WorkingSetBytes, long PrivateBytes, int Handles, long ReadBytes, long WriteBytes);
+
+    /// <summary>
+    /// Memory, handle count and cumulative I/O for this process. Null when any of the three queries
+    /// fails, which callers must not read as zero.
+    /// </summary>
+    /// <remarks>
+    /// Three direct queries against the process pseudo-handle, about 1.5 µs together and allocating
+    /// nothing. The <see cref="System.Diagnostics.Process"/> route reaches the same figures only
+    /// through a snapshot of every process on the machine, which costs milliseconds and scales with
+    /// how many processes are running. Thread count is not here: every route to it is that same
+    /// machine-wide enumeration.
+    /// </remarks>
+    internal static ProcessResourceCounters? CurrentProcessResources()
+    {
+        try
+        {
+            var self = GetCurrentProcess();
+
+            // The size decides which structure Windows fills: the EX form, and so PrivateUsage.
+            uint size = (uint)Marshal.SizeOf<PROCESS_MEMORY_COUNTERS_EX>();
+            if (!GetProcessMemoryInfo(self, out var memory, size)) return null;
+            if (!GetProcessHandleCount(self, out uint handles)) return null;
+            if (!GetProcessIoCounters(self, out var io)) return null;
+
+            return new ProcessResourceCounters(
+                (long)memory.WorkingSetSize,
+                (long)memory.PrivateUsage,
+                (int)handles,
+                (long)io.ReadTransferCount,
+                (long)io.WriteTransferCount);
+        }
+        catch { return null; }
+    }
+
 }

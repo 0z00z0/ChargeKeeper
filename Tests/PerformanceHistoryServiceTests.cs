@@ -24,7 +24,7 @@ public class PerformanceHistoryServiceTests : IDisposable
 
     private static ProcessorReading Cpu(DateTime at, double pct) => new(at, pct);
 
-    private static ResourceReading Res(DateTime at) => new(at, 51_200, 61_440, 412, 37);
+    private static ResourceReading Res(DateTime at) => new(at, 51_200, 61_440, 412, 37, 8_192, 4_096);
 
     // ── Its own file, never the user's ──────────────────────────────────────────────────────────
 
@@ -87,6 +87,38 @@ public class PerformanceHistoryServiceTests : IDisposable
         Assert.Equal(61_440, row.PrivateBytesKb);
         Assert.Equal(412, row.Handles);
         Assert.Equal(37, row.Threads);
+        Assert.Equal(8_192, row.ReadKb);
+        Assert.Equal(4_096, row.WriteKb);
+    }
+
+    /// <summary>
+    /// The guard the widening exists behind. An installed file holds months of six-field rows
+    /// written before the two I/O columns were added; if those stopped parsing, every one of them
+    /// would silently vanish from the history the moment the application was updated.
+    /// </summary>
+    [Theory]
+    [InlineData("2026-09-02T06:00:00.000+02:00,,40736,220376,1958,26", 40_736, 26)]
+    [InlineData("2026-09-02T06:00:01.000+02:00,,40736,220376,1958,26,,", 40_736, 26)]
+    public void ARowWrittenBeforeTheIoColumnsStillParses(string line, int workingSetKb, int threads)
+    {
+        Assert.True(PerformanceHistoryService.TryParse(line, out var row));
+
+        Assert.Equal(workingSetKb, row.WorkingSetKb);
+        Assert.Equal(threads, row.Threads);
+        Assert.Null(row.ReadKb);
+        Assert.Null(row.WriteKb);
+    }
+
+    /// <summary>A processor row keeps its shape at the new width: eight fields, one of them the
+    /// percentage and the rest empty.</summary>
+    [Fact]
+    public void BothKindsOfRowCarryTheSameFieldCountAsTheHeader()
+    {
+        int columns = PerformanceHistoryService.HeaderColumns.Split(',').Length;
+        var at = new DateTime(2026, 9, 2, 6, 0, 0, DateTimeKind.Utc);
+
+        Assert.Equal(columns, PerformanceHistoryService.Format(Cpu(at, 1.25)).Split(',').Length);
+        Assert.Equal(columns, PerformanceHistoryService.Format(Res(at)).Split(',').Length);
     }
 
     [Fact]
