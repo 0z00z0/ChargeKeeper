@@ -99,17 +99,20 @@ public class LidThermalWatchTests
                                                targetSet: false, targetArrived: false));
 
     [Fact]
-    public void TheCeilingIsArmedWithTheHoldAndOnlyWhereAReadingExists()
+    public void TheCeilingIsArmedWithTheHoldAndOnlyWhereAReadingHasEverBeenApproved()
     {
         // Not a background monitor: it belongs to the hold, and a ceiling watching a value that
-        // never arrives is a safeguard that cannot act.
+        // never arrives is a safeguard that cannot act. Gated on the latch rather than the instant's
+        // value (issue #205): a machine under steady load can have nothing currently approved for
+        // minutes at a time even after proving itself once, and a lid close landing in such a
+        // stretch must still get a ceiling.
         string body = SourceMethods.Body(
             Regex.Replace(File.ReadAllText(RepoFiles.Find(Path.Combine("Services", "LidDelayService.cs"))),
                           @"//[^\r\n]*", string.Empty),
             "StartDelay");
 
         Assert.Contains("LidThermalCeilingEnabled", body, StringComparison.Ordinal);
-        Assert.Contains("ThermalStatusService.PublishableCelsius is not null", body, StringComparison.Ordinal);
+        Assert.Contains("ThermalStatusService.HasEverApprovedReading", body, StringComparison.Ordinal);
         Assert.Contains("_thermal.Arm(", body, StringComparison.Ordinal);
     }
 

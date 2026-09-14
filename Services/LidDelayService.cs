@@ -746,12 +746,14 @@ internal static class LidDelayService
 
             targetArm = LidTargetArming.Decide(s.LidDischargeEnabled, _lastBattery is not null, decision);
 
-            // The temperature safeguard, armed with the hold. Only where the machine offers a
-            // reading the gate has already vouched for: a ceiling watching a value that never
-            // arrives is a safeguard that cannot act, and one watching a stuck value would sleep a
-            // working machine the moment it armed.
+            // The temperature safeguard, armed with the hold. Gated on the reading ever having been
+            // vouched for this run, not on the instant of the lid close: a withheld reading under
+            // steady load — the gate wants movement across several samples — must not un-arm a
+            // ceiling for the whole hold just because the lid happened to shut mid-stretch.
+            // OnThermalReading below already stands the watch down rather than firing it on a
+            // missing reading, so a later withheld sample cannot trip it early either.
             _thermalEnded = false;
-            thermalCeiling = s.LidThermalCeilingEnabled && ThermalStatusService.PublishableCelsius is not null
+            thermalCeiling = s.LidThermalCeilingEnabled && ThermalStatusService.HasEverApprovedReading
                            ? LidThermalWatch.Clamp(s.LidThermalCeilingCelsius)
                            : null;
             if (thermalCeiling is { } ceiling) _thermal.Arm(ceiling);
@@ -790,7 +792,7 @@ internal static class LidDelayService
                            "lid closed with the temperature ceiling on");
         else if (SettingsService.Current.LidThermalCeilingEnabled)
             PowerLog.Event("No temperature ceiling on this lid close",
-                           "this machine offers no reading that has been shown to be trustworthy");
+                           "no reading has been shown to be trustworthy on this machine yet since ChargeKeeper started");
         else
             PowerLog.Event("No temperature ceiling on this lid close", "the setting is off");
 

@@ -329,9 +329,10 @@ internal sealed partial class SettingsWindow : Window
 
         // Static events, instance handlers: without these the closed window stays reachable from
         // the services for the process's life and keeps touching a torn-down UI tree.
-        KeepAwakeService.StateChanged          -= OnKeepAwakeStateChanged;
-        LidDelayService.StateChanged           -= OnLidDelayStateChanged;
-        NetworkLocationService.LocationChanged -= OnNetworkLocationChanged;
+        KeepAwakeService.StateChanged           -= OnKeepAwakeStateChanged;
+        LidDelayService.StateChanged            -= OnLidDelayStateChanged;
+        ThermalStatusService.FirstReadingApproved -= OnThermalFirstReadingApproved;
+        NetworkLocationService.LocationChanged  -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
         // An in-flight probe outlives the window by up to its budget; cancelling makes the
@@ -1555,8 +1556,9 @@ internal sealed partial class SettingsWindow : Window
     /// tray toggle, a network arrival. Unsubscribed in <see cref="OnClosed"/>.</summary>
     private void WireKeepAwakeHandlers()
     {
-        KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
-        LidDelayService.StateChanged  += OnLidDelayStateChanged;
+        KeepAwakeService.StateChanged           += OnKeepAwakeStateChanged;
+        LidDelayService.StateChanged            += OnLidDelayStateChanged;
+        ThermalStatusService.FirstReadingApproved += OnThermalFirstReadingApproved;
         _keepAwakeTicker.Tick += (_, _) => RefreshKeepAwakeState();
 
         // Echo the parser's reading as the user types, so "1h30" is confirmed as 1 h 30 m before
@@ -1663,6 +1665,10 @@ internal sealed partial class SettingsWindow : Window
     // after a lid close reached sleep — marshal before touching anything.
     private void OnLidDelayStateChanged() => RunOnUi(RefreshLidDelayState);
 
+    // Raised once, off the UI thread, the first time this run a temperature reading is approved —
+    // an open Settings page must enable the card itself rather than waiting to be reopened.
+    private void OnThermalFirstReadingApproved() => RunOnUi(RefreshLidDelayState);
+
     /// <summary>Puts the master switch and everything that depends on it where the setting is. Driven
     /// by the page load, by the switch itself, and by <see cref="LidDelayService.StateChanged"/>, so a
     /// feature that switches itself off shows here without the page being reopened.</summary>
@@ -1677,14 +1683,17 @@ internal sealed partial class SettingsWindow : Window
         LidDelayTimeToggle.IsEnabled     = on;
         LidDischargeToggle.IsEnabled     = on;
 
-        // The ceiling is offered only where this machine has a reading to act on. Saying so beats
-        // showing a control that cannot do anything.
-        bool hasReading = ThermalStatusService.PublishableCelsius is not null;
+        // The ceiling is offered once this machine has ever shown a reading to act on — the latch,
+        // not the instant's value: the gate wants movement across several samples, so a machine
+        // under steady load can go minutes at a time with nothing currently approved even after it
+        // has proved itself once. Reading the instant's value here disabled the card, with the wrong
+        // words, for as long as that stretch lasted.
+        bool hasReading = ThermalStatusService.HasEverApprovedReading;
         LidThermalToggle.IsEnabled       = on && hasReading;
         LidThermalCeilingCombo.IsEnabled = on && hasReading;
         LidThermalCard.Description = hasReading
             ? "Ends the wait early and sleeps the computer, ahead of the delay and the battery target."
-            : "This computer exposes no temperature reading that has been shown to be trustworthy, so there is nothing to act on.";
+            : "No temperature reading has arrived yet since ChargeKeeper started, so there is nothing to act on.";
 
         // Read fresh rather than cached, like every other reading on this page — and shown whether
         // the feature is on or off, because it is what someone deciding whether to switch it on

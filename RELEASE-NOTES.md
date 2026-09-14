@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.58.1
+
+- #205 The "Sleep if the computer reaches a temperature" card, and the temperature ceiling on a lid
+  close, now go by whether a trustworthy reading has ever arrived since ChargeKeeper started, rather
+  than the reading of the moment. Under steady load the card no longer disables itself, with the
+  wrong explanation, for minutes at a time, and a lid closed during such a stretch still gets its
+  temperature ceiling.
+
 ## 1.58.0
 
 - #204 The About window and the Settings About page share one layout: Check for updates sits on its
