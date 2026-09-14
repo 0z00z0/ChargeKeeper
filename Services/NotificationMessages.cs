@@ -56,12 +56,29 @@ internal static class NotificationMessages
         "The low-battery warning was reset when the application restarted. A warning will be " +
         $"given again below {warnAtPercent} %.";
 
+    public static string SwitchedOff(NotificationKind kind, int? atPercent) =>
+        atPercent is { } pct
+            ? $"{Subject(kind)} was not shown at {pct} %, because its switch on the Notifications page is off."
+            : $"{Subject(kind)} was not shown, because its switch on the Notifications page is off.";
+
+    public static string SoundHeldBack(NotificationKind kind, NotificationQuietReading quiet) =>
+        quiet.FocusSessionActive
+            ? $"{Subject(kind)} was shown without its sound, because a Windows focus session is on."
+            : $"{Subject(kind)} was shown without its sound, because Windows is holding notifications " +
+              $"back (notification state {quiet.UserNotificationState}).";
+
+    public static string SoundNotPlayed(string fileName, bool fileExists) =>
+        fileExists
+            ? $"The notification sound {fileName} could not be played. Windows refused it."
+            : $"The notification sound {fileName} could not be played, because the file is missing from the installation.";
+
     private static string Subject(NotificationKind kind) => kind switch
     {
         NotificationKind.LowBattery      => "A low-battery warning",
         NotificationKind.HighBattery     => "A high-battery warning",
         NotificationKind.ChargeComplete  => "A charge-complete notice",
         NotificationKind.ChargingStarted => "A charging-started notice",
+        NotificationKind.SleptWhileHot     => "A slept-early-to-cool-down notice",
         NotificationKind.SettingsNotSaved  => "A settings-not-saved warning",
         NotificationKind.ScriptFailed      => "A script-failed warning",
         _                                => "An unusual-drain warning",

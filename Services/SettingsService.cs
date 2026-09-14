@@ -141,6 +141,18 @@ internal sealed class AppSettings
     public bool DrainAnomalyWarningEnabled  { get; set; } = true;
     public int  DrainAnomalyPercentPerHour  { get; set; } = 3;
 
+    // The five notifications with a switch and no level. On by default: each was shown every time
+    // before it had a switch. Not published over MQTT.
+    public bool ChargeCompleteNoticeEnabled    { get; set; } = true;
+    public bool ChargingStartedNoticeEnabled   { get; set; } = true;
+    public bool SleptWhileHotWarningEnabled    { get; set; } = true;
+    public bool SettingsNotSavedWarningEnabled { get; set; } = true;
+    public bool ScriptFailedWarningEnabled     { get; set; } = true;
+
+    /// <summary>The one sound every notification uses; Low and High battery play its falling and
+    /// rising recordings. Not published over MQTT.</summary>
+    public NotificationSound NotificationSound { get; set; } = NotificationSounds.Default;
+
     public int StartupDelaySeconds { get; set; } = 0;
 
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;

@@ -177,6 +177,13 @@
     <Content Include="Assets\nav\*.svg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- The notification sounds, played by file path from beside the executable
+         (NotificationSoundPlayer), so they have to reach the publish the installer packages and not
+         only the build output. -->
+    <Content Include="Assets\Sounds\*.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <!-- The "What's new" report. Embedded rather than fetched: the requirement is that the report
          is always reachable, and an "always" that depends on a network is not one. The release
          workflow publishes the section for the tag it builds, so the report and the release page

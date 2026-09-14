@@ -91,12 +91,18 @@ public class SettingsFileShapeTests : IDisposable
         "LidClose.LidDelaySavedDcAction",
         "LidClose.LidDelaySavedScheme",
         "Notifications",
+        "Notifications.NotificationSound",
         "Notifications.LowBatteryWarningPct",
         "Notifications.LowBatteryWarningEnabled",
         "Notifications.HighBatteryWarningPct",
         "Notifications.HighBatteryWarningEnabled",
         "Notifications.DrainAnomalyPercentPerHour",
         "Notifications.DrainAnomalyWarningEnabled",
+        "Notifications.ChargeCompleteNoticeEnabled",
+        "Notifications.ChargingStartedNoticeEnabled",
+        "Notifications.SleptWhileHotWarningEnabled",
+        "Notifications.SettingsNotSavedWarningEnabled",
+        "Notifications.ScriptFailedWarningEnabled",
         "Scripts",
         "Scripts.Scripts",
         "Mqtt",
@@ -283,6 +289,40 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Equal(Describe(defaults), Describe(loaded!));
         Assert.Equal(defaults.LidDelayMinutes, loaded!.LidDelayMinutes);
         Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
+    }
+
+    /// <summary>An installed document carries a Notifications section without the sound and the five
+    /// newer switches. It has to read every one of those notifications as on and the sound as
+    /// Silent; the section type alone would read the switches as off.</summary>
+    [Fact]
+    public void NotificationKeysAbsentFromTheSectionReadAsOnAndSilent()
+    {
+        string[] newer =
+        [
+            "NotificationSound", "ChargeCompleteNoticeEnabled", "ChargingStartedNoticeEnabled",
+            "SleptWhileHotWarningEnabled", "SettingsNotSavedWarningEnabled", "ScriptFailedWarningEnabled",
+        ];
+
+        Directory.CreateDirectory(_dir);
+        var chosen = new AppSettings { NotificationSound = NotificationSound.IonGlide, ScriptFailedWarningEnabled = false };
+        Assert.True(SettingsService.WriteTo(chosen, File_));
+
+        string written = System.IO.File.ReadAllText(File_);
+        Assert.Contains("\"NotificationSound\": \"IonGlide\"", written, StringComparison.Ordinal);
+        Assert.False(SettingsService.ReadFrom(File_)!.ScriptFailedWarningEnabled);
+
+        var root    = System.Text.Json.Nodes.JsonNode.Parse(written)!.AsObject();
+        var section = root[SettingsFile.NotificationsKey]!.AsObject();
+        foreach (string key in newer) Assert.True(section.Remove(key), $"{key} was not written.");
+        System.IO.File.WriteAllText(File_, root.ToJsonString());
+
+        var loaded = SettingsService.ReadFrom(File_)!;
+        Assert.Equal(NotificationSound.Silent, loaded.NotificationSound);
+        Assert.True(loaded.ChargeCompleteNoticeEnabled,    nameof(loaded.ChargeCompleteNoticeEnabled));
+        Assert.True(loaded.ChargingStartedNoticeEnabled,   nameof(loaded.ChargingStartedNoticeEnabled));
+        Assert.True(loaded.SleptWhileHotWarningEnabled,    nameof(loaded.SleptWhileHotWarningEnabled));
+        Assert.True(loaded.SettingsNotSavedWarningEnabled, nameof(loaded.SettingsNotSavedWarningEnabled));
+        Assert.True(loaded.ScriptFailedWarningEnabled,     nameof(loaded.ScriptFailedWarningEnabled));
     }
 
     /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what

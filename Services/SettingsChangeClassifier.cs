@@ -65,6 +65,15 @@ internal static class SettingsChangeClassifier
         // absent from the MQTT surface, so editing one reaches nothing outside this process.
         nameof(AppSettings.Scripts),
 
+        // The notification sound and the five switches that have no entity. They decide what this
+        // machine shows and plays; the three warnings with entities keep theirs and are not here.
+        nameof(AppSettings.NotificationSound),
+        nameof(AppSettings.ChargeCompleteNoticeEnabled),
+        nameof(AppSettings.ChargingStartedNoticeEnabled),
+        nameof(AppSettings.SleptWhileHotWarningEnabled),
+        nameof(AppSettings.SettingsNotSavedWarningEnabled),
+        nameof(AppSettings.ScriptFailedWarningEnabled),
+
         // What the shell held for each tray icon before it was promoted. Restore bookkeeping for
         // PromoteTrayIcons, which is itself published; this is not.
         nameof(AppSettings.TrayPromotionRestore),

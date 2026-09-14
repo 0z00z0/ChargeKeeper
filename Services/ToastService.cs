@@ -34,14 +34,30 @@ internal static class ToastService
     // scaffold lives here once.
     private static void TryShow(NotificationKind kind, int? atPercent, string title, string body)
     {
+        var (switchedOn, sound) =
+            SettingsService.Read(s => (NotificationSwitches.IsOn(s, kind), s.NotificationSound));
+
+        // Said in the log, so a notification switched off is not mistaken for one Windows refused.
+        if (!switchedOn)
+        {
+            AppLog.Info(NotificationMessages.SwitchedOff(kind, atPercent));
+            return;
+        }
+
         try
         {
             var builder = new AppNotificationBuilder()
                 .AddText(title)
                 .AddText(body);
 
+            if (NotificationSounds.SilencesWindowsAudio(sound))
+                builder.MuteAudio();
+
             AppNotificationManager.Default.Show(builder.BuildNotification());
             AppLog.Info(NotificationMessages.Shown(kind, atPercent));
+
+            // After the show, so a refused notification plays nothing.
+            NotificationSoundPlayer.PlayFor(kind, sound);
         }
         catch (Exception ex)
         {

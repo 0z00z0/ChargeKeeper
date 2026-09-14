@@ -162,12 +162,22 @@ internal sealed class SettingsFile
 
     internal sealed class NotificationsGroup
     {
-        [JsonPropertyOrder(1)] public int  LowBatteryWarningPct        { get; set; }
-        [JsonPropertyOrder(2)] public bool LowBatteryWarningEnabled    { get; set; }
-        [JsonPropertyOrder(3)] public int  HighBatteryWarningPct       { get; set; }
-        [JsonPropertyOrder(4)] public bool HighBatteryWarningEnabled   { get; set; }
-        [JsonPropertyOrder(5)] public int  DrainAnomalyPercentPerHour  { get; set; }
-        [JsonPropertyOrder(6)] public bool DrainAnomalyWarningEnabled  { get; set; }
+        // The Sound box sits above the rows. Nullable so an absent key reads as the application's
+        // default rather than the enum's first member.
+        [JsonPropertyOrder(1)] public NotificationSound? NotificationSound { get; set; }
+        [JsonPropertyOrder(2)] public int  LowBatteryWarningPct        { get; set; }
+        [JsonPropertyOrder(3)] public bool LowBatteryWarningEnabled    { get; set; }
+        [JsonPropertyOrder(4)] public int  HighBatteryWarningPct       { get; set; }
+        [JsonPropertyOrder(5)] public bool HighBatteryWarningEnabled   { get; set; }
+        [JsonPropertyOrder(6)] public int  DrainAnomalyPercentPerHour  { get; set; }
+        [JsonPropertyOrder(7)] public bool DrainAnomalyWarningEnabled  { get; set; }
+        // Nullable so a document written before these switches existed reads them as on, which is
+        // how those notifications behaved; a plain bool would read as off and switch them all off.
+        [JsonPropertyOrder(8)]  public bool? ChargeCompleteNoticeEnabled    { get; set; }
+        [JsonPropertyOrder(9)]  public bool? ChargingStartedNoticeEnabled   { get; set; }
+        [JsonPropertyOrder(10)] public bool? SleptWhileHotWarningEnabled    { get; set; }
+        [JsonPropertyOrder(11)] public bool? SettingsNotSavedWarningEnabled { get; set; }
+        [JsonPropertyOrder(12)] public bool? ScriptFailedWarningEnabled     { get; set; }
     }
 
     internal sealed class ScriptsGroup
@@ -264,12 +274,18 @@ internal sealed class SettingsFile
         },
         Notifications = new NotificationsGroup
         {
+            NotificationSound          = s.NotificationSound,
             LowBatteryWarningPct       = s.LowBatteryWarningPct,
             LowBatteryWarningEnabled   = s.LowBatteryWarningEnabled,
             HighBatteryWarningPct      = s.HighBatteryWarningPct,
             HighBatteryWarningEnabled  = s.HighBatteryWarningEnabled,
             DrainAnomalyPercentPerHour = s.DrainAnomalyPercentPerHour,
             DrainAnomalyWarningEnabled = s.DrainAnomalyWarningEnabled,
+            ChargeCompleteNoticeEnabled    = s.ChargeCompleteNoticeEnabled,
+            ChargingStartedNoticeEnabled   = s.ChargingStartedNoticeEnabled,
+            SleptWhileHotWarningEnabled    = s.SleptWhileHotWarningEnabled,
+            SettingsNotSavedWarningEnabled = s.SettingsNotSavedWarningEnabled,
+            ScriptFailedWarningEnabled     = s.ScriptFailedWarningEnabled,
         },
         Scripts     = new ScriptsGroup { Scripts = s.Scripts },
         Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
@@ -344,6 +360,12 @@ internal sealed class SettingsFile
         HighBatteryWarningEnabled  = Notifications.HighBatteryWarningEnabled,
         DrainAnomalyPercentPerHour = Notifications.DrainAnomalyPercentPerHour,
         DrainAnomalyWarningEnabled = Notifications.DrainAnomalyWarningEnabled,
+        NotificationSound              = Notifications.NotificationSound ?? NotificationSounds.Default,
+        ChargeCompleteNoticeEnabled    = Notifications.ChargeCompleteNoticeEnabled    ?? true,
+        ChargingStartedNoticeEnabled   = Notifications.ChargingStartedNoticeEnabled   ?? true,
+        SleptWhileHotWarningEnabled    = Notifications.SleptWhileHotWarningEnabled    ?? true,
+        SettingsNotSavedWarningEnabled = Notifications.SettingsNotSavedWarningEnabled ?? true,
+        ScriptFailedWarningEnabled     = Notifications.ScriptFailedWarningEnabled     ?? true,
 
         Scripts = Scripts.Scripts,
 

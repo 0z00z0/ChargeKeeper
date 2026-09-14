@@ -840,7 +840,41 @@ internal sealed partial class SettingsWindow : Window
             DrainEnabledToggle.IsOn        = s.DrainAnomalyWarningEnabled;
             LoadPresetCombo(DrainPctPerHourCombo, DrainPctPresets, s.DrainAnomalyPercentPerHour, v => $"{v} %/h");
             DrainPctPerHourCombo.IsEnabled = s.DrainAnomalyWarningEnabled;
+
+            NotificationSoundCombo.Items.Clear();
+            foreach (var (sound, label) in NotificationSounds.Choices)
+                NotificationSoundCombo.Items.Add(new ComboBoxItem { Content = label, Tag = sound });
+            NotificationSoundCombo.SelectedItem =
+                NotificationSoundCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (NotificationSound)i.Tag! == s.NotificationSound)
+                ?? NotificationSoundCombo.Items[0];
+            NotificationSoundPreviewButton.IsEnabled = NotificationSounds.HasOwnRecording(s.NotificationSound);
+
+            foreach (var toggle in new[] { ChargeCompleteToggle, ChargingStartedToggle, SleptWhileHotToggle,
+                                           SettingsNotSavedToggle, ScriptFailedToggle })
+                toggle.IsOn = NotificationSwitches.IsOn(s, Enum.Parse<NotificationKind>((string)toggle.Tag));
         });
+    }
+
+    private void OnNotificationSwitchToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating || sender is not ToggleSwitch { Tag: string tag } toggle) return;
+        var  kind = Enum.Parse<NotificationKind>(tag);
+        bool on   = toggle.IsOn;
+        SettingsService.Update(s => NotificationSwitches.Set(s, kind, on));
+    }
+
+    private void OnNotificationSoundChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (NotificationSoundCombo.SelectedItem is not ComboBoxItem { Tag: NotificationSound sound }) return;
+        NotificationSoundPreviewButton.IsEnabled = NotificationSounds.HasOwnRecording(sound);
+        if (_updating) return;
+        SettingsService.Update(s => s.NotificationSound = sound);
+    }
+
+    private void OnNotificationSoundPreviewClicked(object sender, RoutedEventArgs e)
+    {
+        if (NotificationSoundCombo.SelectedItem is ComboBoxItem { Tag: NotificationSound sound })
+            NotificationSoundPlayer.Preview(sound);
     }
 
     private void OnLowBattEnabledToggled(object sender, RoutedEventArgs e)
