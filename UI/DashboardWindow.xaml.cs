@@ -485,8 +485,12 @@ public sealed partial class DashboardWindow : Window
 
             // No caption here (the pop-out graph window still has one); the value alone carries the
             // direction, so it is never ambiguous which way "remaining" runs.
-            TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
+            string? timeRemaining = BatteryStatsFormatter.FormatTimeRemaining(
                 report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
+            // No estimate (e.g. on AC, held at the charge limit): hide the line rather than showing
+            // a placeholder dash next to a live rate reading below it.
+            TimeRemainingText.Text       = timeRemaining ?? "";
+            TimeRemainingText.Visibility = timeRemaining is null ? Visibility.Collapsed : Visibility.Visible;
 
             // From recorded history, not this report's instantaneous mW: a single reading is noisy
             // at the resolution SoC is stored at, so this extrapolates from a real elapsed span.

@@ -53,22 +53,22 @@ public class BatteryStatsFormatterTests
     }
 
     [Fact]
-    public void FormatTimeRemaining_NullRate_ReturnsDash()
+    public void FormatTimeRemaining_NullRate_ReturnsNull()
     {
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(null, 5000, 10000));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(null, 5000, 10000));
     }
 
     [Fact]
-    public void FormatTimeRemaining_RateBelowNoiseFloor_ReturnsDash()
+    public void FormatTimeRemaining_RateBelowNoiseFloor_ReturnsNull()
     {
         // |rate| < 100 mW counts as neither charging nor discharging.
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(50, 5000, 10000));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(50, 5000, 10000));
     }
 
     [Fact]
-    public void FormatTimeRemaining_NullRemaining_ReturnsDash()
+    public void FormatTimeRemaining_NullRemaining_ReturnsNull()
     {
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(1000, null, 10000));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(1000, null, 10000));
     }
 
     [Fact]
@@ -76,13 +76,13 @@ public class BatteryStatsFormatterTests
     {
         // 5000 mWh left to fill a 10000 mWh battery at 5000 mW ⇒ 1 hour to full.
         var text = BatteryStatsFormatter.FormatTimeRemaining(5000, 5000, 10000);
-        Assert.Equal("~1h 0m to full", text);
+        Assert.Equal("1h 0m to full", text);
     }
 
     [Fact]
-    public void FormatTimeRemaining_Charging_NoFullCapacityKnown_ReturnsDash()
+    public void FormatTimeRemaining_Charging_NoFullCapacityKnown_ReturnsNull()
     {
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(5000, 5000, null));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(5000, 5000, null));
     }
 
     [Fact]
@@ -91,13 +91,13 @@ public class BatteryStatsFormatterTests
         // 4000 mWh remaining, draining at 2000 mW ⇒ 2 hours remaining. FullChargeMwh is irrelevant
         // on the discharge path and must not be required.
         var text = BatteryStatsFormatter.FormatTimeRemaining(-2000, 4000, null);
-        Assert.Equal("~2h 0m remaining", text);
+        Assert.Equal("2h 0m remaining", text);
     }
 
     [Fact]
     public void FormatHours_UnderAnHour_OmitsHourUnit()
     {
-        Assert.Equal("~45m remaining", BatteryStatsFormatter.FormatHours(0.75, chargingDirection: false));
+        Assert.Equal("45m remaining", BatteryStatsFormatter.FormatHours(0.75, chargingDirection: false));
     }
 
     [Fact]
@@ -109,14 +109,14 @@ public class BatteryStatsFormatterTests
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
-    public void FormatHours_NonPositive_ReturnsDash(double hours)
+    public void FormatHours_NonPositive_ReturnsNull(double hours)
     {
-        Assert.Equal("—", BatteryStatsFormatter.FormatHours(hours, chargingDirection: true));
+        Assert.Null(BatteryStatsFormatter.FormatHours(hours, chargingDirection: true));
     }
 
     [Fact]
-    public void FormatHours_NaN_ReturnsDash()
+    public void FormatHours_NaN_ReturnsNull()
     {
-        Assert.Equal("—", BatteryStatsFormatter.FormatHours(double.NaN, chargingDirection: false));
+        Assert.Null(BatteryStatsFormatter.FormatHours(double.NaN, chargingDirection: false));
     }
 }

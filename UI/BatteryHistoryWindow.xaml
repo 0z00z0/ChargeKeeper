@@ -38,7 +38,7 @@
                            Text="—"
                            Style="{StaticResource StatValueStyle}"/>
             </StackPanel>
-            <StackPanel Spacing="2">
+            <StackPanel x:Name="TimeRemainingPanel" Spacing="2">
                 <TextBlock Text="REMAINING" Style="{StaticResource StatLabelStyle}"/>
                 <TextBlock x:Name="TimeRemainingText"
                            Text="—"

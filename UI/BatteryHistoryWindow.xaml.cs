@@ -163,8 +163,12 @@ public sealed partial class BatteryHistoryWindow : Window
 
             int? watts = ChargerInfoService.CachedWattage;   // never RPCs — UI-thread safe
             PowerSourceText.Text   = BatteryStatsFormatter.FormatPowerSource(onAC, rateMw, watts);
-            TimeRemainingText.Text = BatteryStatsFormatter.FormatTimeRemaining(
+            string? timeRemaining = BatteryStatsFormatter.FormatTimeRemaining(
                 report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
+            // No estimate: hide the whole REMAINING column (label and value), same rule as the
+            // dashboard popup — nothing replaces it.
+            TimeRemainingText.Text        = timeRemaining ?? "";
+            TimeRemainingPanel.Visibility = timeRemaining is null ? Visibility.Collapsed : Visibility.Visible;
 
             if (onAC && watts is null)
                 Task.Run(() =>

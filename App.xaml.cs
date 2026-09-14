@@ -1413,8 +1413,8 @@ public partial class App : Application
         if (rate is not null)
             lines.Append($"  ·  {rate}");
 
-        string timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMw, remainingMwh, fullMwh);
-        if (timeText != "—")
+        string? timeText = BatteryStatsFormatter.FormatTimeRemaining(_lastRateMw, remainingMwh, fullMwh);
+        if (timeText is not null)
             lines.Append($"\n⏱ {timeText}");
 
         // A mode-based vendor (HP, Surface) reports Start as 0 by contract, so it gets a cap rather

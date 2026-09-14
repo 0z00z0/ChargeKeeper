@@ -98,7 +98,7 @@ public class PowerFlowTests
         Assert.Null(BatteryStatsFormatter.HoursToFull(PowerFlows.RestBandMw - 1, 20_000, 50_000));
         Assert.NotNull(BatteryStatsFormatter.HoursToFull(PowerFlows.RestBandMw, 20_000, 50_000));
 
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(PowerFlows.RestBandMw - 1, 20_000, 50_000));
-        Assert.Equal("—", BatteryStatsFormatter.FormatTimeRemaining(-PowerFlows.RestBandMw + 1, 20_000, 50_000));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(PowerFlows.RestBandMw - 1, 20_000, 50_000));
+        Assert.Null(BatteryStatsFormatter.FormatTimeRemaining(-PowerFlows.RestBandMw + 1, 20_000, 50_000));
     }
 }

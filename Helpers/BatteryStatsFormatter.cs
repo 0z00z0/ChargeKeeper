@@ -28,20 +28,21 @@ internal static class BatteryStatsFormatter
         return rate is null ? label : $"{label}  ·  {rate}";
     }
 
-    /// <summary>REMAINING line, e.g. "~2h 14m to full" or "~3h remaining". The label stays static in
-    /// both windows, so the value must carry the direction or a charging reading would read as
-    /// "battery time left".</summary>
-    public static string FormatTimeRemaining(int? chargeRateMw, int? remainingMwh, int? fullChargeMwh)
+    /// <summary>REMAINING line, e.g. "2h 14m to full" or "3h remaining", or null where there is
+    /// nothing to estimate — every caller hides the line rather than showing a placeholder for it.
+    /// The label stays static in both windows, so the value must carry the direction or a charging
+    /// reading would read as "battery time left".</summary>
+    public static string? FormatTimeRemaining(int? chargeRateMw, int? remainingMwh, int? fullChargeMwh)
     {
-        if (chargeRateMw is not { } rate || PowerFlows.From(rate) is null or PowerFlow.Rest) return "—";
-        if (remainingMwh is not { } remaining) return "—";
+        if (chargeRateMw is not { } rate || PowerFlows.From(rate) is null or PowerFlow.Rest) return null;
+        if (remainingMwh is not { } remaining) return null;
 
         if (rate > 0)
             return HoursToFull(rate, remainingMwh, fullChargeMwh) is { } h
-                ? FormatHours(h, chargingDirection: true) : "—";
+                ? FormatHours(h, chargingDirection: true) : null;
         if (rate < 0)
             return FormatHours(remaining / (double)Math.Abs(rate), chargingDirection: false);
-        return "—";
+        return null;
     }
 
     /// <summary>Hours until full while charging at a meaningful rate; null otherwise. The rate guard
@@ -59,20 +60,21 @@ internal static class BatteryStatsFormatter
     /// <summary>RATE line: charge/discharge as %/hour, signed so positive reads as charging — the
     /// live counterpart to the overnight-drain anomaly's own %/hour extrapolation
     /// (<see cref="ChargeKeeper.Services.DrainAnomalyPolicy.PercentPerHour"/>). "—" before enough
-    /// history has accumulated to trust a rate, the same placeholder <see cref="FormatTimeRemaining"/>
-    /// falls back to when there is nothing to show.</summary>
+    /// history has accumulated to trust a rate; unlike <see cref="FormatTimeRemaining"/>, this line
+    /// keeps its own placeholder rather than being hidden.</summary>
     public static string FormatChargeRate(double? percentPerHour) =>
         PowerFormat.SignedPercentPerHour(percentPerHour) ?? "—";
 
     // Internal, not private, as a test seam for the hour/minute formatting and its boundaries.
-    internal static string FormatHours(double h, bool chargingDirection)
+    // Null, not "—": callers hide the REMAINING line rather than show a placeholder for it.
+    internal static string? FormatHours(double h, bool chargingDirection)
     {
-        if (h <= 0 || double.IsInfinity(h) || double.IsNaN(h)) return "—";
+        if (h <= 0 || double.IsInfinity(h) || double.IsNaN(h)) return null;
         if (h > 99) return ">99h";
         var ts = TimeSpan.FromHours(h);
         string duration = ts.TotalHours >= 1
-            ? $"~{(int)ts.TotalHours}h {ts.Minutes}m"
-            : $"~{ts.Minutes}m";
+            ? $"{(int)ts.TotalHours}h {ts.Minutes}m"
+            : $"{ts.Minutes}m";
         return chargingDirection ? $"{duration} to full" : $"{duration} remaining";
     }
 }
