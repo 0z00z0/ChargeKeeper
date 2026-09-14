@@ -183,16 +183,20 @@ public class SettingsSectionLayoutTests
     }
 
     /// <summary>Settings is the complete surface and the tray menu a convenience copy, so no action
-    /// may live in the tray alone. The update check did, until the About page — which already
-    /// carries the running version and the report of what it brought — gained the same entry
-    /// point. Asserted rather than left to review: removing the button restores the asymmetry
-    /// silently, and the tray still works, so nothing else would report it.</summary>
-    [Fact]
-    public void TheAboutPageOffersTheUpdateCheck()
+    /// may live in the tray alone. Asserted rather than left to review: removing the button restores
+    /// the asymmetry silently, and the tray still works, so nothing else would report it. What's new
+    /// is the About card's own row button, so no second one sits beneath the card.</summary>
+    [Theory]
+    [InlineData("SettingsWindow.xaml")]
+    [InlineData("AboutWindow.xaml")]
+    public void BothAboutSurfacesOfferTheUpdateCheckBeneathTheCard(string fileName)
     {
-        string page = Page("AboutPanel");
-        Assert.Contains("x:Name=\"CheckForUpdatesButton\"", page, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"WhatsNewButton\"",        page, StringComparison.Ordinal);
+        string markup = fileName == "SettingsWindow.xaml"
+            ? Page("AboutPanel")
+            : File.ReadAllText(RepoFiles.Find(Path.Combine("UI", fileName)));
+
+        Assert.Contains("<brand:BrandBracketButton x:Name=\"CheckForUpdatesButton\"", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("WhatsNewButton", markup, StringComparison.Ordinal);
     }
 
     [Fact]

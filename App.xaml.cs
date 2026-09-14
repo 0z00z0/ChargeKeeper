@@ -1616,12 +1616,14 @@ public partial class App : Application
             {
                 _settings.RefreshAllSections();   // pick up any change made while it sat in the background
                 _settings.Activate();
+                _settings.CheckForUpdatesAutomatically();
                 return;
             }
 
             _settings = new SettingsWindow(_menu!, _mqtt);
             _settings.Closed += (_, _) => _settings = null;
             _settings.Activate();
+            _settings.CheckForUpdatesAutomatically();
         }
         catch (Exception ex)
         {

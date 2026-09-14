@@ -9,6 +9,43 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.58.0
+
+- #204 The About window and the Settings About page share one layout: Check for updates sits on its
+  own under the About card on both, and says what it found on the button itself — Checking, then Up
+  to date, or Update to the version available, which opens the update dialog when selected — while a
+  failed check still explains itself in a dialog. It also checks by itself each time the About window
+  is shown or the Settings window is opened, showing the result on the button only, and two windows
+  open at once share one check.
+- #192 What's new is a button inside the About card, beside Website and Donate, on both the About
+  window and the Settings About page, and opens ChargeKeeper's own report; the separate button below
+  the card is gone, and the card's buttons now take their natural widths and wrap when there is not
+  room for them in one row (brand component 0.9.1).
+- #180 The studio typeface now reaches an installed copy. The 1.52.0 entry for #180 said the About box
+  shows its text in the studio typeface; that held only for a copy built from source, and an installed
+  copy fell back to a system font until this release, which also refuses to build an installer that
+  lacks the font file.
+- #194 The Percentage digit style setting is available whenever the tray draws digits: with the
+  Numeric % icon style, or with the second percentage icon switched on.
+- #195 The Clock cells digit style is now called Staggered.
+- #196 The digit style can be chosen from the tray's right-click menu: from the main icon while it
+  draws Numeric %, and from the second percentage icon's own menu.
+- #197 What's new is no longer in the tray's right-click menu; it stays on the About window and the
+  Settings About page.
+- #198 A dashboard graph that is hidden is no longer built or drawn, and the pop-out graph draws only
+  the graph on display.
+- #199 Hovering the dashboard, the pop-out graph or the About window no longer shows a tooltip reading
+  Esc.
+- #200 The About window opens without a title bar and closes when it loses focus or Escape is pressed,
+  as the pop-out graph does.
+- #201 The dashboard's REMAINING line no longer starts with a tilde, and is hidden while there is
+  nothing to estimate instead of showing a dash.
+- #202 The battery graph legend says Level rather than SoC, Level, Limit and Power each explain their
+  line on hover, and the dashboard's other hover texts are reworded.
+- #203 The Notifications page has a switch for each of the eight notifications and one sound for all
+  of them: silent by default, the Windows sound, or one of three sounds that ship with ChargeKeeper and
+  stay quiet while Windows is holding notifications back.
+
 ## 1.57.0
 
 - #193 The Numeric % tray icon can be drawn in three digit styles, chosen on the Appearance page

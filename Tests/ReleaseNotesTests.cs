@@ -101,21 +101,33 @@ public class ReleaseNotesTests
         // instance; the menu itself no longer lists an entry for it.
         string source = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "TrayMenu.cs")));
         Assert.Contains("internal async void ShowWhatsNew()", source, StringComparison.Ordinal);
-        Assert.Contains("new AboutWindow(ShowWhatsNew)", source, StringComparison.Ordinal);
+        Assert.Contains("new AboutWindow(this)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("What's new…", source, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void BothAboutSurfacesCarryIt()
+    [Theory]
+    [InlineData("AboutWindow.xaml.cs",    "AboutContent.Build(menu.ShowWhatsNew)")]
+    [InlineData("SettingsWindow.xaml.cs", "AboutContent.Build(_menu.ShowWhatsNew)")]
+    public void BothAboutSurfacesCarryIt(string fileName, string call)
     {
         // The standalone window and the Settings page each host the shared About control, and each
         // needs its own way through: a report reachable from one of the two is not "always".
-        Assert.Contains("WhatsNewButton",
-                        File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "AboutWindow.xaml"))),
+        Assert.Contains(call, File.ReadAllText(RepoFiles.Find(Path.Combine("UI", fileName))),
                         StringComparison.Ordinal);
-        Assert.Contains("WhatsNewButton",
-                        File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "SettingsWindow.xaml"))),
-                        StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAboutCardsWhatsNewOpensThisApplicationsReport()
+    {
+        // The card's built-in button fetches a web page instead; it appears only with an address.
+        int opened = 0;
+        var info = AboutContent.Build(() => opened++);
+
+        Assert.Null(info.ReleaseNotesUrl);
+        var button = Assert.Single(info.Buttons);
+        Assert.Equal("What's new", button.Label);
+        button.OnClick();
+        Assert.Equal(1, opened);
     }
 
     [Fact]

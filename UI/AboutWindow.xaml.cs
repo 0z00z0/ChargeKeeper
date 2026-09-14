@@ -27,13 +27,16 @@ internal sealed partial class AboutWindow : Window
     // Latched on the first dismissal or on Closed, so nothing closes a window twice.
     private bool _closing;
 
-    /// <summary>Opens the "What's new" report. Supplied by the caller that owns that window, so
-    /// this one creates nothing of its own.</summary>
-    private readonly Action? _showWhatsNew;
+    // Set while the update dialog this window owns is up. The dialog takes focus, and closing its
+    // owner underneath it would take the dialog down with it.
+    private bool _dialogOpen;
 
-    public AboutWindow(Action? showWhatsNew = null)
+    private readonly UpdateCheckButtonController _updateButton;
+
+    /// <param name="menu">Owns the "What's new" window and the update flow, so this window creates
+    /// neither of its own.</param>
+    public AboutWindow(TrayMenu menu)
     {
-        _showWhatsNew = showWhatsNew;
         InitializeComponent();
         Title = "About ChargeKeeper";
 
@@ -41,15 +44,27 @@ internal sealed partial class AboutWindow : Window
         // A no-op on this frameless popup, but keeps the call site uniform with the other windows.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
 
-        About.SetInfo(AboutContent.Build());
-        WhatsNewButton.Visibility = _showWhatsNew is null ? Visibility.Collapsed : Visibility.Visible;
+        About.SetInfo(AboutContent.Build(menu.ShowWhatsNew));
+        _updateButton = new UpdateCheckButtonController(CheckForUpdatesButton, menu, HoldOpenAround);
 
         // Placed on first activation, once the content is in a live visual tree and can be measured.
         Activated += OnActivated;
-        Closed    += (_, _) => _closing = true;
+        Closed    += (_, _) =>
+        {
+            _closing = true;
+            _updateButton.Detach();
+        };
     }
 
-    private void OnWhatsNew(object sender, RoutedEventArgs e) => _showWhatsNew?.Invoke();
+    /// <summary>The check run each time the window is shown; its outcome shows on the button alone.</summary>
+    internal void CheckForUpdatesAutomatically() => _updateButton.CheckAutomatically();
+
+    private void HoldOpenAround(Action showDialog)
+    {
+        _dialogOpen = true;
+        try { showDialog(); }
+        finally { _dialogOpen = false; }
+    }
 
     /// <summary>Dismisses on focus loss; places and sizes the window once, centred on the monitor
     /// under the cursor, on the first real activation.</summary>
@@ -58,6 +73,7 @@ internal sealed partial class AboutWindow : Window
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
             if (!_everActivated) return;   // spurious pre-activation deactivate — see field doc
+            if (_dialogOpen) return;       // focus went to this window's own update dialog
             Dismiss();
             return;
         }
@@ -103,8 +119,8 @@ internal sealed partial class AboutWindow : Window
         double viewport = ContentScroller.ViewportHeight;
         if (viewport <= 0 || ContentPanel.ActualWidth <= 0) return;   // not laid out yet — keep the opening rect
 
-        // The panel, not the shared control alone: the "What's new" button below it is part of what
-        // the window has to be tall enough for.
+        // The panel, not the shared control alone: the update button below it is part of what the
+        // window has to be tall enough for.
         ContentPanel.Measure(new Windows.Foundation.Size(ContentPanel.ActualWidth, double.PositiveInfinity));
         double content = ContentPanel.DesiredSize.Height
                        + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;

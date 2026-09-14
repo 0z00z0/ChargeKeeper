@@ -28,6 +28,10 @@ internal sealed class TrayMenu
     private AboutWindow?    _aboutWindow;
     private WhatsNewWindow? _whatsNewWindow;
 
+    /// <summary>The one update check every entry point shares: the tray menu, and the button on the
+    /// About window and the Settings About page.</summary>
+    internal UpdateCheckCoordinator UpdateChecks { get; } = new(() => UpdateCheckService.Shared.CheckNowAsync());
+
     private readonly Action _onIconModeChanged;
     private readonly Action _onExit;
     private readonly Action _onOpenSettings;
@@ -337,12 +341,14 @@ internal sealed class TrayMenu
             if (_aboutWindow is not null)
             {
                 _aboutWindow.Activate();
+                _aboutWindow.CheckForUpdatesAutomatically();
                 return;
             }
 
-            _aboutWindow = new AboutWindow(ShowWhatsNew);
+            _aboutWindow = new AboutWindow(this);
             _aboutWindow.Closed += (_, _) => _aboutWindow = null;
             _aboutWindow.Activate();
+            _aboutWindow.CheckForUpdatesAutomatically();
         }
         catch (Exception ex)
         {
@@ -379,122 +385,146 @@ internal sealed class TrayMenu
         }
     }
 
-    // Single-flight. The check takes up to UpdateCheckService.TimeoutSeconds with nothing on screen,
-    // so without this a second click queues a second dialog behind the first. UI thread only — both
-    // entry points are a click handler or a flyout command.
-    private bool _updateCheckRunning;
+    // One dialog per check. The check takes up to UpdateCheckService.TimeoutSeconds with nothing on
+    // screen, so without this a second click queues a second dialog behind the first. UI thread only —
+    // every entry point is a click handler, a flyout command or a window being shown.
+    private bool _reportPending;
+
+    /// <summary>The tray menu's entry point: every outcome is reported in a dialog.</summary>
+    internal void CheckForUpdates() => CheckForUpdates(UpdateCheckTrigger.TrayMenu);
 
     /// <summary>
-    /// Starts the update check, from the tray menu or from the Settings window's About page. Every
-    /// outcome is reported in a dialog owned by whichever window was in front, so no caller has to
-    /// report anything itself; a check already running is a no-op.
+    /// Starts the shared update check, or joins the one running, and reports its outcome as the
+    /// trigger requires. Returns the check so a button can show it. A second request that could raise
+    /// a dialog while one is already waiting joins silently.
     /// </summary>
-    internal void CheckForUpdates()
+    internal Task<UpdateCheckService.CheckOutcome> CheckForUpdates(UpdateCheckTrigger trigger)
     {
-        if (_updateCheckRunning) return;
-        _updateCheckRunning = true;
-        _ = RunUpdateCheckAsync();
-    }
+        // Captured while the flyout or the asking window is in front.
+        var hwnd  = NativeMethods.CaptureHwnd();
+        var check = UpdateChecks.Run();
 
-    /// <summary>Clears the single-flight flag however the check ends. The continuation returns to the
-    /// UI thread, so the flag is only ever touched there.</summary>
-    private async Task RunUpdateCheckAsync()
-    {
-        try { await CheckForUpdatesAsync(); }
-        catch (Exception ex) { AppLog.Error("TrayMenu.CheckForUpdates", ex); }
-        finally { _updateCheckRunning = false; }
-    }
-
-    /// <summary>Runs the update check. An accepted update downloads in the background and exits the app itself.</summary>
-    private async Task CheckForUpdatesAsync()
-    {
-        // Capture the HWND while the flyout is open, and no ConfigureAwait(false) below:
-        // TaskDialogIndirect needs the manifest's comctl32 v6 context, which pool threads lack.
-        var hwnd    = NativeMethods.CaptureHwnd();
-        var outcome = await UpdateCheckService.Shared.CheckNowAsync();
-        var running = AppInfo.Version;
-
-        switch (outcome.Status)
+        bool mayRaiseDialog = trigger != UpdateCheckTrigger.Automatic;
+        if (mayRaiseDialog)
         {
-            case UpdateStatus.Available:
-                bool canDownload = outcome.InstallerUrl is not null;
-                var action = NativeMethods.ShowUpdateDialog(
-                    outcome.LatestVersion!, running,
-                    outcome.ReleaseNotes ?? "", AppName,
-                    canDownload, hwnd);
+            if (_reportPending) return check;
+            _reportPending = true;
+        }
 
-                switch (action)
+        _ = ReportAsync(check, trigger, hwnd, mayRaiseDialog);
+        return check;
+    }
+
+    /// <summary>Reports one outcome. No ConfigureAwait(false): the continuation returns to the UI
+    /// thread, where the flag lives and where TaskDialogIndirect has the manifest's comctl32 v6
+    /// context that pool threads lack.</summary>
+    private async Task ReportAsync(Task<UpdateCheckService.CheckOutcome> check, UpdateCheckTrigger trigger,
+                                   IntPtr hwnd, bool claimedReport)
+    {
+        try
+        {
+            var outcome = await check;
+
+            if (UpdateButtonPolicy.OpensUpdateDialog(outcome.Status, trigger))
+                OfferUpdate(outcome, hwnd);
+            else if (UpdateButtonPolicy.ShowsNotice(outcome.Status, trigger))
+                ShowNotice(outcome);
+            else if (trigger == UpdateCheckTrigger.Automatic &&
+                     outcome.Status is not (UpdateStatus.UpToDate or UpdateStatus.Available))
+                AppLog.Info($"Update check on opening a window ended {outcome.Status}; " +
+                            "the button returns to rest and no dialog is shown.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("TrayMenu.CheckForUpdates", ex);
+        }
+        finally
+        {
+            if (claimedReport) _reportPending = false;
+        }
+    }
+
+    /// <summary>Every status but an available update is worded by UpdateMessage, a pure helper the
+    /// tests drive.</summary>
+    private static void ShowNotice(UpdateCheckService.CheckOutcome outcome)
+    {
+        if (UpdateMessage.For(outcome, AppInfo.Version, DateTimeOffset.Now) is not { } notice) return;
+        if (notice.IsError) NativeMethods.Warn(notice.Text, AppName);
+        else                NativeMethods.Info(notice.Text, AppName);
+    }
+
+    /// <summary>The update dialog for an available release. An accepted update downloads in the
+    /// background and exits the app itself. Blocks until the dialog is answered.</summary>
+    internal void OfferUpdate(UpdateCheckService.CheckOutcome outcome, IntPtr hwnd = default)
+    {
+        var running = AppInfo.Version;
+        bool canDownload = outcome.InstallerUrl is not null;
+        var action = NativeMethods.ShowUpdateDialog(
+            outcome.LatestVersion!, running,
+            outcome.ReleaseNotes ?? "", AppName,
+            canDownload, hwnd);
+
+        switch (action)
+        {
+            case NativeMethods.UpdateAction.Update:
+                NativeMethods.Info(
+                    $"Downloading v{outcome.LatestVersion}...\n\nThe update then installs by itself: " +
+                    $"{AppName} closes, updates and starts again.",
+                    AppName);
+                _ = Task.Run(async () =>
                 {
-                    case NativeMethods.UpdateAction.Update:
-                        NativeMethods.Info(
-                            $"Downloading v{outcome.LatestVersion}...\n\nThe update then installs by itself: " +
-                            $"{AppName} closes, updates and starts again.",
-                            AppName);
-                        _ = Task.Run(async () =>
+                    try
+                    {
+                        // Before the new directory exists, so each run clears the last one.
+                        InstallerSignature.SweepPreviousDownloads();
+
+                        var path = await UpdateCheckService.Shared
+                            .DownloadInstallerAsync(outcome.InstallerUrl!)
+                            .ConfigureAwait(false);
+
+                        // Fail closed: CI signs the installer, so anything else is not it.
+                        var verdict = InstallerSignature.Verify(path);
+                        if (!InstallerSignaturePolicy.MayLaunch(verdict))
                         {
-                            try
-                            {
-                                // Before the new directory exists, so each run clears the last one.
-                                InstallerSignature.SweepPreviousDownloads();
+                            AppLog.Info($"Update: refusing to launch {path} — {verdict}.");
+                            InstallerSignature.Discard(path);
+                            NativeMethods.Warn(InstallerSignaturePolicy.MessageFor(verdict), AppName);
+                            Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
+                            return;
+                        }
 
-                                var path = await UpdateCheckService.Shared
-                                    .DownloadInstallerAsync(outcome.InstallerUrl!)
-                                    .ConfigureAwait(false);
-
-                                // Fail closed: CI signs the installer, so anything else is not it.
-                                var verdict = InstallerSignature.Verify(path);
-                                if (!InstallerSignaturePolicy.MayLaunch(verdict))
-                                {
-                                    AppLog.Info($"Update: refusing to launch {path} — {verdict}.");
-                                    InstallerSignature.Discard(path);
-                                    NativeMethods.Warn(InstallerSignaturePolicy.MessageFor(verdict), AppName);
-                                    Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
-                                    return;
-                                }
-
-                                // Unattended: this update was agreed to in the dialog above, so
-                                // there is no wizard to advance. The record goes down first —
-                                // Setup replaces files this process holds, so the process is gone
-                                // before an outcome exists and its successor is what reports one.
-                                UnattendedUpdate.Record(outcome.LatestVersion!);
-                                var start = new ProcessStartInfo(path) { UseShellExecute = true };
-                                foreach (string argument in
-                                         UnattendedUpdate.Arguments(UnattendedUpdate.InstallerLogPath))
-                                    start.ArgumentList.Add(argument);
-                                Process.Start(start);
-                                // Exit at once. Setup waits for this process to go rather than
-                                // ending it, so the sooner it goes the fewer seconds the update
-                                // costs — and nothing here waits on Setup: the wait would hold the
-                                // very files Setup is about to replace.
-                                Flyout.DispatcherQueue?.TryEnqueue(() =>
-                                {
-                                    try { _onExit(); }
-                                    catch (Exception ex) { AppLog.Error("TrayMenu.exit", ex); }
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                NativeMethods.Warn(
-                                    $"Download failed:\n{ex.Message}\n\nTry updating from the releases page.",
-                                    AppName);
-                                Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
-                            }
+                        // Unattended: this update was agreed to in the dialog above, so
+                        // there is no wizard to advance. The record goes down first —
+                        // Setup replaces files this process holds, so the process is gone
+                        // before an outcome exists and its successor is what reports one.
+                        UnattendedUpdate.Record(outcome.LatestVersion!);
+                        var start = new ProcessStartInfo(path) { UseShellExecute = true };
+                        foreach (string argument in
+                                 UnattendedUpdate.Arguments(UnattendedUpdate.InstallerLogPath))
+                            start.ArgumentList.Add(argument);
+                        Process.Start(start);
+                        // Exit at once. Setup waits for this process to go rather than
+                        // ending it, so the sooner it goes the fewer seconds the update
+                        // costs — and nothing here waits on Setup: the wait would hold the
+                        // very files Setup is about to replace.
+                        Flyout.DispatcherQueue?.TryEnqueue(() =>
+                        {
+                            try { _onExit(); }
+                            catch (Exception ex) { AppLog.Error("TrayMenu.exit", ex); }
                         });
-                        break;
-
-                    case NativeMethods.UpdateAction.ShowReleases:
+                    }
+                    catch (Exception ex)
+                    {
+                        NativeMethods.Warn(
+                            $"Download failed:\n{ex.Message}\n\nTry updating from the releases page.",
+                            AppName);
                         Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
-                        break;
-                }
+                    }
+                });
                 break;
 
-            // Every other status is worded by UpdateMessage — a pure helper the tests drive.
-            default:
-                if (UpdateMessage.For(outcome, running, DateTimeOffset.Now) is { } notice)
-                {
-                    if (notice.IsError) NativeMethods.Warn(notice.Text, AppName);
-                    else                NativeMethods.Info(notice.Text, AppName);
-                }
+            case NativeMethods.UpdateAction.ShowReleases:
+                Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
                 break;
         }
     }

@@ -80,6 +80,15 @@ if (-not (Test-Path (Join-Path $publishDir "ChargeKeeper.pri"))) {
     throw "ChargeKeeper.pri missing from publish output — WinUI would crash at startup (0xC000027B)."
 }
 
+# The markup names the brand typeface at this path only. Without the file the face falls back in
+# silence, and on a machine carrying Cascadia Mono it even looks right, so only the file can tell.
+foreach ($brandAsset in @("CascadiaMono.ttf", "LICENCE-OFL.txt")) {
+    if (-not (Test-Path (Join-Path $publishDir "ZeroZero.Brand.WinUI\Assets\Fonts\$brandAsset"))) {
+        # ASCII only: Windows PowerShell reads this file as the ANSI code page, where a dash ends a string.
+        throw "$brandAsset missing from publish output at ZeroZero.Brand.WinUI\Assets\Fonts, so the brand typeface would not reach an installation."
+    }
+}
+
 # ── 2b. Sign the published exe ───────────────────────────────────────────────
 # dotnet publish creates a fresh apphost in the publish folder — a separate binary
 # from the bin\ build output that SignOutput already signed. Sign this copy so the
@@ -88,7 +97,9 @@ if (-not (Test-Path (Join-Path $publishDir "ChargeKeeper.pri"))) {
 # SignOutput: true locally, unset on GitHub Actions.
 $noTimestampValue = dotnet msbuild $proj -nologo -getProperty:ZeroZeroSignNoTimestamp
 if ($LASTEXITCODE -ne 0) { throw "Reading ZeroZeroSignNoTimestamp from $proj failed ($LASTEXITCODE)." }
-$signSwitches = if ("$noTimestampValue".Trim() -eq 'true') { @('-NoTimestamp') } else { @() }
+# @() around the whole if: a one-element array returned from an if is unrolled to a plain string, and
+# splatting a string fails the child call before sign.ps1 runs.
+$signSwitches = @(if ("$noTimestampValue".Trim() -eq 'true') { '-NoTimestamp' })
 
 $publishedExe = Join-Path $publishDir "ChargeKeeper.exe"
 if (Test-Path $publishedExe) {

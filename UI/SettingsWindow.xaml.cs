@@ -122,8 +122,13 @@ internal sealed partial class SettingsWindow : Window
         _aboutLoaded = true;   // before the call: a SetInfo that threw part-way has already appended
 
         AboutCard.MaxWidth = AboutContent.ContentWidthDip;
-        AboutInline.SetInfo(AboutContent.Build());
+        // The tray menu owns the "What's new" window, so the card's button and the About window's
+        // share one instance rather than each opening a copy.
+        AboutInline.SetInfo(AboutContent.Build(_menu.ShowWhatsNew));
+        _updateButton = new UpdateCheckButtonController(CheckForUpdatesButton, _menu);
     }
+
+    private UpdateCheckButtonController? _updateButton;
 
     /// <summary>Runs one constructor step, logging any failure rather than letting it escape the ctor.</summary>
     private static void SafeInit(string step, Action body)
@@ -300,6 +305,7 @@ internal sealed partial class SettingsWindow : Window
     private void OnClosed(object sender, WindowEventArgs e)
     {
         _closed = true;
+        _updateButton?.Detach();
 
         var pos  = AppWindow.Position;
         var size = AppWindow.Size;
@@ -625,15 +631,9 @@ internal sealed partial class SettingsWindow : Window
         _menu.ReconcileFromExternalChange();   // repaints the tray icon via the icon-mode callback
     }
 
-    /// <summary>Opens the "What's new" report. The tray menu owns that window, so the two entry
-    /// points share one instance rather than each opening a copy.</summary>
-    private void OnShowWhatsNew(object sender, RoutedEventArgs e) => _menu.ShowWhatsNew();
-
-    /// <summary>Runs the same update check the tray menu offers, so Settings is a complete surface
-    /// rather than pointing at the tray for one action. The tray menu owns the check for the same
-    /// reason it owns the "What's new" window: one flow, one place, whichever entry point starts
-    /// it. Every outcome, including "up to date", is reported in a dialog owned by this window.</summary>
-    private void OnCheckForUpdates(object sender, RoutedEventArgs e) => _menu.CheckForUpdates();
+    /// <summary>The check run each time the window is opened; its outcome shows on the About page's
+    /// button alone. The tray menu owns the check, so Settings and the About window share it.</summary>
+    internal void CheckForUpdatesAutomatically() => _updateButton?.CheckAutomatically();
 
     private void OnPromoteIconsToggled(object sender, RoutedEventArgs e)
     {
