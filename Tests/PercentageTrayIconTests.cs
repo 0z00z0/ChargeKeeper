@@ -107,13 +107,20 @@ public class PercentageTrayIconTests
     }
 
     [Fact]
-    public void TheSecondIcon_CarriesNothingInteractive()
+    public void TheSecondIcon_CarriesOnlyTheDigitStyleMenu()
     {
-        // Display-only: the menu, the dashboard and the tooltip stay on the main icon.
+        // Its right-click menu is the digit style and nothing else; the main menu, the dashboard and
+        // the tooltip stay on the main icon.
         string body = SourceMethods.Body(AppSourceWithoutComments(), "ApplyPercentageIcon");
 
-        foreach (string member in new[] { "ContextFlyout", "LeftClickCommand", "RightClickCommand", "ToolTipText" })
+        Assert.Contains("ContextFlyout = _menu.PercentageIconFlyout", body, StringComparison.Ordinal);
+        foreach (string member in new[] { "LeftClickCommand", "RightClickCommand", "ToolTipText" })
             Assert.DoesNotContain(member, body, StringComparison.Ordinal);
+
+        string menu = Regex.Replace(File.ReadAllText(RepoFiles.Find("UI/TrayMenu.cs")), @"//[^\r\n]*", string.Empty);
+        var adds = Regex.Matches(menu, @"PercentageIconFlyout\.Items\.\w+\((?<item>[^;]*)\);");
+        Assert.Single(adds);
+        Assert.Equal("BuildDigitStyleSubmenu()", adds[0].Groups["item"].Value);
     }
 
     [Fact]
@@ -241,5 +248,65 @@ public class PercentageTrayIconTests
         Assert.True(threeDigits < twoDigits, "Three digits are not condensed any further than two.");
         Assert.True(threeDigits >= IconGenerator.DigitMinimumCondense,
                     "The condensing floor is not respected.");
+    }
+
+    // Where the digit style is offered, and what it is stored as.
+
+    [Fact]
+    public void TheStoredDigitStyles_AreTheNamesEveryInstallationAlreadyHas()
+    {
+        // The settings document stores the member name, so a renamed or reordered member resets every
+        // installation's chosen style. "Staggered" is a label; ClockCells is what is on disk.
+        Assert.Equal(["Standard", "Cropped", "ClockCells"], Enum.GetNames<TrayDigitStyle>());
+        Assert.Equal(["\"Standard\"", "\"Cropped\"", "\"ClockCells\""],
+                     Enum.GetValues<TrayDigitStyle>().Select(s => System.Text.Json.JsonSerializer.Serialize(s)));
+    }
+
+    [Fact]
+    public void TheDigitStyleLabels_MatchTheSettingsListInEnumOrder()
+    {
+        // The Settings page casts by position and the tray menu reads the labels table, so both
+        // surfaces must name each style alike. The labels are pinned as literals: a reworded one is a
+        // decision rather than a slip.
+        string xaml  = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "SettingsWindow.xaml")));
+        int    start = xaml.IndexOf("x:Name=\"DigitStyleCombo\"", StringComparison.Ordinal);
+        Assert.True(start >= 0, "DigitStyleCombo is no longer declared in SettingsWindow.xaml.");
+        int end = xaml.IndexOf("</ComboBox>", start, StringComparison.Ordinal);
+        var combo = Regex.Matches(xaml[start..end], @"<ComboBoxItem\s+Content=""(?<label>[^""]*)""")
+                         .Select(m => m.Groups["label"].Value);
+
+        var labels = Enum.GetValues<TrayDigitStyle>().Select(TrayDigitStyleLabels.For).ToArray();
+        Assert.Equal(["Standard", "Cropped", "Staggered"], labels);
+        Assert.Equal(labels, combo);
+    }
+
+    // The mode arrives by name, as above.
+    [Theory]
+    [InlineData("Numeric",   false, true)]
+    [InlineData("Arc",       true,  true)]
+    [InlineData("BrandMark", true,  true)]
+    [InlineData("Arc",       false, false)]
+    [InlineData("BrandMark", false, false)]
+    public void TheDigitStyleRow_IsShownWheneverTheTrayDrawsDigits(string mode, bool percentageIcon, bool shown) =>
+        Assert.Equal(shown, AppSettings.TrayDrawsDigits(Enum.Parse<TrayIconMode>(mode), percentageIcon));
+
+    [Fact]
+    public void SwitchingThePercentageIcon_ReEvaluatesTheDigitStyleRow()
+    {
+        string body = SourceMethods.Body(
+            Regex.Replace(File.ReadAllText(RepoFiles.Find("UI/SettingsWindow.xaml.cs")), @"//[^\r\n]*", string.Empty),
+            "OnPercentageIconToggled");
+
+        Assert.Contains("ApplyDigitStyleAvailability", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheTrayMenu_OffersTheDigitStyleOnlyWithTheNumericStyle()
+    {
+        string body = SourceMethods.Body(
+            Regex.Replace(File.ReadAllText(RepoFiles.Find("UI/TrayMenu.cs")), @"//[^\r\n]*", string.Empty),
+            "void ApplyState");
+
+        Assert.Contains("ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric)", body, StringComparison.Ordinal);
     }
 }

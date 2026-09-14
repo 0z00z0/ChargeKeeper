@@ -482,13 +482,16 @@
 
                     <controls:SettingsCard x:Name="DigitStyleCard"
                                             Header="Percentage digit style"
-                                            Description="How the number is drawn in the tray icon.">
+                                            Description="How the number is drawn in the tray.">
                         <!-- Item order IS the TrayDigitStyle order, as the style combo above:
-                             the load and save cast by position. Append, never insert. -->
+                             the load and save cast by position. Append, never insert. Labels match
+                             TrayDigitStyleLabels, which the tray menu reads. -->
                         <ComboBox x:Name="DigitStyleCombo" MinWidth="160" SelectionChanged="OnDigitStyleChanged">
                             <ComboBoxItem Content="Standard"/>
                             <ComboBoxItem Content="Cropped"/>
-                            <ComboBoxItem Content="Clock cells"/>
+                            <!-- The persisted value is still TrayDigitStyle.ClockCells; only the
+                                 label reads differently. -->
+                            <ComboBoxItem Content="Staggered"/>
                         </ComboBox>
                     </controls:SettingsCard>
 
@@ -509,7 +512,7 @@
                             <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnPercentageIconToggled"/>
                             <local:InfoIcon Subject="Also show percentage"
-                                            Info="A second icon that only shows the reading — the menu, the dashboard and the tooltip stay on the main one. Windows puts a new tray icon behind the overflow chevron, so drag it out to keep it on the taskbar. Unavailable while the tray icon style is Numeric %, which already shows the number."/>
+                                            Info="A second icon that shows the reading. Its right-click menu offers the digit style; everything else — the full menu, the dashboard and the tooltip — stays on the main one. Windows puts a new tray icon behind the overflow chevron, so drag it out to keep it on the taskbar. Unavailable while the tray icon style is Numeric %, which already shows the number."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
@@ -606,7 +609,9 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <local:PerformanceGraphControl x:Name="PerformanceGraph" Margin="0,8,0,0"/>
+                    <!-- Collapsed until ShowSection shows its page, so it never repaints behind
+                         another page. -->
+                    <local:PerformanceGraphControl x:Name="PerformanceGraph" Margin="0,8,0,0" Visibility="Collapsed"/>
 
                     <local:SettingsSectionHeader Heading="Advanced"/>
                     <!-- Vertical, as the Keep Awake page's session card: beside a row of three buttons

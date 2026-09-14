@@ -9,23 +9,34 @@
     xmlns:brand="using:ZeroZero.Brand.WinUI"
     mc:Ignorable="d">
 
-    <!-- The chrome is this app's; the content is the shared BrandAboutControl, which carries no
-         update button — each hosting application places that itself. This window is opened from the
-         tray menu, one item below "Check for updates", so it does not repeat it; the Settings
+    <!-- The chrome is this app's: a frameless popup like the pop-out graph, dismissed by clicking
+         away or Escape. The content is the shared BrandAboutControl, which carries no update
+         button — each hosting application places that itself. This window is opened from the tray
+         menu, which carries "Check for updates" itself, so it does not repeat it; the Settings
          window's About page, which the tray menu is not, does. -->
     <Window.SystemBackdrop>
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <ScrollViewer x:Name="ContentScroller" Padding="24" VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-        <!-- The "What's new" entry sits BESIDE the shared control rather than inside it: the report
-             is this application's, and putting it in the shared control would be a change to a
-             module another repository owns. -->
-        <StackPanel x:Name="ContentPanel" MaxWidth="560" HorizontalAlignment="Center" Spacing="12">
-            <brand:BrandAboutControl x:Name="About"/>
-            <Button x:Name="WhatsNewButton" Content="What's new" HorizontalAlignment="Center"
-                    Click="OnWhatsNew"/>
-        </StackPanel>
-    </ScrollViewer>
+    <!-- KeyboardAcceleratorPlacementMode Hidden: WinUI otherwise shows the accelerator's key as a
+         tooltip ("Esc") over every part of the window without a tooltip of its own. -->
+    <Grid x:Name="RootGrid" KeyboardAcceleratorPlacementMode="Hidden">
+        <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
+             sits. -->
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked"/>
+        </Grid.KeyboardAccelerators>
+
+        <ScrollViewer x:Name="ContentScroller" Padding="24" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <!-- The "What's new" entry sits BESIDE the shared control rather than inside it: the report
+                 is this application's, and putting it in the shared control would be a change to a
+                 module another repository owns. -->
+            <StackPanel x:Name="ContentPanel" MaxWidth="560" HorizontalAlignment="Center" Spacing="12">
+                <brand:BrandAboutControl x:Name="About"/>
+                <Button x:Name="WhatsNewButton" Content="What's new" HorizontalAlignment="Center"
+                        Click="OnWhatsNew"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </Window>

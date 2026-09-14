@@ -2,11 +2,11 @@ using Xunit;
 
 namespace ChargeKeeper.Tests;
 
-// Escape closes the dashboard and the pop-out graph. What "closes" means differs between them and
-// must keep differing: the dashboard hides, so the tray's next click re-shows the same window, and
-// the pop-out is destroyed, because App recreates it. A window whose Escape took the other one's
-// path would be a third behaviour nothing else in the app has. Neither window can be instantiated
-// without a display, so these read the shipped markup and code-behind.
+// Escape closes the dashboard, the pop-out graph and the About window. What "closes" means differs
+// and must keep differing: the dashboard hides, so the tray's next click re-shows the same window,
+// and the other two are destroyed, because their owners recreate them. A window whose Escape took
+// another path would be a behaviour nothing else in the app has. None of the windows can be
+// instantiated without a display, so these read the shipped markup and code-behind.
 public class WindowEscapeKeyTests
 {
     private static string Markup(string fileName) =>
@@ -36,6 +36,7 @@ public class WindowEscapeKeyTests
     [Theory]
     [InlineData("DashboardWindow.xaml")]
     [InlineData("BatteryHistoryWindow.xaml")]
+    [InlineData("AboutWindow.xaml")]
     public void WindowBindsEscapeOnItsRoot(string fileName)
     {
         string xaml = Markup(fileName);
@@ -45,10 +46,26 @@ public class WindowEscapeKeyTests
         Assert.Contains("Invoked=\"OnEscapeInvoked\"", xaml, StringComparison.Ordinal);
     }
 
+    // WinUI shows an accelerator's key as a tooltip on the element carrying it, and on everything
+    // inside that has no tooltip of its own — so a root accelerator put "Esc" over the whole window.
+    [Theory]
+    [InlineData("DashboardWindow.xaml")]
+    [InlineData("BatteryHistoryWindow.xaml")]
+    [InlineData("AboutWindow.xaml")]
+    public void WindowHidesTheEscapeKeyTip(string fileName)
+    {
+        string xaml = Markup(fileName);
+        var root = System.Text.RegularExpressions.Regex.Match(xaml, @"<Grid\s+x:Name=""RootGrid""[^>]*>");
+
+        Assert.True(root.Success, $"{fileName} no longer declares its RootGrid.");
+        Assert.Contains("KeyboardAcceleratorPlacementMode=\"Hidden\"", root.Value, StringComparison.Ordinal);
+    }
+
     // Left unhandled, the key keeps bubbling and a second accelerator could act on the same press.
     [Theory]
     [InlineData("DashboardWindow.xaml.cs")]
     [InlineData("BatteryHistoryWindow.xaml.cs")]
+    [InlineData("AboutWindow.xaml.cs")]
     public void EscapeHandlerMarksTheKeyHandled(string fileName) =>
         Assert.Contains("args.Handled = true", MethodBody(fileName, "void OnEscapeInvoked"),
                         StringComparison.Ordinal);
@@ -56,6 +73,7 @@ public class WindowEscapeKeyTests
     [Theory]
     [InlineData("DashboardWindow.xaml.cs")]
     [InlineData("BatteryHistoryWindow.xaml.cs")]
+    [InlineData("AboutWindow.xaml.cs")]
     public void EscapeHandlerExistsInTheCodeBehind(string fileName) =>
         Assert.Contains("OnEscapeInvoked", Markup(fileName), StringComparison.Ordinal);
 
@@ -103,6 +121,20 @@ public class WindowEscapeKeyTests
     public void HistoryWindowFocusLossUsesTheSameDismissal() =>
         Assert.Contains("Dismiss()", MethodBody("BatteryHistoryWindow.xaml.cs", "void OnActivated"),
                         StringComparison.Ordinal);
+
+    // The About window follows the pop-out: frameless, so Escape and clicking away are the only ways
+    // out, and both must reach the one dismissal that closes it.
+    [Fact]
+    public void AboutWindowIsAFramelessPopupWithOneDismissal()
+    {
+        Assert.Contains("WindowChrome.ApplyPopup", Markup("AboutWindow.xaml.cs"), StringComparison.Ordinal);
+        Assert.Contains("Dismiss()", MethodBody("AboutWindow.xaml.cs", "void OnEscapeInvoked"),
+                        StringComparison.Ordinal);
+        Assert.Contains("Dismiss()", MethodBody("AboutWindow.xaml.cs", "void OnActivated"),
+                        StringComparison.Ordinal);
+        Assert.Contains("Close()", MethodBody("AboutWindow.xaml.cs", "private void Dismiss()"),
+                        StringComparison.Ordinal);
+    }
 
     // Escape would be stolen mid-edit by a text box, and would close a dropdown or a dialogue rather
     // than the window. Neither window has any, which is why the accelerator can sit on the root.

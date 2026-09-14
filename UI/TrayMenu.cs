@@ -16,6 +16,13 @@ internal sealed class TrayMenu
 {
     private readonly List<(ToggleMenuFlyoutItem Item, IToggleFeature Feature)> _toggles = [];
     private readonly List<(ToggleMenuFlyoutItem Item, TrayIconMode Mode)> _iconModeItems = [];
+    private readonly List<(ToggleMenuFlyoutItem Item, TrayDigitStyle Style)> _digitStyleItems = [];
+
+    private readonly MenuFlyoutSubItem _iconStyleSubmenu;
+
+    // Added to and removed from the item list rather than collapsed: the list is what the native
+    // popup is rebuilt from on every right-click.
+    private readonly MenuFlyoutSubItem _digitStyleSubmenu;
 
     private MenuFlyoutItem? _updateItem;
     private AboutWindow?    _aboutWindow;
@@ -30,6 +37,10 @@ internal sealed class TrayMenu
 
     /// <summary>The flyout to assign to <c>TaskbarIcon.ContextFlyout</c>.</summary>
     public MenuFlyout Flyout { get; }
+
+    /// <summary>The second, percentage-only icon's right-click menu: the digit style and nothing
+    /// else.</summary>
+    public MenuFlyout PercentageIconFlyout { get; }
 
     public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
                     Action onOpenSettings, Task windowsReady)
@@ -50,7 +61,14 @@ internal sealed class TrayMenu
         }
 
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
-        Flyout.Items.Add(BuildIconStyleSubmenu());
+        _iconStyleSubmenu  = BuildIconStyleSubmenu();
+        _digitStyleSubmenu = BuildDigitStyleSubmenu();
+        Flyout.Items.Add(_iconStyleSubmenu);
+
+        // Its own submenu instance: one element cannot sit in two flyouts. Both sets of items are in
+        // _digitStyleItems, so one refresh checks both menus.
+        PercentageIconFlyout = new MenuFlyout();
+        PercentageIconFlyout.Items.Add(BuildDigitStyleSubmenu());
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem
@@ -62,7 +80,6 @@ internal sealed class TrayMenu
             Flyout.Items.Add(MakeToggle(feature));
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
-        Flyout.Items.Add(new MenuFlyoutItem { Text = "What's new…", Command = new RelayCommand(() => ShowWhatsNew()) });
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
@@ -89,6 +106,50 @@ internal sealed class TrayMenu
             sub.Items.Add(item);
         }
         return sub;
+    }
+
+    /// <summary>Builds the "Digit style" submenu: one checked item per <see cref="TrayDigitStyle"/>,
+    /// reading <see cref="TrayDigitStyleLabels"/>. Shown only while the icon style is Numeric %.</summary>
+    private MenuFlyoutSubItem BuildDigitStyleSubmenu()
+    {
+        var sub = new MenuFlyoutSubItem { Text = "Digit style" };
+        foreach (var style in Enum.GetValues<TrayDigitStyle>())
+        {
+            var item = new ToggleMenuFlyoutItem { Text = TrayDigitStyleLabels.For(style) };
+            item.Command = new RelayCommand(() => SelectDigitStyle(style));
+            _digitStyleItems.Add((item, style));
+            sub.Items.Add(item);
+        }
+        return sub;
+    }
+
+    /// <summary>Applies a digit style chosen from the tray menu — the same write
+    /// <c>OnDigitStyleChanged</c> makes from Settings. The committed change repaints the tray, since
+    /// the icon request carries the style.</summary>
+    private void SelectDigitStyle(TrayDigitStyle style) => Task.Run(() =>
+    {
+        try
+        {
+            SettingsService.Update(s => s.PercentageDigitStyle = style);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("TrayMenu.SelectDigitStyle", ex);
+        }
+        finally
+        {
+            QueueRefresh();   // updates the check marks, success or not
+        }
+    });
+
+    /// <summary>Puts the "Digit style" submenu directly under "Icon style", or takes it out.</summary>
+    private void ShowDigitStyleSubmenu(bool shown)
+    {
+        int index = Flyout.Items.IndexOf(_digitStyleSubmenu);
+        if (shown && index < 0)
+            Flyout.Items.Insert(Flyout.Items.IndexOf(_iconStyleSubmenu) + 1, _digitStyleSubmenu);
+        else if (!shown && index >= 0)
+            Flyout.Items.RemoveAt(index);
     }
 
     /// <summary>Applies a style chosen from the tray menu's own submenu — the same write
@@ -175,7 +236,8 @@ internal sealed class TrayMenu
     /// </summary>
     private sealed record MenuState(
         IReadOnlyList<(bool Available, bool Enabled)> Features,   // aligned with _toggles
-        TrayIconMode IconMode);                                   // aligned with _iconModeItems
+        TrayIconMode IconMode,                                    // aligned with _iconModeItems
+        TrayDigitStyle DigitStyle);                               // aligned with _digitStyleItems
 
     private MenuState ReadState()
     {
@@ -188,7 +250,8 @@ internal sealed class TrayMenu
                                                 fallback: (Available: true, Enabled: false));
             features[i] = (available, available && enabled);
         }
-        return new MenuState(features, SettingsService.Read(s => s.IconMode));
+        var (mode, digits) = SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle));
+        return new MenuState(features, mode, digits);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -205,6 +268,9 @@ internal sealed class TrayMenu
         }
         foreach (var (item, mode) in _iconModeItems)
             item.IsChecked = mode == state.IconMode;
+        foreach (var (item, style) in _digitStyleItems)
+            item.IsChecked = style == state.DigitStyle;
+        ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric);
     }
 
     private void ApplyPreset(ThresholdPreset preset) => RunApplyPreset(preset.Name);

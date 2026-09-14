@@ -59,8 +59,19 @@ internal enum TrayDigitStyle
     /// <summary>Segoe UI Black, running past the top, the bottom and both sides.</summary>
     Cropped,
 
-    /// <summary>Segoe UI Black, each digit cut by its own cell, with a seam and a stagger.</summary>
+    /// <summary>Segoe UI Black, each digit cut by its own cell, with a seam and a stagger. Shown as
+    /// "Staggered"; this member name is what the settings document stores, so it never moves.</summary>
     ClockCells,
+}
+
+/// <summary>The label shown for each <see cref="TrayDigitStyle"/>, in enum order — the table the tray
+/// menu's digit style submenu reads, matched against the Settings XAML by
+/// <c>Tests/PercentageTrayIconTests.cs</c>.</summary>
+internal static class TrayDigitStyleLabels
+{
+    private static readonly string[] _labels = ["Standard", "Cropped", "Staggered"];
+
+    public static string For(TrayDigitStyle style) => _labels[(int)style];
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -152,6 +163,11 @@ internal sealed class AppSettings
     /// pair, so the tray, the Settings page and the tests cannot each decide it differently.</summary>
     [JsonIgnore]
     public bool PercentageIconWanted => ShowPercentageIcon && IconMode != TrayIconMode.Numeric;
+
+    /// <summary>Whether any tray icon draws the reading as digits, which is when the digit style has
+    /// something to govern: the Numeric % style, or the second icon switched on.</summary>
+    public static bool TrayDrawsDigits(TrayIconMode mode, bool showPercentageIcon) =>
+        mode == TrayIconMode.Numeric || showPercentageIcon;
 
     /// <summary>Whether the application moves its own tray icons out of the overflow flyout. Opt-in
     /// and off by default: there is no supported interface for it, so nothing is written unless

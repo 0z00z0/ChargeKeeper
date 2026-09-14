@@ -148,15 +148,7 @@ public sealed partial class DashboardWindow : Window
         GaugeStartTick.Stroke = AppColors.HistoryLimitBrush;
         GaugeStopTick.Stroke  = AppColors.HistoryLimitBrush;
 
-        // The graph control has no reference to App/window-management — it only signals intent.
-        HistoryGraph.ExpandRequested += (_, _) => _app.ShowHistoryWindow();
-
-        // No room for these at 340px without crowding the plot; the pop-out window keeps them on.
-        HistoryGraph.ShowGapMarkers    = false;
-        HistoryGraph.ShowStressHeatmap = false;
-        HistoryGraph.ShowCrosshair     = false;
-
-        _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
+        _refreshTimer      = new() { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) => Refresh();
 
         _thresholdApplyTimer          = new() { Interval = TimeSpan.FromMilliseconds(700) };
@@ -293,6 +285,10 @@ public sealed partial class DashboardWindow : Window
         _lidDelayExpanded     = false;
         _keepAwakeExpanded    = false;
 
+        // Before anything is drawn or measured: the window must open at the size it keeps, with the
+        // graph neither built nor drawn while the setting hides it.
+        ApplyGraphVisibility();
+
         // Draw and reveal the window at once, from sources that never leave the process (battery,
         // Keep Awake, Lid) plus whatever the last successful vendor read produced for Smart
         // Charge/Standby — or the collapsed first-run default where nothing has been read yet. The
@@ -423,13 +419,42 @@ public sealed partial class DashboardWindow : Window
     private void ApplyGraphVisibility()
     {
         bool hidden = SettingsService.Current.HideGraphInDashboard;
-        HistoryGraph.Visibility    = hidden ? Visibility.Collapsed : Visibility.Visible;
-        ShowGraphButton.Visibility = hidden ? Visibility.Visible   : Visibility.Collapsed;
+        var graph = hidden ? _historyGraph : EnsureHistoryGraph();
+        if (graph is not null) graph.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+        ShowGraphButton.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>The stand-in for the hidden graph. Goes through the graph control's own expand
-    /// event, so the pop-out has exactly one way in however it is reached.</summary>
-    private void OnShowGraphButton(object sender, RoutedEventArgs e) => HistoryGraph.RequestExpand();
+    // Null until the graph is first shown; see EnsureHistoryGraph.
+    private BatteryHistoryGraphControl? _historyGraph;
+
+    /// <summary>Builds the history graph into row 2 the first time it is shown. A control declared in
+    /// markup is built with the window, and drawn and shown before the setting is applied.</summary>
+    private BatteryHistoryGraphControl EnsureHistoryGraph()
+    {
+        if (_historyGraph is not null) return _historyGraph;
+
+        var graph = new BatteryHistoryGraphControl
+        {
+            Margin = new Thickness(0, 0, 0, 8),
+            // Pins the canvas so this popup's measured size is fixed.
+            PlotAreaHeight = new GridLength(126),
+            // No room for these at this width without crowding the plot; the pop-out keeps them on.
+            ShowGapMarkers    = false,
+            ShowStressHeatmap = false,
+            ShowCrosshair     = false,
+        };
+        Grid.SetRow(graph, 2);
+        // The graph control has no reference to App/window-management — it only signals intent.
+        graph.ExpandRequested += (_, _) => OpenHistoryWindow();
+        RootGrid.Children.Add(graph);
+        return _historyGraph = graph;
+    }
+
+    /// <summary>The one way this window opens the pop-out, from the graph's expand request and from
+    /// the stand-in button alike.</summary>
+    private void OpenHistoryWindow() => _app.ShowHistoryWindow();
+
+    private void OnShowGraphButton(object sender, RoutedEventArgs e) => OpenHistoryWindow();
 
     private void RefreshBatteryInfo()
     {
@@ -468,7 +493,7 @@ public sealed partial class DashboardWindow : Window
             ChargeRateText.Text = BatteryStatsFormatter.FormatChargeRate(BatteryHistoryService.CurrentRatePercentPerHour());
 
             // Drawing a hidden graph costs a full render per tick and shows nothing.
-            if (HistoryGraph.Visibility == Visibility.Visible) HistoryGraph.Render();
+            if (_historyGraph is { Visibility: Visibility.Visible } graph) graph.Render();
         }
         catch
         {

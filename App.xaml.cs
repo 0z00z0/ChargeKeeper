@@ -1134,8 +1134,10 @@ public partial class App : Application
                 Id = TrayIconIdentity.PercentageValue,
             };
 
-            // Display-only: no context flyout, no click commands, no tooltip. Everything reachable
-            // from the tray is reachable from the main icon.
+            // Its right-click menu holds the digit style alone; no click commands and no tooltip.
+            // Everything else reachable from the tray stays on the main icon.
+            if (_menu is not null) icon.ContextFlyout = _menu.PercentageIconFlyout;
+
             //
             // enablesEfficiencyMode: false for the same reason the main icon passes it — the flag
             // is a property of the PROCESS, so one icon created with the library's default would

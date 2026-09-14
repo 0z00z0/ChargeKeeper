@@ -14,7 +14,9 @@
 
     <!-- The same graph control at full size, plus the self-measurement graph as an alternative
          view. ShowExpandButton is off: this window is where expanding leads. -->
-    <Grid x:Name="RootGrid" Padding="20,16,20,20" RowSpacing="12">
+    <!-- KeyboardAcceleratorPlacementMode Hidden: WinUI otherwise shows the accelerator's key as a
+         tooltip ("Esc") over every part of the window without a tooltip of its own. -->
+    <Grid x:Name="RootGrid" Padding="20,16,20,20" RowSpacing="12" KeyboardAcceleratorPlacementMode="Hidden">
         <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
              sits; nothing in this window wants the key for itself. -->
         <Grid.KeyboardAccelerators>

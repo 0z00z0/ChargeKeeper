@@ -390,8 +390,10 @@ internal sealed partial class SettingsWindow : Window
         AppDiagnosticsPanel.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
 
-        // The graph only paints while its page is on screen; leaving the page stops its repaint.
-        if (tag == "AppDiagnostics") PerformanceGraph.ApplySettings(); else PerformanceGraph.Render();
+        // The graph only paints while its page is on screen. Its own Visibility follows the page
+        // because that is what stops its repaint: a collapsed parent panel does not reach it.
+        PerformanceGraph.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
+        if (tag == "AppDiagnostics") PerformanceGraph.ApplySettings();
 
         // Refreshed on open rather than on a timer: cheap, and it picks up anything that changed
         // while the window sat on a different tab.
@@ -617,7 +619,7 @@ internal sealed partial class SettingsWindow : Window
         {
             if (clearSecond) PercentageIconToggle.IsOn = false;
             ApplyPercentageIconAvailability(mode);
-            ApplyDigitStyleAvailability(mode);
+            ApplyDigitStyleAvailability(mode, PercentageIconToggle.IsOn);
         });
 
         _menu.ReconcileFromExternalChange();   // repaints the tray icon via the icon-mode callback
@@ -660,7 +662,7 @@ internal sealed partial class SettingsWindow : Window
             HideGraphInDashboardToggle.IsOn  = s.HideGraphInDashboard;
             DigitStyleCombo.SelectedIndex    = (int)s.PercentageDigitStyle;
             ApplyPercentageIconAvailability(s.IconMode);
-            ApplyDigitStyleAvailability(s.IconMode);
+            ApplyDigitStyleAvailability(s.IconMode, s.ShowPercentageIcon);
             GraphScaleCombo.SelectedIndex    = (int)s.GraphTimeScale;
             SelectComboByTag(GraphLineColouringCombo, s.GraphLineColouring.ToString());
             GraphShadingToggle.IsOn          = s.GraphShadingEnabled;
@@ -687,6 +689,7 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         bool on = PercentageIconToggle.IsOn;
         SettingsService.Update(s => s.ShowPercentageIcon = on);
+        ApplyDigitStyleAvailability(SettingsService.Current.IconMode, on);
         _menu.ReconcileFromExternalChange();   // adds or removes the second icon on the next repaint
     }
 
@@ -695,16 +698,18 @@ internal sealed partial class SettingsWindow : Window
         if (_updating || DigitStyleCombo.SelectedIndex < 0) return;
         var style = (TrayDigitStyle)DigitStyleCombo.SelectedIndex;
 
-        // Nothing else to do: the icon request carries the style, so the repaint the committed
-        // change starts draws the new digits.
+        // The icon request carries the style, so the repaint the committed change starts draws the
+        // new digits. The reconcile moves both tray menus' check marks; the second icon's menu has no
+        // right-click refresh of its own.
         SettingsService.Update(s => s.PercentageDigitStyle = style);
+        _menu.ReconcileFromExternalChange();
     }
 
-    /// <summary>The digit style is shown only while the tray icon style is the one that draws
-    /// digits. Hidden rather than disabled: it qualifies a style that is not in use, so there is
-    /// nothing for a disabled row to explain.</summary>
-    private void ApplyDigitStyleAvailability(TrayIconMode mode) =>
-        DigitStyleCard.Visibility = mode == TrayIconMode.Numeric
+    /// <summary>The digit style is shown whenever a tray icon draws digits: the Numeric % style, or
+    /// the second percentage icon. Hidden rather than disabled: with no digits drawn it qualifies
+    /// nothing, so there is nothing for a disabled row to explain.</summary>
+    private void ApplyDigitStyleAvailability(TrayIconMode mode, bool percentageIconOn) =>
+        DigitStyleCard.Visibility = AppSettings.TrayDrawsDigits(mode, percentageIconOn)
             ? Microsoft.UI.Xaml.Visibility.Visible
             : Microsoft.UI.Xaml.Visibility.Collapsed;
 

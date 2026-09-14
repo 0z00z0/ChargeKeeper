@@ -92,14 +92,17 @@ public class ReleaseNotesTests
     public void AnEmptyDocumentIsNoEntriesRatherThanAThrow() =>
         Assert.Empty(ReleaseNotes.Parse(string.Empty));
 
-    // The three places the report has to be reachable from.
+    // Where the report is reachable from, and the one window every route shares.
 
     [Fact]
-    public void TheTrayMenuCarriesIt()
+    public void TheTrayMenuOwnsTheWindowWithoutListingIt()
     {
+        // The About window and the Settings page reach the report through the tray menu's single
+        // instance; the menu itself no longer lists an entry for it.
         string source = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "TrayMenu.cs")));
-        Assert.Contains("What's new…", source, StringComparison.Ordinal);
-        Assert.Contains("ShowWhatsNew", source, StringComparison.Ordinal);
+        Assert.Contains("internal async void ShowWhatsNew()", source, StringComparison.Ordinal);
+        Assert.Contains("new AboutWindow(ShowWhatsNew)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("What's new…", source, StringComparison.Ordinal);
     }
 
     [Fact]

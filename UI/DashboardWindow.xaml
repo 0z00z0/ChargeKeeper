@@ -17,7 +17,9 @@
          without hard-coded height constants. Bottom padding matches the left/right 20 rather than
          the tighter 12 it used to carry: the last badge's chip row sat too close to the window edge
          at 12, independent of width. -->
-    <Grid x:Name="RootGrid" Padding="20,16,20,20">
+    <!-- KeyboardAcceleratorPlacementMode Hidden: WinUI otherwise shows the accelerator's key as a
+         tooltip ("Esc") over every part of the window without a tooltip of its own. -->
+    <Grid x:Name="RootGrid" Padding="20,16,20,20" KeyboardAcceleratorPlacementMode="Hidden">
         <!-- Escape dismisses exactly as clicking away does. On the root so it fires wherever focus
              sits; nothing in this window wants the key for itself. -->
         <Grid.KeyboardAccelerators>
@@ -142,24 +144,21 @@
             </StackPanel>
         </Grid>
 
-        <!-- The graph is its own control so BatteryHistoryWindow can host the same drawing code at
-             a larger size. PlotAreaHeight pins the canvas so this popup's measured size is fixed. -->
-        <local:BatteryHistoryGraphControl x:Name="HistoryGraph"
-                                           Grid.Row="2"
-                                           Margin="0,0,0,8"
-                                           PlotAreaHeight="126"/>
+        <!-- Row 2 holds the history graph, which is built in code (EnsureHistoryGraph) the first
+             time it is shown rather than declared here: with "Hide graph in dashboard" on it is never
+             built or drawn. -->
 
         <!-- Stands in for the graph while "Hide graph in dashboard" is on. In the same row and with
              the same margin, so the rows below keep their spacing and the badges are not stretched
-             into the height the graph gave up — every row of this grid is Auto. It raises the
-             control's own ExpandRequested rather than calling the window itself, so there is one
-             route to the pop-out graph and not two. -->
+             into the height the graph gave up — every row of this grid is Auto. It opens the
+             pop-out through the same method the graph's expand request does. -->
         <Button x:Name="ShowGraphButton"
                 Grid.Row="2"
                 Style="{StaticResource TimeScaleButtonStyle}"
                 HorizontalAlignment="Stretch"
                 Margin="0,0,0,8"
                 Visibility="Collapsed"
+                ToolTipService.ToolTip="Open the battery history graph"
                 AutomationProperties.Name="Battery history"
                 Click="OnShowGraphButton">
             <StackPanel Orientation="Horizontal" Spacing="8">

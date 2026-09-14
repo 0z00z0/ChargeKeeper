@@ -63,17 +63,15 @@ public sealed partial class BatteryHistoryWindow : Window
             AppWindow.MoveAndResize(_finalRect);
         }
 
-        // Render immediately so the window doesn't show a blank canvas before the first tick.
-        try { HistoryGraph.Render(); }
-        catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
         RefreshStats();
+        // Renders whichever graph is on display at once, so the window doesn't show a blank canvas
+        // before the first tick.
         ApplyGraphDisplay(SettingsService.Current.GraphDisplay);
 
         _refreshTimer       = new() { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += (_, _) =>
         {
-            try { HistoryGraph.Render(); }
-            catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
+            RenderBatteryGraphIfShown();
             RefreshStats();
         };
         _refreshTimer.Start();
@@ -102,8 +100,17 @@ public sealed partial class BatteryHistoryWindow : Window
         if (!_animStarted && _originRect is { } openOrigin)
         {
             _animStarted = true;
-            AnimateRect(openOrigin, _finalRect, HistoryGraph.Render);
+            AnimateRect(openOrigin, _finalRect, RenderBatteryGraphIfShown);
         }
+    }
+
+    /// <summary>Draws the battery graph only while it is the one on display: a collapsed graph costs
+    /// a full render and shows nothing.</summary>
+    private void RenderBatteryGraphIfShown()
+    {
+        if (HistoryGraph.Visibility != Visibility.Visible) return;
+        try { HistoryGraph.Render(); }
+        catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
     }
 
     /// <summary>Escape takes the same path as clicking away, so the key introduces no third
@@ -196,8 +203,7 @@ public sealed partial class BatteryHistoryWindow : Window
 
         if (display == GraphDisplay.Battery)
         {
-            try { HistoryGraph.Render(); }
-            catch (Exception ex) { AppLog.Error("BatteryHistoryWindow.Render", ex); }
+            RenderBatteryGraphIfShown();
         }
         else
         {

@@ -68,6 +68,10 @@ public sealed partial class PerformanceGraphControl : UserControl
 
         Loaded   += (_, _) => { _loaded = true;  ApplySettings(); };
         Unloaded += (_, _) => { _loaded = false; _repaintTimer.Stop(); };
+
+        // Loaded fires while collapsed too, so a host that hides this control by its Visibility
+        // would otherwise leave the repaint running four times a second behind it.
+        RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => ApplySettings());
     }
 
     /// <summary>
@@ -83,7 +87,8 @@ public sealed partial class PerformanceGraphControl : UserControl
         LegendMeanText.Text      = $"Processor mean · {SpanLabel(PerformanceHistoryService.WindowSpan)}";
         LegendMemoryText.Text    = "Memory · 1 Hz";
 
-        if (on && _loaded)
+        bool shown = Visibility == Visibility.Visible;
+        if (on && _loaded && shown)
         {
             if (!_repaintTimer.IsEnabled) _repaintTimer.Start();
         }
@@ -92,7 +97,7 @@ public sealed partial class PerformanceGraphControl : UserControl
             _repaintTimer.Stop();
         }
 
-        Render();
+        if (shown) Render();
     }
 
     private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e) => Render();
