@@ -86,7 +86,8 @@ installer is **per-user — no admin needed to install** — and offers one opti
   register a prompt-free elevated logon task.
 
 Updates come from GitHub Releases. The app checks 30 seconds after start and once a day after that,
-and the tray menu's **Check for updates** asks on demand. A downloaded installer is verified before
+and each time the About window or the Settings window opens. **Check for updates** in the tray menu,
+the About window and the Settings About page asks on demand. A downloaded installer is verified before
 it is launched: intact digest, a present signature, and the signer `CN=ZeroZero Software`.
 
 The app itself shows a UAC prompt when it launches, since changing the charge threshold / standby
