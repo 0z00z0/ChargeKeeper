@@ -61,6 +61,18 @@ public class WindowEscapeKeyTests
         Assert.Contains("KeyboardAcceleratorPlacementMode=\"Hidden\"", root.Value, StringComparison.Ordinal);
     }
 
+    // The hidden tip is the root's alone. A control hosted inside that declared an accelerator of its
+    // own would carry its own key tip, which the root's setting does not reach.
+    [Theory]
+    [InlineData("BatteryHistoryGraphControl.xaml")]
+    [InlineData("BatteryHistoryGraphControl.xaml.cs")]
+    [InlineData("PerformanceGraphControl.xaml")]
+    [InlineData("PerformanceGraphControl.xaml.cs")]
+    [InlineData("BatteryHealthPanel.xaml")]
+    [InlineData("BatteryHealthPanel.xaml.cs")]
+    public void HostedControlDeclaresNoAcceleratorOfItsOwn(string fileName) =>
+        Assert.DoesNotContain("KeyboardAccelerator", Markup(fileName), StringComparison.Ordinal);
+
     // Left unhandled, the key keeps bubbling and a second accelerator could act on the same press.
     [Theory]
     [InlineData("DashboardWindow.xaml.cs")]

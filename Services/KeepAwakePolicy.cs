@@ -113,6 +113,18 @@ internal static class KeepAwakePolicy
     public static string ShortLabel(KeepAwakeRequest request) =>
         string.IsNullOrWhiteSpace(request.Name) ? SpanLabel(request) : request.Name!.Trim();
 
+    /// <summary>What pressing a chip starts, spelt out: a chip shows a named preset's name, which
+    /// says nothing about how long it lasts. Worded like the lid chips' "Sleep 10m after the lid
+    /// closes".</summary>
+    public static string ChipTip(KeepAwakeRequest request) => request.Kind switch
+    {
+        KeepAwakeKind.UntilNetworkChange                        => "Stay awake until the computer moves to another network",
+        KeepAwakeKind.UntilTime when request.Until is not null  => $"Stay awake until {SpanLabel(request)}",
+        KeepAwakeKind.Duration when request.Duration is { } d && d > TimeSpan.Zero
+                                                                => $"Stay awake for {SpanLabel(request)}",
+        _                                                       => "Stay awake until turned off",
+    };
+
     /// <summary>
     /// The span alone — "30m", "1h", "1h30", "17:00", "Net" — with no regard for
     /// <see cref="KeepAwakeRequest.Name"/>. What an editable "Expires" box is seeded with, so the

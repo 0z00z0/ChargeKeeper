@@ -53,8 +53,10 @@
                     x:Name="GraphDisplayPanel"
                     Orientation="Horizontal"
                     Spacing="4">
-            <Button x:Name="BatteryDisplayButton" Content="Battery" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
-            <Button x:Name="SystemDisplayButton"  Content="System"  Tag="System"  Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"/>
+            <Button x:Name="BatteryDisplayButton" Content="Battery" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"
+                    ToolTipService.ToolTip="Show battery level, charge limit and power over time"/>
+            <Button x:Name="SystemDisplayButton"  Content="System"  Tag="System"  Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"
+                    ToolTipService.ToolTip="Show how much processor time and memory ChargeKeeper itself uses"/>
         </StackPanel>
 
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph" Grid.Row="2" ShowExpandButton="False"/>

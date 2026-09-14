@@ -514,7 +514,7 @@ public sealed partial class DashboardWindow : Window
         {
             BatteryStatus.Charging    => (PowerFlows.GlyphIn,   AppColors.StatusChargingBrush,    "Charging"),
             BatteryStatus.Discharging => (PowerFlows.GlyphOut,  AppColors.StatusDischargingBrush, "Discharging"),
-            BatteryStatus.Idle        => (PowerFlows.GlyphRest, AppColors.StatusIdleBrush,        "Full / Idle"),
+            BatteryStatus.Idle        => (PowerFlows.GlyphRest, AppColors.StatusIdleBrush,        "Plugged in, not charging"),
             BatteryStatus.NotPresent  => ("—", AppColors.StatusUnknownBrush,     "No battery"),
             _                         => ("—", AppColors.StatusUnknownBrush,     ""),
         };
@@ -1090,6 +1090,7 @@ public sealed partial class DashboardWindow : Window
                 Tag     = request,
                 Style   = QuickButtonStyle,
             };
+            ToolTipService.SetToolTip(chip, KeepAwakePolicy.ChipTip(request));
             chip.Checked   += OnKeepAwakePresetChecked;
             chip.Unchecked += OnKeepAwakePresetUnchecked;
             KeepAwakePresetPanel.Children.Add(chip);

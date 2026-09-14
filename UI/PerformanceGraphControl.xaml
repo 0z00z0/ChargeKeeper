@@ -82,20 +82,26 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                            Background="Transparent"
+                            ToolTipService.ToolTip="Processor time ChargeKeeper itself uses, as a share of the whole machine, on the left scale. The figure after the dot is how often it is read.">
                     <Border x:Name="LegendProcessorSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendProcessorText" Text="Processor" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
                 <!-- The mean carries the processor line's own colour, dashed: it is the same series
                      read another way, not a third quantity. -->
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                            Background="Transparent"
+                            ToolTipService.ToolTip="The processor line averaged over the span named after the dot.">
                     <Line x:Name="LegendMeanSwatch" X1="0" Y1="0" X2="14" Y2="0"
                           StrokeThickness="2" VerticalAlignment="Center"/>
                     <TextBlock x:Name="LegendMeanText" Text="Processor mean" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                            Background="Transparent"
+                            ToolTipService.ToolTip="Memory ChargeKeeper itself holds in use, in megabytes on the right scale, read once a second.">
                     <Border x:Name="LegendMemorySwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendMemoryText" Text="Memory" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -106,6 +112,7 @@
                  Two more lines on this plot would not read, so they are shown as figures. -->
             <TextBlock x:Name="CountsText"
                        Grid.Column="1"
+                       ToolTipService.ToolTip="Handles and threads ChargeKeeper itself holds open, from the latest reading."
                        Text=""
                        FontSize="12"
                        VerticalAlignment="Center"
