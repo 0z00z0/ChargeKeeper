@@ -63,11 +63,12 @@ internal static class AppColors
     internal static readonly SolidColorBrush TimeScaleSelectedBrush =
         new(Color.FromArgb(60, SteelBlue.R, SteelBlue.G, SteelBlue.B));
 
-    // The "in use" preset marker, on both the Settings rows and the dashboard preset buttons. A tint
-    // will not do here: even at 24 % SteelBlue composites to a near-black grey against the studio
-    // surfaces, so the marker takes the accent solid. SteelBlue is a LIGHT accent (relative luminance
-    // 0.40), which makes black the legible label colour on it (~9:1) in either theme, where white
-    // would reach only 2.3:1.
+    // The Settings preset rows' "in use" marker (PresetRows.ApplyActiveResources) — the dashboard's
+    // own preset chips take TimeScaleSelectedBrush instead, matching the Lid delay chips (#207). A
+    // tint will not do here: even at 24 % SteelBlue composites to a near-black grey against the
+    // studio surfaces, so the marker takes the accent solid. SteelBlue is a LIGHT accent (relative
+    // luminance 0.40), which makes black the legible label colour on it (~9:1) in either theme,
+    // where white would reach only 2.3:1.
     internal static readonly SolidColorBrush AccentBrush   = new(SteelBlue);
     internal static readonly SolidColorBrush OnAccentBrush = new(Microsoft.UI.Colors.Black);
 

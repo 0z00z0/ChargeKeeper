@@ -9,6 +9,15 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.58.2
+
+- #206 Clicking anywhere inside a dashboard feature box — its title, its description or its
+  collapsed row — no longer switches it on or off. Only the switch does that, and only the chevron
+  expands or collapses the box.
+- #207 The Smart Charge preset buttons and "Charge to 100 % once" now match the look of the rest of
+  the dashboard's buttons, and mark the preset in use the same way the Lid delay chips mark a
+  selected one.
+
 ## 1.58.1
 
 - #205 The "Sleep if the computer reaches a temperature" card, and the temperature ceiling on a lid

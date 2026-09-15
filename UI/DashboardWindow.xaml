@@ -193,13 +193,11 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <!-- A second hit target for the switch, so a click anywhere on the badge
-                             text works. The Background is required: a panel with no brush is not
-                             hit-testable, leaving only the glyphs clickable. -->
+                        <!-- Only the switch and the chevron change anything (#206) — a click on the
+                             title or detail text does nothing, so no Tapped and no hit-testable
+                             Background here. -->
                         <StackPanel x:Name="SmartChargeExpandedHeader"
-                                    Grid.Column="0" Spacing="1"
-                                    Background="Transparent"
-                                    Tapped="OnSmartChargeLabelTapped">
+                                    Grid.Column="0" Spacing="1">
                             <TextBlock Text="Smart Charge"
                                        Style="{StaticResource DashboardHeaderStyle}">
                                 <!-- An explicit ToolTip rather than a plain string, which cannot
@@ -236,12 +234,11 @@
                              top of the row, which lifts the word's baseline above the title's. Bottom
                              alignment on the word lines the two up; the same holds for all four
                              collapsed headers. -->
+                        <!-- Only the chevron expands this row (#206) — no Tapped here. -->
                         <StackPanel x:Name="SmartChargeCollapsedHeader"
                                     Grid.Column="0" Orientation="Horizontal" Spacing="6"
                                     VerticalAlignment="Center"
-                                    Background="Transparent"
-                                    Visibility="Collapsed"
-                                    Tapped="OnSmartChargeCollapsedRowTapped">
+                                    Visibility="Collapsed">
                             <TextBlock Text="Smart Charge" Style="{StaticResource DashboardHeaderStyle}"/>
                             <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
@@ -316,13 +313,12 @@
                           Visibility="Collapsed"/>
 
                     <!-- Visible whenever Smart Charge is capable, so an active override can also be
-                         cancelled from here. -->
+                         cancelled from here. The same chip chrome as the graph's range buttons and
+                         the Lid delay/Keep Awake chips (#207), not a bespoke look of its own. -->
                     <Button x:Name="TravelOverrideButton"
+                            Style="{StaticResource TimeScaleButtonStyle}"
                             Content="🔝  Charge to 100 % once"
                             HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            FontSize="11"
-                            Padding="8,4"
                             Margin="0,6,0,0"
                             Visibility="Collapsed"
                             Click="OnTravelOverrideButton"/>
@@ -338,10 +334,9 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
+                    <!-- Only the switch and the chevron change anything (#206) — no Tapped here. -->
                     <StackPanel x:Name="SmartStandbyExpandedHeader"
-                                Grid.Column="0" Spacing="1"
-                                Background="Transparent"
-                                Tapped="OnSmartStandbyLabelTapped">
+                                Grid.Column="0" Spacing="1">
                         <TextBlock Text="Smart Standby"
                                    Style="{StaticResource DashboardHeaderStyle}">
                             <ToolTipService.ToolTip>
@@ -366,12 +361,11 @@
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
+                    <!-- Only the chevron expands this row (#206) — no Tapped here. -->
                     <StackPanel x:Name="SmartStandbyCollapsedHeader"
                                 Grid.Column="0" Orientation="Horizontal" Spacing="6"
                                 VerticalAlignment="Center"
-                                Background="Transparent"
-                                Visibility="Collapsed"
-                                Tapped="OnSmartStandbyCollapsedRowTapped">
+                                Visibility="Collapsed">
                         <TextBlock Text="Smart Standby" Style="{StaticResource DashboardHeaderStyle}"/>
                         <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
@@ -409,10 +403,9 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+                        <!-- Only the switch and the chevron change anything (#206) — no Tapped here. -->
                         <StackPanel x:Name="LidDelayExpandedHeader"
-                                    Grid.Column="0" Spacing="1"
-                                    Background="Transparent"
-                                    Tapped="OnLidDelayLabelTapped">
+                                    Grid.Column="0" Spacing="1">
                             <TextBlock Text="Lid delay"
                                        Style="{StaticResource DashboardHeaderStyle}">
                                 <ToolTipService.ToolTip>
@@ -437,12 +430,11 @@
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
+                        <!-- Only the chevron expands this row (#206) — no Tapped here. -->
                         <StackPanel x:Name="LidDelayCollapsedHeader"
                                     Grid.Column="0" Orientation="Horizontal" Spacing="6"
                                     VerticalAlignment="Center"
-                                    Background="Transparent"
-                                    Visibility="Collapsed"
-                                    Tapped="OnLidDelayCollapsedRowTapped">
+                                    Visibility="Collapsed">
                             <TextBlock Text="Lid delay" Style="{StaticResource DashboardHeaderStyle}"/>
                             <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
@@ -499,10 +491,9 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+                        <!-- Only the switch and the chevron change anything (#206) — no Tapped here. -->
                         <StackPanel x:Name="KeepAwakeExpandedHeader"
-                                    Grid.Column="0" Spacing="1"
-                                    Background="Transparent"
-                                    Tapped="OnKeepAwakeLabelTapped">
+                                    Grid.Column="0" Spacing="1">
                             <TextBlock Text="Keep Awake"
                                        Style="{StaticResource DashboardHeaderStyle}">
                                 <ToolTipService.ToolTip>
@@ -564,12 +555,11 @@
                                 </Paragraph>
                             </RichTextBlock>
                         </StackPanel>
+                        <!-- Only the chevron expands this row (#206) — no Tapped here. -->
                         <StackPanel x:Name="KeepAwakeCollapsedHeader"
                                     Grid.Column="0" Orientation="Horizontal" Spacing="6"
                                     VerticalAlignment="Center"
-                                    Background="Transparent"
-                                    Visibility="Collapsed"
-                                    Tapped="OnKeepAwakeCollapsedRowTapped">
+                                    Visibility="Collapsed">
                             <TextBlock Text="Keep Awake" Style="{StaticResource DashboardHeaderStyle}"/>
                             <TextBlock Text="Off" FontSize="11" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>

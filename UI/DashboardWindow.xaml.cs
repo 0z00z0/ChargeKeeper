@@ -625,17 +625,7 @@ public sealed partial class DashboardWindow : Window
 
             // Nothing is highlighted while the thresholds are no preset's — a travel override or
             // Smart Charge off included.
-            string? activeName = ActivePresetPolicy.Match(presets, chargeState)?.Name;
-            foreach (var button in PresetButtonPanel.Children.OfType<Button>())
-            {
-                bool isActive    = (string?)button.Tag == activeName;
-                button.IsEnabled = !isActive;
-                // Weight as well as colour: the filled chip must not be the only thing separating
-                // the preset in use from the rest.
-                button.FontWeight = isActive
-                    ? Microsoft.UI.Text.FontWeights.SemiBold
-                    : Microsoft.UI.Text.FontWeights.Normal;
-            }
+            MarkActivePreset(ActivePresetPolicy.Match(presets, chargeState)?.Name);
         }
         PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;
 
@@ -687,29 +677,20 @@ public sealed partial class DashboardWindow : Window
         PresetButtonPanel.ColumnSpacing = PresetButtonLayout.Spacing;
         PresetButtonPanel.RowSpacing    = PresetButtonLayout.Spacing;
 
-        // The button of the preset in use is disabled, so the DISABLED visual state is what paints
-        // the marker — it overrides any Background/Foreground set on the button itself, which is why
-        // the accent goes on these three template resources instead. Same brushes as the Settings
-        // preset rows, so the two surfaces read alike. Set before the buttons are parented, so their
-        // templates resolve them.
-        PresetButtonPanel.Resources["ButtonBackgroundDisabled"]  = AppColors.AccentBrush;
-        PresetButtonPanel.Resources["ButtonBorderBrushDisabled"] = AppColors.AccentBrush;
-        PresetButtonPanel.Resources["ButtonForegroundDisabled"]  = AppColors.OnAccentBrush;
+        // The preset in use is marked the way a selected Lid delay chip is (#207): a ToggleButton in
+        // the Checked state, on the same TimeScaleButtonStyle chrome, rather than a plain Button
+        // disabled to fake a highlight. Set before the buttons are parented, so their templates
+        // resolve the resources.
+        ApplyCheckedChipResources(PresetButtonPanel);
 
         foreach (var preset in presets)
         {
-            var button = new Button
+            var button = new ToggleButton
             {
-                Tag                        = preset.Name,
-                FontSize                   = 11,
-                Padding                    = new Thickness(6, 2, 6, 2),
-                MinWidth                   = 0,   // the default would spend width this popup hasn't got
-                Height                     = 28,
-                CornerRadius               = new CornerRadius(4),
-                BorderThickness            = new Thickness(0),
-                HorizontalAlignment        = HorizontalAlignment.Stretch,
-                VerticalAlignment          = VerticalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Tag                 = preset.Name,
+                Style               = QuickButtonStyle,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment   = VerticalAlignment.Stretch,
                 Content = new TextBlock { Text = preset.Name, TextTrimming = TextTrimming.CharacterEllipsis },
             };
             ToolTipService.SetToolTip(button, ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop));
@@ -727,7 +708,7 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void LayoutPresetButtons()
     {
-        var buttons = PresetButtonPanel.Children.OfType<Button>().ToList();
+        var buttons = PresetButtonPanel.Children.OfType<ToggleButton>().ToList();
         if (buttons.Count == 0) return;
 
         // ActualWidth is 0 until the first arrange, and the buttons are built before it; the fallback
@@ -766,7 +747,15 @@ public sealed partial class DashboardWindow : Window
     /// surface reflects it. Off the UI thread — the vendor write blocks.</summary>
     private void OnPresetButtonClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string name }) return;
+        // ButtonBase, not Button: the preset chip is a ToggleButton since #207, and Click is what
+        // both share.
+        if (sender is not ButtonBase { Tag: string name }) return;
+
+        // A bare ToggleButton checks itself before Click is even raised, which would leave two
+        // chips reading Checked until the vendor write below completes and Refresh reads the real
+        // state back. Marking the pick synchronously here, the same way Refresh's own pass does,
+        // closes that window; a refused write still corrects itself once Refresh runs.
+        MarkActivePreset(name);
 
         Task.Run(() =>
         {
@@ -780,6 +769,39 @@ public sealed partial class DashboardWindow : Window
                 Refresh();
             });
         });
+    }
+
+    /// <summary>Marks which preset chip is in use, on the same TimeScaleButtonStyle chrome the Lid
+    /// delay chips use (#207): the checked one takes the shared Checked-brush resources set in
+    /// <see cref="BuildPresetButtons"/>, and stops accepting clicks so it cannot re-apply itself.</summary>
+    private void MarkActivePreset(string? activeName)
+    {
+        foreach (var button in PresetButtonPanel.Children.OfType<ToggleButton>())
+        {
+            bool isActive = (string?)button.Tag == activeName;
+            button.IsChecked        = isActive;
+            button.IsHitTestVisible = !isActive;
+            // Weight as well as colour: the filled chip must not be the only thing separating the
+            // preset in use from the rest.
+            button.FontWeight = isActive
+                ? Microsoft.UI.Text.FontWeights.SemiBold
+                : Microsoft.UI.Text.FontWeights.Normal;
+        }
+    }
+
+    /// <summary>
+    /// The chip vocabulary's own Checked look — steel-blue tint, steel-blue text — shared by every
+    /// chip row in the popup (Smart Charge presets, Lid delay, Keep Awake) so a selected chip reads
+    /// the same wherever it appears. Set before a row's chips are parented, so their
+    /// TimeScaleButtonStyle templates resolve these resources instead of the theme default.
+    /// </summary>
+    private static void ApplyCheckedChipResources(Panel panel)
+    {
+        foreach (string state in new[] { "", "PointerOver", "Pressed" })
+        {
+            panel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
+            panel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
+        }
     }
 
     /// <summary>
@@ -955,24 +977,10 @@ public sealed partial class DashboardWindow : Window
         });
     }
 
-    // Second hit target for the switch beside it; inert when the vendor refuses writes.
-    private void OnSmartChargeLabelTapped(object sender, TappedRoutedEventArgs e)
-    {
-        if (SmartChargeToggle.IsEnabled) SmartChargeToggle.IsOn = !SmartChargeToggle.IsOn;
-    }
-
-    private void OnSmartStandbyLabelTapped(object sender, TappedRoutedEventArgs e)
-    {
-        if (SmartStandbyToggle.IsEnabled) SmartStandbyToggle.IsOn = !SmartStandbyToggle.IsOn;
-    }
-
-    private void OnKeepAwakeLabelTapped(object sender, TappedRoutedEventArgs e) =>
-        KeepAwakeToggle.IsOn = !KeepAwakeToggle.IsOn;   // never disabled: no vendor to refuse it
-
     /// <summary>
     /// The screen-hold phrase inside the detail line, shown only while a session runs. Marks its tap
-    /// handled: the block around it toggles Keep Awake off, so an unhandled tap here would cancel
-    /// the session instead of changing what it holds.
+    /// handled on principle — nothing above it reacts to a tap any more (#206) — so a future handler
+    /// added to the row cannot fire from a tap meant for this pill alone.
     /// </summary>
     private void OnKeepAwakeScreenPhraseTapped(object sender, TappedRoutedEventArgs e)
     {
@@ -1074,13 +1082,7 @@ public sealed partial class DashboardWindow : Window
 
         _keepAwakeChips = wanted;
         KeepAwakePresetPanel.Children.Clear();
-
-        // Set before the chips are parented, so their templates resolve it.
-        foreach (string state in new[] { "", "PointerOver", "Pressed" })
-        {
-            KeepAwakePresetPanel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
-            KeepAwakePresetPanel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
-        }
+        ApplyCheckedChipResources(KeepAwakePresetPanel);
 
         foreach (var request in wanted)
         {
@@ -1137,10 +1139,6 @@ public sealed partial class DashboardWindow : Window
             ApplyKeepAwakeBadge();   // StateChanged never fired — put the switch and chips back
         }
     }
-
-    // Second hit target for the switch, as on the badges above.
-    private void OnLidDelayLabelTapped(object sender, TappedRoutedEventArgs e) =>
-        LidDelayToggle.IsOn = !LidDelayToggle.IsOn;
 
     /// <summary>Reconciles the whole Lid delay badge, guarded like <see cref="ApplyStatusBadges"/> and for the same reason.</summary>
     private void ApplyLidBadge()
@@ -1259,13 +1257,7 @@ public sealed partial class DashboardWindow : Window
         panel.RowDefinitions.Clear();
         panel.ColumnSpacing = PresetButtonLayout.Spacing;
         panel.RowSpacing    = PresetButtonLayout.Spacing;
-
-        // Set before the chips are parented, so their templates resolve it.
-        foreach (string state in new[] { "", "PointerOver", "Pressed" })
-        {
-            panel.Resources[$"ToggleButtonBackgroundChecked{state}"] = AppColors.TimeScaleSelectedBrush;
-            panel.Resources[$"ToggleButtonForegroundChecked{state}"] = AppColors.StatusChargingBrush;
-        }
+        ApplyCheckedChipResources(panel);
 
         if (wanted.Count == 0) return;
 
