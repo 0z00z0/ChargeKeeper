@@ -146,7 +146,7 @@ public class LidDashboardPolicyTests
     [Fact]
     public void Describe_OnWithTheClockAlone_NamesTheDelay()
     {
-        Assert.Equal("On — sleeps 10m after the lid closes",
+        Assert.Equal("On\nSleeps 10m after the lid closes",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: true, 10,
                                         dischargeEnabled: false, targetPercent: 50, lockOnClose: true));
     }
@@ -164,17 +164,18 @@ public class LidDashboardPolicyTests
     [Fact]
     public void Describe_ADelayOutsideTheAllowedRange_ReadsAsTheDelayThatWillActuallyRun()
     {
-        Assert.Equal("On — sleeps 1m after the lid closes",
+        Assert.Equal("On\nSleeps 1m after the lid closes",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: true, 0,
                                         dischargeEnabled: false, targetPercent: 50, lockOnClose: true));
     }
 
     [Fact]
-    public void Describe_BothConditions_SaysWhicheverArrivesFirstDecides()
+    public void Describe_BothConditions_SaysWhicheverArrivesFirstOnItsOwnLine()
     {
         // The two are alternatives: a line reading as though both had to be satisfied would promise
-        // a wait the machine no longer runs.
-        Assert.Equal("On — sleeps 10m after the lid closes, or at 40 % battery, whichever comes first",
+        // a wait the machine no longer runs. "Whichever comes first" gets its own fourth line rather
+        // than trailing the battery line, which would overflow the popup's per-line width.
+        Assert.Equal("On\nSleeps 10m after the lid closes\nor at 40 % battery\nwhichever comes first",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: true, 10,
                                         dischargeEnabled: true, targetPercent: 40, lockOnClose: true));
     }
@@ -182,7 +183,7 @@ public class LidDashboardPolicyTests
     [Fact]
     public void Describe_TheBatteryTargetAlone_NamesNoDelay()
     {
-        Assert.Equal("On — sleeps at 40 % battery",
+        Assert.Equal("On\nSleeps at 40 % battery",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: false, 10,
                                         dischargeEnabled: true, targetPercent: 40, lockOnClose: true));
     }
@@ -191,7 +192,7 @@ public class LidDashboardPolicyTests
     public void Describe_NeitherCondition_SaysTheMachineSleepsStraightAway()
     {
         // Nothing left to wait for, which is what the wait does rather than holding indefinitely.
-        Assert.Equal("On — sleeps as soon as the lid closes",
+        Assert.Equal("On\nSleeps as soon as the lid closes",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: false, 10,
                                         dischargeEnabled: false, targetPercent: 40, lockOnClose: true));
     }
@@ -199,7 +200,7 @@ public class LidDashboardPolicyTests
     [Fact]
     public void Describe_ATargetOutsideTheAllowedRange_ReadsAsTheTargetThatWillActuallyApply()
     {
-        Assert.Equal("On — sleeps at 95 % battery",
+        Assert.Equal("On\nSleeps at 95 % battery",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: false, 10,
                                         dischargeEnabled: true, targetPercent: 100, lockOnClose: true));
     }
@@ -217,16 +218,18 @@ public class LidDashboardPolicyTests
     public void Describe_UnlockedWithTheClockAlone_NamesTheLockState()
     {
         // Locking is the default, so it stays unnamed while on; off is the deviation worth a word.
-        Assert.Equal("On, unlocked — sleeps 10m after the lid closes",
+        Assert.Equal("On, unlocked\nSleeps 10m after the lid closes",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: true, 10,
                                         dischargeEnabled: false, targetPercent: 50, lockOnClose: false));
     }
 
     [Fact]
-    public void Describe_UnlockedWithBothConditions_StillFitsTheLockStateIn()
+    public void Describe_UnlockedWithBothConditions_NamesTheLockStateOnTheLeadLine()
     {
+        // The lock state names itself on the lead line same as any other branch; the four-line split
+        // does not change which line it belongs on.
         Assert.Equal(
-            "On, unlocked — sleeps 10m after the lid closes, or at 40 % battery, whichever comes first",
+            "On, unlocked\nSleeps 10m after the lid closes\nor at 40 % battery\nwhichever comes first",
             LidDashboardPolicy.Describe(enabled: true, timeEnabled: true, 10,
                                         dischargeEnabled: true, targetPercent: 40, lockOnClose: false));
     }
@@ -238,6 +241,22 @@ public class LidDashboardPolicyTests
         Assert.Equal("Off — the Windows lid setting applies",
             LidDashboardPolicy.Describe(enabled: false, timeEnabled: true, 10,
                                         dischargeEnabled: false, targetPercent: 50, lockOnClose: false));
+    }
+
+    /// <summary>Pins the line count itself, not only the wording above: one line per statement that
+    /// applies, plus the lead line — never a wrapped sentence the TextBlock has to break.</summary>
+    [Theory]
+    [InlineData(true,  true,  4)]
+    [InlineData(true,  false, 2)]
+    [InlineData(false, true,  2)]
+    [InlineData(false, false, 2)]
+    public void Describe_LineCountMatchesHowManyConditionsApply(
+        bool timeEnabled, bool dischargeEnabled, int expectedLines)
+    {
+        string result = LidDashboardPolicy.Describe(enabled: true, timeEnabled: timeEnabled, 10,
+                                                     dischargeEnabled: dischargeEnabled,
+                                                     targetPercent: 40, lockOnClose: true);
+        Assert.Equal(expectedLines, result.Split('\n').Length);
     }
 
     // ActiveChip and ActiveLevelChip

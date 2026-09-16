@@ -68,28 +68,33 @@ internal static class LidDashboardPolicy
     public static string LevelLabel(int percent) => $"{LidDischargeWatch.Clamp(percent)} %";
 
     /// <summary>
-    /// The line under the title. Off names what applies instead, like the sections beside it: the
-    /// delay being off does not mean nothing happens, it means Windows handles the lid again. The two
-    /// conditions are alternatives, so with both set the line says which arrives first decides, and
-    /// with neither set it says the machine sleeps straight away. The lock is named only when it is
-    /// off: locking is the default, so silence already reads as locked, and spelling it out on every
-    /// branch would run the busiest one past the badge's two-line budget.
+    /// The lines under the title, one statement per line rather than one wrapped sentence — the
+    /// popup's width holds only about 38-39 characters per line (measured from a rendered screenshot),
+    /// and "or at 95 % battery, whichever comes first" (41 characters) would wrap raggedly by itself.
+    /// Off names what applies instead, like the sections beside it: the delay being off does not mean
+    /// nothing happens, it means Windows handles the lid again. The two conditions are alternatives,
+    /// so with both set the busiest case is four lines — lead, delay, level, then "whichever comes
+    /// first" on its own line, since it is informative rather than filler and every other split
+    /// leaves a line over budget. With neither set the machine sleeps straight away. The lock is
+    /// named only when it is off: locking is the default, so silence already reads as locked.
+    /// Joined with a lone line feed: the dashboard's TextBlock renders an embedded <c>\n</c> as a
+    /// break on its own, with no <c>LineBreak</c> markup needed.
     /// </summary>
     public static string Describe(bool enabled, bool timeEnabled, int minutes,
                                   bool dischargeEnabled, int targetPercent, bool lockOnClose)
     {
         if (!enabled) return "Off — the Windows lid setting applies";
 
-        string time  = $"{ShortLabel(Clamp(minutes))} after the lid closes";
+        string time  = $"Sleeps {ShortLabel(Clamp(minutes))} after the lid closes";
         string level = $"at {LevelLabel(targetPercent)} battery";
         string lead  = lockOnClose ? "On" : "On, unlocked";
 
         return (timeEnabled, dischargeEnabled) switch
         {
-            (true,  true ) => $"{lead} — sleeps {time}, or {level}, whichever comes first",
-            (true,  false) => $"{lead} — sleeps {time}",
-            (false, true ) => $"{lead} — sleeps {level}",
-            (false, false) => $"{lead} — sleeps as soon as the lid closes",
+            (true,  true ) => $"{lead}\n{time}\nor {level}\nwhichever comes first",
+            (true,  false) => $"{lead}\n{time}",
+            (false, true ) => $"{lead}\nSleeps {level}",
+            (false, false) => $"{lead}\nSleeps as soon as the lid closes",
         };
     }
 

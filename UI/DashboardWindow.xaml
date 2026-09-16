@@ -422,15 +422,15 @@
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
                             </TextBlock>
-                            <!-- Three lines, not the other badges' two: with both the delay and the
-                                 battery-level conditions on, LidDashboardPolicy.Describe's longest
-                                 sentence ("…whichever comes first") only fits the popup's width
-                                 across three lines. -->
+                            <!-- Four lines, not the other badges' two: LidDashboardPolicy.Describe
+                                 builds one statement per line rather than one sentence for the
+                                 wrapper to break, since "or at 95 % battery, whichever comes first"
+                                 (41 characters) would wrap raggedly on its own at the popup's width. -->
                             <TextBlock x:Name="LidDelayDetailText"
                                        Text="—"
                                        FontSize="11"
                                        TextWrapping="Wrap"
-                                       MaxLines="3"
+                                       MaxLines="4"
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
