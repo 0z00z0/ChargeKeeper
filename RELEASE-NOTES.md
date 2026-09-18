@@ -11,6 +11,10 @@ in `ChargeKeeper.csproj`.
 
 ## 1.58.4
 
+- #212 A script bound to the lid now runs on every lid change, whether or not Lid delay is
+  switched on.
+- #214 The battery temperature reading appears as soon as it is available, rather than only
+  after the first 20-second history update.
 - #170 On battery, a lid-close wait now runs its full length: while it runs, ChargeKeeper sets the
   Windows battery sleep timeout to Never and puts the previous value back when the wait ends, or at
   the next start if the app was stopped first. Before, Windows slept the computer about fifteen

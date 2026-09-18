@@ -28,7 +28,7 @@
     <!-- The MAJOR matters: NLog 6 removed FileTarget.concurrentWrites and silently ignores unknown
          attributes, so nlog.config's concurrency settings are version-specific. Read AppLog's
          remarks and NLogConfigTests before moving this. -->
-    <PackageVersion Include="NLog" Version="6.2.0" />
+    <PackageVersion Include="NLog" Version="6.2.1" />
     <!-- The 10.0.12 band: runtime-companion packages republished under the runtime's own number. -->
     <PackageVersion Include="System.Diagnostics.PerformanceCounter" Version="10.0.12" />
     <PackageVersion Include="System.Drawing.Common" Version="10.0.12" />
