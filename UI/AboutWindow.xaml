@@ -29,7 +29,14 @@
         <ScrollViewer x:Name="ContentScroller" Padding="24" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="ContentPanel" MaxWidth="560" HorizontalAlignment="Center" Spacing="12">
-                <brand:BrandAboutControl x:Name="About"/>
+                <!-- The card is measured at its own shared design width (the same width the
+                     Settings and What's new surfaces use), then grown uniformly by CardScale
+                     through the Viewbox — set in the constructor, once About.Width is known. A
+                     Viewbox is layout-affecting, unlike a RenderTransform, so FitWindowToContent's
+                     Measure/DesiredSize call already sees the grown size. -->
+                <Viewbox x:Name="AboutScaler" Stretch="Uniform">
+                    <brand:BrandAboutControl x:Name="About"/>
+                </Viewbox>
                 <!-- Under the card, on its own: the check is this application's. -->
                 <brand:BrandBracketButton x:Name="CheckForUpdatesButton" HorizontalAlignment="Center"/>
             </StackPanel>

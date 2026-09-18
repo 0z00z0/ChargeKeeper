@@ -9,6 +9,19 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.58.3
+
+- #208 The dashboard's Lid delay status line, with both the delay and battery-level conditions on,
+  no longer wraps raggedly or gets cut short — each part of the sentence has its own line.
+- #209 The About window opens tall enough to show Check for updates under the card without
+  scrolling, and the Check for updates button on the Settings About page now sits centred under the
+  card instead of flush left.
+- #210 The battery temperature reading on the Settings sleep card and the lid-close ceiling no
+  longer waits for the reading to vary before trusting it, so a genuinely steady reading is no
+  longer withheld for minutes at a time.
+- #211 The About card's text is larger — the whole card is about a fifth bigger — and the frameless
+  About window is wider to show it without scrolling (brand component 0.9.2).
+
 ## 1.58.2
 
 - #206 Clicking anywhere inside a dashboard feature box — its title, its description or its

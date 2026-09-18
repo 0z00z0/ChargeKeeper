@@ -177,4 +177,20 @@ public class WindowFitTests
         // XamlRoot is null before the first layout; 0 must not collapse the minimum to nothing.
         Assert.Equal(628, WindowFit.ToPhysicalPixels(628, 0));
     }
+
+    // The About window's card scale. AboutWindow cannot be instantiated without a display (see
+    // WindowEscapeKeyTests), so this reads the shipped code-behind and markup instead.
+
+    [Fact]
+    public void AboutWindow_ScalesTheCardWithAViewbox_NotARenderTransform()
+    {
+        // A RenderTransform would not affect layout measurement, so FitWindowToContent would keep
+        // measuring the unscaled card and clip the button row underneath it.
+        string code = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "AboutWindow.xaml.cs")));
+        Assert.Contains("CardScale = 1.2", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("RenderTransform", code, StringComparison.Ordinal);
+
+        string markup = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "AboutWindow.xaml")));
+        Assert.Contains("<Viewbox x:Name=\"AboutScaler\"", markup, StringComparison.Ordinal);
+    }
 }

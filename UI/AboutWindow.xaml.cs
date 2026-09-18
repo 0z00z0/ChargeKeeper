@@ -14,10 +14,18 @@ namespace ChargeKeeper.UI;
 /// </summary>
 internal sealed partial class AboutWindow : Window
 {
-    private const int WidthDip = AboutContent.ContentWidthDip;
+    // How much larger the card reads than its shared design width, applied uniformly by the
+    // Viewbox in the XAML so both dimensions (and every hard-coded font size inside the card,
+    // which the brand package never exposes as a resource) grow together.
+    private const double CardScale = 1.2;
 
     // A floor, not a target — the height is measured from the content in FitWindowToContent.
     private const int MinHeightDip = 320;
+
+    // Window width in DIPs: the scaled card plus the scroller's own left/right padding, read live
+    // rather than duplicating the 24 DIP set in XAML. Computed once InitializeComponent has run,
+    // since ContentScroller.Padding is not set before then.
+    private readonly int _windowWidthDip;
 
     private bool _placed;
 
@@ -44,6 +52,13 @@ internal sealed partial class AboutWindow : Window
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: false);
         // A no-op on this frameless popup, but keeps the call site uniform with the other windows.
         ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+
+        // Fix the card at its shared design width, then tell the Viewbox the scaled width to grow
+        // it to; Height is left unset so it derives from the child's natural aspect at that width.
+        About.Width = AboutContent.ContentWidthDip;
+        AboutScaler.Width = AboutContent.ContentWidthDip * CardScale;
+        _windowWidthDip = (int)Math.Ceiling(AboutScaler.Width
+                         + ContentScroller.Padding.Left + ContentScroller.Padding.Right);
 
         About.SetInfo(AboutContent.Build(menu.ShowWhatsNew));
         _updateButton = new UpdateCheckButtonController(CheckForUpdatesButton, menu, HoldOpenAround);
@@ -87,7 +102,7 @@ internal sealed partial class AboutWindow : Window
         try
         {
             // Width first, measure second: the height is only real at the width it will be shown at.
-            AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, MinHeightDip));
+            AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(_windowWidthDip, MinHeightDip));
             ContentScroller.UpdateLayout();
             FitWindowToContent();
         }
@@ -138,7 +153,7 @@ internal sealed partial class AboutWindow : Window
         int heightDip = WindowFit.HeightForContent(size.Height / scale, content, viewport, MinHeightDip);
         int heightPx  = Math.Min(WindowFit.ToPhysicalPixels(heightDip, scale),
                                  WindowFit.FirstOpenHeightCap(work.H));
-        int widthPx   = Math.Min(WindowFit.ToPhysicalPixels(WidthDip, scale), work.W);
+        int widthPx   = Math.Min(WindowFit.ToPhysicalPixels(_windowWidthDip, scale), work.W);
 
         AppLog.Info($"AboutWindow fit: content={content:F0} viewport={viewport:F0} scale={scale} " +
                     $"-> {heightDip} DIP, capped {heightPx}x{widthPx} px in work area {work.W}x{work.H}");
