@@ -9,6 +9,21 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.58.4
+
+- #170 On battery, a lid-close wait now runs its full length: while it runs, ChargeKeeper sets the
+  Windows battery sleep timeout to Never and puts the previous value back when the wait ends, or at
+  the next start if the app was stopped first. Before, Windows slept the computer about fifteen
+  minutes after the lid closed, whatever the delay said.
+- #217 There is one log, app.log: the power, lid and sleep lines sit in it in time order with
+  everything else, and power.log is no longer written.
+- #218 With no network, MQTT no longer fills the log with an error for every entity: losing the
+  broker and getting it back are one line each, and the current state is sent again on reconnect.
+- #219 A script that fails with a PowerShell error is now said to have failed, with the error in
+  plain words, and raises the script-failed notification; a run that worked says so.
+- #220 The log records how long the dashboard took to open after a tray click, and whether its
+  window was newly built or reused.
+
 ## 1.58.3
 
 - #208 The dashboard's Lid delay status line, with both the delay and battery-level conditions on,
