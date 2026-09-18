@@ -125,62 +125,28 @@ public class NLogConfigTests
             "Content item + CopyToOutputDirectory in ChargeKeeper.csproj — NLog would silently log nothing.");
     }
 
-    // Power trail (power.log)
+    // One log: the power, lid and sleep lines go to app.log with everything else
 
     [Fact]
-    public void ShippedConfig_RoutesPowerEventsToTheirOwnFile()
+    public void ShippedConfig_WritesOneFile_AndPowerEventsReachIt()
     {
-        // The point of the target: "why did this machine sleep" is answered from one file.
+        // power.log is gone: a second file target would bring it back, and a power line that reaches
+        // no target is a sleep nobody can explain.
         var config = LoadShippedConfigStrictly();
 
-        Assert.Contains("powerfile", TargetsFor(config, PowerLog.LoggerName));
-        Assert.Equal(AppPaths.LogFile(PowerLog.FileName),
-                     FileTargetOf(config, "powerfile").FileName.Render(LogEventInfo.CreateNullEvent()),
+        var file = Assert.Single(config.AllTargets.OfType<FileTarget>());
+        Assert.Equal(AppPaths.LogFile(AppLog.FileName), file.FileName.Render(LogEventInfo.CreateNullEvent()),
                      ignoreCase: true);
+        Assert.Equal(["appfile"], TargetsFor(config, PowerLog.LoggerName));
+        Assert.Equal(["appfile"], TargetsFor(config, AppLog.LoggerName));
     }
 
     [Fact]
-    public void ShippedConfig_PowerEventsAlsoReachAppLog()
+    public void ShippedConfig_TimestampsCarryMillisecondsUnderAnyThreadCulture()
     {
-        // The power rule is deliberately not final: power.log is a filter over the trail, not a slice
-        // taken out of it. A final="true" would also strand every logger declared after it, so the
-        // rule itself is asserted rather than inferred from the target list.
-        var config = LoadShippedConfigStrictly();
-
-        var powerRule = Assert.Single(config.LoggingRules, r => r.LoggerNamePattern == PowerLog.LoggerName);
-        Assert.False(powerRule.Final,
-            "the ChargeKeeper.Power rule must not be final — power events belong in app.log too.");
-        Assert.Contains("appfile", TargetsFor(config, PowerLog.LoggerName));
-    }
-
-    [Fact]
-    public void ShippedConfig_OrdinaryLoggersDoNotReachThePowerFile()
-    {
-        // A line lands in power.log because the call site chose PowerLog, never because of its namespace.
-        Assert.DoesNotContain("powerfile", TargetsFor(LoadShippedConfigStrictly(), AppLog.LoggerName));
-    }
-
-    [Fact]
-    public void ShippedConfig_PowerFileRotatesAndIsConcurrentWriterSafeLikeAppLog()
-    {
-        // Sibling ChargeKeeper processes append here too, so the same rotation and retry policy applies.
-        var config = LoadShippedConfigStrictly();
-        var file   = FileTargetOf(config, "powerfile");
-
-        Assert.Equal(TenMegabytes, file.ArchiveAboveSize);
-        Assert.Equal(FileArchivePeriod.Day, file.ArchiveEvery);
-        Assert.Equal(7, file.MaxArchiveFiles);
-        Assert.False(file.KeepFileOpen);
-        Assert.Equal("5",  Rendered(WrapperOf(config, "powerfile").RetryCount));
-        Assert.Equal("20", Rendered(WrapperOf(config, "powerfile").RetryDelayMilliseconds));
-    }
-
-    [Fact]
-    public void ShippedConfig_PowerTimestampsAreIsoWithMillisecondsUnderAnyThreadCulture()
-    {
-        // Ordering inside one second is what this file is for, so the milliseconds are load-bearing.
-        // Rendered under ar-SA for the same reason as app.log's layout.
-        var layout = FileTargetOf(LoadShippedConfigStrictly(), "powerfile").Layout;
+        // Ordering inside one second is what the power lines are read for, so the milliseconds are
+        // load-bearing. Rendered under ar-SA for the same reason as the Gregorian-year test.
+        var layout = FileTargetOf(LoadShippedConfigStrictly()).Layout;
 
         var original = Thread.CurrentThread.CurrentCulture;
         try
@@ -188,45 +154,29 @@ public class NLogConfigTests
             Thread.CurrentThread.CurrentCulture = new CultureInfo("ar-SA");
             var rendered = layout.Render(LogEventInfo.Create(LogLevel.Info, PowerLog.LoggerName, "message"));
 
-            Assert.Matches($@"^\[{DateTime.Now.Year}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}}\] \S+\s+message", rendered);
+            Assert.Matches($@"^\[{DateTime.Now.Year}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}} [+-]\d{{2}}:\d{{2}}\] INFO\s+\S+\s+message", rendered);
         }
         finally { Thread.CurrentThread.CurrentCulture = original; }
     }
 
     [Fact]
-    public void PowerLog_LineNamesTheEventAndItsCause()
+    public void PowerLog_LineNamesTheEventAndItsCause_InAppLog()
     {
-        // The file's contract: a line has to be readable on its own, so it names the event and its
-        // cause. An unexplained state sends the reader back to correlating against app.log.
-        var config = LoadShippedConfigStrictly();
-        var file   = FileTargetOf(config, "powerfile");
-        var dir    = Path.Combine(Path.GetTempPath(), $"ck-powerlog-test-{Guid.NewGuid():N}");
-        file.FileName = Path.Combine(dir, PowerLog.FileName);
-        // Redirected too: an un-redirected app.log target would write to the real user's log.
-        FileTargetOf(config).FileName = Path.Combine(dir, "app.log");
+        // A line has to be readable on its own, so it names the event and its cause.
+        using var trail = new TempTrail();
+        trail.Write((PowerLog.LoggerName, PowerCaller, "Suspending the machine — cause: the lid-close delay elapsed"));
 
-        try
-        {
-            var factory = new LogFactory { Configuration = config };
-            factory.GetLogger(PowerLog.LoggerName).Info("Suspending the machine — cause: the lid-close delay elapsed");
-            factory.Flush();
-
-            var line = File.ReadAllText(file.FileName.Render(LogEventInfo.CreateNullEvent()));
-
-            Assert.Matches(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] ", line);
-            Assert.Contains("Suspending the machine — cause: the lid-close delay elapsed", line);
-        }
-        finally
-        {
-            try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ }
-        }
+        var line = Assert.Single(File.ReadAllLines(trail.AppFile));
+        Assert.Matches(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} ", line);
+        Assert.Contains("Suspending the machine — cause: the lid-close delay elapsed", line, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(trail.Dir, "power.log")), "power.log must no longer be written.");
     }
 
     // Rotation, retention and line shape - driven, not parsed
 
     /// <summary>
-    /// A throwaway copy of both trails. Every write goes through a freshly loaded copy of the shipped
-    /// config with BOTH file names redirected here, so nothing reaches the real per-user log
+    /// A throwaway copy of the log. Every write goes through a freshly loaded copy of the shipped
+    /// config with the file name redirected here, so nothing reaches the real per-user log
     /// directory, and each call re-probes the file's age exactly as a restarted process would.
     /// </summary>
     private sealed class TempTrail : IDisposable
@@ -235,16 +185,14 @@ public class NLogConfigTests
             Path.Combine(Path.GetTempPath(), $"ck-nlogconfig-{Guid.NewGuid():N}");
 
         public string AppFile => Path.Combine(Dir, "app.log");
-        public string PowerFile => Path.Combine(Dir, PowerLog.FileName);
 
         public TempTrail() => Directory.CreateDirectory(Dir);
 
-        /// <summary>Writes through <see cref="AppLog.Write"/>, the one writer both trails share.</summary>
+        /// <summary>Writes through <see cref="AppLog.Write"/>, the one writer AppLog and PowerLog share.</summary>
         public void Write(params (string Logger, string CallerFile, string Message)[] entries)
         {
             var config = LoadShippedConfigStrictly();
             FileTargetOf(config).FileName = AppFile;
-            FileTargetOf(config, "powerfile").FileName = PowerFile;
             var factory = new LogFactory { Configuration = config };
             try
             {
@@ -308,7 +256,6 @@ public class NLogConfigTests
 
     [Theory]
     [InlineData("app.log", "app")]
-    [InlineData("power.log", "power")]
     public void ShippedConfig_ActuallyRollsToANewFileOnADayBoundary(string fileName, string stem)
     {
         // Driven rather than asserted on attributes: a config can carry archiveEvery and still not
@@ -333,7 +280,6 @@ public class NLogConfigTests
 
     [Theory]
     [InlineData("app")]
-    [InlineData("power")]
     public void ShippedConfig_ActuallyKeepsSevenDailyArchivesAndDeletesTheRest(string stem)
     {
         // Deletion is the half that fails silently: nothing in the app notices archives piling up.
@@ -360,7 +306,6 @@ public class NLogConfigTests
 
     [Theory]
     [InlineData("app.log", "app")]
-    [InlineData("power.log", "power")]
     public void ShippedConfig_KeepsTheArchiveMovedFromALongLivedLogFile(string fileName, string stem)
     {
         // The reason retention counts archives instead of ageing them. Windows carries a file's
@@ -408,8 +353,8 @@ public class NLogConfigTests
                     (AppLog.LoggerName, AppCaller, "two"),
                     (PowerLog.LoggerName, PowerCaller, "a power event"));
 
-        // The power rule is not final, so that third entry lands in both files.
-        foreach (var (path, expectedEntries) in new[] { (trail.AppFile, 3), (trail.PowerFile, 1) })
+        // Power entries share the one file, in the order they were written.
+        foreach (var (path, expectedEntries) in new[] { (trail.AppFile, 3) })
         {
             var bytes = File.ReadAllBytes(path);
             Assert.DoesNotContain((byte)'\r', bytes);
@@ -431,9 +376,6 @@ public class NLogConfigTests
         var appLines = File.ReadAllLines(trail.AppFile);
         Assert.Matches(@"\] INFO\s+BatteryMonitor\s+a battery reading was taken$", appLines[0]);
         Assert.Matches(@"\] INFO\s+LidDelayPolicy\s+the lid was closed$", appLines[1]);
-
-        var powerLine = Assert.Single(File.ReadAllLines(trail.PowerFile));
-        Assert.Matches(@"\] LidDelayPolicy\s+the lid was closed$", powerLine);
 
         // Its own field: splitting the line after the timestamp on runs of whitespace yields the
         // class alone, never glued to the message.

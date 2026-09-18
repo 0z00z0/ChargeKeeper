@@ -90,6 +90,8 @@ public class SettingsFileShapeTests : IDisposable
         "LidClose.LidDelaySavedAcAction",
         "LidClose.LidDelaySavedDcAction",
         "LidClose.LidDelaySavedScheme",
+        "LidClose.LidDelaySavedBatterySleepSeconds",
+        "LidClose.LidDelaySavedBatterySleepScheme",
         "Notifications",
         "Notifications.NotificationSound",
         "Notifications.LowBatteryWarningPct",

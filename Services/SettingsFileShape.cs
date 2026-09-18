@@ -158,6 +158,10 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(14)] public int?    LidDelaySavedAcAction { get; set; }
         [JsonPropertyOrder(15)] public int?    LidDelaySavedDcAction { get; set; }
         [JsonPropertyOrder(16)] public string? LidDelaySavedScheme   { get; set; }
+        // The battery sleep timeout displaced while a lid-close wait runs, with its own scheme: it is
+        // captured per wait, not with the lid action, and the active plan can change in between.
+        [JsonPropertyOrder(17)] public uint?   LidDelaySavedBatterySleepSeconds { get; set; }
+        [JsonPropertyOrder(18)] public string? LidDelaySavedBatterySleepScheme  { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -271,6 +275,8 @@ internal sealed class SettingsFile
             LidDelaySavedAcAction     = s.LidDelaySavedAcAction,
             LidDelaySavedDcAction     = s.LidDelaySavedDcAction,
             LidDelaySavedScheme       = s.LidDelaySavedScheme,
+            LidDelaySavedBatterySleepSeconds = s.LidDelaySavedBatterySleepSeconds,
+            LidDelaySavedBatterySleepScheme  = s.LidDelaySavedBatterySleepScheme,
         },
         Notifications = new NotificationsGroup
         {
@@ -353,6 +359,8 @@ internal sealed class SettingsFile
         LidDelaySavedAcAction     = LidClose.LidDelaySavedAcAction,
         LidDelaySavedDcAction     = LidClose.LidDelaySavedDcAction,
         LidDelaySavedScheme       = LidClose.LidDelaySavedScheme,
+        LidDelaySavedBatterySleepSeconds = LidClose.LidDelaySavedBatterySleepSeconds,
+        LidDelaySavedBatterySleepScheme  = LidClose.LidDelaySavedBatterySleepScheme,
 
         LowBatteryWarningPct       = Notifications.LowBatteryWarningPct,
         LowBatteryWarningEnabled   = Notifications.LowBatteryWarningEnabled,

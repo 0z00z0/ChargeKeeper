@@ -8,21 +8,31 @@ namespace ChargeKeeper.Services;
 /// </summary>
 internal static class ScriptMessages
 {
-    public static string Started(string script, string cause) =>
-        $"The script '{script}' started, run by {cause}.";
+    /// <summary>The clock time is written into the sentence as well as the entry's timestamp, so the
+    /// line reads whole when copied out of the log on its own.</summary>
+    public static string Started(string script, string cause, DateTime at) =>
+        $"The script '{script}' started at {at:HH:mm:ss}, run by {cause}.";
 
     public static string Succeeded(string script, TimeSpan took) =>
-        $"The script '{script}' finished after {Span(took)}.";
+        $"The script '{script}' ran for {Span(took)}: run completed without errors.";
 
-    public static string FailedWithExitCode(string script, int exitCode, TimeSpan took) =>
-        $"The script '{script}' ended with exit code {exitCode} after {Span(took)}, which counts as a failure.";
+    /// <summary>A run that ended by itself but counts as failed: a non-zero exit code, anything on
+    /// the error stream, or both. The messages are the errors' own first lines, not their detail.</summary>
+    public static string Failed(string script, TimeSpan took, int exitCode, IReadOnlyList<string> errors)
+    {
+        var why = new List<string>();
+        if (exitCode != 0) why.Add($"it ended with exit code {exitCode}");
+        if (errors.Count == 1) why.Add($"it reported an error: {errors[0]}");
+        else if (errors.Count > 1) why.Add($"it reported {errors.Count} errors: {string.Join(" | ", errors)}");
+        return $"The script '{script}' failed after {Span(took)}: {string.Join("; ", why)}";
+    }
 
     public static string TimedOut(string script, TimeSpan limit) =>
-        $"The script '{script}' was still running after {Span(limit)}, so it was ended. Anything it " +
-        "had already started keeps running.";
+        $"The script '{script}' failed: it was still running after {Span(limit)}, so it was ended. " +
+        "Anything it had already started keeps running.";
 
     public static string DidNotStart(string script, string reason) =>
-        $"The script '{script}' could not be started: {OneLine(reason)}";
+        $"The script '{script}' failed: it could not be started: {OneLine(reason)}";
 
     /// <summary>Recorded once per firing that lands on a run already in progress. A script that
     /// quietly swallows the events arriving while it runs is the failure nobody finds.</summary>

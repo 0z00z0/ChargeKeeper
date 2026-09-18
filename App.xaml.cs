@@ -1439,6 +1439,9 @@ public partial class App : Application
     // is the settle gate and is normally already complete.
     private async void ToggleDashboard()
     {
+        long clickedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool parked = false, built = false;
+
         // Stamped BEFORE the settle gate below: a double-click is about how fast the USER clicked,
         // and the gate can park a click for as long as the user's own startup delay setting.
         var now      = DateTimeOffset.Now;
@@ -1455,6 +1458,7 @@ public partial class App : Application
                 // IsVisible branch and never reach the guard.
                 if (_clickParkedOnGate) return;
                 _clickParkedOnGate = true;
+                parked = true;
                 try     { await WindowsReady.ConfigureAwait(true); }
                 finally { _clickParkedOnGate = false; }
             }
@@ -1463,6 +1467,7 @@ public partial class App : Application
             if (_dashboard is null)
             {
                 _dashboard = new DashboardWindow(this);
+                built = true;
                 _dashboard.Closed += (_, _) =>
                 {
                     AppLog.Info("Dashboard window closed.");
@@ -1480,6 +1485,7 @@ public partial class App : Application
 
                 case TrayClickAction.OpenDashboard:
                     _dashboard.ShowNearTray();
+                    LogDashboardOpenTime(clickedAt, built, parked);
                     break;
 
                 case TrayClickAction.OpenSettingsAndHideDashboard:
@@ -1499,6 +1505,24 @@ public partial class App : Application
             LogCrash("ToggleDashboard", ex);
             _dashboard = null;   // drop the half-built window so the next click retries cleanly
         }
+    }
+
+    /// <summary>
+    /// Logs the time from the tray click to the first frame composed after the popup was shown. The
+    /// handler removes itself on that frame, so an open costs one subscription and one line.
+    /// </summary>
+    private static void LogDashboardOpenTime(long clickedAt, bool built, bool parked)
+    {
+        EventHandler<object>? onFrame = null;
+        onFrame = (_, _) =>
+        {
+            Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= onFrame;
+            long ms = (long)System.Diagnostics.Stopwatch.GetElapsedTime(clickedAt).TotalMilliseconds;
+            AppLog.Info($"Dashboard opened in {ms} ms, " +
+                        (built ? "newly built" : "reused") +
+                        (parked ? ", after waiting for start-up to finish." : "."));
+        };
+        Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += onFrame;
     }
 
     /// <summary>

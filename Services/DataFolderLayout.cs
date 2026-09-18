@@ -18,11 +18,15 @@ internal static class DataFolderLayout
         internal bool Moved => Failure is null;
     }
 
+    /// <summary>The power trail an earlier version wrote beside app.log. Nothing writes it any more;
+    /// a copy left at the top level still moves with the other logs.</summary>
+    internal const string LegacyPowerLogFileName = "power.log";
+
     /// <summary>The top-level files that move, and the subfolder each belongs in.</summary>
     private static readonly (string FileName, string Folder)[] Rules =
     [
         (AppLog.FileName,                        AppPaths.LogsFolderName),
-        (PowerLog.FileName,                      AppPaths.LogsFolderName),
+        (LegacyPowerLogFileName,                 AppPaths.LogsFolderName),
         (UnattendedUpdate.InstallerLogFileName,  AppPaths.LogsFolderName),
         (BatteryHistoryService.FileName,         AppPaths.HistoryFolderName),
         (BatteryCapacityHistoryService.FileName, AppPaths.HistoryFolderName),

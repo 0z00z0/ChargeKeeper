@@ -255,11 +255,34 @@ internal static class NativeMethods
     /// re-activated for the change to reach the running system, hence the closing PowerSetActiveScheme.
     /// </summary>
     internal static bool WriteLidCloseAction(Guid scheme, uint ac, uint dc) =>
+        WriteAndActivate(scheme, GUID_SUB_BUTTONS, GUID_LIDACTION, ac, dc);
+
+    /// <summary>
+    /// The active scheme's GUID together with its battery (DC) idle sleep delay in seconds, zero
+    /// meaning never. Null when the query fails, and null must never be read as zero: the caller
+    /// persists this to restore later, and a bogus zero would leave the battery never sleeping.
+    /// </summary>
+    internal static (Guid Scheme, uint DcSeconds)? ReadActiveBatterySleepDelay() =>
+        WithActiveScheme<(Guid, uint)?>((scheme, _) =>
+        {
+            var s = scheme; var sub = GUID_SUB_SLEEP; var setting = GUID_STANDBYIDLE;
+            if (PowerReadDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, out uint dc) != 0) return null;
+            return (scheme, dc);
+        }, null);
+
+    /// <summary>Sets <paramref name="scheme"/>'s battery (DC) idle sleep delay alone, leaving the
+    /// mains value untouched. Same contract as <see cref="WriteLidCloseAction"/>.</summary>
+    internal static bool WriteBatterySleepDelay(Guid scheme, uint dcSeconds) =>
+        WriteAndActivate(scheme, GUID_SUB_SLEEP, GUID_STANDBYIDLE, ac: null, dcSeconds);
+
+    /// <summary>Writes one setting's AC and/or DC index into an explicit scheme, then re-activates the
+    /// active scheme, which is what makes a written value reach the running system.</summary>
+    private static bool WriteAndActivate(Guid scheme, Guid subGroup, Guid powerSetting, uint? ac, uint? dc) =>
         WithActiveScheme((_, activeRaw) =>
         {
-            var s = scheme; var sub = GUID_SUB_BUTTONS; var setting = GUID_LIDACTION;
-            if (PowerWriteACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, ac) != 0) return false;
-            if (PowerWriteDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, dc) != 0) return false;
+            var s = scheme; var sub = subGroup; var setting = powerSetting;
+            if (ac is { } acValue && PowerWriteACValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, acValue) != 0) return false;
+            if (dc is { } dcValue && PowerWriteDCValueIndex(IntPtr.Zero, ref s, ref sub, ref setting, dcValue) != 0) return false;
             // Marked before the call rather than after it: a re-delivery this write provokes can
             // reach the lid callback while PowerSetActiveScheme is still running.
             LastSchemeActivatedAt = DateTimeOffset.Now;

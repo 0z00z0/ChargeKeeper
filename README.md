@@ -43,6 +43,12 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
   time-remaining (discharging).
 - **Battery % history graph** — a persistent graph of recent battery level in the dashboard,
   with selectable time scales.
+- **Lid delay** — the computer stays awake for a set time, or until the battery reaches a target,
+  after the lid closes, then sleeps (Settings window → Lid delay). While it is on, the Windows
+  lid-close action is set to "Do nothing". While a lid-close wait runs, ChargeKeeper also sets the
+  Windows battery sleep timeout to Never, because on battery Windows would otherwise sleep the
+  computer five minutes after that timeout however long the wait; the previous value is put back
+  when the wait ends, or at the next start if the app was killed first.
 - **Configurable startup delay** — wait N seconds before the app initialises at sign-in (Settings
   window → General).
 - **Three tray icon styles** — the arc gauge, the reading as a number, or a battery whose interior
@@ -285,7 +291,7 @@ packages). The only **non-Microsoft** dependencies are:
 | [CommunityToolkit.WinUI.Controls.SettingsControls](https://github.com/CommunityToolkit/Windows) | .NET Foundation | SettingsCard/SettingsExpander rows (Settings window) | MIT |
 | [WinUIEx](https://github.com/dotMorten/WinUIEx) | Morten Nielsen | WinUI 3 window helper extensions (Settings window placement) | MIT |
 | [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the broker integration | MIT |
-| [NLog](https://github.com/NLog/NLog) | Jarek Kowalski, Kim Christensen, Julian Verdurmen | Event log, rolled daily with a size cap (app.log, power.log) | BSD-3-Clause |
+| [NLog](https://github.com/NLog/NLog) | Jarek Kowalski, Kim Christensen, Julian Verdurmen | Event log, rolled daily with a size cap (app.log) | BSD-3-Clause |
 
 ## MQTT
 

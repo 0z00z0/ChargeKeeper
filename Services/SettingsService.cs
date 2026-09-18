@@ -330,6 +330,12 @@ internal sealed class AppSettings
     [JsonIgnore]
     public bool HasSavedLidAction => LidDelaySavedAcAction is not null || LidDelaySavedDcAction is not null;
 
+    /// <summary>The battery sleep timeout displaced while a lid-close wait runs, in seconds, and the
+    /// scheme it belongs to. Saved so a restore works even after a crash; null means nothing is
+    /// displaced, because zero is "never" and a legitimate value.</summary>
+    public uint? LidDelaySavedBatterySleepSeconds { get; set; }
+    public string? LidDelaySavedBatterySleepScheme { get; set; }
+
     /// <summary>The named PowerShell scripts run by the application's own state changes, edited on
     /// the Scripts page. Empty by default: a script is something a person writes, so there is no
     /// sensible one to ship.</summary>
@@ -413,10 +419,10 @@ internal static class SettingsService
 
     /// <summary>Writes <see cref="Current"/> to disk. Safe to call from any thread. A write that
     /// cannot land raises <see cref="SaveFailed"/>, because a setting that never reached the file
-    /// looks saved on screen and is gone at the next start.</summary>
-    public static void Save()
+    /// looks saved on screen and is gone at the next start. Returns whether it landed.</summary>
+    public static bool Save()
     {
-        bool report;
+        bool report, saved;
         lock (_lock)
         {
             var settings = _current ?? new AppSettings();
@@ -426,12 +432,13 @@ internal static class SettingsService
             // stamp must not pre-empt it.
             settings.NetworkRulesKeyedOnPhysicalAdapter ??= true;
 
-            bool saved = WriteTo(settings, _path);
+            saved = WriteTo(settings, _path);
             report = !saved && !_saveFailureReported;
             _saveFailureReported = !saved;
         }
         // Outside the lock — a subscriber shows a notification, which is a synchronous WinRT call.
         if (report) SaveFailed?.Invoke();
+        return saved;
     }
 
     /// <summary>Raised the first time a save does not reach disk, and not again until one does. The
@@ -449,21 +456,23 @@ internal static class SettingsService
 
     /// <summary>Reads, mutates and saves under one lock acquisition. Prefer this over mutating
     /// <see cref="Current"/> and calling <see cref="Save"/> separately — a <see cref="Reload"/> between
-    /// the two silently drops the write.</summary>
-    public static void Update(Action<AppSettings> mutate)
+    /// the two silently drops the write. Returns whether the document landed on disk.</summary>
+    public static bool Update(Action<AppSettings> mutate)
     {
         string before, after;
+        bool saved;
         lock (_lock)
         {
             var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
             before = SettingsChangeClassifier.Snapshot(settings);
             mutate(settings);
-            Save();   // re-entrant on the same Lock, so nesting does not deadlock
+            saved = Save();   // re-entrant on the same Lock, so nesting does not deadlock
             after = SettingsChangeClassifier.Snapshot(settings);
         }
         // Outside the lock — a subscriber may do real work (an MQTT publish).
         Changed?.Invoke();
         ChangeCommitted?.Invoke(new SettingsChange(SettingsChangeClassifier.IsMaterial(before, after)));
+        return saved;
     }
 
     /// <summary>Writes a tray icon style chosen from the UI — the Settings dropdown or the tray

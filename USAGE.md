@@ -130,7 +130,7 @@ Settings persist to `%AppData%\ChargeKeeper\settings.json` — a roaming, human-
 The MQTT broker block is the one exception: it lives beside it in `mqtt.json`, together with
 `mqtt-discovery.json`, which records what has actually been put on the broker.
 
-The rest of that folder is split in two. **`Logs`** holds `app.log` and `power.log` with their daily
+The rest of that folder is split in two. **`Logs`** holds `app.log`, the one log, with its daily
 archives, the installer's `update-install.log` and the `dumps` folder; **`History`** holds
 `battery-level-history.csv`, `battery-capacity-history.csv` and `performance-history.csv`. The small
 state files — the relaunch history, the update handover and refusal notes, and the marker files — stay
@@ -151,6 +151,7 @@ The dashboard's collapsible **Settings** expander exposes:
 | **Startup delay** | Seconds to wait before the app initialises at sign-in — keeps it off the critical path when many elevated apps start at once |
 | **Tray icon style** | Arc gauge, Numeric % or Battery fill |
 | **Also show percentage** | A second, display-only tray icon carrying the charge level as a number. Unavailable while Numeric % is the style, which already shows it. Windows files a new tray icon behind the overflow chevron, so drag it out once to keep it on the taskbar |
+| **Lid delay** | Keeps the computer awake for a set time, or until the battery reaches a target, after the lid closes, then sleeps it. While it is on, the Windows lid-close action is set to "Do nothing". While a lid-close wait runs, the Windows battery sleep timeout is set to Never and the previous value is put back when the wait ends, or at the next start if the app was killed first — on battery Windows would otherwise sleep the computer five minutes after that timeout, however long the wait. Each change and each restore is written to `app.log` with its cause |
 | **Sleep if the computer reaches a temperature** | Ends a lid-close wait early and sleeps the computer once it reaches the chosen temperature, ahead of the delay and the battery target. Off by default, and offered only where a temperature reading is available on this computer. Sleep, never shutdown; what happened is said at the next wake |
 | **Show icons in main tray (experimental)** | Asks Windows to keep both icons on the taskbar rather than behind the overflow chevron. Off by default. Experimental because Windows offers no supported way to do it: on a version that stores the setting differently it does nothing at all, and switching it off puts back whatever was there before |
 

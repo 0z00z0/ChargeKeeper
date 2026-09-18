@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using ChargeKeeper.Services;
 using Xunit;
@@ -22,9 +23,9 @@ public class ScriptRunnerTests
         private readonly ManualResetEventSlim _finish;
         private readonly bool                 _everFinishes;
 
-        public FakeProcess(ManualResetEventSlim finish, bool everFinishes, int exitCode = 0)
+        public FakeProcess(ManualResetEventSlim finish, bool everFinishes, int exitCode = 0, string errorOutput = "")
         {
-            _finish = finish; _everFinishes = everFinishes; ExitCode = exitCode;
+            _finish = finish; _everFinishes = everFinishes; ExitCode = exitCode; ErrorOutput = errorOutput;
         }
 
         public int  Started  { get; private set; }
@@ -32,6 +33,7 @@ public class ScriptRunnerTests
         public bool WasDisposed { get; private set; }
         public int  ExitCode { get; }
         public string Output => "";
+        public string ErrorOutput { get; }
 
         public bool WaitForExit(TimeSpan limit) =>
             _everFinishes && _finish.Wait(limit);
@@ -134,6 +136,72 @@ public class ScriptRunnerTests
 
         Assert.Equal(ScriptOutcomeKind.DidNotStart, outcome.Kind);
         Assert.Contains("powershell.exe", outcome.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>What Windows PowerShell 5.1 wrote to its error stream for a Start-Process naming a
+    /// program that does not exist, measured with the streams redirected as the runner has them. The
+    /// exit code was 0.</summary>
+    private const string StartProcessNotFound =
+        "Start-Process : This command cannot be run due to the error: The system cannot find the file specified.\r\n" +
+        @"At C:\Users\someone\AppData\Local\Temp\ChargeKeeper\script-one.ps1:2 char:1" + "\r\n" +
+        "+ Start-Process 'no-such-program.exe'\r\n" +
+        "+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n" +
+        "    + CategoryInfo          : InvalidOperation: (:) [Start-Process], InvalidOperationException\r\n" +
+        "    + FullyQualifiedErrorId : InvalidOperationException,Microsoft.PowerShell.Commands.StartProcessCommand\r\n" +
+        " \r\n";
+
+    /// <summary>A non-terminating error leaves the exit code at 0; it is still a failure, said as one
+    /// in the log and raised for the notification, in the error's own words.</summary>
+    [Fact]
+    public void ANonTerminatingErrorIsAFailure_InTheLogAndTheNotification()
+    {
+        using var finish = new ManualResetEventSlim(true);
+        var runner = new ScriptRunner(_ => new FakeProcess(finish, everFinishes: true, errorOutput: StartProcessNotFound));
+        string name = $"Start the sync client {Guid.NewGuid():N}";
+        var script = new ScriptDefinition("one", name, ScriptTrigger.MainsDisconnected, "Start-Process 'no-such-program.exe'");
+        (string Script, string Reason)? notified = null;
+        runner.RunFailed += (s, r) => notified = (s, r);
+
+        Assert.True(runner.Start(script, "a test event", TimeSpan.FromSeconds(30)));
+        Assert.True(SpinUntil(() => !runner.IsRunning(script.Id)));
+
+        Assert.Equal(name, notified?.Script);
+        Assert.Equal("it reported an error: Start-Process : This command cannot be run due to the error: " +
+                     "The system cannot find the file specified", notified?.Reason);
+
+        NLog.LogManager.Flush();
+        string log = ReadShared(Path.Combine(TestLogRedirect.Directory, AppLog.FileName));
+        Assert.Contains($"The script '{name}' failed after ", log, StringComparison.Ordinal);
+        Assert.Contains("it reported an error: Start-Process : This command cannot be run", log, StringComparison.Ordinal);
+        Assert.DoesNotContain($"The script '{name}' ran for", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("CategoryInfo", log, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same, against Windows PowerShell itself: the fake above only knows the error text
+    /// that was measured, and this is what says the real stream still carries it. The script reads a
+    /// path that does not exist and changes nothing.</summary>
+    [Fact]
+    public void WindowsPowerShell_ANonTerminatingErrorIsReportedAsFailed()
+    {
+        string missing = $@"C:\ck-test-no-such-path-{Guid.NewGuid():N}";
+        var script = new ScriptDefinition($"ps-{Guid.NewGuid():N}", "Read a missing path",
+                                          ScriptTrigger.MainsDisconnected,
+                                          $"Write-Output 'before'\rGet-Item '{missing}'\rWrite-Output 'after'");
+
+        var outcome = new ScriptRunner(ScriptRunner.StartInWindowsPowerShell).Run(script, TimeSpan.FromSeconds(60));
+
+        Assert.Equal(ScriptOutcomeKind.Failed, outcome.Kind);
+        Assert.Equal(0, outcome.ExitCode);
+        Assert.Equal($"Get-Item : Cannot find path '{missing}' because it does not exist.",
+                     Assert.Single(outcome.ErrorMessages));
+        Assert.Contains("after", outcome.Output, StringComparison.Ordinal);
+    }
+
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private static bool SpinUntil(Func<bool> condition) =>

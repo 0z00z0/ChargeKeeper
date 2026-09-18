@@ -808,9 +808,6 @@ internal sealed partial class SettingsWindow : Window
     private void OnOpenAppLogClick(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Open(AppPaths.LogFile(AppLog.FileName));
 
-    private void OnOpenPowerLogClick(object sender, RoutedEventArgs e)
-        => ExplorerLauncher.Open(AppPaths.LogFile(PowerLog.FileName));
-
     private void OnOpenPerformanceHistoryLogClick(object sender, RoutedEventArgs e)
         => ExplorerLauncher.Open(PerformanceHistoryService.FilePath);
 

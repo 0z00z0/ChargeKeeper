@@ -72,17 +72,17 @@ public class TestLogRedirectTests
     [Fact]
     public void PowerLogEvent_LandsInTheRedirectedFileAndNotTheUserLog()
     {
-        // power.log is a second target under the same configuration, so it can be redirected
-        // separately from app.log and has to be asserted separately.
+        // A power event goes through its own named logger, so it is asserted separately from an
+        // ordinary entry: both must reach the redirected app.log and never the real one.
         string marker = $"redirect-probe-{Guid.NewGuid():N}";
         PowerLog.Event(marker, "TestLogRedirectTests");
         LogManager.Flush();
 
-        string redirected = Path.Combine(TestLogRedirect.Directory, PowerLog.FileName);
+        string redirected = Path.Combine(TestLogRedirect.Directory, AppLog.FileName);
         Assert.True(File.Exists(redirected), $"nothing was written to {redirected}");
         Assert.Contains(marker, ReadShared(redirected), StringComparison.Ordinal);
 
-        string real = AppPaths.LogFile(PowerLog.FileName);
+        string real = AppPaths.LogFile(AppLog.FileName);
         if (File.Exists(real))
             Assert.DoesNotContain(marker, ReadShared(real), StringComparison.Ordinal);
     }

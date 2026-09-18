@@ -98,6 +98,13 @@ internal static class LidDelayService
     private static readonly ExecutionStateHolder _holder = new("LidDelay", "lid-close delay",
         _ => "OS keep-awake hold taken", $"{nameof(LidDelayService)}.SetThreadExecutionState");
 
+    // Parked for the length of each wait: on battery Windows ends a keep-awake hold five minutes after
+    // its sleep timeout expires, so the hold alone cannot carry a wait longer than that.
+    private static readonly BatterySleepPark _batterySleep = new(
+        new WindowsBatterySleepSetting(), new SettingsBatterySleepRecord(),
+        () => { lock (_sync) return _delayPending; },
+        (what, cause) => PowerLog.Event(what, cause));
+
     private static bool _started;
 
     // Hardware, so it is asked once: the dashboard reconciles its Lid delay section every refresh.
@@ -149,6 +156,9 @@ internal static class LidDelayService
             PowerLog.Event("Lid-delay was left overridden by a previous run — restoring it",
                            "crash recovery at startup");
 
+        // No wait survives a restart, so a record found here was left by a run that ended mid-wait.
+        _batterySleep.Restore("a previous run ended during a lid-close wait (crash recovery at startup)");
+
         Reconcile();
         SettingsService.Reloaded += OnSettingsReloaded;
         // A sleep a session suppressed is served when that session ends, and this is the only signal
@@ -168,7 +178,7 @@ internal static class LidDelayService
         // service would re-apply the override with no Stop left to undo it.
         SettingsService.Reloaded -= OnSettingsReloaded;
         KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
-        CancelDelay();
+        CancelDelay("the application is closing");
         Unsubscribe();
         if (SettingsService.Current.HasSavedLidAction) RestoreSavedAction();
         lock (_sync) { _started = false; }
@@ -200,7 +210,7 @@ internal static class LidDelayService
         }
 
         SettingsService.Update(x => x.LidDelayEnabled = false);
-        CancelDelay();
+        CancelDelay(cause ?? "Lid delay was switched off");
         Unsubscribe();
         PowerLog.Event(RestoreSavedAction()
             ? "Lid delay off, the Windows lid-close action is back to its own value"
@@ -416,7 +426,7 @@ internal static class LidDelayService
         }
 
         if (SettingsService.Current.LidDelayEnabled) Subscribe();
-        else { CancelDelay(); Unsubscribe(); }
+        else { CancelDelay("Lid delay is off in the settings"); Unsubscribe(); }
     }
 
     /// <summary>
@@ -437,6 +447,7 @@ internal static class LidDelayService
                 s.LidDelaySavedScheme   = applied.Scheme.ToString();
             });
         }
+        _batterySleep.KeepRecord();
         Reconcile();
     }
 
@@ -632,7 +643,7 @@ internal static class LidDelayService
                 // The lid reopening is the one moment a whole wait can be measured end to end, and
                 // the reading is what separates a wait that was held from one that was slept through.
                 PowerLog.Event("Lid delay cancelled, the machine stays awake",
-                               SleepGap.AddTo("lid reopened", CancelDelay()));
+                               SleepGap.AddTo("lid reopened", CancelDelay("the lid was opened")));
                 break;
 
             case LidDelayAction.HandBackUntilTheLidOpens:
@@ -783,6 +794,11 @@ internal static class LidDelayService
         // Whichever condition already stands satisfied ends the wait here, including the case where
         // neither was set at all.
         Complete();
+
+        // Off the lid callback, which must not block on a scheme write. A wait that has already
+        // ended by the time this runs is left alone.
+        Task.Run(() => _batterySleep.Park("a lid-close wait started, and on battery Windows would otherwise " +
+                                          "end the keep-awake hold five minutes after its sleep timeout"));
     }
 
     private static void OnTimerFired()
@@ -859,6 +875,9 @@ internal static class LidDelayService
         {
             PowerLog.Say(SleepGap.AddSentenceTo(ended, gap));
             AppChangeLog.Record(AppChangeLog.From(endedBy));
+
+            // Before any suspend below: SetSuspendState does not return until the machine resumes.
+            _batterySleep.Restore(EndCause(endedBy, action));
         }
 
         switch (action)
@@ -955,12 +974,26 @@ internal static class LidDelayService
         });
     }
 
+    /// <summary>Why a wait that reached its end did so, for the battery sleep timeout's restore line.</summary>
+    private static string EndCause(LidWaitEnd endedBy, LidDelayAction action) =>
+        action is LidDelayAction.Cancel
+            ? "the lid-close wait ended with Lid delay switched off"
+            : endedBy switch
+            {
+                LidWaitEnd.DelayElapsed  => "the lid-close delay elapsed",
+                LidWaitEnd.BatteryTarget => "the battery reached its lid-close target",
+                LidWaitEnd.TooHot        => "the lid-close temperature ceiling ended the wait",
+                _                        => "the lid-close wait had nothing to wait for",
+            };
+
     /// <summary>Ends the wait without sleeping. Returns how much of the cancelled wait the machine
     /// was awake for, or null where there was no wait to cancel or the platform gave no reading.
     /// </summary>
-    private static SleepGap? CancelDelay()
+    /// <param name="cause">Why, for the battery sleep timeout's restore line.</param>
+    private static SleepGap? CancelDelay(string cause)
     {
-        SleepGap? gap;
+        SleepGap? gap = null;
+        bool cancelled;
         lock (_sync)
         {
             _generation++;   // invalidates a suspend that was already decided on
@@ -969,15 +1002,22 @@ internal static class LidDelayService
             // Dropped with the wait, and before the early return: this is also the path a feature
             // switched off takes, and a feature that is off has no sleep left to serve.
             _sleepOwed = false;
-            if (!_delayPending) return null;
-            // Read before ClearLocked, which is what ends the wait being measured.
-            gap = AwakeClock.Since(_waitClock);
-            ClearLocked();
+            cancelled = _delayPending;
+            if (cancelled)
+            {
+                // Read before ClearLocked, which is what ends the wait being measured.
+                gap = AwakeClock.Since(_waitClock);
+                ClearLocked();
+            }
         }
+
+        // Also with no wait running: a restore that failed earlier is owed, and this is a moment
+        // nothing else holds the timeout.
+        _batterySleep.Restore(cause);
 
         // Outside the lock, and only where a wait was actually cancelled: a lid opening with
         // nothing running changes nothing.
-        AppChangeLog.Record(AppChange.LidOpened);
+        if (cancelled) AppChangeLog.Record(AppChange.LidOpened);
         return gap;
     }
 

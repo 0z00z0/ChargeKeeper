@@ -45,7 +45,7 @@ public sealed class DataFolderLayoutTests : IDisposable
         Write("mqtt.json", "mqtt");
         Write("update-refused.txt", "refused");
         // Already written by the new version: the destination is taken.
-        Write(Path.Combine("Logs", "power.log"), "power, written by the new version");
+        Write(Path.Combine("Logs", "power.log"), "power, already moved by an earlier start");
 
         var before = Snapshot();
         IReadOnlyList<DataFolderLayout.Outcome> outcomes;
@@ -69,7 +69,7 @@ public sealed class DataFolderLayoutTests : IDisposable
         Assert.Equal("refused",        after["update-refused.txt"]);
 
         Assert.Equal("power, written by an older version", after["power.log"]);
-        Assert.Equal("power, written by the new version",  after[Path.Combine("Logs", "power.log")]);
+        Assert.Equal("power, already moved by an earlier start",  after[Path.Combine("Logs", "power.log")]);
         Assert.Equal("performance",                        after["performance-history.csv"]);
         Assert.Equal(2, outcomes.Count(o => !o.Moved));
     }

@@ -8,7 +8,8 @@ internal enum ScriptOutcomeKind
 {
     Succeeded,
 
-    /// <summary>PowerShell ran and reported a non-zero exit code.</summary>
+    /// <summary>PowerShell ran and reported a non-zero exit code, or wrote to its error stream —
+    /// which a non-terminating error does while the exit code stays 0.</summary>
     Failed,
 
     /// <summary>The time limit was reached and the run was ended.</summary>
@@ -18,11 +19,15 @@ internal enum ScriptOutcomeKind
     DidNotStart,
 }
 
-/// <summary>One run of one script: how it ended, what it printed, and how long it took.</summary>
+/// <summary>One run of one script: how it ended, what it printed, what it reported as errors, and how
+/// long it took.</summary>
 internal readonly record struct ScriptOutcome(
-    ScriptOutcomeKind Kind, int ExitCode, string Output, TimeSpan Took, string Reason = "")
+    ScriptOutcomeKind Kind, int ExitCode, string Output, TimeSpan Took, string Reason = "",
+    IReadOnlyList<string>? Errors = null)
 {
     public bool Ok => Kind == ScriptOutcomeKind.Succeeded;
+
+    public IReadOnlyList<string> ErrorMessages => Errors ?? [];
 }
 
 /// <summary>
@@ -41,8 +46,11 @@ internal interface IScriptProcess : IDisposable
 
     int ExitCode { get; }
 
-    /// <summary>Everything the run printed on either stream, already capped.</summary>
+    /// <summary>What the run printed on its standard output, already capped.</summary>
     string Output { get; }
+
+    /// <summary>What the run wrote to its error stream, already capped.</summary>
+    string ErrorOutput { get; }
 }
 
 /// <summary>
@@ -122,7 +130,7 @@ internal sealed class ScriptRunner
             }
         }
 
-        AppLog.Info(ScriptMessages.Started(script.DisplayName, cause));
+        AppLog.Info(ScriptMessages.Started(script.DisplayName, cause, DateTime.Now));
 
         // A dedicated thread rather than a pooled one: the run blocks for as long as the script
         // takes, and a pool thread parked for a minute costs every other queued item.
@@ -181,9 +189,12 @@ internal sealed class ScriptRunner
                 return new ScriptOutcome(ScriptOutcomeKind.TimedOut, 0, process.Output, clock.Elapsed);
             }
 
+            // The error stream decides as much as the exit code: a non-terminating error — a program
+            // Start-Process could not find — leaves the exit code at 0.
             int exitCode = process.ExitCode;
-            var kind = exitCode == 0 ? ScriptOutcomeKind.Succeeded : ScriptOutcomeKind.Failed;
-            return new ScriptOutcome(kind, exitCode, process.Output, clock.Elapsed);
+            var errors = ScriptErrorText.Messages(process.ErrorOutput);
+            var kind = exitCode == 0 && errors.Count == 0 ? ScriptOutcomeKind.Succeeded : ScriptOutcomeKind.Failed;
+            return new ScriptOutcome(kind, exitCode, process.Output, clock.Elapsed, Errors: errors);
         }
     }
 
@@ -196,7 +207,7 @@ internal sealed class ScriptRunner
         AppLog.Info(outcome.Kind switch
         {
             ScriptOutcomeKind.Succeeded => ScriptMessages.Succeeded(name, outcome.Took),
-            ScriptOutcomeKind.Failed    => ScriptMessages.FailedWithExitCode(name, outcome.ExitCode, outcome.Took),
+            ScriptOutcomeKind.Failed    => ScriptMessages.Failed(name, outcome.Took, outcome.ExitCode, outcome.ErrorMessages),
             ScriptOutcomeKind.TimedOut  => ScriptMessages.TimedOut(name, TimeLimit),
             _                           => ScriptMessages.DidNotStart(name, outcome.Reason),
         });
@@ -217,6 +228,8 @@ internal sealed class ScriptRunner
     /// <summary>The failure as a notification body reads it: what went wrong, not what it printed.</summary>
     internal static string ReasonFor(ScriptOutcome outcome) => outcome.Kind switch
     {
+        ScriptOutcomeKind.Failed when outcome.ErrorMessages.Count > 0
+                                   => $"it reported an error: {outcome.ErrorMessages[0].TrimEnd('.')}",
         ScriptOutcomeKind.Failed   => $"it ended with exit code {outcome.ExitCode}",
         ScriptOutcomeKind.TimedOut => "it was still running at the time limit and was ended",
         _                          => "it could not be started",
@@ -232,9 +245,8 @@ internal sealed class ScriptRunner
     {
         private readonly Process       _process;
         private readonly string        _file;
-        private readonly StringBuilder _output = new();
-        private readonly Lock          _outputLock = new();
-        private bool                   _trimmed;
+        private readonly CappedText     _output = new();
+        private readonly CappedText     _errors = new();
 
         public static IScriptProcess Start(ScriptDefinition script) => new WindowsPowerShell(script);
 
@@ -258,8 +270,8 @@ internal sealed class ScriptRunner
             };
 
             _process = new Process { StartInfo = start };
-            _process.OutputDataReceived += (_, e) => Capture(e.Data);
-            _process.ErrorDataReceived  += (_, e) => Capture(e.Data);
+            _process.OutputDataReceived += (_, e) => _output.Append(e.Data);
+            _process.ErrorDataReceived  += (_, e) => _errors.Append(e.Data);
 
             _process.Start();
             _process.BeginOutputReadLine();
@@ -287,30 +299,9 @@ internal sealed class ScriptRunner
 
         public int ExitCode => _process.ExitCode;
 
-        public string Output
-        {
-            get { lock (_outputLock) return _output.ToString(); }
-        }
+        public string Output => _output.Text;
 
-        private void Capture(string? line)
-        {
-            if (line is null) return;
-
-            lock (_outputLock)
-            {
-                if (_trimmed) return;
-
-                int room = ScriptRunner.OutputCapCharacters - _output.Length;
-                if (room <= 0)
-                {
-                    _trimmed = true;
-                    _output.AppendLine(ScriptMessages.Trimmed(ScriptRunner.OutputCapCharacters));
-                    return;
-                }
-
-                _output.AppendLine(line.Length <= room ? line : line[..room]);
-            }
-        }
+        public string ErrorOutput => _errors.Text;
 
         /// <summary>Writes the body to a file of its own beside the machine's other temporary files.
         /// UTF-8 with a byte order mark: Windows PowerShell reads a file without one as the machine's
@@ -330,6 +321,44 @@ internal sealed class ScriptRunner
         {
             try { File.Delete(_file); } catch { /* best-effort cleanup */ }
             _process.Dispose();
+        }
+    }
+
+    /// <summary>Starts a script the way the application does. For a test that has to see what Windows
+    /// PowerShell itself writes, which a fake cannot tell it.</summary>
+    internal static IScriptProcess StartInWindowsPowerShell(ScriptDefinition script) => WindowsPowerShell.Start(script);
+
+    /// <summary>One stream's lines, capped. A script printing in a loop would otherwise crowd every
+    /// other entry out of the log, which rotates by size.</summary>
+    private sealed class CappedText
+    {
+        private readonly StringBuilder _text = new();
+        private readonly Lock          _gate = new();
+        private bool                   _trimmed;
+
+        public string Text
+        {
+            get { lock (_gate) return _text.ToString(); }
+        }
+
+        public void Append(string? line)
+        {
+            if (line is null) return;
+
+            lock (_gate)
+            {
+                if (_trimmed) return;
+
+                int room = OutputCapCharacters - _text.Length;
+                if (room <= 0)
+                {
+                    _trimmed = true;
+                    _text.AppendLine(ScriptMessages.Trimmed(OutputCapCharacters));
+                    return;
+                }
+
+                _text.AppendLine(line.Length <= room ? line : line[..room]);
+            }
         }
     }
 }

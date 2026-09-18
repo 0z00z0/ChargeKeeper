@@ -53,10 +53,13 @@ internal static class SettingsChangeClassifier
         // classifier, so the style reaches the icon without a republish behind it.
         nameof(AppSettings.PercentageDigitStyle),
 
-        // The lid actions captured for crash recovery, and the scheme they belong to.
+        // The lid actions and the battery sleep timeout captured for crash recovery, and the schemes
+        // they belong to.
         nameof(AppSettings.LidDelaySavedAcAction),
         nameof(AppSettings.LidDelaySavedDcAction),
         nameof(AppSettings.LidDelaySavedScheme),
+        nameof(AppSettings.LidDelaySavedBatterySleepSeconds),
+        nameof(AppSettings.LidDelaySavedBatterySleepScheme),
 
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),

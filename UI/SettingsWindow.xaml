@@ -278,7 +278,7 @@
                         <TextBlock Text="Lid delay" Style="{StaticResource SectionHeaderStyle}"
                                    Margin="0" VerticalAlignment="Center"/>
                         <local:InfoIcon Subject="lid delay"
-                                        Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
+                                        Info="Activating this sets the Windows lid-close action to “Do nothing”. ChargeKeeper then runs its own sleep timer. The previous Windows setting is restored when this is turned off, or at the next start if the app is killed first. While a lid-close wait runs, ChargeKeeper also sets the Windows battery sleep timeout (the on-battery value of “Put my device to sleep after”) to Never and puts the previous value back when the wait ends, or at the next start if the app is killed first: on battery Windows would otherwise sleep the computer five minutes after that timeout, however long the delay. While it is on, movement on a connected mouse can wake the computer with the lid shut. Locking at lid close restores the sign-in prompt the delay would otherwise remove."/>
                     </StackPanel>
 
                     <!-- No section heading above the master switch: it governs everything on the
@@ -666,12 +666,11 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Logs"
-                                            Description="ChargeKeeper's own diagnostic trail: general activity, power events, and the performance history above, which is kept beside the battery history on the same retention.">
+                                            Description="ChargeKeeper's own diagnostic trail: app.log holds general activity together with the power, lid and sleep events, and the performance history above, which is kept beside the battery history on the same retention.">
                         <DropDownButton x:Name="OpenLogButton" Content="Open log">
                             <DropDownButton.Flyout>
                                 <MenuFlyout Placement="Bottom">
                                     <MenuFlyoutItem Text="app.log" Click="OnOpenAppLogClick"/>
-                                    <MenuFlyoutItem Text="power.log" Click="OnOpenPowerLogClick"/>
                                     <MenuFlyoutItem Text="performance-history.csv" Click="OnOpenPerformanceHistoryLogClick"/>
                                 </MenuFlyout>
                             </DropDownButton.Flyout>

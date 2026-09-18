@@ -33,6 +33,8 @@ internal sealed class MqttPublisher : IDisposable
 
     private int _disposed;
 
+    private readonly MqttLinkWatch _linkWatch = new();
+
     /// <param name="appVersion">The software version the device and origin blocks report.</param>
     /// <param name="live">The live battery snapshot, or null before the first reading. Read on the
     /// MQTT threads, so it must not block on the UI.</param>
@@ -115,6 +117,7 @@ internal sealed class MqttPublisher : IDisposable
             Log               = log,
         });
         _connection = connection;
+        _connection.StateChanged += OnConnectionStateChanged;
 
         // A write from an inbound command reflects at once rather than waiting for a battery tick.
         if (_ownSettingsActions is { } own) own.Changed += PublishSurfaceNow;
@@ -185,7 +188,7 @@ internal sealed class MqttPublisher : IDisposable
     public void PublishState(LiveState state)
     {
         _live.Set(state);
-        _connection.RequestPublish();
+        RequestPublishWhileConnected();
     }
 
     /// <summary>Signals a publish of the settings, network and diagnostic values. They have no tick of
@@ -194,7 +197,24 @@ internal sealed class MqttPublisher : IDisposable
     public void PublishSurfaceNow()
     {
         _surface.Invalidate();
-        _connection.RequestPublish();
+        RequestPublishWhileConnected();
+    }
+
+    /// <summary>
+    /// Signals a publish only while the broker is connected. The connection's per-channel publish
+    /// does not check the link itself and logs an error per channel when it is down; nothing is lost
+    /// by skipping, because every connect sends every channel's current value regardless of dedupe.
+    /// </summary>
+    private void RequestPublishWhileConnected()
+    {
+        if (_connection.IsConnected) _connection.RequestPublish();
+    }
+
+    private void OnConnectionStateChanged(MqttConnectionState state)
+    {
+        string? line;
+        lock (_linkWatch) line = _linkWatch.OnState(state, Stopwatch.GetTimestamp());
+        if (line is not null) AppLog.Info(line);
     }
 
     /// <summary>The host's power-mode handler calls this. The connection does not subscribe to system
@@ -214,6 +234,7 @@ internal sealed class MqttPublisher : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
         _settings.Changed -= OnSettingsChanged;
+        _connection.StateChanged -= OnConnectionStateChanged;
         if (_ownSettingsActions is { } own) own.Changed -= PublishSurfaceNow;
 
         // Teardown is synchronous, bounded and idempotent, and publishes offline before the socket goes.

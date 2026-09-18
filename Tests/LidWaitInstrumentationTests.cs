@@ -152,7 +152,7 @@ public class LidWaitInstrumentationTests
         string source = LidSource();
 
         Assert.Contains("SleepGap.AddSentenceTo(ended, gap)", source, StringComparison.Ordinal);          // sleep or stand-down
-        Assert.Contains("SleepGap.AddTo(\"lid reopened\", CancelDelay())", source, StringComparison.Ordinal); // lid reopened
+        Assert.Contains("SleepGap.AddTo(\"lid reopened\", CancelDelay(\"the lid was opened\"))", source, StringComparison.Ordinal); // lid reopened
         Assert.Contains("SleepGap.AddSentenceTo(progress, gap)", source, StringComparison.Ordinal);       // and while it runs
     }
 
