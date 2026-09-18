@@ -702,9 +702,13 @@
 
                     <!-- What's new is the card's own row button; under the card, on its own, the
                          same Check for updates button the About window carries. It sits on this page
-                         because the version it compares against is already here. -->
-                    <brand:BrandBracketButton x:Name="CheckForUpdatesButton" HorizontalAlignment="Left"
-                                              Margin="0,12,0,0"/>
+                         because the version it compares against is already here. Centred under the
+                         card: the row is given the card's own width in code-behind and left-anchored
+                         to start at the same edge, so centring inside it lines up with the card
+                         rather than with the wider content column. -->
+                    <Grid x:Name="CheckForUpdatesRow" HorizontalAlignment="Left" Margin="0,12,0,0">
+                        <brand:BrandBracketButton x:Name="CheckForUpdatesButton" HorizontalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
 
             </Grid>

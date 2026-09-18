@@ -122,6 +122,10 @@ internal sealed partial class SettingsWindow : Window
         _aboutLoaded = true;   // before the call: a SetInfo that threw part-way has already appended
 
         AboutCard.MaxWidth = AboutContent.ContentWidthDip;
+        // Fixed, not MaxWidth: the button is far narrower than the card on its own, so only a fixed
+        // width forces this row to occupy the same span the card does, for the centring above to land
+        // under the card rather than under the button's own small footprint.
+        CheckForUpdatesRow.Width = AboutContent.ContentWidthDip;
         // The tray menu owns the "What's new" window, so the card's button and the About window's
         // share one instance rather than each opening a copy.
         AboutInline.SetInfo(AboutContent.Build(_menu.ShowWhatsNew));
@@ -331,7 +335,6 @@ internal sealed partial class SettingsWindow : Window
         // the services for the process's life and keeps touching a torn-down UI tree.
         KeepAwakeService.StateChanged           -= OnKeepAwakeStateChanged;
         LidDelayService.StateChanged            -= OnLidDelayStateChanged;
-        ThermalStatusService.FirstReadingApproved -= OnThermalFirstReadingApproved;
         NetworkLocationService.LocationChanged  -= OnNetworkLocationChanged;
         _keepAwakeTicker.Stop();
 
@@ -1558,7 +1561,6 @@ internal sealed partial class SettingsWindow : Window
     {
         KeepAwakeService.StateChanged           += OnKeepAwakeStateChanged;
         LidDelayService.StateChanged            += OnLidDelayStateChanged;
-        ThermalStatusService.FirstReadingApproved += OnThermalFirstReadingApproved;
         _keepAwakeTicker.Tick += (_, _) => RefreshKeepAwakeState();
 
         // Echo the parser's reading as the user types, so "1h30" is confirmed as 1 h 30 m before
@@ -1665,10 +1667,6 @@ internal sealed partial class SettingsWindow : Window
     // after a lid close reached sleep — marshal before touching anything.
     private void OnLidDelayStateChanged() => RunOnUi(RefreshLidDelayState);
 
-    // Raised once, off the UI thread, the first time this run a temperature reading is approved —
-    // an open Settings page must enable the card itself rather than waiting to be reopened.
-    private void OnThermalFirstReadingApproved() => RunOnUi(RefreshLidDelayState);
-
     /// <summary>Puts the master switch and everything that depends on it where the setting is. Driven
     /// by the page load, by the switch itself, and by <see cref="LidDelayService.StateChanged"/>, so a
     /// feature that switches itself off shows here without the page being reopened.</summary>
@@ -1683,17 +1681,15 @@ internal sealed partial class SettingsWindow : Window
         LidDelayTimeToggle.IsEnabled     = on;
         LidDischargeToggle.IsEnabled     = on;
 
-        // The ceiling is offered once this machine has ever shown a reading to act on — the latch,
-        // not the instant's value: the gate wants movement across several samples, so a machine
-        // under steady load can go minutes at a time with nothing currently approved even after it
-        // has proved itself once. Reading the instant's value here disabled the card, with the wrong
-        // words, for as long as that stretch lasted.
-        bool hasReading = ThermalStatusService.HasEverApprovedReading;
+        // Read fresh on every call rather than kept live: this only re-runs when the page is shown
+        // (construction, re-activation, a lid-delay state change), which is early enough for a
+        // reading that can otherwise take a short while to arrive after start.
+        bool hasReading = ThermalStatusService.PublishableCelsius is not null;
         LidThermalToggle.IsEnabled       = on && hasReading;
         LidThermalCeilingCombo.IsEnabled = on && hasReading;
         LidThermalCard.Description = hasReading
             ? "Ends the wait early and sleeps the computer, ahead of the delay and the battery target."
-            : "No temperature reading has arrived yet since ChargeKeeper started, so there is nothing to act on.";
+            : "No temperature reading is available on this computer.";
 
         // Read fresh rather than cached, like every other reading on this page — and shown whether
         // the feature is on or off, because it is what someone deciding whether to switch it on

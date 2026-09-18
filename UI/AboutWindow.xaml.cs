@@ -1,6 +1,7 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Windows.Graphics;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 
@@ -111,8 +112,10 @@ internal sealed partial class AboutWindow : Window
     }
 
     /// <summary>
-    /// Sizes the window to the measured About content. The chrome is not added up: it is exactly what
-    /// the window height and the viewport height differ by, so measuring that difference covers it.
+    /// Sizes the window to the measured About content, the same way <c>SettingsWindow</c> sizes
+    /// itself to its tallest page: grown to fit, capped at <see cref="WindowFit.FirstOpenHeightFraction"/>
+    /// of the work area, and re-centred within it — the scroller already on this window is the
+    /// fallback for the content that does not fit under the cap, not the usual case.
     /// </summary>
     private void FitWindowToContent()
     {
@@ -125,13 +128,23 @@ internal sealed partial class AboutWindow : Window
         double content = ContentPanel.DesiredSize.Height
                        + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
 
-        // AppWindow.Size is physical px while everything measured above is DIPs.
-        double scale  = Content.XamlRoot?.RasterizationScale ?? 1.0;
-        int heightDip = WindowFit.HeightForContent(AppWindow.Size.Height / scale, content, viewport, MinHeightDip);
+        // AppWindow.Size/Position are physical px while everything measured above is DIPs.
+        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
+        var pos      = AppWindow.Position;
+        var size     = AppWindow.Size;
+
+        if (NativeMethods.WorkAreaForRect(pos.X, pos.Y, size.Width, size.Height) is not { } work) return;
+
+        int heightDip = WindowFit.HeightForContent(size.Height / scale, content, viewport, MinHeightDip);
+        int heightPx  = Math.Min(WindowFit.ToPhysicalPixels(heightDip, scale),
+                                 WindowFit.FirstOpenHeightCap(work.H));
+        int widthPx   = Math.Min(WindowFit.ToPhysicalPixels(WidthDip, scale), work.W);
 
         AppLog.Info($"AboutWindow fit: content={content:F0} viewport={viewport:F0} scale={scale} " +
-                    $"-> {heightDip} DIP");
+                    $"-> {heightDip} DIP, capped {heightPx}x{widthPx} px in work area {work.W}x{work.H}");
 
-        AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, heightDip));
+        var rect = new RectInt32(work.X + (work.W - widthPx) / 2, work.Y + (work.H - heightPx) / 2,
+                                 widthPx, heightPx);
+        AppWindow.MoveAndResize(rect);
     }
 }
