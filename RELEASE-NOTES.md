@@ -23,6 +23,9 @@ in `ChargeKeeper.csproj`.
   plain words, and raises the script-failed notification; a run that worked says so.
 - #220 The log records how long the dashboard took to open after a tray click, and whether its
   window was newly built or reused.
+- #221 Settings help text is shorter throughout, stating what a setting does rather than why.
+- #222 Run now on the Scripts page now always runs the script as currently typed, rather than
+  sometimes running the last saved version of an edit made just before the click.
 
 ## 1.58.3
 

@@ -458,15 +458,12 @@ internal sealed partial class SettingsWindow : Window
         string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
 
         FixedModeText.Text =
-            $"This laptop's firmware offers fixed modes ({cap} of design capacity when limited) rather "
-            + "than an adjustable range, so presets and network profiles do not apply and are hidden.\n\n"
-            + "Windows still reports 100 % while a limit is active — this hardware lowers the "
-            + "battery's reported full-charge capacity instead of stopping the charge early. "
-            + "Changes take effect after a restart."
+            $"Fixed charge modes only ({cap} of design capacity when limited); presets and network "
+            + "profiles do not apply. Windows still shows 100 % while a limit is active. Changes "
+            + "take effect after a restart."
             + (state.Capable
                 ? string.Empty
-                : "\n\nThis setting is locked by the BIOS on this machine, so ChargeKeeper can show "
-                  + "the current mode but not change it.");
+                : " Locked by the BIOS on this computer: ChargeKeeper can show the mode, not change it.");
     }
 
     /// <summary>Populates the mode radios from the active vendor and selects what the firmware reports.</summary>
@@ -2343,9 +2340,7 @@ internal sealed partial class SettingsWindow : Window
             PublishDescription = "Publishes battery and charge state to an MQTT broker.",
             PublishGroupsInfo =
                 "Each group covers the entities from the Settings page it is named after. Switching "
-                + "one off stops it publishing and marks its entities unavailable; nothing is deleted, "
-                + "and switching it back on restores everything you set on them. Entities the hardware "
-                + "cannot honour are never announced, whatever these are set to.",
+                + "one off marks its entities unavailable; switching it back on restores them.",
             DeviceIdConsequence =
                 "Every ChargeKeeper automation, dashboard card and history graph pointing at the old "
                 + "entities has to be repointed by hand.",
@@ -2450,7 +2445,7 @@ internal sealed partial class SettingsWindow : Window
             TextWrapping        = TextWrapping.NoWrap,
             Height              = 200,
             IsSpellCheckEnabled = false,
-            PlaceholderText     = "The PowerShell to run. Nothing is passed in.",
+            PlaceholderText     = "PowerShell to run.",
         };
         // A script is wider and taller than the box: without both bars, a long line is unreachable
         // and there is nothing to say so.
@@ -2459,7 +2454,7 @@ internal sealed partial class SettingsWindow : Window
 
         var headerText = new TextBlock { Text = script.DisplayName };
         var runNow     = new Button { Content = "Run now", MinWidth = 88 };
-        ToolTipService.SetToolTip(runNow, "Runs the script now, without waiting for its event.");
+        ToolTipService.SetToolTip(runNow, "Runs immediately, without waiting for its trigger.");
 
         var error = new TextBlock
         {
@@ -2479,13 +2474,13 @@ internal sealed partial class SettingsWindow : Window
         var cards = new List<SettingsCard>
         {
             new() { Header = "Name",     Description = "Optional — the event is shown when this is blank.", Content = nameBox },
-            new() { Header = "Runs when", Description = "One event and one direction. A pair of scripts covers both directions.", Content = triggerCombo },
+            new() { Header = "Runs when", Description = "One event and one direction.", Content = triggerCombo },
         };
         if (namesProfile)
             cards.Add(new SettingsCard
             {
                 Header      = "Network profile",
-                Description = "Joining or leaving this profile's network runs the script. Profiles are added on the Smart Charge page.",
+                Description = "Runs when this profile's network is joined or left. Add profiles on the Smart Charge page.",
                 Content     = profileCombo,
             });
 
@@ -2522,7 +2517,11 @@ internal sealed partial class SettingsWindow : Window
         scriptBox.LostFocus   += (_, _) => Flush();
         _pendingScriptEdits.Add(Flush);
 
-        runNow.Click += (_, _) => { Flush(); RunScriptNow(index, error); };
+        // Run now commits unconditionally rather than through Flush(): Flush only commits when
+        // TextChanged has already marked the box as typed-in, and a focus change to the button can
+        // race that notification — so a box edited moments before the click could still run the
+        // stored body. Commit() is the same path a focus loss uses.
+        runNow.Click += (_, _) => { debounce.Stop(); typed = false; Commit(); RunScriptNow(index, error); };
         delete.Click += (_, _) => DeleteScript(index);
 
         return expander;
