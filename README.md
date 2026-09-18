@@ -292,7 +292,7 @@ packages). The only **non-Microsoft** dependencies are:
 ChargeKeeper can publish its battery, charge and settings surface to an MQTT broker. When enabled it
 connects to your broker and announces a single **ChargeKeeper** device with fifty-five entities — battery
 level and state, charge power, on-AC, battery health and the raw capacities, the system temperature
-and its recommended maximum where a trustworthy reading exists, the Smart Charge limit
+and its recommended maximum where a reading is available, the Smart Charge limit
 and preset, Keep Awake, lid handling with both of its sleep conditions, the warning thresholds, the
 detected network, and the app's own diagnostics — including what it last did, what the lid switch
 last reported and when, and what its lid-close wait and keep-awake hold are doing now. An availability topic, with a Last-Will, marks the

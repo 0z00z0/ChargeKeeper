@@ -1,4 +1,4 @@
-namespace ChargeKeeper.Services;
+﻿namespace ChargeKeeper.Services;
 
 /// <summary>What one temperature reading means for an outstanding lid-close hold.</summary>
 internal enum LidThermalDecision
@@ -29,10 +29,8 @@ internal enum LidThermalDecision
 /// <para>Sleep is the action and shutdown never is. Sleep is reversible, costs nothing that was
 /// open, and is a safe state to be in inside a bag; a shutdown taken on a temperature reading throws
 /// away unsaved work, and a temperature reading is the input least worth trusting that far.</para>
-/// <para>A missing or untrusted reading stands the safeguard down. A constant handed to a ceiling
-/// test either never fires or fires the moment the watch arms, and the second of those sleeps a
-/// working machine repeatedly for no reason — a worse defect than the one being guarded against.
-/// <see cref="ThermalReadingGate"/> is what withholds a stuck or implausible source upstream of
+/// <para>A missing or implausible reading stands the safeguard down rather than firing on it.
+/// <see cref="ThermalStatusService.IsPlausible"/> is what withholds such a source upstream of
 /// this.</para>
 /// </remarks>
 internal sealed class LidThermalWatch
