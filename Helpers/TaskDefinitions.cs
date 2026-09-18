@@ -75,10 +75,9 @@ internal static class TaskDefinitions
     }
 
     /// <summary>
-    /// Relaunches the app if its process is gone — the backstop for kills no in-process code can
-    /// survive, since self-heal in OnProcessExit needs code in the dying process to run. A probe that
-    /// finds a live instance exits via the single-instance mutex; one that finds the hold marker
-    /// stays down.
+    /// Relaunches the app if its process is gone — the single backstop for any kill, since nothing
+    /// in the dying process itself restarts it. A probe that finds a live instance exits via the
+    /// single-instance mutex; one that finds the hold marker stays down.
     /// </summary>
     internal static TaskDefinition BuildWatchdog(TaskService ts, string exe, TaskIdentity user)
     {

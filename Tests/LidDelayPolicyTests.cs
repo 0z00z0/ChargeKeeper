@@ -667,4 +667,29 @@ public class LidDelayPolicyTests
             Assert.Equal(before, NativeMethods.ReadActiveLidCloseAction());   // stable, nothing written
         }
     }
+
+    /// <summary>
+    /// Measured, not merely documented: Windows accepts more than one lid-switch registration per
+    /// process. A regression here would silently make a script bound to the lid inert again unless
+    /// Lid delay happened to hold the only registration.
+    /// </summary>
+    [Fact]
+    public void RegisterLidNotification_AcceptsTwoConcurrentRegistrations()
+    {
+        IntPtr first = IntPtr.Zero, second = IntPtr.Zero;
+        try
+        {
+            first  = NativeMethods.RegisterLidNotification(_ => { });
+            second = NativeMethods.RegisterLidNotification(_ => { });
+
+            Assert.NotEqual(IntPtr.Zero, first);
+            Assert.NotEqual(IntPtr.Zero, second);
+            Assert.NotEqual(first, second);
+        }
+        finally
+        {
+            NativeMethods.UnregisterLidNotification(first);
+            NativeMethods.UnregisterLidNotification(second);
+        }
+    }
 }

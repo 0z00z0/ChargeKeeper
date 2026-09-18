@@ -8,8 +8,8 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 // AppLog.Info/Error are process-wide statics writing to the real %AppData%\ChargeKeeper\app.log, so
-// they are never called here. These tests build the same configuration AppLog uses, redirect its
-// file target to an isolated temp file, and drive a logger through that.
+// they are never called here. These tests load the shipped nlog.config, redirect its file target to
+// an isolated temp file, and drive a logger through that.
 public class AppLogTests : IDisposable
 {
     private readonly string _dir =
@@ -29,12 +29,12 @@ public class AppLogTests : IDisposable
     }
 
     /// <summary>
-    /// A private LogFactory rather than the global LogManager, writing AppLog's real configuration
-    /// to an isolated file, so tests can run in parallel without touching the user's app.log.
+    /// A private LogFactory rather than the global LogManager, writing the shipped configuration to
+    /// an isolated file, so tests can run in parallel without touching the user's app.log.
     /// </summary>
     private LogFactory NewLogFactory(Action<FileTarget>? tweak = null)
     {
-        var config = AppLog.BuildFallbackConfiguration();
+        var config = ShippedNLogConfig.LoadStrictly();
         var file = FileTargetOf(config);
         file.FileName = _testFile;
         tweak?.Invoke(file);

@@ -13,17 +13,9 @@ internal static class PowerLog
 {
     internal const string LoggerName = "ChargeKeeper.Power";
 
-    /// <summary>
-    /// Mirrored from nlog.config for the fallback config, and asserted equal to it by
-    /// <c>NLogConfigTests</c>. Milliseconds because lid and power events arrive in bursts. No
-    /// trailing newline: <c>lineEnding="LF"</c> terminates the entry, and doing both blank-lines it.
-    /// </summary>
-    internal const string LineLayout =
-        @"[${date:format=yyyy-MM-dd HH\:mm\:ss.fff}] " + AppLog.ClassColumn + " ${message}";
-
     internal const string FileName = "power.log";
 
-    // Via AppLog so nlog.config (or its fallback) has definitely loaded first; a bare
+    // Via AppLog so nlog.config has definitely been given the chance to load first; a bare
     // LogManager.GetLogger here can hand back an unconfigured logger.
     private static readonly Logger _log = AppLog.NamedLogger(LoggerName);
 

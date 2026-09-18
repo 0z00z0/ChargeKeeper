@@ -19,18 +19,7 @@ public class NLogConfigTests
 {
     private const long TenMegabytes = 10L * 1024 * 1024;
 
-    /// <summary>
-    /// Loads the real nlog.config with <c>throwConfigExceptions</c> forced on. Under NLog's default
-    /// a misspelled or stale-version attribute is silently ignored, leaving a config that reads
-    /// correctly and does nothing.
-    /// </summary>
-    private static LoggingConfiguration LoadShippedConfigStrictly()
-    {
-        var xml = File.ReadAllText(RepoFiles.Find("nlog.config"));
-        Assert.Contains("<nlog ", xml);
-        return XmlLoggingConfiguration.CreateFromXmlString(
-            xml.Replace("<nlog ", "<nlog throwConfigExceptions=\"true\" "));
-    }
+    private static LoggingConfiguration LoadShippedConfigStrictly() => ShippedNLogConfig.LoadStrictly();
 
     private static RetryingTargetWrapper WrapperOf(LoggingConfiguration config, string name = "appfile") =>
         (RetryingTargetWrapper)config.FindTargetByName(name)!;
@@ -97,7 +86,7 @@ public class NLogConfigTests
         Assert.Equal("20", Rendered(wrapper.RetryDelayMilliseconds));
         Assert.False(FileTargetOf(config).KeepFileOpen,
             "keepFileOpen must stay false — an exclusive handle makes sibling ChargeKeeper processes " +
-            "(watchdog probes, self-heal relaunch) lose their log lines silently. That is #34.");
+            "(a watchdog probe, an ordinary duplicate launch) lose their log lines silently. That is #34.");
     }
 
     [Fact]
@@ -134,38 +123,6 @@ public class NLogConfigTests
         Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "nlog.config")),
             $"nlog.config is missing from the build output ({AppContext.BaseDirectory}). Check the " +
             "Content item + CopyToOutputDirectory in ChargeKeeper.csproj — NLog would silently log nothing.");
-    }
-
-    [Fact]
-    public void CodeFallback_MatchesTheShippedConfig()
-    {
-        // AppLog.BuildFallbackConfiguration duplicates the shipped policy so a missing config degrades
-        // to an equivalent logger rather than silence. Duplication drifts unless pinned.
-        var shippedConfig  = LoadShippedConfigStrictly();
-        var fallbackConfig = AppLog.BuildFallbackConfiguration();
-        var shipped  = FileTargetOf(shippedConfig);
-        var fallback = FileTargetOf(fallbackConfig);
-
-        Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
-        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
-        Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
-        Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
-        Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
-        Assert.Equal(shipped.LineEnding, fallback.LineEnding);
-        Assert.Equal(shipped.ArchiveSuffixFormat, fallback.ArchiveSuffixFormat);
-        Assert.Equal(shipped.Layout.ToString(), fallback.Layout.ToString());
-        Assert.Equal(shipped.FileName.Render(LogEventInfo.CreateNullEvent()),
-                     fallback.FileName.Render(LogEventInfo.CreateNullEvent()), ignoreCase: true);
-
-        // The rest drifts silently: a fallback that wrote a BOM would splice a U+FEFF into the middle
-        // of an existing app.log, and the retry policy must not differ between the two paths.
-        Assert.Equal(shipped.CreateDirs, fallback.CreateDirs);
-        Assert.Equal(shipped.WriteBom, fallback.WriteBom);
-        Assert.Equal(shipped.Encoding, fallback.Encoding);
-        Assert.Equal(Rendered(WrapperOf(shippedConfig).RetryCount),
-                     Rendered(WrapperOf(fallbackConfig).RetryCount));
-        Assert.Equal(Rendered(WrapperOf(shippedConfig).RetryDelayMilliseconds),
-                     Rendered(WrapperOf(fallbackConfig).RetryDelayMilliseconds));
     }
 
     // Power trail (power.log)
@@ -237,41 +194,11 @@ public class NLogConfigTests
     }
 
     [Fact]
-    public void CodeFallback_CarriesThePowerFileToo()
-    {
-        // A missing nlog.config is exactly when someone is troubleshooting sleep, so the degraded
-        // config keeps the split rather than collapsing everything back into app.log.
-        var shippedConfig  = LoadShippedConfigStrictly();
-        var fallbackConfig = AppLog.BuildFallbackConfiguration();
-        var shipped  = FileTargetOf(shippedConfig, "powerfile");
-        var fallback = FileTargetOf(fallbackConfig, "powerfile");
-
-        Assert.Equal(shipped.ArchiveAboveSize, fallback.ArchiveAboveSize);
-        Assert.Equal(shipped.MaxArchiveFiles, fallback.MaxArchiveFiles);
-        Assert.Equal(shipped.MaxArchiveDays, fallback.MaxArchiveDays);
-        Assert.Equal(shipped.ArchiveEvery, fallback.ArchiveEvery);
-        Assert.Equal(shipped.KeepFileOpen, fallback.KeepFileOpen);
-        Assert.Equal(shipped.LineEnding, fallback.LineEnding);
-        Assert.Equal(shipped.ArchiveSuffixFormat, fallback.ArchiveSuffixFormat);
-        Assert.Equal(shipped.CreateDirs, fallback.CreateDirs);
-        Assert.Equal(shipped.WriteBom, fallback.WriteBom);
-        Assert.Equal(shipped.Encoding, fallback.Encoding);
-        Assert.Equal(shipped.Layout.ToString(), fallback.Layout.ToString());
-        Assert.Equal(shipped.FileName.Render(LogEventInfo.CreateNullEvent()),
-                     fallback.FileName.Render(LogEventInfo.CreateNullEvent()), ignoreCase: true);
-
-        // And routes the same way — including the "also reaches app.log" half.
-        Assert.Contains("powerfile", TargetsFor(fallbackConfig, PowerLog.LoggerName));
-        Assert.Contains("appfile", TargetsFor(fallbackConfig, PowerLog.LoggerName));
-        Assert.DoesNotContain("powerfile", TargetsFor(fallbackConfig, AppLog.LoggerName));
-    }
-
-    [Fact]
     public void PowerLog_LineNamesTheEventAndItsCause()
     {
         // The file's contract: a line has to be readable on its own, so it names the event and its
         // cause. An unexplained state sends the reader back to correlating against app.log.
-        var config = AppLog.BuildFallbackConfiguration();
+        var config = LoadShippedConfigStrictly();
         var file   = FileTargetOf(config, "powerfile");
         var dir    = Path.Combine(Path.GetTempPath(), $"ck-powerlog-test-{Guid.NewGuid():N}");
         file.FileName = Path.Combine(dir, PowerLog.FileName);
@@ -529,15 +456,4 @@ public class NLogConfigTests
         // CallerFilePath is whatever the compiler recorded, which is a build-machine path on a local
         // build and a mapped one elsewhere; only the file name is used.
         Assert.Equal(expected, AppLog.ClassOf(callerFilePath));
-
-    [Fact]
-    public void CodeFallback_ConstantsMatchTheShippedConfig()
-    {
-        // Guards the constants AppLog exposes against the real file.
-        var shipped = FileTargetOf(LoadShippedConfigStrictly());
-
-        Assert.Equal(AppLog.ArchiveAboveSizeBytes, shipped.ArchiveAboveSize);
-        Assert.Equal(AppLog.MaxArchiveFiles, shipped.MaxArchiveFiles);
-        Assert.Equal(TenMegabytes, AppLog.ArchiveAboveSizeBytes);
-    }
 }

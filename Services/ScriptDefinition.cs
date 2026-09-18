@@ -16,10 +16,10 @@ internal enum ScriptTrigger
     /// <summary>A charger was disconnected.</summary>
     MainsDisconnected,
 
-    /// <summary>The lid was shut. Delivered only while Lid delay is switched on.</summary>
+    /// <summary>The lid was shut.</summary>
     LidClosed,
 
-    /// <summary>The lid was opened. Delivered only while Lid delay is switched on.</summary>
+    /// <summary>The lid was opened.</summary>
     LidOpened,
 
     /// <summary>The machine arrived on the network one named profile matches.</summary>
@@ -47,11 +47,6 @@ internal static class ScriptTriggerLabels
 
     /// <summary>Every label, in enum order, for the Settings page's dropdown.</summary>
     public static IReadOnlyList<string> All => _labels;
-
-    /// <summary>Whether the trigger arrives from the lid switch, which the application only listens
-    /// for while Lid delay is on.</summary>
-    public static bool IsLid(ScriptTrigger trigger) =>
-        trigger is ScriptTrigger.LidClosed or ScriptTrigger.LidOpened;
 }
 
 /// <summary>One named PowerShell script and the state change that runs it.</summary>

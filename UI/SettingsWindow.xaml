@@ -449,18 +449,12 @@
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                    <!-- Both facts are the platform's and neither is visible from the rows, so a
-                         script bound to the lid would otherwise do nothing with no explanation, and
-                         a program started from a script would be running with rights nobody chose. -->
-                    <TextBlock Text="A script bound to the lid only runs while Lid delay is switched on. Windows allows one lid listener per program, and ChargeKeeper only listens while that setting is on."
-                               FontSize="11"
-                               TextWrapping="Wrap"
-                               Margin="0,4,0,0"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <!-- Not visible from the rows, so a program started from a script would be
+                         running with rights nobody chose. -->
                     <TextBlock Text="Scripts run with administrator rights, because ChargeKeeper does. A program a script starts inherits them and keeps them for as long as it runs."
                                FontSize="11"
                                TextWrapping="Wrap"
-                               Margin="0,0,0,8"
+                               Margin="0,4,0,8"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                     <StackPanel x:Name="ScriptsListPanel" Spacing="4"/>

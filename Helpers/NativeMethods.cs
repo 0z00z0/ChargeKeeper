@@ -195,9 +195,11 @@ internal static class NativeMethods
         catch { return null; }
     }
 
-    // Rooted for the subscription's lifetime: the OS keeps a RAW function pointer to this delegate,
-    // which the GC cannot see. Letting it be collected turns the next lid event into a hard crash.
-    private static DeviceNotifyCallback? _lidCallback;
+    // Rooted for each subscription's lifetime, keyed by its registration handle: the OS keeps a RAW
+    // function pointer to the delegate, which the GC cannot see. Letting one be collected turns the
+    // next lid event on that registration into a hard crash. Concurrent because Lid delay and a
+    // script subscription each hold their own registration independently.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, DeviceNotifyCallback> _lidCallbacks = new();
 
     /// <summary>Runs <paramref name="use"/> against the active power scheme's GUID, or returns
     /// <paramref name="fallback"/> when the scheme cannot be resolved. The GUID comes back in memory
@@ -277,38 +279,40 @@ internal static class NativeMethods
     /// <see cref="UnregisterLidNotification"/>, or IntPtr.Zero if the subscription failed.
     /// <para>Windows invokes the callback once immediately with the current lid state, before any
     /// real transition — the caller must treat that first reading as a seed, not as a lid close.</para>
-    /// <para>One subscription at a time: a second call is refused rather than overwriting
-    /// <see cref="_lidCallback"/>, which would unroot the live delegate while the OS still holds its
-    /// raw thunk.</para>
+    /// <para>Windows accepts more than one registration per process, each with its own handle and its
+    /// own replay of the current state — measured, not merely documented. Callers needing different
+    /// lifetimes (Lid delay, and scripts bound to the lid) register independently rather than sharing
+    /// one subscription.</para>
     /// </summary>
     internal static IntPtr RegisterLidNotification(Action<byte> onLidState)
     {
-        if (_lidCallback is not null) return IntPtr.Zero;
+        DeviceNotifyCallback callback = (_, type, setting) =>
+        {
+            if (type == PBT_POWERSETTINGCHANGE && setting != IntPtr.Zero)
+            {
+                var s = Marshal.PtrToStructure<POWERBROADCAST_SETTING>(setting);
+                if (s.PowerSetting == GUID_LIDSWITCH_STATE_CHANGE && s.DataLength >= 1)
+                    onLidState(s.Data);   // 0 = closed, 1 = open
+            }
+            return 0;   // ERROR_SUCCESS
+        };
+
         try
         {
-            _lidCallback = (_, type, setting) =>
-            {
-                if (type == PBT_POWERSETTINGCHANGE && setting != IntPtr.Zero)
-                {
-                    var s = Marshal.PtrToStructure<POWERBROADCAST_SETTING>(setting);
-                    if (s.PowerSetting == GUID_LIDSWITCH_STATE_CHANGE && s.DataLength >= 1)
-                        onLidState(s.Data);   // 0 = closed, 1 = open
-                }
-                return 0;   // ERROR_SUCCESS
-            };
-
             var recipient = new DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS
             {
-                Callback = Marshal.GetFunctionPointerForDelegate(_lidCallback),
+                Callback = Marshal.GetFunctionPointerForDelegate(callback),
                 Context  = IntPtr.Zero,
             };
             var guid = GUID_LIDSWITCH_STATE_CHANGE;
             if (PowerSettingRegisterNotification(ref guid, DEVICE_NOTIFY_CALLBACK, ref recipient, out var handle) == 0)
+            {
+                _lidCallbacks[handle] = callback;   // rooted before the OS can deliver on it
                 return handle;
+            }
         }
         catch { /* absent on older builds — the caller degrades to "no lid events" */ }
 
-        _lidCallback = null;
         return IntPtr.Zero;
     }
 
@@ -318,7 +322,7 @@ internal static class NativeMethods
         if (registration == IntPtr.Zero) return;
         try { PowerSettingUnregisterNotification(registration); }
         catch { /* nothing useful to do while tearing down */ }
-        _lidCallback = null;
+        _lidCallbacks.TryRemove(registration, out _);
     }
 
     /// <summary>Puts the machine into standby. An explicit suspend request, not a policy action, so it

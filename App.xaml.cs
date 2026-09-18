@@ -2,7 +2,6 @@ using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Windows.Devices.Power;
 using Windows.System.Power;
-using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using ChargeKeeper.UI;
@@ -98,9 +97,8 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Fires on every CLEAN teardown, never on a hard kill such as an installer's taskkill — which
-    /// is what makes it safe to relaunch from. An exit that is neither user-initiated nor a logoff
-    /// is the silent compositor-loss teardown, and gets a replacement instance.
+    /// Fires on every CLEAN teardown, never on a hard kill such as an installer's taskkill. The
+    /// watchdog task, not this process, is what brings a missing instance back.
     /// </summary>
     private void OnProcessExit(object? sender, EventArgs e)
     {
@@ -116,59 +114,6 @@ public partial class App : Application
         {
             PowerLog.Say(HealthMessages.MonitoringStopped);
             StartupHealth.MarkStopped();
-        }
-
-        if (_intentionalExit || _sessionEnding) return;
-
-        // Crash-loop guard: at most 3 auto-relaunches per 10 minutes. Deliberately not gated on
-        // uptime as well — a GPU-reset teardown can hit a process that is only seconds old.
-        if (!TryRecordRelaunch())
-        {
-            AppLog.Info("Not relaunching: 3 auto-relaunches within 10 minutes — giving up.");
-            return;
-        }
-
-        try
-        {
-            if (Environment.ProcessPath is not { } exe) return;
-            System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(exe, StartupArgs.AutoRelaunchArg) { UseShellExecute = false });
-            AppLog.Info("Unexpected teardown — relaunched a fresh instance.");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error("OnProcessExit.Relaunch", ex);
-        }
-    }
-
-    /// <summary>
-    /// Sliding-window rate limiter for the self-heal relaunch: false once 3 relaunches have happened
-    /// within 10 minutes. Timestamps live in a file because each check runs in a NEW process.
-    /// </summary>
-    private static bool TryRecordRelaunch()
-    {
-        try
-        {
-            var path = AppPaths.DataFile("relaunch-history.txt");
-
-            var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
-            var recent = new List<long>();
-            if (File.Exists(path))
-                foreach (var line in File.ReadAllLines(path))
-                    if (long.TryParse(line, out var ts) && ts >= cutoff)
-                        recent.Add(ts);
-
-            if (recent.Count >= 3) return false;
-
-            recent.Add(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllLines(path, recent.Select(t => t.ToString()));
-            return true;
-        }
-        catch
-        {
-            // If the bookkeeping itself fails, err on the side of bringing the tray back.
-            return true;
         }
     }
 
@@ -187,7 +132,7 @@ public partial class App : Application
             !await SingleInstance.TryAcquireAsync(_startup.SingleInstanceAttempts).ConfigureAwait(true))
         {
             AppLog.Info("Another instance already holds the single-instance lock — exiting.");
-            _intentionalExit = true;   // else OnProcessExit relaunches this duplicate exit, forever
+            _intentionalExit = true;   // keeps the ProcessExit log line from blaming a crash
             Application.Current.Exit();
             return;
         }
@@ -222,31 +167,22 @@ public partial class App : Application
         _dispatcher.ShutdownStarting += (_, _) =>
             AppLog.Info("DispatcherQueue.ShutdownStarting — framework-initiated teardown.");
 
-        // Logoff/shutdown must not trigger the self-heal relaunch in OnProcessExit.
+        // Logoff/shutdown must be told apart from a crash so the ProcessExit log line does not blame
+        // one for the other.
         Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
 
-        // Deliberately ahead of both waits below: the waits guard a hazard the icon does not share.
         // A tray icon is a message-only HWND plus a Shell_NotifyIcon registration, not a window, and
-        // its menu is a native Win32 PopupMenu — nothing a recovering display subsystem can pull away.
+        // its menu is a native Win32 PopupMenu, so it needs no wait of its own.
         InitTrayIcon();
-
-        // A fresh instance created right after a GPU-reset teardown, an unlock or a resume can die
-        // to the same reset it was born from: give the display subsystem a moment first.
-        if (watchdogStart || _startup.IsAutoRelaunch)
-        {
-            PowerLog.Event("Display settle: holding window creation for 5 s",
-                           watchdogStart ? "watchdog relaunch" : "auto-relaunch after a display teardown");
-            await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
-        }
 
         // Keeps the app off the critical sign-in path; clamped because settings.json is hand-editable.
         int delay = Math.Clamp(SettingsService.Current.StartupDelaySeconds, 0, MaxStartupDelaySeconds);
         if (delay > 0)
             await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(true);
 
-        // Exit is reachable from the moment InitTrayIcon returns, so the two waits above are the one
-        // window in which Shutdown() can run BEFORE the startup it is tearing down. Everything below
-        // would re-subscribe, re-arm and reconnect exactly what Shutdown just released.
+        // Exit is reachable from the moment InitTrayIcon returns, so the wait above is the one window
+        // in which Shutdown() can run BEFORE the startup it is tearing down. Everything below would
+        // re-subscribe, re-arm and reconnect exactly what Shutdown just released.
         if (_intentionalExit)
         {
             AppLog.Info("Exit was chosen during the startup wait — abandoning the rest of startup.");
@@ -255,7 +191,7 @@ public partial class App : Application
 
         // Opened BEFORE the first window is created, so a tray click parked on the gate may proceed.
         _windowsReady.TrySetResult();
-        PowerLog.Event("Display settle: complete, windows may be created", "startup gate opened");
+        PowerLog.Event("Startup gate opened", "windows may now be created");
 
         // Everything that makes the application useful hangs off this call, and a throw inside it
         // used to abandon start-up in silence behind a tray icon that looked normal. Whatever
@@ -281,8 +217,14 @@ public partial class App : Application
         _hostWindow.Closed += (_, _) => AppLog.Info("Host window closed.");
         SubscribeBatteryEvents();
         // Off the UI thread: the counter's first read in a fresh process costs roughly 30 s, which
-        // StartMonitoring must not block on. SampleHistory() reads through it once warmed.
-        Task.Run(ThermalZoneReader.WarmUp);
+        // StartMonitoring must not block on. Sampled the moment it is warm rather than left for the
+        // history timer's own tick, so the lid-close ceiling and the Settings card have a reading as
+        // early as the hardware allows rather than up to a further interval late.
+        Task.Run(() =>
+        {
+            ThermalZoneReader.WarmUp();
+            SampleThermal();
+        });
         StartHistorySampling();
         StartPerformanceSampling();
         ScheduleUpdateCheck();
@@ -309,6 +251,9 @@ public partial class App : Application
         // Also the crash-recovery point: puts the user's own Windows lid-close action back if a
         // previous run died with it still overridden.
         LidDelayService.Start();
+        // Its own lid subscription, independent of Lid delay: a script bound to the lid must run
+        // whether or not that feature is switched on.
+        ScriptLidTrigger.Start();
 
         // The MQTT publisher. Inert unless the module's own settings say publishing is on and a
         // broker host is set; the move of that block out of settings.json runs inside the ctor,
@@ -362,12 +307,6 @@ public partial class App : Application
         // shape as the settings latch above, and for the same reason: a script bound to the charger
         // would otherwise warn on every plug and unplug for as long as it stayed broken.
         ScriptRunner.Instance.RunFailed     += ToastService.NotifyScriptFailed;
-        // The one place outside this service that sees the lid move. Only a real movement runs a
-        // script; a repeat and the value Windows delivers at registration run nothing.
-        LidDelayService.LidNotification     += kind =>
-        {
-            if (ScriptTriggerPolicy.ForLid(kind) is { } trigger) ScriptRunner.Instance.Fire(trigger);
-        };
     }
 
     private MqttPublisher? _mqtt;
@@ -396,8 +335,8 @@ public partial class App : Application
 
         // Start with the seed mark, drawn on the tray's own maximised geometry so the slot does not
         // change shape when the battery arc replaces it on the first event.
-        // Guarded because nothing above this on the startup path catches: a disk fault would kill
-        // the process before the tray icon exists, and the self-heal would relaunch into it again.
+        // Guarded because nothing above this on the startup path catches: a disk fault here would
+        // otherwise kill the process before the tray icon exists.
         try
         {
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
@@ -417,8 +356,7 @@ public partial class App : Application
         }
 
         // A second left-click inside the double-click window opens Settings instead.
-        IToggleFeature[] features = [new AutoStartFeature()];
-        _menu = new TrayMenu(features, Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
+        _menu = new TrayMenu(Shutdown, ForceIconRefresh, onOpenSettings: ShowSettingsWindow,
                              windowsReady: WindowsReady);
         // One apply for every surface that puts a network profile into effect — the tray's own, which
         // marshals its threads and its refresh; the Settings page and an MQTT command reach it here.
@@ -621,19 +559,22 @@ public partial class App : Application
         });
     }
 
+    /// <summary>Takes one thermal reading and feeds it to the lid-close ceiling. Called once as soon
+    /// as the sensor is warm, and again on every history tick thereafter — a second cadence of its
+    /// own would only sample the same gate twice.</summary>
+    private static void SampleThermal()
+    {
+        ThermalStatusService.Sample();
+        LidDelayService.OnThermalReading(ThermalStatusService.PublishableCelsius);
+    }
+
     private void SampleHistory()
     {
         try
         {
             // Independent of the battery reading below, and taken first: the thermal zone is on the
-            // machine whether or not a battery report has arrived yet, and the plausibility gate it
-            // feeds needs this tick's cadence regardless.
-            ThermalStatusService.Sample();
-
-            // The lid-close temperature ceiling is fed from this tick rather than a timer of its
-            // own: the reading is refreshed here, and a second cadence would only sample the same
-            // gate twice. Inert unless a hold is running with a ceiling armed.
-            LidDelayService.OnThermalReading(ThermalStatusService.PublishableCelsius);
+            // machine whether or not a battery report has arrived yet.
+            SampleThermal();
 
             // Runs on a timer pool thread, so snapshot the fields together — a row must not pair
             // this tick's SoC with the previous tick's limit and power. Record does disk I/O and
@@ -682,8 +623,8 @@ public partial class App : Application
         LidDelayService.Stop();
 
         // Windows raises no event when another app vetoes the shutdown, so still being alive a
-        // while later is the only detector — and _sessionEnding would otherwise suppress the
-        // self-heal relaunch for the rest of the session.
+        // while later is the only detector — and leaving _sessionEnding set would mislead a later
+        // ProcessExit log line into blaming a shutdown that was cancelled long ago.
         _shutdownCancelledProbe?.Dispose();
         _shutdownCancelledProbe = new System.Threading.Timer(_ =>
         {
@@ -1499,7 +1440,7 @@ public partial class App : Application
     private async void ToggleDashboard()
     {
         // Stamped BEFORE the settle gate below: a double-click is about how fast the USER clicked,
-        // and the gate can park a click for seconds on a watchdog/auto-relaunch start.
+        // and the gate can park a click for as long as the user's own startup delay setting.
         var now      = DateTimeOffset.Now;
         var previous = _lastTrayClickAt;
         _lastTrayClickAt = now;
@@ -1654,6 +1595,7 @@ public partial class App : Application
         PerformanceHistoryService.Flush();
         NetworkLocationService.Stop();
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
+        ScriptLidTrigger.Stop();
         _mqtt?.Dispose();         // publishes offline, and leaves the document standing
         _currentBatteryIcon?.Dispose();
         _currentPercentageIcon?.Dispose();

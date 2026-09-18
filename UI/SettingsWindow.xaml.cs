@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
 using Windows.System;
-using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using ZeroZero.Mqtt.WinUI;
@@ -1648,9 +1647,12 @@ internal sealed partial class SettingsWindow : Window
     private void OnKeepAwakeToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
-        // Through KeepAwakeFeature, the same entry point the tray toggle uses, so "on with no span
-        // picked" cannot mean two different things on the two surfaces.
-        new KeepAwakeFeature().SetEnabled(KeepAwakeToggle.IsOn);
+        if (KeepAwakeToggle.IsOn)
+            // Applies the first configured preset: a toggle is one click, and picking a different
+            // span is a dashboard or Settings job.
+            KeepAwakeService.Activate(KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+        else
+            KeepAwakeService.Deactivate();
         RefreshKeepAwakeState();
     }
 
@@ -2393,15 +2395,11 @@ internal sealed partial class SettingsWindow : Window
             ScriptsListPanel.Children.Add(BuildScriptRow(i, scripts[i]));
     }
 
-    /// <summary>The row's subtitle: the event that runs it, and — for a lid script while Lid delay
-    /// is off — that it will not run. The page says the rule once; the row says whether it currently
-    /// bites.</summary>
+    /// <summary>The row's subtitle: the event that runs it, and — for one bound to a network profile
+    /// — which profile or why it does not run.</summary>
     private static string DescribeScript(ScriptDefinition script)
     {
         string when = ScriptTriggerLabels.For(script.Trigger);
-
-        if (ScriptTriggerLabels.IsLid(script.Trigger) && !SettingsService.Current.LidDelayEnabled)
-            return $"{when} — does not run while Lid delay is off";
 
         if (!ScriptTriggerPolicy.NamesANetworkProfile(script.Trigger)) return when;
 

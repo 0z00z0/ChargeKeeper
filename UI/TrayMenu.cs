@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Microsoft.UI.Xaml.Controls;
-using ChargeKeeper.Features;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 
@@ -14,7 +13,7 @@ namespace ChargeKeeper.UI;
 /// </summary>
 internal sealed class TrayMenu
 {
-    private readonly List<(ToggleMenuFlyoutItem Item, IToggleFeature Feature)> _toggles = [];
+    private readonly ToggleMenuFlyoutItem _autoStartItem;
     private readonly List<(ToggleMenuFlyoutItem Item, TrayIconMode Mode)> _iconModeItems = [];
     private readonly List<(ToggleMenuFlyoutItem Item, TrayDigitStyle Style)> _digitStyleItems = [];
 
@@ -46,8 +45,7 @@ internal sealed class TrayMenu
     /// else.</summary>
     public MenuFlyout PercentageIconFlyout { get; }
 
-    public TrayMenu(IReadOnlyList<IToggleFeature> features, Action onExit, Action onIconModeChanged,
-                    Action onOpenSettings, Task windowsReady)
+    public TrayMenu(Action onExit, Action onIconModeChanged, Action onOpenSettings, Task windowsReady)
     {
         _onExit            = onExit;
         _onIconModeChanged = onIconModeChanged;
@@ -55,14 +53,9 @@ internal sealed class TrayMenu
         _windowsReady      = windowsReady;
         Flyout = new MenuFlyout();
 
-        ToggleMenuFlyoutItem MakeToggle(IToggleFeature feature)
-        {
-            var item = new ToggleMenuFlyoutItem { Text = feature.Name };
-            // Target state comes from the item the user just clicked, not a fresh OS read (TOCTOU).
-            item.Command = new RelayCommand(() => Toggle(feature, !item.IsChecked));
-            _toggles.Add((item, feature));
-            return item;
-        }
+        _autoStartItem = new ToggleMenuFlyoutItem { Text = "Launch at startup" };
+        // Target state comes from the item the user just clicked, not a fresh OS read (TOCTOU).
+        _autoStartItem.Command = new RelayCommand(() => ToggleAutoStart(!_autoStartItem.IsChecked));
 
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
         _iconStyleSubmenu  = BuildIconStyleSubmenu();
@@ -80,8 +73,7 @@ internal sealed class TrayMenu
             Text    = "Check for updates",
             Command = new RelayCommand(CheckForUpdates),
         });
-        foreach (var feature in features)
-            Flyout.Items.Add(MakeToggle(feature));
+        Flyout.Items.Add(_autoStartItem);
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
@@ -239,23 +231,15 @@ internal sealed class TrayMenu
     /// producer (may perform RPC, any thread); <see cref="ApplyState"/> the only consumer (UI thread).
     /// </summary>
     private sealed record MenuState(
-        IReadOnlyList<(bool Available, bool Enabled)> Features,   // aligned with _toggles
-        TrayIconMode IconMode,                                    // aligned with _iconModeItems
-        TrayDigitStyle DigitStyle);                               // aligned with _digitStyleItems
+        bool AutoStartEnabled,
+        TrayIconMode IconMode,          // aligned with _iconModeItems
+        TrayDigitStyle DigitStyle);     // aligned with _digitStyleItems
 
     private MenuState ReadState()
     {
-        var features = new (bool Available, bool Enabled)[_toggles.Count];
-        for (int i = 0; i < _toggles.Count; i++)
-        {
-            var feature = _toggles[i].Feature;
-            // One combined read — "enabled" is meaningful only when available.
-            var (available, enabled) = SafeCall(() => feature.ReadState(),
-                                                fallback: (Available: true, Enabled: false));
-            features[i] = (available, available && enabled);
-        }
+        bool autoStart = SafeCall(TaskSchedulerHelper.IsAutoStartEnabled, fallback: false);
         var (mode, digits) = SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle));
-        return new MenuState(features, mode, digits);
+        return new MenuState(autoStart, mode, digits);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -264,12 +248,7 @@ internal sealed class TrayMenu
     private void ApplyState(MenuState state)
     {
         _lastApplied = state;
-        for (int i = 0; i < _toggles.Count; i++)
-        {
-            var (available, enabled) = state.Features[i];
-            _toggles[i].Item.IsEnabled = available;
-            _toggles[i].Item.IsChecked = enabled;
-        }
+        _autoStartItem.IsChecked = state.AutoStartEnabled;
         foreach (var (item, mode) in _iconModeItems)
             item.IsChecked = mode == state.IconMode;
         foreach (var (item, style) in _digitStyleItems)
@@ -529,23 +508,21 @@ internal sealed class TrayMenu
         }
     }
 
-    // Apply target state off the UI thread — RPC/service writes can block for seconds.
-    private void Toggle(IToggleFeature feature, bool enable)
+    // Apply target state off the UI thread — the task-scheduler write can block for seconds.
+    private void ToggleAutoStart(bool enable)
         => Task.Run(() =>
         {
             // No StateChanged here, so the finally re-reads the OS — an unreported failure would
             // silently un-tick the item.
             try
             {
-                bool ok = feature.SetEnabled(enable);
-                if (!ok)
-                    AppLog.Info($"Toggle '{feature.Name}' → {enable} was refused — the write returned false.");
+                TaskSchedulerHelper.SetAutoStart(enable);
             }
             catch (Exception ex)
             {
-                // AutoStartFeature throws when the exe path cannot be resolved.
-                AppLog.Error($"TrayMenu.Toggle '{feature.Name}'", ex);
-                NativeMethods.Warn($"Could not change '{feature.Name}'.\n\n{ex.Message}", AppName);
+                // Throws when the exe path cannot be resolved.
+                AppLog.Error("TrayMenu.ToggleAutoStart", ex);
+                NativeMethods.Warn($"Could not change 'Launch at startup'.\n\n{ex.Message}", AppName);
             }
             finally
             {

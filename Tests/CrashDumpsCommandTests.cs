@@ -25,9 +25,8 @@ public class CrashDumpsCommandTests
     [Fact]
     public void Parse_InternalSpawnArgs_IsNone()
     {
-        // The watchdog probe and the self-heal relaunch must not flip the arming state.
+        // The watchdog probe must not flip the arming state.
         Assert.Equal(CrashDumps.DebugCommand.None, CrashDumps.ParseDebugCommand([Exe, "--watchdog-relaunch"]));
-        Assert.Equal(CrashDumps.DebugCommand.None, CrashDumps.ParseDebugCommand([Exe, "--auto-relaunch"]));
     }
 
     [Fact]

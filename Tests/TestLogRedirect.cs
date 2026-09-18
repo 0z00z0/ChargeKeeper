@@ -15,11 +15,11 @@ namespace ChargeKeeper.Tests;
 /// <c>%AppData%\ChargeKeeper\</c>. A test run then appends to the log an installed ChargeKeeper is
 /// writing, and genuine events and fixtures interleave there indistinguishably without reading
 /// stack frames.</para>
-/// <para>Assigning <see cref="LogManager.Configuration"/> here beats that auto-discovery, and it
-/// runs before <see cref="AppLog"/>'s static initialiser — which reads the same property — so both
-/// the shipped-config route and AppLog's own fallback land in the temp directory. The redirect is
-/// asserted by <c>TestLogRedirectTests</c>; without that assertion this file could stop working and
-/// nothing would say so.</para>
+/// <para>Reading <see cref="LogManager.Configuration"/> here triggers that auto-discovery, and it
+/// runs before <see cref="AppLog"/>'s static initialiser — which reads the same property — so
+/// AppLog finds it already loaded and redirected rather than triggering a second, un-redirected
+/// discovery. The redirect is asserted by <c>TestLogRedirectTests</c>; without that assertion this
+/// file could stop working and nothing would say so.</para>
 /// </remarks>
 internal static class TestLogRedirect
 {
@@ -37,13 +37,12 @@ internal static class TestLogRedirect
         {
             System.IO.Directory.CreateDirectory(Directory);
 
-            // Built from the shipped policy rather than hand-rolled, so a target added to
-            // nlog.config is redirected too instead of quietly keeping the real path.
-            // Assigned BEFORE the rewrite: both file targets sit inside RetryingTargetWrapper, and
-            // AllTargets only reaches through a wrapper once the configuration is installed.
-            LogManager.Configuration = AppLog.BuildFallbackConfiguration();
+            // The real, auto-discovered nlog.config rather than a hand-rolled copy, so a target
+            // added to it is redirected too instead of quietly keeping the real path. Null when no
+            // nlog.config sits beside the test assembly — nothing to redirect.
+            if (LogManager.Configuration is not { } config) return;
 
-            foreach (var target in LogManager.Configuration.AllTargets.OfType<FileTarget>())
+            foreach (var target in config.AllTargets.OfType<FileTarget>())
             {
                 string name = Path.GetFileName(
                     target.FileName.Render(LogEventInfo.CreateNullEvent()));
