@@ -117,8 +117,9 @@ public class AppLogTests : IDisposable
         Assert.DoesNotContain((byte)'\r', bytes);
         Assert.Equal(2, bytes.Count(b => b == (byte)'\n'));
         Assert.DoesNotContain("\n\n", System.Text.Encoding.UTF8.GetString(bytes));
+        // #217: the timestamp carries milliseconds, so order inside one second can be read back.
         Assert.Matches(
-            @"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}\] INFO\s+-\s+first\n",
+            @"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}\] INFO\s+-\s+first\n",
             System.Text.Encoding.UTF8.GetString(bytes));
     }
 

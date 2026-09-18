@@ -22,16 +22,17 @@ public class KeepAwakeLidCouplingTests
 
     // Guards on both directions. Neither page may lose the rule silently: a page that stops stating
     // it looks exactly the same as one that never had it, which is the state #172 was filed against.
+    // #221 shortened both pages' help text and dropped the phrase the two sides used to share, so
+    // each page now states the rule in its own words rather than an identical shared sentence.
 
     [Fact]
     public void KeepAwakePage_StatesWhatASessionDoesToALidClose() =>
-        Assert.Contains("never slept out from under one",
+        Assert.Contains("holds off any lid-close sleep",
                         Page("KeepAwakePanel", "LidClosePanel"), StringComparison.Ordinal);
 
     [Fact]
-    public void LidDelayPage_StillStatesTheSameRuleInTheSameWords() =>
-        // The shared phrase is what keeps the two sides from drifting into two explanations.
-        Assert.Contains("never slept out from under one",
+    public void LidDelayPage_StatesThatAKeepAwakeSessionHoldsOffTheSleep() =>
+        Assert.Contains("keep-awake session holding off the sleep",
                         Page("LidClosePanel", "NotificationsPanel"), StringComparison.Ordinal);
 
     // DescribeLidEffect
