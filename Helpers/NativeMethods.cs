@@ -1,15 +1,13 @@
 using System.Runtime.InteropServices;
 using Windows.Graphics;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper.Helpers;
 
 /// <summary>Thin wrappers around Win32 APIs used across the app.</summary>
 internal static class NativeMethods
 {
-    private const uint SPI_GETWORKAREA = 0x0030;
-
     private const uint MONITOR_DEFAULTTONEAREST = 0x0002;
-    private const int  MDT_EFFECTIVE_DPI        = 0;
 
     // ES_CONTINUOUS makes the request stick until cleared rather than resetting one idle timer. The
     // state is PER-THREAD: set and clear must happen on the same long-lived thread.
@@ -384,30 +382,11 @@ internal static class NativeMethods
         public uint dwFlags;
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SystemParametersInfo(uint action, uint param, out RECT output, uint winIni);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out POINT point);
-
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(POINT point, uint flags);
 
     [DllImport("user32.dll")]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
-
-    [DllImport("Shcore.dll")]
-    private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
-
-    // Windows 10 1607+ only; the call sites catch so older builds degrade rather than crash.
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForSystem();
 
     [DllImport("user32.dll")]
     private static extern uint GetDoubleClickTime();
@@ -415,53 +394,6 @@ internal static class NativeMethods
     /// <summary>The system double-click interval. Read every time rather than cached — it is a user
     /// setting that changes without notifying us.</summary>
     internal static TimeSpan DoubleClickTime => TimeSpan.FromMilliseconds(GetDoubleClickTime());
-
-    /// <summary>DPI of the monitor hosting the shell taskbar, which can differ from the process's own
-    /// DPI context in a mixed-DPI multi-monitor setup. Falls back to the system DPI, then 96.</summary>
-    internal static uint GetTaskbarDpi()
-    {
-        try
-        {
-            var hwnd = FindWindow("Shell_TrayWnd", null);
-            if (hwnd != IntPtr.Zero)
-            {
-                uint dpi = GetDpiForWindow(hwnd);
-                if (dpi != 0) return dpi;
-            }
-        }
-        catch { /* absent pre-1607 */ }
-
-        try
-        {
-            uint sys = GetDpiForSystem();
-            if (sys != 0) return sys;
-        }
-        catch { /* absent pre-1607 */ }
-
-        return 96; // 100 % DPI
-    }
-
-    /// <summary>Work area (physical px) and DPI scale of the monitor under the mouse cursor — the
-    /// screen whose tray the user just clicked. Falls back to the primary monitor at 100 %.</summary>
-    internal static (RECT WorkArea, double Scale) GetCursorMonitorMetrics()
-    {
-        if (GetCursorPos(out var cursor))
-        {
-            var monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-            var info    = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-
-            if (GetMonitorInfo(monitor, ref info))
-            {
-                double scale = 1.0;
-                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpiX, out _) == 0 && dpiX != 0)
-                    scale = dpiX / 96.0;
-
-                return (info.rcWork, scale);
-            }
-        }
-
-        return (GetPrimaryWorkArea(), 1.0);
-    }
 
     /// <summary>
     /// Opening rect (physical px) for a window of <paramref name="dipWidth"/> × <paramref name="dipHeight"/>
@@ -471,12 +403,10 @@ internal static class NativeMethods
     /// </summary>
     internal static RectInt32 CentreRectOnCursorMonitor(int dipWidth, int dipHeight)
     {
-        var (work, scale) = GetCursorMonitorMetrics();
-        int workW = work.Right  - work.Left;
-        int workH = work.Bottom - work.Top;
+        var (work, scale) = MonitorMetrics.ForCursor();
         return CentreInWorkArea(work,
-                                Math.Min((int)Math.Round(dipWidth  * scale), workW),
-                                Math.Min((int)Math.Round(dipHeight * scale), workH));
+                                Math.Min((int)Math.Round(dipWidth  * scale), work.Width),
+                                Math.Min((int)Math.Round(dipHeight * scale), work.Height));
     }
 
     /// <summary>
@@ -485,20 +415,10 @@ internal static class NativeMethods
     /// with symmetric overhang rather than being pinned to the top-left corner, which is what the
     /// callers that intentionally oversize want.
     /// </summary>
-    internal static RectInt32 CentreInWorkArea(RECT work, int w, int h)
-        => new(work.Left + (work.Right  - work.Left - w) / 2,
-               work.Top  + (work.Bottom - work.Top  - h) / 2,
+    internal static RectInt32 CentreInWorkArea(NativeRect work, int w, int h)
+        => new(work.Left + (work.Width  - w) / 2,
+               work.Top  + (work.Height - h) / 2,
                w, h);
-
-    /// <summary>Usable desktop area on the primary monitor (physical px). Falls back to a 1080p work
-    /// area if the Win32 call fails.</summary>
-    private static RECT GetPrimaryWorkArea()
-    {
-        if (SystemParametersInfo(SPI_GETWORKAREA, 0, out var rect, 0))
-            return rect;
-
-        return new() { Left = 0, Top = 0, Right = 1920, Bottom = 1040 };
-    }
 
     /// <summary>
     /// Clamps a saved window rect (physical px) into the work area of the monitor nearest its centre,
@@ -512,7 +432,8 @@ internal static class NativeMethods
                : (x, y, w, h);
 
     /// <summary>Work area (physical px) of the monitor nearest the given rect's centre, or null if the
-    /// monitor query fails.</summary>
+    /// monitor query fails. The shared Win32 layer answers for a point, not for the monitor nearest a
+    /// rectangle, so this stays here.</summary>
     internal static (int X, int Y, int W, int H)? WorkAreaForRect(int x, int y, int w, int h)
     {
         var centre  = new POINT { X = x + w / 2, Y = y + h / 2 };
@@ -525,50 +446,13 @@ internal static class NativeMethods
         return (work.Left, work.Top, work.Right - work.Left, work.Bottom - work.Top);
     }
 
-    // uxtheme.dll exposes these only by ordinal — no named exports. 135 = SetPreferredAppMode
-    // (Win10 1903+), 104 = RefreshImmersiveColorPolicyState.
-    [DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = false)]
-    private static extern int SetPreferredAppMode(int mode);   // 0=Default 1=AllowDark 2=ForceDark 3=ForceLight
-
-    [DllImport("uxtheme.dll", EntryPoint = "#104", SetLastError = false)]
-    private static extern void RefreshImmersiveColorPolicyState();
-
-    /// <summary>Opts the process into dark-mode rendering for native Win32 UI (the tray context menu).
-    /// Call once, before any UI is created, so the menu HWND inherits the setting.</summary>
-    internal static void EnableDarkModeForNativeUi()
-    {
-        try
-        {
-            SetPreferredAppMode(1); // AllowDark — follows the system light/dark preference
-            RefreshImmersiveColorPolicyState();
-        }
-        catch { /* ordinal absent on old builds — non-fatal */ }
-    }
-
-    // Plain Win32 MessageBox: callable from any thread, works in this elevated unpackaged app, and
-    // needs no WinUI XamlRoot.
+    // The update dialog's fallback only; every other message box is the shared Win32 layer's.
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
-    private const uint MB_OK              = 0x00000000;
     private const uint MB_YESNO           = 0x00000004;
-    private const uint MB_ICONERROR       = 0x00000010;
-    private const uint MB_ICONWARNING     = 0x00000030;
     private const uint MB_ICONINFORMATION = 0x00000040;
     private const int  IDYES              = 6;
-
-    internal static void Info(string text, string caption)
-        => MessageBoxW(IntPtr.Zero, text, caption, MB_OK | MB_ICONINFORMATION);
-
-    internal static void Warn(string text, string caption)
-        => MessageBoxW(IntPtr.Zero, text, caption, MB_OK | MB_ICONWARNING);
-
-    internal static void Error(string text, string caption)
-        => MessageBoxW(IntPtr.Zero, text, caption, MB_OK | MB_ICONERROR);
-
-    /// <summary>Yes/No prompt; returns true when the user clicks Yes.</summary>
-    internal static bool Confirm(string text, string caption)
-        => MessageBoxW(IntPtr.Zero, text, caption, MB_YESNO | MB_ICONINFORMATION) == IDYES;
 
     // TASKDIALOGCONFIG and TASKDIALOG_BUTTON are declared with 1-byte packing in commctrl.h, so their
     // x64 sizes are 160 and 12, not the 176/16 natural alignment would give. Pack=1 reproduces that;

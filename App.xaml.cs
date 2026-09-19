@@ -5,6 +5,9 @@ using Windows.System.Power;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using ChargeKeeper.UI;
+using ZeroZero.Diagnostics;
+using ZeroZero.Lifecycle;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper;
 
@@ -69,6 +72,9 @@ public partial class App : Application
     // the same answer rather than two parses that can drift.
     private readonly StartupArgs _startup;
 
+    // Held for the life of the process: the arms stay registered until it ends.
+    private readonly CrashHandlers _crashHandlers;
+
     // Upper bound for the hand-editable startup delay; 60 s is the top preset Settings offers.
     private const int MaxStartupDelaySeconds = 60;
 
@@ -84,14 +90,14 @@ public partial class App : Application
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
         // GUI crashes surface only as an opaque 0xC000027B stowed exception in Event Viewer, so log
-        // the managed exception before the process dies.
+        // the managed exception before the process dies. The shared handlers take the AppDomain and
+        // unobserved-task arms; the WinUI arm is the application's and reports through them.
+        _crashHandlers = CrashHandlers.Register(new CrashHandlerOptions { Sink = new AppLogSink() });
         UnhandledException += (_, e) =>
         {
-            LogCrash("Application.UnhandledException", e.Exception);
+            _crashHandlers.Report("Application.UnhandledException", e.Exception);
             // Leave e.Handled = false: crashing visibly beats running corrupt.
         };
-        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
 
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
@@ -128,8 +134,8 @@ public partial class App : Application
         // Must come before any window or tray icon is created. A watchdog probe that got this far
         // already holds the lock, and neither path may acquire twice: a Mutex is re-entrant per
         // owning thread, so a second WaitOne would bump the recursion count rather than fail.
-        if (!SingleInstance.IsHeld &&
-            !await SingleInstance.TryAcquireAsync(_startup.SingleInstanceAttempts).ConfigureAwait(true))
+        if (!SingleInstanceLock.IsHeld &&
+            !await Program.TryAcquireSingleInstanceAsync(_startup.SingleInstanceAttempts).ConfigureAwait(true))
         {
             AppLog.Info("Another instance already holds the single-instance lock — exiting.");
             _intentionalExit = true;   // keeps the ProcessExit log line from blaming a crash
@@ -158,7 +164,7 @@ public partial class App : Application
         });
 
         // Must run before any UI is created so the tray menu's native HWND inherits the setting.
-        NativeMethods.EnableDarkModeForNativeUi();
+        DarkChrome.Apply(DarkChromeMode.AllowDark);
 
         // Battery events fire on a background thread and must marshal tray-icon updates back here.
         _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
@@ -1120,7 +1126,7 @@ public partial class App : Application
                     UnattendedUpdate.InstallerLogPath);
                 AppLog.Info($"Update: v{handover.TargetVersion} did not install; still v{running}.");
                 // Off the start-up path: MessageBoxW blocks its own thread until it is dismissed.
-                Task.Run(() => NativeMethods.Warn(text, AppInfo.Name));
+                Task.Run(() => NativeMessageBox.Warning(IntPtr.Zero, AppInfo.Name, text));
             }
             else if (verdict == UpdateVerdict.Installed)
             {

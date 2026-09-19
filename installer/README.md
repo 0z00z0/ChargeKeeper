@@ -149,7 +149,7 @@ view can request 16 px, where the ink glyph is weak on dark (**2.96:1** at best)
 regression in one optional view mode, traded for the wizard's 16 px on light being correct on every
 single run. Serving the guaranteed case beats hedging both badly.
 
-`AppIcon.ico` needs `CopyToOutputDirectory` in the csproj — `TitleBarTheme.ApplyDark` resolves it
+`AppIcon.ico` needs `CopyToOutputDirectory` in the csproj — `AppTitleBar.Apply` resolves it
 by path at runtime and silently does nothing if it isn't beside the exe.
 
 **Why a single hero bitmap instead of a per-DPI variant list.** A comma-separated

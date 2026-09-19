@@ -43,7 +43,7 @@ public class SettingsSectionLayoutTests
     }
 
     private static string[] SectionHeadings(string panelName) =>
-        Regex.Matches(Page(panelName), @"<local:SettingsSectionHeader\s+Heading=""(?<heading>[^""]*)""")
+        Regex.Matches(Page(panelName), @"<zz:SettingsSectionHeader\s+Heading=""(?<heading>[^""]*)""")
              .Select(m => m.Groups["heading"].Value)
              .ToArray();
 
@@ -65,7 +65,7 @@ public class SettingsSectionLayoutTests
     {
         string page   = Page("LidClosePanel");
         int    master = page.IndexOf("x:Name=\"LidDelayToggle\"", StringComparison.Ordinal);
-        int    first  = page.IndexOf("<local:SettingsSectionHeader", StringComparison.Ordinal);
+        int    first  = page.IndexOf("<zz:SettingsSectionHeader", StringComparison.Ordinal);
 
         Assert.True(master >= 0, "The Lid delay master switch is no longer declared.");
         Assert.True(first  >= 0, "The Lid delay page no longer has any section heading.");
@@ -80,7 +80,7 @@ public class SettingsSectionLayoutTests
         string page = Page("LidClosePanel");
         int offAfterSleep = page.IndexOf("x:Name=\"LidOffAfterSleepToggle\"", StringComparison.Ordinal);
         int lockOnClose   = page.IndexOf("x:Name=\"LidLockToggle\"", StringComparison.Ordinal);
-        int firstHeading  = page.IndexOf("<local:SettingsSectionHeader", StringComparison.Ordinal);
+        int firstHeading  = page.IndexOf("<zz:SettingsSectionHeader", StringComparison.Ordinal);
 
         Assert.True(offAfterSleep >= 0 && lockOnClose >= 0);
         Assert.True(offAfterSleep < firstHeading, "Switching off after sleeping fell inside a preset group.");
@@ -156,20 +156,25 @@ public class SettingsSectionLayoutTests
     [InlineData("LidOffAfterSleepToggle")]
     [InlineData("LidLockToggle")]
     public void EveryLidCloseTopBlockSwitchCarriesAnInfoBubble(string toggle) =>
-        Assert.Contains("<local:InfoIcon", CardHolding("LidClosePanel", toggle), StringComparison.Ordinal);
+        Assert.Contains("<zz:InfoIcon", CardHolding("LidClosePanel", toggle), StringComparison.Ordinal);
 
+    /// <summary>The shared section header draws the rule and the heading; its face and colour are
+    /// set once, in App.xaml. A page borrowing the heading style, or a second style for the header,
+    /// is the hand-rolled copy that drifts.</summary>
     [Fact]
-    public void TheSectionStylesAreDrawnFromOnePlaceOnly()
+    public void TheSectionHeadingLookIsSetInOnePlaceOnly()
     {
         string[] users = Directory.EnumerateFiles(MarkupDirectory(), "*.xaml")
-                                  .Where(f => File.ReadAllText(f).Contains("SectionDividerStyle",
+                                  .Where(f => File.ReadAllText(f).Contains("SubHeaderStyle",
                                                                            StringComparison.Ordinal)
-                                           || File.ReadAllText(f).Contains("SubHeaderStyle",
+                                           || File.ReadAllText(f).Contains("TargetType=\"zz:SettingsSectionHeader\"",
                                                                            StringComparison.Ordinal))
                                   .Select(Path.GetFileName)
                                   .ToArray()!;
+        Assert.Empty(users);
 
-        Assert.Equal(["SettingsSectionHeader.xaml"], users);
+        string app = File.ReadAllText(RepoFiles.Find("App.xaml"));
+        Assert.Single(Regex.Matches(app, @"<Style TargetType=""zz:SettingsSectionHeader"">"));
     }
 
     // The two pages describe the same network from the same service. Declared twice, the copies

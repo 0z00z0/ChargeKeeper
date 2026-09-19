@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using ChargeKeeper.Services;
+using ZeroZero.Diagnostics.Dumps;
 
 namespace ChargeKeeper.Helpers;
 
@@ -107,18 +108,20 @@ internal static class CrashDumps
         if (DumpsEnabled) TryRegisterLocalDumps(dumpDir);
         else              TryDisarmLocalDumps();
     }
-    /// <summary>The shared parent of every app's LocalDumps registration. Its mere existence turns
-    /// WER dump collection on MACHINE-WIDE, and <see cref="Registry.CreateSubKey(string)"/> on the
-    /// per-exe path below creates it as a side effect — so arming ours opts the whole machine in, and
-    /// <see cref="TryDisarmLocalDumps"/> drops the parent again when it is left empty.</summary>
-    private const string LocalDumpsRoot =
-        @"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps";
-    private const string LocalDumpsKey = LocalDumpsRoot + @"\" + ExeName;
 
     /// <summary>This app's pre-rename exe name. Its LocalDumps registration is still armed on every
-    /// upgraded machine, and must go before <see cref="LocalDumpsRoot"/> can be seen as empty.</summary>
+    /// upgraded machine, and must go before the shared LocalDumps root can be seen as empty.</summary>
     private const string LegacyExeName = "LenovoTray.exe";
-    private const string LegacyLocalDumpsKey = LocalDumpsRoot + @"\" + LegacyExeName;
+
+    /// <summary>How many minidumps WER keeps, and how many the start-up sweep leaves.</summary>
+    private const int RetainedDumps = 5;
+
+    private static readonly AppLogSink Log = new();
+
+    /// <summary>The shared LocalDumps registration: it arms and disarms this exe's key, sweeps the
+    /// legacy one, and drops the shared root once empty — its mere existence turns WER dump
+    /// collection on machine-wide, for every application.</summary>
+    private static DumpRegistration Registration => new(Registry.LocalMachine, Log);
 
     private const string IfeoKey =
         @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\" + ExeName;
@@ -134,16 +137,7 @@ internal static class CrashDumps
         try
         {
             Directory.CreateDirectory(dumpDir);
-            using var key = Registry.LocalMachine.CreateSubKey(LocalDumpsKey);
-            if (key is null)
-            {
-                AppLog.Info($"CrashDumps: CreateSubKey returned null for {LocalDumpsKey} — not armed.");
-                return;
-            }
-            key.SetValue("DumpFolder", dumpDir, RegistryValueKind.ExpandString);
-            key.SetValue("DumpCount",  5, RegistryValueKind.DWord);
-            key.SetValue("DumpType",   1, RegistryValueKind.DWord); // 1 = mini (small, has all thread stacks)
-            AppLog.Info($"CrashDumps: WER LocalDumps armed -> {dumpDir}");
+            Registration.Arm(new DumpPolicy(ExeName, dumpDir, DumpType.Mini, RetainedDumps));
         }
         catch (Exception ex)
         {
@@ -158,39 +152,14 @@ internal static class CrashDumps
     {
         try
         {
-            bool removedOurs = TryDeleteSubKeyIfPresent(LocalDumpsKey);
-            bool removedLegacy = TryDeleteSubKeyIfPresent(LegacyLocalDumpsKey);
-
-            // Emptiness is read under a handle CLOSED before the delete — deleting a key while still
-            // holding a handle to it is fragile.
-            bool rootEmpty;
-            using (var root = Registry.LocalMachine.OpenSubKey(LocalDumpsRoot))
-                rootEmpty = root is not null && root.ValueCount == 0 && root.SubKeyCount == 0;
-            if (rootEmpty)
-            {
-                Registry.LocalMachine.DeleteSubKey(LocalDumpsRoot, throwOnMissingSubKey: false);
-                AppLog.Info("CrashDumps: removed the now-empty LocalDumps root (its mere presence " +
-                            "enables WER dump collection machine-wide, for every application).");
-            }
-
-            if (removedOurs)   AppLog.Info("CrashDumps: WER LocalDumps disarmed (capture is not enabled).");
-            if (removedLegacy) AppLog.Info($"CrashDumps: removed the stale {LegacyExeName} LocalDumps registration (pre-rename residue).");
+            var registration = Registration;
+            registration.Disarm(ExeName);
+            registration.RemoveResidue(LegacyExeName);
         }
         catch (Exception ex)
         {
             AppLog.Error("CrashDumps.TryDisarmLocalDumps", ex);
         }
-    }
-
-    /// <summary>Deletes <paramref name="path"/> if it exists; returns whether it did. Never throws.</summary>
-    private static bool TryDeleteSubKeyIfPresent(string path)
-    {
-        using (var key = Registry.LocalMachine.OpenSubKey(path))
-        {
-            if (key is null) return false;
-        }
-        Registry.LocalMachine.DeleteSubKeyTree(path, throwOnMissingSubKey: false);
-        return true;
     }
 
     /// <summary>Removes the SilentProcessExit monitor left behind by earlier versions, clearing its
@@ -238,7 +207,7 @@ internal static class CrashDumps
     /// <summary>Clears out the dump directory. Every subfolder goes — those are per-exit
     /// SilentProcessExit noise — while the flat .dmp files WER writes on genuine faults are kept,
     /// newest <paramref name="keepNewest"/>. Never throws.</summary>
-    internal static void TryCleanupOldDumps(string dumpDir, int keepNewest = 5)
+    internal static void TryCleanupOldDumps(string dumpDir, int keepNewest = RetainedDumps)
     {
         try
         {
@@ -251,13 +220,9 @@ internal static class CrashDumps
                 catch { /* best-effort */ }
             }
 
-            foreach (var dmp in dir.GetFiles("*.dmp")
-                                   .OrderByDescending(f => f.LastWriteTimeUtc)
-                                   .Skip(keepNewest))
-            {
-                try { dmp.Delete(); }
-                catch { /* best-effort — a dump still held open by WER is left for next time */ }
-            }
+            // A dump still held open by WER is logged and left for next time.
+            DumpRetention.Prune(dumpDir, ExeName, keepNewest, Log);
+            DumpRetention.Prune(dumpDir, LegacyExeName, keepNewest, Log);
         }
         catch (Exception ex)
         {

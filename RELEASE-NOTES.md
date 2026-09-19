@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.59.0
+
+- #223 ChargeKeeper now takes its generic building blocks — the Settings info bubbles and section
+  headers, the network-name prompt, the title bar, message boxes, crash logging, the tray icon's
+  size and file format, and the MQTT module — from the studio's shared library; nothing changes in
+  use, and an error in background work that nothing waited for is now written to the log instead of
+  passing unrecorded.
+
 ## 1.58.4
 
 - #212 A script bound to the lid now runs on every lid change, whether or not Lid delay is

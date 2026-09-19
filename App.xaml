@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:tb="using:H.NotifyIcon"
     xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
+    xmlns:zz="using:ZeroZero.Controls.WinUI"
     RequestedTheme="Dark">
     <Application.Resources>
         <ResourceDictionary>
@@ -212,8 +213,7 @@
                  0xFF), an ARGB brush rather than a blended solid hex so it composites correctly over
                  whatever sits behind it, on the same terms as AppColors.BadgeActiveBrush. Applied
                  through DashboardHeaderStyle below, never through HeadingBaseStyle itself, so the
-                 Settings window's own headings (SectionHeaderStyle, SubHeaderStyle) keep the full
-                 brand teal. -->
+                 Settings window's own headings keep the full brand teal. -->
             <SolidColorBrush x:Key="DashboardHeaderMutedBrush" Color="#8C27E0C8"/>
 
             <Style x:Key="HeadingBaseStyle" TargetType="TextBlock">
@@ -248,13 +248,12 @@
                 <Setter Property="Foreground" Value="{StaticResource DashboardHeaderMutedBrush}"/>
             </Style>
 
-            <!-- Marks where one sub-section ends and the next begins. The whole gap between groups
-                 sits above the rule and the heading, so a heading binds downwards to its own cards
-                 rather than floating between two groups. -->
-            <Style x:Key="SectionDividerStyle" TargetType="Border">
-                <Setter Property="Height" Value="1"/>
-                <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-                <Setter Property="Margin" Value="0,24,0,12"/>
+            <!-- The shared section header draws its own rule, size, weight and spacing, and takes its
+                 face and colour from the control, so the brand face and the heading teal are set
+                 here once for every Settings page. -->
+            <Style TargetType="zz:SettingsSectionHeader">
+                <Setter Property="FontFamily" Value="{StaticResource BrandFont}"/>
+                <Setter Property="Foreground" Value="{StaticResource SectionHeadingBrush}"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.58.4</Version>
+    <Version>1.59.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -146,7 +146,7 @@
     <Content Include="nlog.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- CopyToOutputDirectory matters: TitleBarTheme.ApplyDark resolves this by path at runtime
+    <!-- CopyToOutputDirectory matters: AppTitleBar.Apply resolves this by path at runtime
          (AppWindow.SetIcon) and silently does nothing if the file isn't beside the exe. -->
     <Content Include="Assets\AppIcon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -248,21 +248,23 @@
   </ItemGroup>
 
   <!-- The shared library, as packages from the family feed. Versions are pinned centrally in
-       Directory.Packages.props and never on the reference. Three references cover everything this
-       application takes: the brand component for the About window, in place of a hand-rolled
-       UI/AboutWindow; the MQTT module; and the sectioned settings store, which holds
-       settings.json. ZeroZero.Mqtt.WinUI brings ZeroZero.Mqtt.Discovery, ZeroZero.Mqtt,
-       ZeroZero.Controls.WinUI, ZeroZero.Primitives and ZeroZero.Win32 with it, and MQTTnet
-       transitively inside ZeroZero.Mqtt, which is the only assembly that sees it — no
-       client-library type reaches a public signature, so this application references MQTTnet
-       nowhere. ZeroZero.Config.Sections is a direct reference because it arrives with nothing
-       whatever else is adopted; it brings ZeroZero.Config with it. Declaring any of the others here
-       would resolve the same assembly twice. Integration contract in README; implementation guide
-       in the shared library's own MQTT document. -->
+       Directory.Packages.props and never on the reference. ZeroZero.Mqtt.WinUI brings
+       ZeroZero.Mqtt.Discovery, ZeroZero.Mqtt, ZeroZero.Controls.WinUI, ZeroZero.Primitives and
+       ZeroZero.Win32 with it, and MQTTnet transitively inside ZeroZero.Mqtt, which is the only
+       assembly that sees it — no client-library type reaches a public signature, so this
+       application references MQTTnet nowhere. ZeroZero.Diagnostics brings
+       ZeroZero.Diagnostics.Dumps; ZeroZero.Config.Sections and ZeroZero.Config.Watch bring
+       ZeroZero.Config. Declaring any package that arrives transitively would resolve the same
+       assembly twice. Lifecycle is taken for its single-instance lock and data path only: its
+       relaunch is armed by constructing ProcessLifecycle, which nothing here does. -->
   <ItemGroup>
     <PackageReference Include="ZeroZero.Brand.WinUI" />
     <PackageReference Include="ZeroZero.Config.Sections" />
+    <PackageReference Include="ZeroZero.Config.Watch" />
+    <PackageReference Include="ZeroZero.Diagnostics" />
+    <PackageReference Include="ZeroZero.Lifecycle" />
     <PackageReference Include="ZeroZero.Mqtt.WinUI" />
+    <PackageReference Include="ZeroZero.Tray" />
   </ItemGroup>
 
   <!--

@@ -58,8 +58,8 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-  <!-- UI/NameLocationWindow.xaml — the "name this network location" prompt. First surface converted
-       to x:Uid, kept small on purpose: on-screen resolution is unverified before this. -->
+  <!-- The "name this network location" prompt, shown by the shared text prompt from
+       UI/SettingsWindow.xaml.cs, which reads these three by their resource paths. -->
   <data name="NameLocationTitle.Text" xml:space="preserve">
     <value>Name this network location</value>
     <comment>Noun phrase: window heading.</comment>

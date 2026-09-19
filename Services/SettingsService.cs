@@ -464,14 +464,14 @@ internal static class SettingsService
         lock (_lock)
         {
             var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
-            before = SettingsChangeClassifier.Snapshot(settings);
+            before = UnpublishedSettings.Classifier.Fingerprint(settings);
             mutate(settings);
             saved = Save();   // re-entrant on the same Lock, so nesting does not deadlock
-            after = SettingsChangeClassifier.Snapshot(settings);
+            after = UnpublishedSettings.Classifier.Fingerprint(settings);
         }
         // Outside the lock — a subscriber may do real work (an MQTT publish).
         Changed?.Invoke();
-        ChangeCommitted?.Invoke(new SettingsChange(SettingsChangeClassifier.IsMaterial(before, after)));
+        ChangeCommitted?.Invoke(new SettingsChange(!string.Equals(before, after, StringComparison.Ordinal)));
         return saved;
     }
 
@@ -595,11 +595,11 @@ internal static class SettingsService
         {
             // Null means nothing has read settings yet, so there is no earlier state to compare and
             // the reload counts as mattering.
-            before   = _current is null ? null : SettingsChangeClassifier.Snapshot(_current);
+            before   = _current is null ? null : UnpublishedSettings.Classifier.Fingerprint(_current);
             _current = loaded;
         }
         bool material = before is null
-                     || SettingsChangeClassifier.IsMaterial(before, SettingsChangeClassifier.Snapshot(loaded));
+                     || !string.Equals(before, UnpublishedSettings.Classifier.Fingerprint(loaded), StringComparison.Ordinal);
 
         // Outside the lock — a subscriber may do real work (an MQTT reconnect).
         Reloaded?.Invoke();

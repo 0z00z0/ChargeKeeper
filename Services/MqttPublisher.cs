@@ -3,7 +3,6 @@ using System.Runtime.ExceptionServices;
 using ChargeKeeper.Helpers;
 using ZeroZero.Mqtt;
 using ZeroZero.Mqtt.Discovery;
-using ZeroZero.Primitives;
 
 namespace ChargeKeeper.Services;
 
@@ -47,7 +46,7 @@ internal sealed class MqttPublisher : IDisposable
         ISettingsActions? settings = null)
     {
         _appVersion = appVersion;
-        var log = new AppMqttLog();
+        var log = new AppLogSink();
 
         Directory.CreateDirectory(AppPaths.DataDir);
         _settings = MqttSettingsFile.In(AppPaths.DataDir);
@@ -331,14 +330,4 @@ internal sealed class MqttPublisher : IDisposable
         private bool Fresh() =>
             _taken != long.MinValue && Stopwatch.GetElapsedTime(_taken) < MaxAge;
     }
-}
-
-/// <summary>The shared library's log sink over <see cref="AppLog"/>. A component owns no logging
-/// framework and sanitises an exception before it gets here, so no staged credential reaches the
-/// file.</summary>
-internal sealed class AppMqttLog : ILogSink
-{
-    public void Info(string message) => AppLog.Info(message);
-
-    public void Error(string source, Exception? ex) => AppLog.Error(source, ex);
 }

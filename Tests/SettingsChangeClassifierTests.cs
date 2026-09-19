@@ -21,7 +21,7 @@ public class SettingsChangeClassifierTests
         var before = new AppSettings();
         var after  = new AppSettings();
 
-        Assert.False(SettingsChangeClassifier.IsMaterial(before, after));
+        Assert.False(UnpublishedSettings.Classifier.IsSubstantive(before, after));
     }
 
     /// <summary>The endpoint memory is written back on every successful broker connect, which is
@@ -38,7 +38,7 @@ public class SettingsChangeClassifierTests
             SettingsWindowY = 240,
         };
 
-        Assert.False(SettingsChangeClassifier.IsMaterial(before, after));
+        Assert.False(UnpublishedSettings.Classifier.IsSubstantive(before, after));
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class SettingsChangeClassifierTests
         var before = new AppSettings();
         var after  = new AppSettings { LowBatteryWarningPct = before.LowBatteryWarningPct + 1 };
 
-        Assert.True(SettingsChangeClassifier.IsMaterial(before, after));
+        Assert.True(UnpublishedSettings.Classifier.IsSubstantive(before, after));
     }
 
     /// <summary>An excluded field moving alongside a published one still matters: the exclusion
@@ -58,7 +58,7 @@ public class SettingsChangeClassifierTests
         var before = new AppSettings();
         var after  = new AppSettings { SettingsWindowX = 120, IconMode = TrayIconMode.Numeric };
 
-        Assert.True(SettingsChangeClassifier.IsMaterial(before, after));
+        Assert.True(UnpublishedSettings.Classifier.IsSubstantive(before, after));
     }
 
     /// <summary>
@@ -81,12 +81,12 @@ public class SettingsChangeClassifierTests
             MoveOff(after, property);
 
             Assert.True(
-                SettingsChangeClassifier.Snapshot(before) != SettingsChangeClassifier.Snapshot(after),
+                Serialised(before) != Serialised(after),
                 $"'{property.Name}' moved but the settings snapshot did not, so it never reaches the "
               + "comparison and no change to it can ever be announced.");
 
-            bool excluded = SettingsChangeClassifier.UnpublishedProperties.Contains(property.Name);
-            bool material = SettingsChangeClassifier.IsMaterial(before, after);
+            bool excluded = UnpublishedSettings.UnpublishedProperties.Contains(property.Name);
+            bool material = UnpublishedSettings.Classifier.IsSubstantive(before, after);
 
             if (excluded)
                 Assert.False(material, $"'{property.Name}' is excluded by name but still read as mattering.");
@@ -102,9 +102,13 @@ public class SettingsChangeClassifierTests
     {
         var names = PersistedProperties().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
 
-        foreach (var excluded in SettingsChangeClassifier.UnpublishedProperties)
+        foreach (var excluded in UnpublishedSettings.UnpublishedProperties)
             Assert.Contains(excluded, names);
     }
+
+    /// <summary>The whole serialised state, nothing removed — what the classifier starts from.</summary>
+    private static string Serialised(AppSettings settings) =>
+        System.Text.Json.JsonSerializer.Serialize(settings, UnpublishedSettings.Serialiser);
 
     private static PropertyInfo[] PersistedProperties() =>
         typeof(AppSettings)

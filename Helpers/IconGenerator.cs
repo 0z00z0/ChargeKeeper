@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using ChargeKeeper.Services;
 using ChargeKeeper.Vendors;
+using ZeroZero.Tray;
 
 namespace ChargeKeeper.Helpers;
 
@@ -25,28 +26,14 @@ internal static class IconGenerator
     // Sizes baked into the static on-disk .ico — 100/125/150/200 % tray DPI without upscaling.
     private static readonly int[] IconSizes = [32, 24, 20, 16];
 
-    // Logical small-icon size in px at 96 DPI, scaled by the taskbar DPI for the physical slot.
-    private const int LogicalSmallIconSize = 16;
-
-    /// <summary>Physical pixel size for the live tray icon at monitor <paramref name="dpi"/>: 16 px
-    /// logical scaled to that DPI, clamped to 16..64 (100 %..400 %) so a bogus DPI can never yield a
-    /// giant or empty bitmap.</summary>
-    internal static int SlotSizeForDpi(uint dpi)
-    {
-        // 0 means "unknown" from the Win32 query; 96 keeps the true logical size rather than the floor.
-        if (dpi == 0) dpi = 96;
-        int size = (int)Math.Round(LogicalSmallIconSize * dpi / 96.0, MidpointRounding.AwayFromZero);
-        return Math.Clamp(size, 16, 64);
-    }
-
-    /// <summary>The tray slot size the shell will display, sized to the TASKBAR's DPI rather than the
-    /// process's DPI context — the two differ when the taskbar sits on a secondary monitor at another
-    /// scale, and rendering for the wrong one washes out the thin arc stroke.</summary>
+    /// <summary>The tray slot size the shell will display, sized to the TASKBAR's scale rather than
+    /// the process's DPI context — the two differ when the taskbar sits on a secondary monitor at
+    /// another scale, and rendering for the wrong one washes out the thin arc stroke.</summary>
     private static int CurrentTraySlotSize() =>
-        _cachedSlotSize ??= SlotSizeForDpi(NativeMethods.GetTaskbarDpi());
+        _cachedSlotSize ??= TrayIconSlot.PixelsForTaskbar();
 
-    // The taskbar DPI only changes on a display event, never between two battery ticks, so the
-    // FindWindow + GetDpiForWindow round-trips are cached rather than repeated per repaint.
+    // The taskbar scale only changes on a display event, never between two battery ticks, so the
+    // taskbar window and DPI lookups are cached rather than repeated per repaint.
     private static int? _cachedSlotSize;
 
     /// <summary>Drops the cached tray-slot size so the next render re-queries the taskbar DPI. Call
@@ -91,9 +78,7 @@ internal static class IconGenerator
     {
         try
         {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return key?.GetValue("SystemUsesLightTheme") is int light && light != 0;
+            return TaskbarThemes.Read() == TaskbarTheme.Light;
         }
         catch
         {
@@ -909,7 +894,7 @@ internal static class IconGenerator
     /// <summary>
     /// Writes an ICO to <paramref name="stream"/> with one PNG-compressed frame per entry in
     /// <paramref name="sizes"/>, each rendered natively via <paramref name="render"/> so no size is
-    /// downscaled from a larger frame. Each size must fit in a byte (0 means 256).
+    /// downscaled from a larger frame. The container is the shared icon file writer's.
     /// </summary>
     private static void WriteIco(Stream stream, Func<int, Bitmap> render, int[] sizes)
     {
@@ -921,31 +906,7 @@ internal static class IconGenerator
             return ms.ToArray();
         });
 
-        using var bw = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-
-        // ICO file header (6 bytes)
-        bw.Write((short)0);             // reserved — must be 0
-        bw.Write((short)1);             // type: 1 = icon
-        bw.Write((short)sizes.Length);  // number of images
-
-        // Directory entries (16 bytes each); image data starts after header + directory.
-        int dataOffset = 6 + sizes.Length * 16;
-        for (int i = 0; i < sizes.Length; i++)
-        {
-            bw.Write((byte)sizes[i]);      // width  (0 means 256)
-            bw.Write((byte)sizes[i]);      // height (0 means 256)
-            bw.Write((byte)0);             // colour count (0 = true colour)
-            bw.Write((byte)0);             // reserved
-            bw.Write((short)1);            // colour planes
-            bw.Write((short)32);           // bits per pixel
-            bw.Write(frames[i].Length);    // data size in bytes
-            bw.Write(dataOffset);          // data offset from start of file
-            dataOffset += frames[i].Length;
-        }
-
-        foreach (var frame in frames)
-            bw.Write(frame);
-        bw.Flush();
+        IcoFile.Write(stream, frames);
     }
 
     /// <summary>Writes the tray seed icon to disk. Renders to a temp file and moves it into place,

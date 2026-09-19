@@ -7,6 +7,7 @@ using Windows.Graphics;
 using Windows.System.Power;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper.UI;
 
@@ -241,7 +242,7 @@ public sealed partial class BatteryHistoryWindow : Window
     {
         WindowChrome.ApplyPopup(this, resizable: true, alwaysOnTop: false);
         // A no-op on this frameless popup, but keeps the call site uniform with the other windows.
-        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+        ChargeKeeper.Helpers.AppTitleBar.Apply(this);
     }
 
     /// <summary>Final placement: ~70% × 65% of the monitor under the cursor with a DIP floor, centred
@@ -250,7 +251,7 @@ public sealed partial class BatteryHistoryWindow : Window
     /// whereas here the floor may win on a small screen.</summary>
     private RectInt32 ComputeFinalRect()
     {
-        var (work, scale) = NativeMethods.GetCursorMonitorMetrics();
+        var (work, scale) = MonitorMetrics.ForCursor();
 
         int w = Math.Max((int)(MinWidth  * scale), (int)((work.Right  - work.Left) * 0.70));
         int h = Math.Max((int)(MinHeight * scale), (int)((work.Bottom - work.Top)  * 0.65));

@@ -51,7 +51,7 @@ internal sealed partial class AboutWindow : Window
 
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: false);
         // A no-op on this frameless popup, but keeps the call site uniform with the other windows.
-        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+        ChargeKeeper.Helpers.AppTitleBar.Apply(this);
 
         // Fix the card at its shared design width, then tell the Viewbox the scaled width to grow
         // it to; Height is left unset so it derives from the child's natural aspect at that width.

@@ -6,6 +6,9 @@ using Windows.Graphics;
 using Windows.System;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Win32;
+using Microsoft.Windows.ApplicationModel.Resources;
+using ZeroZero.Controls.WinUI;
 using ZeroZero.Mqtt.WinUI;
 
 namespace ChargeKeeper.UI;
@@ -177,7 +180,7 @@ internal sealed partial class SettingsWindow : Window
         try { AppWindow.MoveAndResize(rect); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.MoveAndResize", ex); }
 
-        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);   // match the Mica BaseAlt backdrop
+        ChargeKeeper.Helpers.AppTitleBar.Apply(this);   // match the Mica BaseAlt backdrop
 
         // The content cannot be measured yet — SettingsCard is templated, and a control outside a
         // live visual tree reports no useful size. Grow to fit once it has laid out.
@@ -815,11 +818,11 @@ internal sealed partial class SettingsWindow : Window
         {
             RefreshAllSections();
             _menu.ReconcileFromExternalChange();  // resync the tray toggles + icon
-            NativeMethods.Info("Settings reloaded from disk.", AppName);
+            NativeMessageBox.Information(IntPtr.Zero, AppName, "Settings reloaded from disk.");
         }
         else
         {
-            NativeMethods.Warn("Could not reload settings — the file is missing or invalid.", AppName);
+            NativeMessageBox.Warning(IntPtr.Zero, AppName, "Could not reload settings — the file is missing or invalid.");
         }
     }
 
@@ -1047,7 +1050,7 @@ internal sealed partial class SettingsWindow : Window
         RunOnUi(() =>
         {
             if (!ok)
-                NativeMethods.Warn("The device didn't accept this preset's thresholds.", AppName);
+                NativeMessageBox.Warning(IntPtr.Zero, AppName, "The device didn't accept this preset's thresholds.");
 
             RefreshPresetActivationStates(ChargeThresholdService.Read());
             _menu.ReconcileFromExternalChange();
@@ -1208,9 +1211,9 @@ internal sealed partial class SettingsWindow : Window
         try
         {
             if (!ChargeControlService.SetExplicitThresholds(start, stop))
-                RunOnUi(() => NativeMethods.Warn(
-                    "Saved, but the device didn't accept these thresholds — check the Lenovo driver.",
-                    AppName));
+                RunOnUi(() => NativeMessageBox.Warning(
+                    IntPtr.Zero, AppName,
+                    "Saved, but the device didn't accept these thresholds — check the Lenovo driver."));
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.PushThresholdsToDevice", ex); }
     });
@@ -1483,7 +1486,7 @@ internal sealed partial class SettingsWindow : Window
         var location = NetworkLocationService.DetectCurrent();
         if (location.IsEmpty)
         {
-            NativeMethods.Warn("No network detected right now — connect to a network first.", AppName);
+            NativeMessageBox.Warning(IntPtr.Zero, AppName, "No network detected right now — connect to a network first.");
             return null;
         }
 
@@ -1491,10 +1494,23 @@ internal sealed partial class SettingsWindow : Window
             ?? (location.IsMobile ? NetworkLocationService.MobileLabel
                 : location.IsWired ? NetworkLocationService.WiredLabel
                                    : NetworkLocationService.WirelessLabel);
-        string? name = await new NameLocationWindow(
-            suggested,
-            NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr, location.IsMobile)).ShowAsync();
-        if (name is null) return null;   // cancelled
+        string matchKey = NetworkLocationService.DescribeMatchKey(location.AdapterMac, location.IpCidr, location.IsMobile);
+        var strings     = new ResourceLoader("ChargeKeeper.pri");
+        string? typed = await TextPromptWindow.ShowAsync(new TextPromptOptions
+        {
+            Title       = strings.GetString("NameLocationTitle/Text"),
+            Message     = "",
+            Confirm     = strings.GetString("NameLocationSaveButton/Content"),
+            Cancel      = strings.GetString("NameLocationCancelButton/Content"),
+            // The adapter and subnet the rule actually matches on; the name is only a label.
+            Note        = string.IsNullOrWhiteSpace(matchKey) ? null : $"Matches on {matchKey}",
+            InitialText = suggested,
+            // An empty name is accepted and falls back to the suggestion, as Enter on it always has.
+            AllowEmpty  = true,
+            Theme       = ElementTheme.Dark,
+        });
+        if (typed is null) return null;   // cancelled
+        string name = string.IsNullOrWhiteSpace(typed) ? suggested : typed.Trim();
 
         var s0 = SettingsService.Current;
         // The preset in use is the obvious default for a new rule; the first one when none is.
@@ -1527,7 +1543,7 @@ internal sealed partial class SettingsWindow : Window
     private async void OnAddNetworkRule(object sender, RoutedEventArgs e)
     {
         // async void: an escaping exception tears the process down rather than surfacing, and
-        // NameLocationWindow's ctor does monitor work that faults on multi-monitor.
+        // opening the name prompt does monitor work that can fault on multi-monitor.
         try
         {
             if (await AddNetworkRuleAsync(keepAwakeHere: false) is not { } location) return;
@@ -2345,7 +2361,7 @@ internal sealed partial class SettingsWindow : Window
                 "Every ChargeKeeper automation, dashboard card and history graph pointing at the old "
                 + "entities has to be repointed by hand.",
             CommandLabel      = mqtt.Entities.NameOf,
-            Log               = new AppMqttLog(),
+            Log               = new AppLogSink(),
         });
     }
 

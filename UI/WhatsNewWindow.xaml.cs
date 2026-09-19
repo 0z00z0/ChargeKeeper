@@ -24,7 +24,7 @@ internal sealed partial class WhatsNewWindow : Window
         InitializeComponent();
         Title = "What's new in ChargeKeeper";
 
-        TitleBarTheme.ApplyDark(AppWindow);
+        AppTitleBar.Apply(this);
         Build();
 
         Activated += OnActivated;

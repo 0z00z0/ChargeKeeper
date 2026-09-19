@@ -9,6 +9,7 @@ using Windows.Foundation;
 using Windows.System.Power;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper.UI;
 
@@ -311,7 +312,7 @@ public sealed partial class DashboardWindow : Window
         RootGrid.Measure(new Size(WindowWidth, double.PositiveInfinity));
         int logicalHeight = Math.Clamp((int)Math.Ceiling(RootGrid.DesiredSize.Height), 200, 900);
 
-        var (work, s) = NativeMethods.GetCursorMonitorMetrics();
+        var (work, s) = MonitorMetrics.ForCursor();
         int w      = (int)Math.Ceiling(WindowWidth   * s);
         int h      = (int)Math.Ceiling(logicalHeight * s);
         int margin = (int)Math.Ceiling(EdgeMargin    * s);
@@ -345,7 +346,7 @@ public sealed partial class DashboardWindow : Window
     {
         WindowChrome.ApplyPopup(this, resizable: false, alwaysOnTop: true);
         // Sets the taskbar/Alt-Tab icon; title-bar colouring is a no-op on this frameless popup.
-        ChargeKeeper.Helpers.TitleBarTheme.ApplyDark(AppWindow);
+        ChargeKeeper.Helpers.AppTitleBar.Apply(this);
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs e)

@@ -11,7 +11,7 @@ internal sealed record StartupArgs(bool IsDebugCommand, bool IsWatchdogProbe)
         IsDebugCommand:  CrashDumps.ParseDebugCommand(args) != CrashDumps.DebugCommand.None,
         IsWatchdogProbe: args.Contains(TaskDefinitions.WatchdogArg));
 
-    /// <summary>How many times <see cref="SingleInstance.TryAcquireAsync"/> should retry, ~200 ms
+    /// <summary>How many times <see cref="Program.TryAcquireSingleInstanceAsync"/> should retry, ~200 ms
     /// apart.</summary>
     internal int SingleInstanceAttempts =>
         IsWatchdogProbe ? 1

@@ -369,6 +369,13 @@ declarations, the seven publish groups and the copy saying what it publishes; ev
 the endpoint sweep, the encryption model, the retained document, the eviction ledger and every
 protocol sentence in the panel — belongs to the module.
 
+The same library supplies the generic plumbing beneath the application: the Settings info bubbles,
+section headers and the network-name prompt, the title-bar painting, message boxes and monitor
+metrics, the log sink every shared component writes through, the single-instance lock and the data
+folder, the crash handlers and crash-dump registration, the settings change classifier, and the tray
+icon's slot size, taskbar theme and icon file writer. The lifecycle package's relaunch after an
+unrequested exit is not used; the scheduled watchdog task is what brings a stopped app back.
+
 The **build kit** comes from the same library and is not a `PackageReference` at all: it is an
 MSBuild SDK. `global.json` names its version, and `Directory.Build.props`, `Directory.Build.targets`
 and `Directory.Packages.props` at the repository root each import one of its files, as
@@ -382,8 +389,10 @@ family shares moves in the kit's own pin file; one only ChargeKeeper uses moves 
 
 **Resolution:** packages from GitHub Packages at `https://nuget.pkg.github.com/0z00z0/index.json`,
 one pinned version per component. `nuget.config` names the source and maps every `ZeroZero.*` name
-to it alone, `global.json` pins the build kit, and `Directory.Packages.props` pins the two
-references — the brand component and the MQTT module.
+to it alone, `global.json` pins the build kit, and `Directory.Packages.props` pins the seven
+direct references — the brand component, the MQTT module, the sectioned settings store, the change
+classifier, the crash diagnostics, the process lifecycle and the tray basics. Packages that arrive
+through those are never declared.
 
 Every version is explicit, so a build here and a build on a runner resolve the same assemblies, a
 release rebuilds identically later, and a change published in the shared library cannot reach a

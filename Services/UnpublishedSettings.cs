@@ -1,25 +1,26 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ZeroZero.Config.Watch;
 
 namespace ChargeKeeper.Services;
 
 /// <summary>A committed settings change, carrying whether it moved anything a subscriber mirrors
 /// outside this process.</summary>
 /// <param name="IsMaterial">False only when every property that moved is named in
-/// <see cref="SettingsChangeClassifier.UnpublishedProperties"/>.</param>
+/// <see cref="UnpublishedSettings.UnpublishedProperties"/>.</param>
 internal readonly record struct SettingsChange(bool IsMaterial);
 
 /// <summary>
 /// Answers "does this change matter?" for a pair of settings states, so a subscriber that redoes a
-/// whole outward surface can skip a change that reaches no surface at all.
+/// whole outward surface can skip a change that reaches no surface at all. The comparison is the
+/// shared change classifier's; the list of what reaches no outward surface is this application's.
 /// </summary>
 /// <remarks>
 /// Works on the serialised form of <see cref="AppSettings"/> alone, not on the settings file: the
 /// file's grouped shape is a storage concern, and a classifier tied to it would have to be
 /// rewritten when storage moves.
 /// </remarks>
-internal static class SettingsChangeClassifier
+internal static class UnpublishedSettings
 {
     /// <summary>
     /// The properties whose movement reaches no MQTT entity. The tray icon is not on this list's
@@ -97,44 +98,16 @@ internal static class SettingsChangeClassifier
         nameof(AppSettings.SettingsWindowHeight),
     ];
 
-    private static readonly JsonSerializerOptions _opts = new()
+    /// <summary>Every member written, null or not, so a nullable switch moving between unset and a
+    /// value is a change the comparison sees.</summary>
+    internal static JsonSerializerOptions Serialiser { get; } = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     };
 
-    /// <summary>The settings state as one comparable string. Taken before and after a mutation,
-    /// because <see cref="SettingsService.Update"/> mutates the live object in place and leaves no
-    /// earlier instance to compare against.</summary>
-    internal static string Snapshot(AppSettings settings) => JsonSerializer.Serialize(settings, _opts);
-
-    /// <summary>Whether anything outside <see cref="UnpublishedProperties"/> differs between two
-    /// snapshots. Unparseable input reads as mattering: a subscriber doing redundant work is a
-    /// smaller fault than one that stops announcing a setting.</summary>
-    internal static bool IsMaterial(string before, string after)
-    {
-        if (string.Equals(before, after, StringComparison.Ordinal)) return false;
-
-        try
-        {
-            return WithoutUnpublished(before) != WithoutUnpublished(after);
-        }
-        catch (JsonException)
-        {
-            return true;
-        }
-    }
-
-    public static bool IsMaterial(AppSettings before, AppSettings after) =>
-        IsMaterial(Snapshot(before), Snapshot(after));
-
-    /// <summary>One snapshot with the excluded properties removed. <see cref="AppSettings"/> is a
-    /// flat object, so a top-level removal reaches every excluded name.</summary>
-    private static string WithoutUnpublished(string snapshot)
-    {
-        if (JsonNode.Parse(snapshot) is not JsonObject root)
-            throw new JsonException("settings snapshot is not a JSON object");
-
-        foreach (var name in UnpublishedProperties) root.Remove(name);
-        return root.ToJsonString();
-    }
+    /// <summary>The shared classifier over <see cref="UnpublishedProperties"/>. Its fingerprint is
+    /// taken before and after a mutation, because <see cref="SettingsService.Update"/> mutates the
+    /// live object in place and leaves no earlier instance to compare against.</summary>
+    internal static SettingsChangeClassifier<AppSettings> Classifier { get; } =
+        new("Does this change reach an MQTT entity?", UnpublishedProperties, Serialiser);
 }

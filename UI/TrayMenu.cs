@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.UI.Xaml.Controls;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper.UI;
 
@@ -428,8 +429,8 @@ internal sealed class TrayMenu
     private static void ShowNotice(UpdateCheckService.CheckOutcome outcome)
     {
         if (UpdateMessage.For(outcome, AppInfo.Version, DateTimeOffset.Now) is not { } notice) return;
-        if (notice.IsError) NativeMethods.Warn(notice.Text, AppName);
-        else                NativeMethods.Info(notice.Text, AppName);
+        if (notice.IsError) NativeMessageBox.Warning(IntPtr.Zero, AppName, notice.Text);
+        else                NativeMessageBox.Information(IntPtr.Zero, AppName, notice.Text);
     }
 
     /// <summary>The update dialog for an available release. An accepted update downloads in the
@@ -446,10 +447,10 @@ internal sealed class TrayMenu
         switch (action)
         {
             case NativeMethods.UpdateAction.Update:
-                NativeMethods.Info(
+                NativeMessageBox.Information(
+                    IntPtr.Zero, AppName,
                     $"Downloading v{outcome.LatestVersion}...\n\nThe update then installs by itself: " +
-                    $"{AppName} closes, updates and starts again.",
-                    AppName);
+                    $"{AppName} closes, updates and starts again.");
                 _ = Task.Run(async () =>
                 {
                     try
@@ -467,7 +468,7 @@ internal sealed class TrayMenu
                         {
                             AppLog.Info($"Update: refusing to launch {path} — {verdict}.");
                             InstallerSignature.Discard(path);
-                            NativeMethods.Warn(InstallerSignaturePolicy.MessageFor(verdict), AppName);
+                            NativeMessageBox.Warning(IntPtr.Zero, AppName, InstallerSignaturePolicy.MessageFor(verdict));
                             Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
                             return;
                         }
@@ -494,9 +495,9 @@ internal sealed class TrayMenu
                     }
                     catch (Exception ex)
                     {
-                        NativeMethods.Warn(
-                            $"Download failed:\n{ex.Message}\n\nTry updating from the releases page.",
-                            AppName);
+                        NativeMessageBox.Warning(
+                            IntPtr.Zero, AppName,
+                            $"Download failed:\n{ex.Message}\n\nTry updating from the releases page.");
                         Process.Start(new ProcessStartInfo(outcome.ReleaseUrl) { UseShellExecute = true });
                     }
                 });
@@ -522,7 +523,7 @@ internal sealed class TrayMenu
             {
                 // Throws when the exe path cannot be resolved.
                 AppLog.Error("TrayMenu.ToggleAutoStart", ex);
-                NativeMethods.Warn($"Could not change 'Launch at startup'.\n\n{ex.Message}", AppName);
+                NativeMessageBox.Warning(IntPtr.Zero, AppName, $"Could not change 'Launch at startup'.\n\n{ex.Message}");
             }
             finally
             {
