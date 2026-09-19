@@ -19,6 +19,11 @@ internal sealed partial class WhatsNewWindow : Window
 
     private bool _placed;
 
+    // Latched on Closed, so a size-change retry arriving as the window tears down does nothing.
+    private bool _closing;
+
+    private readonly PopupWindowFit _fit;
+
     public WhatsNewWindow()
     {
         InitializeComponent();
@@ -27,7 +32,15 @@ internal sealed partial class WhatsNewWindow : Window
         AppTitleBar.Apply(this);
         Build();
 
+        _fit = new PopupWindowFit(this, Content, ContentScroller.Padding, WidthDip, MinHeightDip,
+                                  "WhatsNewWindow");
+
+        // Placed on first activation. The content is often not laid out yet at that moment, so the
+        // fit is retried when the panel first takes its real height — same defect and fix as
+        // AboutWindow (#225).
         Activated += OnActivated;
+        Content.SizeChanged += (_, _) => { if (_placed && !_closing) _fit.FitToContent(); };
+        Closed += (_, _) => _closing = true;
     }
 
     /// <summary>Fills the panel from the notes the application ships. Never throws: an empty or
@@ -106,29 +119,8 @@ internal sealed partial class WhatsNewWindow : Window
         {
             AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, MinHeightDip));
             ContentScroller.UpdateLayout();
-            FitWindowToContent();
+            _fit.FitToContent();
         }
         catch (Exception ex) { AppLog.Error("WhatsNewWindow.MoveAndResize", ex); }
-    }
-
-    /// <summary>Sizes the window to the measured content, on the same terms as the About window:
-    /// the chrome is exactly what the window and viewport heights differ by.</summary>
-    private void FitWindowToContent()
-    {
-        double viewport = ContentScroller.ViewportHeight;
-        if (viewport <= 0 || Content.ActualWidth <= 0) return;
-
-        Content.Measure(new Windows.Foundation.Size(Content.ActualWidth, double.PositiveInfinity));
-        double content = Content.DesiredSize.Height
-                       + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
-
-        double scale  = ((FrameworkElement)ContentScroller).XamlRoot?.RasterizationScale ?? 1.0;
-        int heightDip = WindowFit.HeightForContent(AppWindow.Size.Height / scale, content, viewport, MinHeightDip);
-
-        // A long history would otherwise open taller than the monitor; the scroll viewer takes the
-        // rest.
-        heightDip = Math.Min(heightDip, 720);
-
-        AppWindow.MoveAndResize(NativeMethods.CentreRectOnCursorMonitor(WidthDip, heightDip));
     }
 }

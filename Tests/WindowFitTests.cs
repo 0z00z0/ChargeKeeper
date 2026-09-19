@@ -215,6 +215,25 @@ public class WindowFitTests
         // never runs and the window stays at its floor.
         string code = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "AboutWindow.xaml.cs")));
         Assert.Contains("ContentPanel.SizeChanged +=", code, StringComparison.Ordinal);
+        Assert.Contains("_fit.FitToContent()", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WhatsNewWindow_RetriesTheFitOnceTheContentHasItsHeight()
+    {
+        // The same defect the About window had (#225): a fit attempted only on first activation
+        // finds the content not yet laid out and never retries, so the window stays at its floor.
+        string code = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "WhatsNewWindow.xaml.cs")));
+        Assert.Contains("Content.SizeChanged +=", code, StringComparison.Ordinal);
+        Assert.Contains("_fit.FitToContent()", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PopupWindowFit_IsWhatBothWindowsRetryThrough_AndItCallsThePureGeometry()
+    {
+        // AboutWindow and WhatsNewWindow both retry through this one class rather than each keeping
+        // its own copy of the measure/log/resize logic.
+        string code = File.ReadAllText(RepoFiles.Find(Path.Combine("Helpers", "PopupWindowFit.cs")));
         Assert.Contains("WindowFit.PopupHeightPx(", code, StringComparison.Ordinal);
     }
 
