@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.59.1
+
+- #225 The About window now opens tall enough to show the whole card and Check for updates under
+  it, with no scroll bar; before, it opened at its smallest height with the button cut off.
+
 ## 1.59.0
 
 - #223 ChargeKeeper now takes its generic building blocks — the Settings info bubbles and section
