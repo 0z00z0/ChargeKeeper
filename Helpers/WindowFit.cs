@@ -59,6 +59,22 @@ internal static class WindowFit
     internal static int FirstOpenHeightCap(int workAreaHeight) =>
         (int)(workAreaHeight * FirstOpenHeightFraction);
 
+    /// <summary>
+    /// The height in physical px of a popup that shows <paramref name="contentDip"/> of content with
+    /// no scrolling: the content converted at <paramref name="scale"/> plus the window's own
+    /// non-client height, never below <paramref name="minHeightDip"/> and never above the
+    /// <see cref="FirstOpenHeightCap"/> of <paramref name="workAreaHeightPx"/>, where the scroller
+    /// takes over. The content height is independent of the window's height, so no layout pass at
+    /// the final size is needed first.
+    /// </summary>
+    internal static int PopupHeightPx(double contentDip, double scale, int chromePx,
+                                      int workAreaHeightPx, int minHeightDip)
+    {
+        int needed = ToPhysicalPixels((int)Math.Ceiling(Math.Max(contentDip, minHeightDip)), scale)
+                   + Math.Max(chromePx, 0);
+        return Math.Min(needed, FirstOpenHeightCap(workAreaHeightPx));
+    }
+
     // The Settings window's furniture that does not reflow, in DIPs. Everything else on the page —
     // the SettingsCard header text above all — wraps, so it sets no floor of its own.
     private const double ScrollBarGutterDip   = 16;   // the expanded vertical scrollbar

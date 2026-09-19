@@ -29,6 +29,10 @@ internal sealed partial class AboutWindow : Window
 
     private bool _placed;
 
+    // The window height last fitted, so a repeated size change fits and logs once, not per pass.
+    private int _fittedHeightPx;
+    private bool _deferralLogged;
+
     // A Deactivated before the first real Activated is spurious — the window hasn't finished taking
     // focus, and treating it as a dismissal would close the window as it opens.
     private bool _everActivated;
@@ -63,8 +67,10 @@ internal sealed partial class AboutWindow : Window
         About.SetInfo(AboutContent.Build(menu.ShowWhatsNew));
         _updateButton = new UpdateCheckButtonController(CheckForUpdatesButton, menu, HoldOpenAround);
 
-        // Placed on first activation, once the content is in a live visual tree and can be measured.
+        // Placed on first activation. The content is often not laid out yet at that moment, so the
+        // fit is retried when the panel first takes its real height.
         Activated += OnActivated;
+        ContentPanel.SizeChanged += (_, _) => { if (_placed && !_closing) FitWindowToContent(); };
         Closed    += (_, _) =>
         {
             _closing = true;
@@ -127,36 +133,47 @@ internal sealed partial class AboutWindow : Window
     }
 
     /// <summary>
-    /// Sizes the window to the measured About content, the same way <c>SettingsWindow</c> sizes
-    /// itself to its tallest page: grown to fit, capped at <see cref="WindowFit.FirstOpenHeightFraction"/>
-    /// of the work area, and re-centred within it — the scroller already on this window is the
-    /// fallback for the content that does not fit under the cap, not the usual case.
+    /// Sizes the window to the About content, grown to fit and capped at
+    /// <see cref="WindowFit.FirstOpenHeightFraction"/> of the work area, and re-centred within it —
+    /// the scroller is the fallback for content that does not fit under the cap, not the usual case.
+    /// The panel's own height is used, not the scroller's viewport: the card sits in a fixed-width
+    /// Viewbox, so its height does not depend on the window's and is final after the first layout.
     /// </summary>
     private void FitWindowToContent()
     {
-        double viewport = ContentScroller.ViewportHeight;
-        if (viewport <= 0 || ContentPanel.ActualWidth <= 0) return;   // not laid out yet — keep the opening rect
+        double panel = ContentPanel.ActualHeight;
+        double scale = Content.XamlRoot?.RasterizationScale ?? 0;
+        if (panel <= 0 || scale <= 0)
+        {
+            if (!_deferralLogged)
+                AppLog.Info("AboutWindow fit deferred: content not laid out yet.");
+            _deferralLogged = true;
+            return;
+        }
 
         // The panel, not the shared control alone: the update button below it is part of what the
         // window has to be tall enough for.
-        ContentPanel.Measure(new Windows.Foundation.Size(ContentPanel.ActualWidth, double.PositiveInfinity));
-        double content = ContentPanel.DesiredSize.Height
-                       + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
+        double content = panel + ContentScroller.Padding.Top + ContentScroller.Padding.Bottom;
 
-        // AppWindow.Size/Position are physical px while everything measured above is DIPs.
-        double scale = Content.XamlRoot?.RasterizationScale ?? 1.0;
-        var pos      = AppWindow.Position;
-        var size     = AppWindow.Size;
+        // AppWindow sizes are physical px; everything measured above is DIPs.
+        var pos     = AppWindow.Position;
+        var size    = AppWindow.Size;
+        int chromePx = size.Height - AppWindow.ClientSize.Height;
 
-        if (NativeMethods.WorkAreaForRect(pos.X, pos.Y, size.Width, size.Height) is not { } work) return;
+        if (NativeMethods.WorkAreaForRect(pos.X, pos.Y, size.Width, size.Height) is not { } work)
+        {
+            AppLog.Info("AboutWindow fit skipped: the monitor's work area could not be read.");
+            return;
+        }
 
-        int heightDip = WindowFit.HeightForContent(size.Height / scale, content, viewport, MinHeightDip);
-        int heightPx  = Math.Min(WindowFit.ToPhysicalPixels(heightDip, scale),
-                                 WindowFit.FirstOpenHeightCap(work.H));
-        int widthPx   = Math.Min(WindowFit.ToPhysicalPixels(_windowWidthDip, scale), work.W);
+        int heightPx = WindowFit.PopupHeightPx(content, scale, chromePx, work.H, MinHeightDip);
+        int widthPx  = Math.Min(WindowFit.ToPhysicalPixels(_windowWidthDip, scale), work.W);
+        if (heightPx == _fittedHeightPx) return;
+        _fittedHeightPx = heightPx;
 
-        AppLog.Info($"AboutWindow fit: content={content:F0} viewport={viewport:F0} scale={scale} " +
-                    $"-> {heightDip} DIP, capped {heightPx}x{widthPx} px in work area {work.W}x{work.H}");
+        AppLog.Info($"AboutWindow fit: content {content:F0} DIP at scale {scale}, chrome {chromePx} px, " +
+                    $"cap {WindowFit.FirstOpenHeightCap(work.H)} px of work area {work.W}x{work.H} px " +
+                    $"-> {_windowWidthDip}x{heightPx / scale:F0} DIP = {widthPx}x{heightPx} px.");
 
         var rect = new RectInt32(work.X + (work.W - widthPx) / 2, work.Y + (work.H - heightPx) / 2,
                                  widthPx, heightPx);

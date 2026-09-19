@@ -32,8 +32,8 @@
                 <!-- The card is measured at its own shared design width (the same width the
                      Settings and What's new surfaces use), then grown uniformly by CardScale
                      through the Viewbox — set in the constructor, once About.Width is known. A
-                     Viewbox is layout-affecting, unlike a RenderTransform, so FitWindowToContent's
-                     Measure/DesiredSize call already sees the grown size. -->
+                     Viewbox is layout-affecting, unlike a RenderTransform, so the panel height
+                     FitWindowToContent reads is already the grown size. -->
                 <Viewbox x:Name="AboutScaler" Stretch="Uniform">
                     <brand:BrandAboutControl x:Name="About"/>
                 </Viewbox>

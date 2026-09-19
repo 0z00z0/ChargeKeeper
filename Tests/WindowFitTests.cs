@@ -178,6 +178,46 @@ public class WindowFitTests
         Assert.Equal(628, WindowFit.ToPhysicalPixels(628, 0));
     }
 
+    // PopupHeightPx: the About window's height. The measured laptop panel: a 3840x2316 px work area
+    // at 175 %, where the About window opened at its 320 DIP floor (560 px) with Check for updates
+    // cut off below the card.
+
+    private const int LaptopWorkAreaHeightPx = 2316;
+    private const double LaptopScale         = 1.75;
+    private const int AboutFloorDip          = 320;
+
+    [Theory]
+    [InlineData(385.0, 0)]    // about the card, the button and the padding at this scale
+    [InlineData(385.0, 2)]    // with a thin border outside the client area
+    [InlineData(700.4, 2)]    // a much taller card still fits under the cap
+    [InlineData(1055.0, 0)]   // just under the 1852 px cap
+    public void PopupHeightPx_OnTheLaptopPanel_ShowsAllTheContentWithoutScrolling(double contentDip, int chromePx)
+    {
+        int heightPx = WindowFit.PopupHeightPx(contentDip, LaptopScale, chromePx,
+                                               LaptopWorkAreaHeightPx, AboutFloorDip);
+
+        // Client area in DIPs at least as tall as the content: nothing hides under a scroll bar.
+        Assert.True((heightPx - chromePx) / LaptopScale >= contentDip,
+                    $"{heightPx} px leaves {(heightPx - chromePx) / LaptopScale:F1} DIP for {contentDip} DIP of content.");
+        Assert.True(heightPx <= WindowFit.FirstOpenHeightCap(LaptopWorkAreaHeightPx));
+    }
+
+    [Fact]
+    public void PopupHeightPx_ContentPastTheCap_StopsAtTheCap_AndTheScrollerTakesOver()
+    {
+        Assert.Equal(1852, WindowFit.PopupHeightPx(2000, LaptopScale, 2, LaptopWorkAreaHeightPx, AboutFloorDip));
+    }
+
+    [Fact]
+    public void AboutWindow_RetriesTheFitOnceTheContentHasItsHeight()
+    {
+        // The first activation arrives before the first layout pass, so a fit attempted only then
+        // never runs and the window stays at its floor.
+        string code = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "AboutWindow.xaml.cs")));
+        Assert.Contains("ContentPanel.SizeChanged +=", code, StringComparison.Ordinal);
+        Assert.Contains("WindowFit.PopupHeightPx(", code, StringComparison.Ordinal);
+    }
+
     // The About window's card scale. AboutWindow cannot be instantiated without a display (see
     // WindowEscapeKeyTests), so this reads the shipped code-behind and markup instead.
 
