@@ -1,4 +1,5 @@
 using Microsoft.UI.Windowing;
+using ZeroZero.Win32;
 
 namespace ChargeKeeper.Helpers;
 
@@ -19,4 +20,10 @@ internal static class WindowChrome
         presenter.IsAlwaysOnTop = alwaysOnTop;
         window.AppWindow.SetPresenter(presenter);
     }
+
+    /// <summary>Whether a popup that dismisses on focus loss must stay where it is. The shared
+    /// update component's window takes focus as it opens and owns nothing it opens over, so a popup
+    /// left to dismiss on deactivation would close the moment the update appeared — and the About
+    /// window would take its own update down with it.</summary>
+    internal static bool DismissalHeld => TransientWindows.AnyOpen;
 }

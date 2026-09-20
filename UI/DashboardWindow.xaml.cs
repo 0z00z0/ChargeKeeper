@@ -358,6 +358,7 @@ public sealed partial class DashboardWindow : Window
     {
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
+            if (WindowChrome.DismissalHeld) return;
             // Auto-dismiss when the user clicks away — popup widget behaviour.
             HideWindow();
         }

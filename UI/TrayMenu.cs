@@ -65,8 +65,7 @@ internal sealed class TrayMenu
 
         // The exit the flow calls once Setup has started: on the UI thread, and as soon as possible,
         // because Setup waits for this process to go before it replaces the files it holds.
-        Updates      = new AppUpdates(() => RunOnUiThread(_onExit, "TrayMenu.exit"),
-                                      body => RunOnUiThread(body, "TrayMenu.updateProgress"));
+        Updates      = new AppUpdates(() => RunOnUiThread(_onExit, "TrayMenu.exit"));
         UpdateChecks = new UpdateCheckCoordinator(Updates.CheckAsync);
 
         Flyout = new MenuFlyout();
@@ -418,8 +417,6 @@ internal sealed class TrayMenu
     /// </summary>
     internal Task<UpdateFlowRun> CheckForUpdates(UpdateCheckTrigger trigger)
     {
-        // Captured while the flyout or the asking window is in front.
-        var hwnd  = NativeMethods.CaptureHwnd();
         var check = UpdateChecks.Run();
 
         bool mayRaiseDialog = trigger != UpdateCheckTrigger.Automatic;
@@ -429,24 +426,23 @@ internal sealed class TrayMenu
             _reportPending = true;
         }
 
-        _ = ReportAsync(check, trigger, hwnd, mayRaiseDialog);
+        _ = ReportAsync(check, trigger, mayRaiseDialog);
         return check;
     }
 
     /// <summary>Reports one outcome. No ConfigureAwait(false): the continuation returns to the UI
-    /// thread, where the flag lives and where a task dialog has the manifest's comctl32 v6 context
-    /// that pool threads lack.</summary>
+    /// thread, where the flag lives and where the component's window can be created at all.</summary>
     private async Task ReportAsync(Task<UpdateFlowRun> check, UpdateCheckTrigger trigger,
-                                   IntPtr hwnd, bool claimedReport)
+                                   bool claimedReport)
     {
         try
         {
             var run = await check;
 
             if (UpdateButtonPolicy.OpensUpdateDialog(run.Result, trigger))
-                await OfferUpdate(run, hwnd);
+                await OfferUpdate(run);
             else if (UpdateButtonPolicy.ShowsNotice(run.Result, trigger))
-                ShowNotice(run, hwnd);
+                await ShowNoticeAsync(run);
             else if (trigger == UpdateCheckTrigger.Automatic &&
                      run.Result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable))
                 AppLog.Info($"Update check on opening a window ended {run.Result}; " +
@@ -463,22 +459,23 @@ internal sealed class TrayMenu
     }
 
     /// <summary>Every outcome but an available update is worded by the shared component, which owns
-    /// the text for each one.</summary>
-    private void ShowNotice(UpdateFlowRun run, IntPtr hwnd)
+    /// the text for each one. Awaited, so the one-report-at-a-time gate holds until the window the
+    /// component opened has been closed.</summary>
+    private async Task ShowNoticeAsync(UpdateFlowRun run)
     {
-        var prompts = Updates.PromptsFor(hwnd);
+        var prompts = Updates.Prompts();
         switch (run.Result)
         {
             case UpdateFlowResult.UpToDate:
-                prompts.SayUpToDate(Updates.RunningVersion);
+                await prompts.SayUpToDateAsync(Updates.RunningVersion);
                 break;
 
             case UpdateFlowResult.NothingReleased:
-                prompts.SayNothingReleased();
+                await prompts.SayNothingReleasedAsync();
                 break;
 
             case UpdateFlowResult.CheckFailed when run.Check is { } check:
-                prompts.SayCheckFailed(check);
+                await prompts.SayCheckFailedAsync(check);
                 break;
 
             // A result added later must not inherit a sibling's wording.
@@ -488,13 +485,14 @@ internal sealed class TrayMenu
         }
     }
 
-    /// <summary>The update dialog for an available release, started from the release already found.
-    /// An accepted update downloads, verifies and installs itself, and the flow exits the app.</summary>
-    internal async Task OfferUpdate(UpdateFlowRun run, IntPtr hwnd = default)
+    /// <summary>The update window for an available release, started from the release already found.
+    /// An accepted update downloads, verifies and installs itself, and the flow exits the app. UI
+    /// thread only: the component draws a WinUI window and has no fallback.</summary>
+    internal async Task OfferUpdate(UpdateFlowRun run)
     {
         if (run.Release is not { } release) return;
 
-        try { await Updates.InstallAsync(release, hwnd); }
+        try { await Updates.InstallAsync(release); }
         catch (Exception ex) { AppLog.Error("TrayMenu.OfferUpdate", ex); }
     }
 

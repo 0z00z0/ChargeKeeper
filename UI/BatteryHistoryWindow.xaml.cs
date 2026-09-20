@@ -91,6 +91,7 @@ public sealed partial class BatteryHistoryWindow : Window
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
             if (!_everActivated) return;   // spurious pre-activation deactivate — see field doc
+            if (WindowChrome.DismissalHeld) return;
             Dismiss();
             return;
         }

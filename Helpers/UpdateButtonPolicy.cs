@@ -11,17 +11,18 @@ internal enum UpdateCheckTrigger
     Automatic,
 
     /// <summary>The Check for updates button. Up to date and an available update show on the button;
-    /// a failure keeps its dialog.</summary>
+    /// a failure is reported in the component's window.</summary>
     Button,
 
-    /// <summary>The tray menu, which has no button to show anything on, so every outcome is a
-    /// dialog.</summary>
+    /// <summary>The tray menu, which has no button to show anything on, so every outcome opens the
+    /// component's window.</summary>
     TrayMenu,
 }
 
 /// <summary>
-/// What the Check for updates button shows and which outcomes still reach a dialog. Pure, so the
-/// promise that a window opening never raises a dialog is assertable without a display.
+/// What the Check for updates button shows and which outcomes open the update component's own
+/// window. Pure, so the promise that a window opening never raises another is assertable without a
+/// display.
 /// </summary>
 /// <remarks>Every check runs under <see cref="UpdateTrigger.Silent"/>, so the shared flow shows
 /// nothing of its own and this is the only rule deciding what appears.</remarks>
@@ -50,15 +51,18 @@ internal static class UpdateButtonPolicy
         _ => Rest,
     };
 
-    /// <summary>Whether the outcome's message box is shown.</summary>
-    internal static bool ShowsNotice(UpdateFlowResult result, UpdateCheckTrigger trigger) => trigger switch
-    {
-        UpdateCheckTrigger.Automatic => false,
-        UpdateCheckTrigger.Button    => result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable),
-        _                            => result is not UpdateFlowResult.UpdateAvailable,
-    };
+    /// <summary>Whether the outcome is reported in the component's window.</summary>
+    internal static bool ShowsNotice(UpdateFlowResult result, UpdateCheckTrigger trigger) =>
+        // Stopping a download is the person's own act, and the window they stopped it in closed
+        // itself as they did. Reopening one to say so would report their own click back at them.
+        result != UpdateFlowResult.DownloadCancelled && trigger switch
+        {
+            UpdateCheckTrigger.Automatic => false,
+            UpdateCheckTrigger.Button    => result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable),
+            _                            => result is not UpdateFlowResult.UpdateAvailable,
+        };
 
-    /// <summary>Whether the update dialog opens as soon as the check ends. From a button it opens
+    /// <summary>Whether the update window opens as soon as the check ends. From a button it opens
     /// only when the button is selected in its update-available state.</summary>
     internal static bool OpensUpdateDialog(UpdateFlowResult result, UpdateCheckTrigger trigger) =>
         trigger == UpdateCheckTrigger.TrayMenu && result == UpdateFlowResult.UpdateAvailable;

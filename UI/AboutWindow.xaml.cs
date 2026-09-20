@@ -37,8 +37,8 @@ internal sealed partial class AboutWindow : Window
     // Latched on the first dismissal or on Closed, so nothing closes a window twice.
     private bool _closing;
 
-    // Set while the update dialog this window owns is up. The dialog takes focus, and closing its
-    // owner underneath it would take the dialog down with it.
+    // Set for the whole run this window started, including the gaps between the component's windows
+    // where none is open. WindowChrome.DismissalHeld covers whichever window is actually up.
     private bool _dialogOpen;
 
     private readonly UpdateCheckButtonController _updateButton;
@@ -81,7 +81,7 @@ internal sealed partial class AboutWindow : Window
     internal void CheckForUpdatesAutomatically() => _updateButton.CheckAutomatically();
 
     // Awaited rather than called: the offer and the download behind it are one asynchronous run, and
-    // releasing the hold at the first await would let the window dismiss out from under its dialog.
+    // releasing the hold at the first await would let the window dismiss out from under the update.
     private async Task HoldOpenAround(Func<Task> showDialog)
     {
         _dialogOpen = true;
@@ -96,7 +96,8 @@ internal sealed partial class AboutWindow : Window
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
             if (!_everActivated) return;   // spurious pre-activation deactivate — see field doc
-            if (_dialogOpen) return;       // focus went to this window's own update dialog
+            if (_dialogOpen) return;       // focus went to this window's own update window
+            if (WindowChrome.DismissalHeld) return;
             Dismiss();
             return;
         }

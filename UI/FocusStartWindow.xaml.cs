@@ -177,6 +177,7 @@ internal sealed partial class FocusStartWindow : Window
         // Clicking away dismisses it, as it does on the dashboard this was opened from.
         if (e.WindowActivationState == WindowActivationState.Deactivated)
         {
+            if (WindowChrome.DismissalHeld) return;
             Dismiss();
             return;
         }

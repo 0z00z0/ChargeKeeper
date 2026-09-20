@@ -9,6 +9,17 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.1.0
+
+The update now has a window of its own, in the application's own style, instead of the grey Windows
+message boxes.
+
+- #245 Checking for an update, reading what a release changed, downloading it and being told why one
+  was refused all happen in a single window drawn in ChargeKeeper's own style, with the release
+  notes in a panel that scrolls and a download that shows a bar, a byte count and a button that
+  stops it — a stopped download leaves nothing behind. Popup windows that close themselves when
+  clicked away no longer close under it, so the About window stays put while its own update runs.
+
 ## 2.0.1
 
 A focus session can now take the screen away outright, and one can be started from the dashboard

@@ -447,12 +447,6 @@ internal static class NativeMethods
         return (work.Left, work.Top, work.Right - work.Left, work.Bottom - work.Top);
     }
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    /// <summary>Captures the foreground HWND while still on the UI thread, before any async work.</summary>
-    internal static IntPtr CaptureHwnd() => GetForegroundWindow();
-
     // ── Every attached display, and the window styles a cover over them needs ────────────────────
 
     private delegate bool MonitorEnumProc(IntPtr monitor, IntPtr dc, ref RECT rect, IntPtr data);

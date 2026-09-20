@@ -13,12 +13,14 @@ namespace ChargeKeeper.Tests;
 public class UpdateRefusalWordingTests
 {
     /// <summary>Removing a refused download is best effort, so no wording may promise it happened.
-    /// Scanned over the whole assembly as UTF-16, which is how a literal is stored.</summary>
+    /// Scanned over the whole assembly as UTF-16, which is how a literal is stored. The component's
+    /// window carries every word a person reads, so it is scanned with the other two.</summary>
     [Fact]
     public void NoRefusalWordingClaimsTheFileWasDeleted()
     {
         foreach (var assembly in new[] { typeof(UpdateOptions).Assembly,
-                                         typeof(ZeroZero.Update.Win32.UpdateFlow).Assembly })
+                                         typeof(ZeroZero.Update.Win32.UpdateFlow).Assembly,
+                                         typeof(ZeroZero.Update.WinUI.UpdateWindowPrompts).Assembly })
         {
             var text = Encoding.Unicode.GetString(File.ReadAllBytes(assembly.Location));
             Assert.DoesNotContain("delet", text, StringComparison.OrdinalIgnoreCase);

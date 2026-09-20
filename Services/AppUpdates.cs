@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using ChargeKeeper.Helpers;
+using Microsoft.UI.Xaml;
 using ZeroZero.Update;
 using ZeroZero.Update.Win32;
+using ZeroZero.Update.WinUI;
 
 namespace ChargeKeeper.Services;
 
@@ -12,6 +14,9 @@ namespace ChargeKeeper.Services;
 /// <see cref="Helpers.UpdateButtonPolicy"/>, whose rule is that a window opening never raises a
 /// dialog and the button's own success shows on the button.
 /// </summary>
+/// <remarks>The component draws a WinUI window and has no message-box fallback, so every member
+/// that can put one on screen — <see cref="InstallAsync"/> and anything reached through
+/// <see cref="Prompts"/> — is called from the thread that owns the application's windows.</remarks>
 internal sealed class AppUpdates
 {
     /// <summary>The release certificate's subject, exactly as signtool writes it.</summary>
@@ -37,12 +42,10 @@ internal sealed class AppUpdates
     private readonly UpdateService _service;
     private readonly UpdateHandoverLauncher _launcher = new();
     private readonly Action _shutdown;
-    private readonly Action<Action> _runOnUi;
 
-    internal AppUpdates(Action shutdown, Action<Action> runOnUi)
+    internal AppUpdates(Action shutdown)
     {
         _shutdown = shutdown;
-        _runOnUi  = runOnUi;
         _service  = new UpdateService(Options(), source: null, launcher: _launcher);
 
         // Start-up only, while no install can be in flight — see StaleDownloadAge.
@@ -54,62 +57,35 @@ internal sealed class AppUpdates
     internal Version RunningVersion => _service.RunningVersion;
 
     /// <summary>
-    /// One check, reported by nobody: the caller reads the run and decides what to show. A check
-    /// that goes on to install still shows the download box, which is the one thing a silent check
-    /// puts on screen — a download of tens of megabytes with no sign of it reads as a click that
-    /// was ignored. Owner zero: the check belongs to no window.
+    /// One check, reported by nobody: the caller reads the run and decides what to show. Silent, so
+    /// the component puts nothing on screen for any outcome and a check that finds nothing is
+    /// invisible.
     /// </summary>
     internal Task<UpdateFlowRun> CheckAsync() =>
-        WithDownloadBox("the ChargeKeeper installer",
-                        options => new UpdateFlow(_service, PromptsFor(IntPtr.Zero), options)
-                                       .RunAsync(UpdateTrigger.Silent));
+        new UpdateFlow(_service, Prompts(), FlowOptions()).RunAsync(UpdateTrigger.Silent);
 
     /// <summary>
-    /// Offers and installs a release already found, with no second check. The flow is built per call
-    /// because the dialog's owner window is fixed when the prompts are constructed, and the offer has
-    /// to belong to whichever window asked for it.
+    /// Offers and installs a release already found, with no second check. The question, the download
+    /// and every refusal are the component's own window, which it opens and closes itself.
     /// </summary>
-    internal Task<UpdateFlowRun> InstallAsync(ReleaseInfo release, IntPtr owner)
+    internal Task<UpdateFlowRun> InstallAsync(ReleaseInfo release)
     {
         // Read as Setup is launched, so a declined offer leaves no handover record behind.
         _launcher.TargetVersion = release.VersionText;
-        return WithDownloadBox(InstallerAssetName.Replace("{version}", release.VersionText),
-                               options => new UpdateFlow(_service, PromptsFor(owner), options)
-                                              .InstallAsync(release));
+        return new UpdateFlow(_service, Prompts(), FlowOptions()).InstallAsync(release);
     }
 
-    /// <summary>
-    /// Runs one flow with the download box attached as its progress reporter. The box opens on the
-    /// first report rather than up front, so a run that finds nothing to install, or an offer the
-    /// user declines, never puts a window on screen; it closes when the flow returns, whatever the
-    /// outcome, because a failed or cancelled download sends nothing after its last report and the
-    /// flow's own result is the only thing that means "finished".
-    /// </summary>
-    private async Task<UpdateFlowRun> WithDownloadBox(string fileName, Func<UpdateFlowOptions, Task<UpdateFlowRun>> run)
+    /// <summary>The component's own window and wording for every outcome a caller chooses to report.
+    /// Built per use: the window is a field of the prompts, so one instance would hand a second
+    /// caller the first one's window.</summary>
+    internal IUpdatePrompts Prompts() => new UpdateWindowPrompts(new UpdateWindowOptions
     {
-        var box = new UI.UpdateDownloadBox(_runOnUi, fileName);
-        var options = FlowOptions(new OpeningReporter(box));
-        try { return await run(options).ConfigureAwait(false); }
-        finally { box.Finish(); }
-    }
-
-    // Opens the box on the first report and forwards every one, so nothing appears for a run that
-    // never downloads anything.
-    private sealed class OpeningReporter(UI.UpdateDownloadBox box) : IProgress<DownloadProgress>
-    {
-        private bool _shown;
-
-        public void Report(DownloadProgress value)
-        {
-            if (!_shown) { _shown = true; box.Show(); }
-            box.Reporter.Report(value);
-        }
-    }
-
-    /// <summary>The component's own wording for every outcome a caller chooses to report.</summary>
-    internal IUpdatePrompts PromptsFor(IntPtr owner) =>
-        new NativeUpdatePrompts(owner, AppInfo.Name,
-                                releaseNotes: release => ReleaseNotesText.Strip(release.Body ?? ""));
+        ApplicationName = AppInfo.Name,
+        // The component's window is its own element tree, outside this application's, so the theme
+        // App.xaml pins is told to it rather than inherited.
+        Theme           = ElementTheme.Dark,
+        ReleaseNotes    = release => ReleaseNotesText.Strip(release.Body ?? ""),
+    });
 
     private static UpdateOptions Options() => new()
     {
@@ -129,12 +105,12 @@ internal sealed class AppUpdates
         Log                = new AppLogSink(),
     };
 
-    // Progress is init-only, so the reporter is handed in here rather than assigned afterwards.
-    private UpdateFlowOptions FlowOptions(IProgress<DownloadProgress>? progress = null) => new()
+    // No Progress: the component's window reports into itself through the download surface it hands
+    // the flow, and a second reporter here would have nothing to draw with.
+    private UpdateFlowOptions FlowOptions() => new()
     {
         Shutdown        = _shutdown,
         OpenReleasePage = OpenInBrowser,
-        Progress        = progress,
         Log             = new AppLogSink(),
     };
 

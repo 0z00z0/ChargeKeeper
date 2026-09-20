@@ -8,7 +8,7 @@ namespace ChargeKeeper.UI;
 
 /// <summary>
 /// Drives one Check for updates button from the tray menu's shared update check: it shows any check
-/// running, whoever started it, and opens the update dialog when selected with an update showing.
+/// running, whoever started it, and opens the update window when selected with an update showing.
 /// Shared by the About window and the Settings About page so the two cannot behave apart.
 /// </summary>
 internal sealed class UpdateCheckButtonController
@@ -16,7 +16,7 @@ internal sealed class UpdateCheckButtonController
     private readonly BrandBracketButton _button;
     private readonly TrayMenu _menu;
 
-    /// <summary>Wraps the update dialog, for a host that must stay open while it is up. Awaited, so
+    /// <summary>Wraps the update window, for a host that must stay open while it is up. Awaited, so
     /// the hold lasts as long as the offer and the download behind it.</summary>
     private readonly Func<Func<Task>, Task> _aroundDialog;
 

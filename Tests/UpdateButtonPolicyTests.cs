@@ -32,7 +32,8 @@ public class UpdateButtonPolicyTests
     [MemberData(nameof(EveryResult))]
     public void TheButtonReportsOnlyAFailureInADialog(UpdateFlowResult result)
     {
-        bool failure = result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable);
+        bool failure = result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable
+                                                                or UpdateFlowResult.DownloadCancelled);
         Assert.Equal(failure, UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.Button));
         Assert.False(UpdateButtonPolicy.OpensUpdateDialog(result, UpdateCheckTrigger.Button));
     }
@@ -42,9 +43,32 @@ public class UpdateButtonPolicyTests
     public void TheTrayMenuReportsEveryOutcomeInADialog(UpdateFlowResult result)
     {
         bool available = result == UpdateFlowResult.UpdateAvailable;
+        bool stopped   = result == UpdateFlowResult.DownloadCancelled;
         Assert.Equal(available,  UpdateButtonPolicy.OpensUpdateDialog(result, UpdateCheckTrigger.TrayMenu));
-        Assert.Equal(!available, UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.TrayMenu));
+        Assert.Equal(!available && !stopped,
+                     UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.TrayMenu));
     }
+
+    // Stopping the download closes the window it was stopped in. Reopening one to announce the stop
+    // would report a person's own click back at them, from every surface at once.
+    [Fact]
+    public void AStoppedDownloadIsNeverAnnounced()
+    {
+        // One Fact rather than a theory: UpdateCheckTrigger is internal, and a public test method
+        // cannot take it as a parameter.
+        foreach (var trigger in Enum.GetValues<UpdateCheckTrigger>())
+        {
+            Assert.False(UpdateButtonPolicy.ShowsNotice(UpdateFlowResult.DownloadCancelled, trigger));
+            Assert.False(UpdateButtonPolicy.OpensUpdateDialog(UpdateFlowResult.DownloadCancelled, trigger));
+        }
+    }
+
+    // The button follows a check, and a check never downloads, so a cancelled download reaching it
+    // means something has been rewired — it must not leave the button showing success or attention.
+    [Fact]
+    public void AStoppedDownloadLeavesTheButtonAtRest() =>
+        Assert.Equal(UpdateButtonPolicy.Rest,
+                     UpdateButtonPolicy.After(new UpdateFlowRun(UpdateFlowResult.DownloadCancelled)));
 
     [Fact]
     public void TheButtonShowsTheOutcome()
