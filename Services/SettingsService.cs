@@ -274,6 +274,33 @@ internal sealed class AppSettings
     /// nothing is owed back. Written by <see cref="SettingsScreenBrightnessRecord"/> alone.</summary>
     public int? ScreenSavedBrightness { get; set; }
 
+    /// <summary>The duration the next focus session runs for, in minutes. A session carries one
+    /// duration and there is no indefinite one: with no local way out, the duration is the whole
+    /// backstop against a session that never ends.</summary>
+    public int FocusSessionMinutes { get; set; } = FocusSessionEngine.DefaultMinutes;
+
+    /// <summary>Whether the next focus session blocks the network. A default the session starts
+    /// from, not a standing state: the choice is made per session from Home Assistant.</summary>
+    public bool FocusBlocksNetwork { get; set; } = true;
+
+    /// <summary>Whether the next focus session dims the screen. The same default-only rule as
+    /// <see cref="FocusBlocksNetwork"/>.</summary>
+    public bool FocusDimsScreen { get; set; } = true;
+
+    /// <summary>When the running focus session ends, or null when none is running. The session is
+    /// defined by this instant rather than by a countdown, so a machine switched off mid-session
+    /// still ends it — at the next start if the instant has already passed.</summary>
+    public DateTimeOffset? FocusSessionEndsAt { get; set; }
+
+    /// <summary>Which levers the running session owns, so only what it displaced is put back.
+    /// Meaningless without <see cref="FocusSessionEndsAt"/>.</summary>
+    public bool FocusSessionBlockedNetwork { get; set; }
+    public bool FocusSessionDimmedScreen { get; set; }
+
+    /// <summary>The firewall profile settings displaced by a network block, saved before anything
+    /// changes so a crash cannot lose them. Null means nothing is displaced.</summary>
+    public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
+
     /// <summary>Never defaulted on: it parks a Windows power setting outside the app for as long as it runs.</summary>
     public bool LidDelayEnabled { get; set; } = false;
 

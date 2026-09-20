@@ -34,6 +34,7 @@ internal sealed class SettingsFile
     public const string KeepAwakeKey    = "KeepAwake";
     public const string LidCloseKey     = "LidClose";
     public const string ScreenKey       = "Screen";
+    public const string FocusKey        = "Focus";
     public const string NotificationsKey = "Notifications";
     public const string ScriptsKey      = "Scripts";
     public const string MqttKey         = "Mqtt";
@@ -47,7 +48,7 @@ internal sealed class SettingsFile
     public static readonly string[] SectionNames =
     [
         GeneralKey, GraphKey, SmartChargeKey, NetworkKey, KeepAwakeKey, LidCloseKey, ScreenKey,
-        NotificationsKey, ScriptsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
+        FocusKey, NotificationsKey, ScriptsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
     ];
 
     /// <summary>First key in the file, so the shape is read rather than inferred.</summary>
@@ -77,23 +78,28 @@ internal sealed class SettingsFile
     [JsonPropertyName(ScreenKey), JsonPropertyOrder(7)]
     public ScreenGroup Screen { get; set; } = new();
 
-    [JsonPropertyName(NotificationsKey), JsonPropertyOrder(8)]
+    // The Focus page follows Screen in the navigation pane, because the session's screen lever is
+    // that page's own brightness under another name.
+    [JsonPropertyName(FocusKey), JsonPropertyOrder(8)]
+    public FocusGroup Focus { get; set; } = new();
+
+    [JsonPropertyName(NotificationsKey), JsonPropertyOrder(9)]
     public NotificationsGroup Notifications { get; set; } = new();
 
-    [JsonPropertyName(ScriptsKey), JsonPropertyOrder(9)]
+    [JsonPropertyName(ScriptsKey), JsonPropertyOrder(10)]
     public ScriptsGroup Scripts { get; set; } = new();
 
-    [JsonPropertyName(MqttKey), JsonPropertyOrder(10)]
+    [JsonPropertyName(MqttKey), JsonPropertyOrder(11)]
     public MqttGroup Mqtt { get; set; } = new();
 
-    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(11)]
+    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(12)]
     public DiagnosticsGroup Diagnostics { get; set; } = new();
 
-    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(12)]
+    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(13)]
     public AppearanceGroup Appearance { get; set; } = new();
 
     // Window placement is state rather than a page: nothing on screen edits it, so it sits last.
-    [JsonPropertyName(WindowKey), JsonPropertyOrder(13)]
+    [JsonPropertyName(WindowKey), JsonPropertyOrder(14)]
     public WindowGroup Window { get; set; } = new();
 
     internal sealed class GeneralGroup
@@ -173,6 +179,22 @@ internal sealed class SettingsFile
         // The brightness displaced by a dim, waiting to be put back. State rather than a setting:
         // nothing on the page edits it, and null means the display carries its own level.
         [JsonPropertyOrder(1)] public int? ScreenSavedBrightness { get; set; }
+    }
+
+    internal sealed class FocusGroup
+    {
+        // Nullable so a document written before the page existed reads the application's own
+        // defaults rather than zero minutes and two levers switched off — a session that could
+        // never be armed.
+        [JsonPropertyOrder(1)] public int?  FocusSessionMinutes { get; set; }
+        [JsonPropertyOrder(2)] public bool? FocusBlocksNetwork  { get; set; }
+        [JsonPropertyOrder(3)] public bool? FocusDimsScreen     { get; set; }
+        // The running session and the firewall state it displaced. State rather than settings:
+        // nothing on the page edits them, so they trail the visible rows.
+        [JsonPropertyOrder(4)] public DateTimeOffset? FocusSessionEndsAt { get; set; }
+        [JsonPropertyOrder(5)] public bool FocusSessionBlockedNetwork { get; set; }
+        [JsonPropertyOrder(6)] public bool FocusSessionDimmedScreen   { get; set; }
+        [JsonPropertyOrder(7)] public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -294,6 +316,16 @@ internal sealed class SettingsFile
             LidDelaySavedBatterySleepScheme  = s.LidDelaySavedBatterySleepScheme,
         },
         Screen = new ScreenGroup { ScreenSavedBrightness = s.ScreenSavedBrightness },
+        Focus = new FocusGroup
+        {
+            FocusSessionMinutes        = s.FocusSessionMinutes,
+            FocusBlocksNetwork         = s.FocusBlocksNetwork,
+            FocusDimsScreen            = s.FocusDimsScreen,
+            FocusSessionEndsAt         = s.FocusSessionEndsAt,
+            FocusSessionBlockedNetwork = s.FocusSessionBlockedNetwork,
+            FocusSessionDimmedScreen   = s.FocusSessionDimmedScreen,
+            FocusSavedFirewall         = s.FocusSavedFirewall,
+        },
         Notifications = new NotificationsGroup
         {
             NotificationSound          = s.NotificationSound,
@@ -381,6 +413,14 @@ internal sealed class SettingsFile
         LidDelaySavedBatterySleepScheme  = LidClose.LidDelaySavedBatterySleepScheme,
 
         ScreenSavedBrightness = Screen.ScreenSavedBrightness,
+
+        FocusSessionMinutes        = Focus.FocusSessionMinutes ?? FocusSessionEngine.DefaultMinutes,
+        FocusBlocksNetwork         = Focus.FocusBlocksNetwork ?? true,
+        FocusDimsScreen            = Focus.FocusDimsScreen ?? true,
+        FocusSessionEndsAt         = Focus.FocusSessionEndsAt,
+        FocusSessionBlockedNetwork = Focus.FocusSessionBlockedNetwork,
+        FocusSessionDimmedScreen   = Focus.FocusSessionDimmedScreen,
+        FocusSavedFirewall         = Focus.FocusSavedFirewall,
 
         LowBatteryWarningPct       = Notifications.LowBatteryWarningPct,
         LowBatteryWarningEnabled   = Notifications.LowBatteryWarningEnabled,

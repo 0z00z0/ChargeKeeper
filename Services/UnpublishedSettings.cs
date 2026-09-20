@@ -66,6 +66,12 @@ internal static class UnpublishedSettings
         // level itself is read off the display, so this moving publishes nothing.
         nameof(AppSettings.ScreenSavedBrightness),
 
+        // The firewall state a focus session's network block displaced. A record of what to put
+        // back, not a choice, and nothing published reads it. The session's own end time and the two
+        // levers it owns are NOT here: they move the state reading, the countdown and both lever
+        // switches.
+        nameof(AppSettings.FocusSavedFirewall),
+
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),
 

@@ -155,14 +155,50 @@ internal static class IconGenerator
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, PowerState state, TrayIconMode mode = TrayIconMode.Arc,
         ChargeThresholdState? threshold = null, PowerFlow? flow = null,
-        TrayDigitStyle digits = TrayDigitStyle.Standard, int? hoursLeft = null)
+        TrayDigitStyle digits = TrayDigitStyle.Standard, int? hoursLeft = null,
+        bool focusSession = false)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow, digits, hoursLeft);
+        Bitmap Render(int size)
+        {
+            var frame = RenderStyleBitmap(size, percent, state, mode, threshold, flow, digits, hoursLeft);
+            // Drawn over the finished frame rather than inside each style: the badge says the same
+            // thing whatever the icon is drawing, and the styles' own frames are already full.
+            if (focusSession) DrawFocusBadge(frame, size);
+            return frame;
+        }
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
         ms.Position = 0;
         return new System.Drawing.Icon(ms);
+    }
+
+    /// <summary>How much of the frame's width the focus badge takes. A corner dot rather than a tint
+    /// or a reshape: at 16 px the digits and the battery glyph already use most of the frame, and a
+    /// badge beside a reading stays legible where a recoloured glyph fights it.</summary>
+    private const float FocusBadgeFraction = 0.36f;
+
+    /// <summary>Marks a frame as belonging to a running focus session: a filled dot in the top-left
+    /// corner, ringed so it separates from whatever the style drew underneath it.</summary>
+    /// <remarks>Top-left because the threshold marks and the flow mark both sit on the right of the
+    /// battery glyph, so nothing else claims that corner in any style.</remarks>
+    internal static void DrawFocusBadge(Bitmap frame, int size)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        float diameter = Math.Max(5f, size * FocusBadgeFraction);
+        float inset = Math.Max(0.5f, size * MarginFraction);
+        var dot = new RectangleF(inset, inset, diameter, diameter);
+        var contrast = CurrentContrast();
+
+        using var g = Graphics.FromImage(frame);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        // The ring first and wider, so the dot sits on its own ground whatever it covers.
+        using var ring = new Pen(contrast.Outline, contrast.ExtraWidth(size));
+        g.DrawEllipse(ring, dot);
+        using var fill = new SolidBrush(MarkTerracotta);
+        g.FillEllipse(fill, dot);
     }
 
     /// <summary>The second, display-only tray icon: the reading and nothing else, at the current

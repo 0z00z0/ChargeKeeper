@@ -6,7 +6,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The eight publish groups: their keys, the defaults a fresh installation starts on, and the
+/// The nine publish groups: their keys, the defaults a fresh installation starts on, and the
 /// per-key persistence that keeps a user's choices attached to the group they were made about.
 /// </summary>
 public class MqttPublishGroupTests
@@ -15,9 +15,9 @@ public class MqttPublishGroupTests
         new(new FakeMqttSettingsStore(), MqttPublishGroups.Declared);
 
     [Fact]
-    public void EightGroupsAreDeclared_OnePerSettingsPage() =>
+    public void NineGroupsAreDeclared_OnePerSettingsPage() =>
         Assert.Equal(
-            ["battery_status", "smart_charge", "keep_awake", "lid_close", "screen",
+            ["battery_status", "smart_charge", "keep_awake", "lid_close", "screen", "focus",
              "notifications", "network", "app_diagnostics"],
             MqttPublishGroups.Declared.Select(g => g.Key));
 

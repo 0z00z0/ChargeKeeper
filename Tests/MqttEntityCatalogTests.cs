@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the fifty-seven entity ids, the component each is announced
+/// The published surface as a declaration: the sixty-three entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -114,6 +114,21 @@ public class MqttEntityCatalogTests
         new(MqttEntityCatalog.ScreenBrightnessRestore, "button", "Screen brightness restore",
             MqttPublishGroups.Screen, MqttEntityCategory.Primary, Icon: "mdi:brightness-auto"),
 
+        new(MqttEntityCatalog.FocusSession, "switch", "Focus session",
+            MqttPublishGroups.Focus, MqttEntityCategory.Primary, Icon: "mdi:meditation"),
+        new(MqttEntityCatalog.FocusSessionMinutes, "number", "Focus session minutes",
+            MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:timer-outline", Unit: "min"),
+        new(MqttEntityCatalog.FocusSessionBlocksNetwork, "switch", "Focus session blocks network",
+            MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:lan-disconnect"),
+        new(MqttEntityCatalog.FocusSessionDimsScreen, "switch", "Focus session dims screen",
+            MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:brightness-2"),
+        new(MqttEntityCatalog.FocusSessionState, "sensor", "Focus session state",
+            MqttPublishGroups.Focus, MqttEntityCategory.Diagnostic,
+            Icon: "mdi:progress-clock", DeviceClass: "enum"),
+        new(MqttEntityCatalog.FocusSessionRemaining, "sensor", "Focus session remaining",
+            MqttPublishGroups.Focus, MqttEntityCategory.Primary,
+            Icon: "mdi:timer-sand", DeviceClass: "duration", Unit: "min"),
+
         new(MqttEntityCatalog.LowBatteryWarning, "switch", "Notify low battery",
             MqttPublishGroups.Notifications, MqttEntityCategory.Config, Icon: "mdi:battery-alert"),
         new(MqttEntityCatalog.LowBatteryLevel, "number", "Notify low battery level",
@@ -186,13 +201,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFiftySevenEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheSixtyThreeEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsTwentyFourSensorsThirteenSwitchesTenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
+    public void TheEntityMix_IsTwentySixSensorsSixteenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -201,7 +216,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 24, ["switch"] = 13, ["number"] = 10,
+                ["sensor"] = 26, ["switch"] = 16, ["number"] = 11,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
@@ -339,6 +354,8 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.LidDelayOffAfterSleep,
             MqttEntityCatalog.SmartStandby,
             MqttEntityCatalog.ScreenBrightness, MqttEntityCatalog.ScreenBrightnessRestore,
+            MqttEntityCatalog.FocusSession, MqttEntityCatalog.FocusSessionMinutes,
+            MqttEntityCatalog.FocusSessionBlocksNetwork, MqttEntityCatalog.FocusSessionDimsScreen,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
             MqttEntityCatalog.DrainWarning, MqttEntityCatalog.DrainRate,
@@ -519,6 +536,12 @@ public class MqttEntityCatalogTests
                                                or MqttEntityCatalog.SystemTemperatureMaximum
                                                or MqttEntityCatalog.ScreenBrightness
                                                or MqttEntityCatalog.ScreenBrightnessRestore
+                                               or MqttEntityCatalog.FocusSession
+                                               or MqttEntityCatalog.FocusSessionMinutes
+                                               or MqttEntityCatalog.FocusSessionBlocksNetwork
+                                               or MqttEntityCatalog.FocusSessionDimsScreen
+                                               or MqttEntityCatalog.FocusSessionState
+                                               or MqttEntityCatalog.FocusSessionRemaining
                                                or MqttEntityCatalog.LastChange
                                                or MqttEntityCatalog.LastChangeTime
                                                or MqttEntityCatalog.LastLidEvent

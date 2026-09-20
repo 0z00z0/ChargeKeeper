@@ -21,10 +21,14 @@ namespace ChargeKeeper.Helpers;
 /// there is nothing to estimate. The digit styles are typography for a value handed to them, so the
 /// hours-left style needs the value carried here: leaving it out draws the first reading for ever,
 /// because nothing else in the key moves when only the hours do.</param>
+/// <param name="FocusSession">Whether a focus session is running, which adds a corner badge. Part of
+/// the key because a session starts and ends without the reading moving, and the badge is the only
+/// thing on the machine that says one is running besides the tray menu and the Settings page.</param>
 internal readonly record struct TrayIconRequest(
     int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold,
     PowerFlow? Flow = null, bool Percentage = false,
-    TrayDigitStyle DigitStyle = TrayDigitStyle.Standard, int? HoursLeft = null);
+    TrayDigitStyle DigitStyle = TrayDigitStyle.Standard, int? HoursLeft = null,
+    bool FocusSession = false);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the

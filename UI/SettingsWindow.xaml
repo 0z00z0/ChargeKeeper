@@ -65,6 +65,9 @@
             <NavigationViewItem Content="Screen"            Tag="Screen">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/screen.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="Focus session"     Tag="Focus">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/focus.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -394,6 +397,21 @@
                                             Description="Puts back the level the screen was on before the first change.">
                         <Button x:Name="ScreenRestoreBtn" Content="Restore" Click="OnScreenRestore"/>
                     </controls:SettingsCard>
+                </StackPanel>
+
+                <StackPanel x:Name="FocusPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock Text="Focus session" Style="{StaticResource SectionHeaderStyle}"/>
+
+                    <!-- Status, and nothing to press. A person at the keyboard cannot end a session:
+                         that is the feature's central property, not an omission to be filled in. -->
+                    <controls:SettingsCard Header="Status"
+                                            Description="A session is started and ended from Home Assistant, and runs for however long it was given. Nothing on this computer can end one.">
+                        <TextBlock x:Name="FocusStatusValue" VerticalAlignment="Center"
+                                    MaxWidth="320" TextTrimming="CharacterEllipsis"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="If you are stuck"
+                                            Description="Windows Defender Firewall with Advanced Security lists two rules called &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;. Deleting both, then setting each profile's outbound and inbound actions back to Allow, ends the block. The screen goes back up from the Windows brightness slider or from the Screen page. USAGE.md sets it out step by step."/>
                 </StackPanel>
 
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">

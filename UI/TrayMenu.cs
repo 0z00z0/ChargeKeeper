@@ -24,6 +24,13 @@ internal sealed class TrayMenu
     // popup is rebuilt from on every right-click.
     private readonly MenuFlyoutSubItem _digitStyleSubmenu;
 
+    // A line of text, never a control. A person at the keyboard cannot end a focus session, and
+    // nothing should put a way to back here because the line looked incomplete without one.
+    private readonly MenuFlyoutItem _focusSessionItem =
+        new() { IsEnabled = false, Text = "Focus session" };
+
+    private readonly MenuFlyoutItem _settingsItem;
+
     private MenuFlyoutItem? _updateItem;
     private AboutWindow?    _aboutWindow;
     private WhatsNewWindow? _whatsNewWindow;
@@ -68,7 +75,8 @@ internal sealed class TrayMenu
         // Target state comes from the item the user just clicked, not a fresh OS read (TOCTOU).
         _autoStartItem.Command = new RelayCommand(() => ToggleAutoStart(!_autoStartItem.IsChecked));
 
-        Flyout.Items.Add(new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) });
+        _settingsItem = new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) };
+        Flyout.Items.Add(_settingsItem);
         _iconStyleSubmenu  = BuildIconStyleSubmenu();
         _digitStyleSubmenu = BuildDigitStyleSubmenu();
         Flyout.Items.Add(_iconStyleSubmenu);
@@ -244,13 +252,14 @@ internal sealed class TrayMenu
     private sealed record MenuState(
         bool AutoStartEnabled,
         TrayIconMode IconMode,          // aligned with _iconModeItems
-        TrayDigitStyle DigitStyle);     // aligned with _digitStyleItems
+        TrayDigitStyle DigitStyle,      // aligned with _digitStyleItems
+        FocusSnapshot Focus);
 
     private MenuState ReadState()
     {
         bool autoStart = SafeCall(TaskSchedulerHelper.IsAutoStartEnabled, fallback: false);
         var (mode, digits) = SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle));
-        return new MenuState(autoStart, mode, digits);
+        return new MenuState(autoStart, mode, digits, FocusSessionService.Current);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -265,6 +274,25 @@ internal sealed class TrayMenu
         foreach (var (item, style) in _digitStyleItems)
             item.IsChecked = style == state.DigitStyle;
         ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric);
+        ShowFocusSession(state.Focus);
+    }
+
+    /// <summary>Puts the focus session line at the top of the menu while one runs, and takes it out
+    /// when none does.</summary>
+    private void ShowFocusSession(FocusSnapshot session)
+    {
+        int index = Flyout.Items.IndexOf(_focusSessionItem);
+
+        if (!session.IsRunning)
+        {
+            if (index >= 0) Flyout.Items.RemoveAt(index);
+            return;
+        }
+
+        _focusSessionItem.Text = FocusSessionStages.Describe(session, DateTimeOffset.Now);
+        // Above Settings…, so it reads before anything actionable and never displaces the update
+        // badge that inserts itself at the very top.
+        if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _focusSessionItem);
     }
 
     private void ApplyPreset(ThresholdPreset preset) => RunApplyPreset(preset.Name);

@@ -47,6 +47,22 @@ internal interface ISettingsActions
     /// <summary>Puts back the brightness remembered before the first change.</summary>
     void RestoreScreenBrightness();
 
+    /// <summary>Arms a focus session, or asks to cancel the one running — which opens the staged
+    /// wait rather than ending it.</summary>
+    void SetFocusSession(bool on);
+
+    /// <summary>How long the next session runs. Changing it while one runs changes the next one
+    /// only: a session's length is fixed when it is armed.</summary>
+    void SetFocusSessionMinutes(int minutes);
+
+    /// <summary>The default the next session's network lever starts from. Refused while a session
+    /// runs.</summary>
+    void SetFocusBlocksNetwork(bool on);
+
+    /// <summary>The default the next session's screen lever starts from. Refused while a session
+    /// runs.</summary>
+    void SetFocusDimsScreen(bool on);
+
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
     void SetHighBatteryWarning(bool on);
@@ -225,6 +241,40 @@ internal sealed class SettingsActions : ISettingsActions
     {
         ScreenBrightnessService.Restore("Home Assistant");
         Raise();
+    }
+
+    // Through the service, like the two above: arming moves the firewall and the display, and the
+    // record of what to put back is written inside it. A plain settings write would reach neither.
+    public void SetFocusSession(bool on)
+    {
+        if (on) FocusSessionService.Arm("Home Assistant");
+        else FocusSessionService.RequestCancel("Home Assistant");
+        Raise();
+    }
+
+    public void SetFocusSessionMinutes(int minutes) => Write(s => s.FocusSessionMinutes = minutes);
+
+    public void SetFocusBlocksNetwork(bool on) => WriteUnlessSessionRunning(
+        s => s.FocusBlocksNetwork = on, "which lever blocks the network");
+
+    public void SetFocusDimsScreen(bool on) => WriteUnlessSessionRunning(
+        s => s.FocusDimsScreen = on, "which lever dims the screen");
+
+    /// <summary>A lever choice, refused while a session runs. Turning one off part-way through would
+    /// either restore normal access while the session still claims to be running, or leave that
+    /// lever's record parked with nothing owning it.</summary>
+    /// <remarks>The refusal is a write that does not happen: the entity reflects its own value back
+    /// after the debounce, so the receiver's switch returns to what the session is actually
+    /// using.</remarks>
+    private void WriteUnlessSessionRunning(Action<AppSettings> mutate, string what)
+    {
+        if (FocusSessionService.LeversAreLocked)
+        {
+            AppLog.Info($"Focus: {what} cannot change while a session is running.");
+            Raise();
+            return;
+        }
+        Write(mutate);
     }
 
     public void SetLowBatteryWarning(bool on)   => Write(s => s.LowBatteryWarningEnabled = on);

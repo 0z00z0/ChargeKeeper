@@ -2,7 +2,7 @@ using ZeroZero.Mqtt;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>The eight publishing groups the MQTT page toggles, one per Settings page. Smart Standby rides
+/// <summary>The nine publishing groups the MQTT page toggles, one per Settings page. Smart Standby rides
 /// with <see cref="LidClose"/> rather than taking a group of its own: the dashboard already pairs
 /// them — one decides how the machine sleeps, the other when.</summary>
 /// <remarks>The keys are persisted, per key and never per index, so inserting or reordering a group
@@ -15,6 +15,7 @@ internal static class MqttPublishGroups
     public const string KeepAwake      = "keep_awake";
     public const string LidClose       = "lid_close";
     public const string Screen         = "screen";
+    public const string Focus          = "focus";
     public const string Notifications  = "notifications";
     public const string Network        = "network";
     public const string AppDiagnostics = "app_diagnostics";
@@ -32,6 +33,12 @@ internal static class MqttPublishGroups
             Info: "The lid-close delay and whether the computer locks when the lid shuts."),
         new(Screen, "Screen",
             Info: "The display brightness, and the button that puts back what it was."),
+        // The one group whose entities are the only way in or out: a focus session is armed and
+        // cancelled from here and from nowhere else, so switching this off leaves the feature with
+        // no control at all.
+        new(Focus, "Focus session",
+            Info: "The session switch, how long it runs, which levers it uses, and how far a cancel "
+                + "has got."),
         new(Notifications, "Notifications",
             Info: "The battery and drain warning thresholds, and whether each is armed."),
         new(Network, "Network",

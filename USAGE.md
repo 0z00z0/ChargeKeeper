@@ -164,6 +164,59 @@ It also offers:
 The file is portable by copy across machines. Automatic cloud sync is not yet implemented (a planned
 future option).
 
+### Focus session
+
+A focus session is a machine-wide pause on distraction. It is started and ended from Home Assistant
+and it runs for however many minutes it was given. **Nothing on the computer itself ends one** —
+that is the point of the feature, not an omission.
+
+A session uses up to two levers, each chosen before it starts:
+
+- **Block the network.** Every firewall profile's default outbound action goes to Block and every
+  one refuses unsolicited inbound, with two narrow exceptions left open: the MQTT broker, and the
+  name resolution that finds it. The broker's address is resolved once, before the block lands. A
+  session cannot be armed on the network lever while the broker port is set to Automatic, because
+  Automatic sweeps several candidate ports and an exception covering all of them is not a narrow one.
+- **Dim the screen.** The same brightness mechanism the Screen page and the `Screen brightness`
+  entity use, so the level in force before the dim is remembered and put back at the end.
+
+A session with neither lever chosen is refused rather than armed, and neither lever can be changed
+while a session is running.
+
+**Ending one early is staged.** Switching the session off in Home Assistant opens a five-minute
+wait; a second request in the ten seconds after that wait ends the session. Missing that window
+leaves the session running to its original end time, and asking again starts the wait afresh.
+Repeating the request during the wait changes nothing. The `Focus session state` reading moves Off →
+Active → Ending → Confirm so a dashboard can show which stage it is in.
+
+**What a session survives.** The end time is written to `settings.json` before either lever moves,
+so a crash, a restart, an update that replaces the program, and the computer being switched off all
+leave the session intact. A session whose end time has already passed when the application next
+starts is lifted there and then — both levers go back and the block comes off.
+
+**What it looks like on the computer.** The tray icon carries a small corner badge, the tray menu
+names the session in a line of text, and the Settings window's **Focus session** page shows the same.
+None of the three offers anything to press.
+
+#### If you are stuck
+
+The block is ordinary Windows Firewall settings, so it can always be removed by hand.
+
+1. Open **Windows Defender Firewall with Advanced Security** as an administrator.
+2. Under **Outbound Rules**, delete the two rules named
+   **ChargeKeeper focus session: broker** and
+   **ChargeKeeper focus session: name resolution**.
+3. Open **Windows Defender Firewall Properties** and, on each of the Domain, Private and Public
+   profile tabs, set **Outbound connections** back to **Allow** and **Inbound connections** to
+   whatever it was before (**Block** is the Windows default, and **Block all connections** is what a
+   session sets).
+4. Turn the screen back up from the Windows brightness slider, or from ChargeKeeper's **Screen** page.
+
+Doing this by hand does not end the session's own timer: the session still reports as running until
+its end time passes. Nothing puts the block back — a session that resumes after a restart leaves the
+firewall exactly as it finds it — and when the end time passes ChargeKeeper writes the settings it
+recorded before the block back into the profiles, which is a no-op once they are already there.
+
 ### App diagnostics
 
 The **App diagnostics** page in the Settings window carries the self-measurement graph: what

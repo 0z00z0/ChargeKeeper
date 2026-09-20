@@ -66,6 +66,12 @@ public class MqttEntityNamingTests
         "chargekeeper_office_x1_smart_standby",
         "chargekeeper_office_x1_screen_brightness",
         "chargekeeper_office_x1_screen_brightness_restore",
+        "chargekeeper_office_x1_focus_session",
+        "chargekeeper_office_x1_focus_session_minutes",
+        "chargekeeper_office_x1_focus_session_blocks_network",
+        "chargekeeper_office_x1_focus_session_dims_screen",
+        "chargekeeper_office_x1_focus_session_state",
+        "chargekeeper_office_x1_focus_session_remaining",
         "chargekeeper_office_x1_low_battery_warning",
         "chargekeeper_office_x1_low_battery_level",
         "chargekeeper_office_x1_high_battery_warning",
@@ -159,6 +165,12 @@ public class MqttEntityNamingTests
         },
 
         new() { Group = MqttPublishGroups.Screen, Word = "Screen" },
+
+        // Two words, because every entity on the page carries both and the word is the longest form
+        // they can all take. The master switch is named exactly that, so it is both the group's word
+        // and the prefix the rest sort below.
+        new() { Group = MqttPublishGroups.Focus, Word = "Focus session" },
+
         new() { Group = MqttPublishGroups.Notifications, Word = "Notify" },
         new() { Group = MqttPublishGroups.Network, Word = "Network" },
         new() { Group = MqttPublishGroups.AppDiagnostics, Word = "App" },

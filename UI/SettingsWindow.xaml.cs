@@ -158,6 +158,7 @@ internal sealed partial class SettingsWindow : Window
         LoadKeepAwake();
         LoadScripts();
         LoadScreen();
+        LoadFocus();
         LoadAppearance();
         LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
@@ -266,7 +267,8 @@ internal sealed partial class SettingsWindow : Window
     {
         FrameworkElement[] panels =
             [GeneralPanel, AppearancePanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, ScreenPanel,
-             NotificationsPanel, ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel, AboutPanel];
+             FocusPanel, NotificationsPanel, ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel,
+             AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -401,6 +403,7 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         ScreenPanel.Visibility        = tag == "Screen"         ? Visibility.Visible : Visibility.Collapsed;
+        FocusPanel.Visibility         = tag == "Focus"          ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         ScriptsPanel.Visibility       = tag == "Scripts"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
@@ -411,6 +414,9 @@ internal sealed partial class SettingsWindow : Window
         // Read afresh: the level moves outside this application, so a page opened later would
         // otherwise show whatever was on the display when the window was built.
         if (tag == "Screen") LoadScreen();
+        // Same reason: a session is armed and ended from Home Assistant, so the line is only ever
+        // current at the moment the page is shown.
+        if (tag == "Focus") LoadFocus();
 
         // The graph only paints while its page is on screen. Its own Visibility follows the page
         // because that is what stops its repaint: a collapsed parent panel does not reach it.
@@ -714,6 +720,14 @@ internal sealed partial class SettingsWindow : Window
         ScreenRestoreBtn.IsEnabled = ScreenBrightnessService.Holding;
         _mqtt?.Republish();
     }
+
+    // ── Focus session ───────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Shows what the session is doing. Read-only by design: every control for a session
+    /// lives in Home Assistant, and adding one here would give the keyboard a way out.</summary>
+    private void LoadFocus() =>
+        FocusStatusValue.Text = FocusSessionStages.Describe(FocusSessionService.Current,
+                                                             DateTimeOffset.Now);
 
     private void OnScreenRestore(object sender, RoutedEventArgs e)
     {
