@@ -58,7 +58,8 @@ internal sealed class TrayMenu
 
         // The exit the flow calls once Setup has started: on the UI thread, and as soon as possible,
         // because Setup waits for this process to go before it replaces the files it holds.
-        Updates      = new AppUpdates(() => RunOnUiThread(_onExit, "TrayMenu.exit"));
+        Updates      = new AppUpdates(() => RunOnUiThread(_onExit, "TrayMenu.exit"),
+                                      body => RunOnUiThread(body, "TrayMenu.updateProgress"));
         UpdateChecks = new UpdateCheckCoordinator(Updates.CheckAsync);
 
         Flyout = new MenuFlyout();

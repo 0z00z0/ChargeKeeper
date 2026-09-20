@@ -28,6 +28,7 @@
             <RowDefinition Height="Auto"/>  <!-- graph display selector -->
             <RowDefinition Height="*"/>     <!-- graph -->
             <RowDefinition Height="Auto"/>  <!-- health -->
+            <RowDefinition Height="Auto"/>  <!-- what the last sleeps cost -->
         </Grid.RowDefinitions>
 
         <!-- Room here for the adapter wattage the 340 px dashboard popup cannot fit. -->
@@ -66,5 +67,14 @@
         <local:PerformanceGraphControl x:Name="PerformanceGraph" Grid.Row="2" Visibility="Collapsed"/>
 
         <local:BatteryHealthPanel x:Name="HealthPanel" Grid.Row="3"/>
+
+        <!-- Beside the drain the graph shows: what each recent modern-standby session cost, from
+             Windows' own record of it. Filled in code; collapsed when there is nothing to show. -->
+        <StackPanel Grid.Row="4" x:Name="StandbySessionsPanel" Spacing="2" Visibility="Collapsed">
+            <TextBlock Text="RECENT SLEEPS" Style="{StaticResource StatLabelStyle}"/>
+            <TextBlock x:Name="StandbySessionsText" TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
     </Grid>
 </Window>

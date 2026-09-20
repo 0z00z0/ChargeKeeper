@@ -62,6 +62,11 @@ internal enum TrayDigitStyle
     /// <summary>Segoe UI Black, each digit cut by its own cell, with a seam and a stagger. Shown as
     /// "Staggered"; this member name is what the settings document stores, so it never moves.</summary>
     ClockCells,
+
+    /// <summary>The hours left rather than the percentage, drawn in the Standard face. The only
+    /// member that changes what is drawn rather than how, which is why the value it needs is carried
+    /// by the icon request beside the style.</summary>
+    HoursRemaining,
 }
 
 /// <summary>The label shown for each <see cref="TrayDigitStyle"/>, in enum order — the table the tray
@@ -69,7 +74,7 @@ internal enum TrayDigitStyle
 /// <c>Tests/PercentageTrayIconTests.cs</c>.</summary>
 internal static class TrayDigitStyleLabels
 {
-    private static readonly string[] _labels = ["Standard", "Cropped", "Staggered"];
+    private static readonly string[] _labels = ["Standard", "Cropped", "Staggered", "Hours left"];
 
     public static string For(TrayDigitStyle style) => _labels[(int)style];
 }
@@ -148,6 +153,15 @@ internal sealed class AppSettings
     public bool SleptWhileHotWarningEnabled    { get; set; } = true;
     public bool SettingsNotSavedWarningEnabled { get; set; } = true;
     public bool ScriptFailedWarningEnabled     { get; set; } = true;
+
+    /// <summary>Warn once a program that is not this one has held the machine awake without a break
+    /// for <see cref="AwakeHoldWarningHours"/>.</summary>
+    public bool AwakeHoldWarningEnabled       { get; set; } = true;
+
+    /// <summary>How many unbroken hours a hold must last before it is worth saying. Nullable so a
+    /// document written before the key existed takes
+    /// <see cref="AwakeHoldPolicy.DefaultWarnAfterHours"/> rather than zero.</summary>
+    public int? AwakeHoldWarningHours         { get; set; } = AwakeHoldPolicy.DefaultWarnAfterHours;
 
     /// <summary>The one sound every notification uses; Low and High battery play its falling and
     /// rising recordings. Not published over MQTT.</summary>
@@ -365,6 +379,12 @@ internal sealed class AppSettings
     /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
     /// on a network the user simply hasn't named yet.</summary>
     public string? UnknownNetworkPresetName { get; set; }
+
+    /// <summary>The Windows power plan that was running before a network profile first switched it,
+    /// so it can be put back when no profile asks for one — including after a run that ended without
+    /// restoring. Null means no profile holds the plan. Written by
+    /// <see cref="SettingsPowerPlanRecord"/> alone.</summary>
+    public string? NetworkSavedPowerPlan { get; set; }
 
     /// <summary>The single lookup for both the tray status row and the auto-apply, so list order
     /// decides which rule wins in exactly one place.</summary>

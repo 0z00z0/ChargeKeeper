@@ -171,6 +171,8 @@ public sealed partial class BatteryHistoryWindow : Window
             TimeRemainingText.Text        = timeRemaining ?? "";
             TimeRemainingPanel.Visibility = timeRemaining is null ? Visibility.Collapsed : Visibility.Visible;
 
+            ShowRecentStandbySessions();
+
             if (onAC && watts is null)
                 Task.Run(() =>
                 {
@@ -296,4 +298,25 @@ public sealed partial class BatteryHistoryWindow : Window
     }
 
     private static int Lerp(int from, int to, double t) => from + (int)Math.Round((to - from) * t);
+
+    /// <summary>
+    /// What the last few modern-standby sessions cost, read off-thread because the event log query
+    /// is I/O. Hidden entirely where the log holds none or cannot be read: an empty list here would
+    /// read as "the machine has not slept", which a failed read is no evidence of.
+    /// </summary>
+    private void ShowRecentStandbySessions() => Task.Run(() =>
+    {
+        var sessions = StandbySessionReader.Recent(3);
+        RunOnUi(() =>
+        {
+            if (sessions.Count == 0)
+            {
+                StandbySessionsPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+            StandbySessionsText.Text = string.Join(Environment.NewLine, sessions.Select(StandbySessionReader.Describe));
+            StandbySessionsPanel.Visibility = Visibility.Visible;
+        });
+    });
+
 }

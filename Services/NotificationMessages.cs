@@ -11,6 +11,7 @@ internal enum NotificationKind
     SleptWhileHot,
     SettingsNotSaved,
     ScriptFailed,
+    AwakeHold,
 }
 
 /// <summary>
@@ -81,6 +82,7 @@ internal static class NotificationMessages
         NotificationKind.SleptWhileHot     => "A slept-early-to-cool-down notice",
         NotificationKind.SettingsNotSaved  => "A settings-not-saved warning",
         NotificationKind.ScriptFailed      => "A script-failed warning",
+        NotificationKind.AwakeHold         => "A machine-held-awake warning",
         _                                => "An unusual-drain warning",
     };
 

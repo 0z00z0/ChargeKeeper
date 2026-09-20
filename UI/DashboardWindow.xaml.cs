@@ -168,6 +168,9 @@ public sealed partial class DashboardWindow : Window
         KeepAwakeService.StateChanged += OnKeepAwakeStateChanged;
         LidDelayService.StateChanged  += OnLidDelayStateChanged;
 
+        // The hold reading lands every few minutes rather than on the poll, so it pushes itself in.
+        AwakeHoldWatch.Updated += OnAwakeHoldsUpdated;
+
         // The panel's width is unknown when the buttons are built, and changes with the monitor's
         // DPI; the column count is recomputed from whatever it turns out to be.
         PresetButtonPanel.SizeChanged += (_, _) => LayoutPresetButtons();
@@ -185,6 +188,7 @@ public sealed partial class DashboardWindow : Window
             TravelOverrideService.StateChanged -= OnExternalStateChanged;
             KeepAwakeService.StateChanged      -= OnKeepAwakeStateChanged;
             LidDelayService.StateChanged       -= OnLidDelayStateChanged;
+            AwakeHoldWatch.Updated             -= OnAwakeHoldsUpdated;
         };
     }
 
@@ -375,7 +379,45 @@ public sealed partial class DashboardWindow : Window
         // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
         ApplyLidBadge();
 
+        ApplyPowerActivityBadge();
+
         BeginVendorRead();
+    }
+
+    private void OnAwakeHoldsUpdated() => RunOnUi(ApplyPowerActivityBadge);
+
+    /// <summary>
+    /// The two readings Windows keeps about staying awake and waking up. Both are stated as
+    /// unavailable when they cannot be read: an empty list would read as "nothing is holding the
+    /// machine awake", which a failed read is no evidence of.
+    /// </summary>
+    private void ApplyPowerActivityBadge()
+    {
+        var (holds, at) = AwakeHoldWatch.Current;
+
+        AwakeHoldsText.Text =
+            at is null    ? "Holding the machine awake: not read yet."
+            : holds is null ? "Holding the machine awake: could not be read."
+                            : DescribeHolds(holds, at.Value);
+
+        // Read here rather than kept: a wake is rare, and the event log answers in milliseconds.
+        LastWakeText.Text = WakeSourceReader.LastWake() is { } wake
+            ? $"Last wake: {WakeSourceReader.Describe(wake)}, {wake.At.ToLocalTime():yyyy-MM-dd HH:mm}."
+            : "Last wake: Windows has recorded nothing.";
+    }
+
+    private static string DescribeHolds(IReadOnlyList<PowerRequestEntry> holds, DateTimeOffset at)
+    {
+        var awake = holds.Where(AwakeHoldPolicy.HoldsTheMachineAwake).ToList();
+        string when = $" (read {at.ToLocalTime():HH:mm})";
+        if (awake.Count == 0) return $"Nothing is holding the machine awake{when}.";
+
+        // This application's own holds are named as its own: it takes them for Keep Awake and for a
+        // lid-close wait, and listing them as a stranger's is what would send somebody hunting.
+        var named = awake.Select(h => h.IsThisApplication
+                                          ? $"ChargeKeeper ({h.Category.ToLowerInvariant()})"
+                                          : $"{h.ShortHolder} ({h.Category.ToLowerInvariant()})");
+        return $"Holding the machine awake{when}: {string.Join(", ", named)}.";
     }
 
     /// <summary>

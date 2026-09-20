@@ -70,6 +70,7 @@ public class SettingsFileShapeTests : IDisposable
         "Network.NetworkLocationRules",
         "Network.UnknownNetworkPresetName",
         "Network.NetworkRulesKeyedOnPhysicalAdapter",
+        "Network.NetworkSavedPowerPlan",
         "KeepAwake",
         "KeepAwake.KeepAwakeDisplayOn",
         "KeepAwake.KeepAwakePresets",
@@ -105,6 +106,8 @@ public class SettingsFileShapeTests : IDisposable
         "Notifications.SleptWhileHotWarningEnabled",
         "Notifications.SettingsNotSavedWarningEnabled",
         "Notifications.ScriptFailedWarningEnabled",
+        "Notifications.AwakeHoldWarningEnabled",
+        "Notifications.AwakeHoldWarningHours",
         "Scripts",
         "Scripts.Scripts",
         "Mqtt",
@@ -303,6 +306,7 @@ public class SettingsFileShapeTests : IDisposable
         [
             "NotificationSound", "ChargeCompleteNoticeEnabled", "ChargingStartedNoticeEnabled",
             "SleptWhileHotWarningEnabled", "SettingsNotSavedWarningEnabled", "ScriptFailedWarningEnabled",
+            "AwakeHoldWarningEnabled", "AwakeHoldWarningHours",
         ];
 
         Directory.CreateDirectory(_dir);
@@ -325,6 +329,8 @@ public class SettingsFileShapeTests : IDisposable
         Assert.True(loaded.SleptWhileHotWarningEnabled,    nameof(loaded.SleptWhileHotWarningEnabled));
         Assert.True(loaded.SettingsNotSavedWarningEnabled, nameof(loaded.SettingsNotSavedWarningEnabled));
         Assert.True(loaded.ScriptFailedWarningEnabled,     nameof(loaded.ScriptFailedWarningEnabled));
+        Assert.True(loaded.AwakeHoldWarningEnabled,        nameof(loaded.AwakeHoldWarningEnabled));
+        Assert.Equal(AwakeHoldPolicy.DefaultWarnAfterHours, loaded.AwakeHoldWarningHours);
     }
 
     /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what

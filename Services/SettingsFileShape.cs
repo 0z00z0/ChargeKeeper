@@ -124,6 +124,7 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(2)] public List<NetworkLocationRule> NetworkLocationRules     { get; set; } = [];
         [JsonPropertyOrder(3)] public string?                   UnknownNetworkPresetName { get; set; }
         [JsonPropertyOrder(4)] public bool? NetworkRulesKeyedOnPhysicalAdapter { get; set; }
+        [JsonPropertyOrder(5)] public string? NetworkSavedPowerPlan { get; set; }
     }
 
     internal sealed class KeepAwakeGroup
@@ -182,6 +183,10 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(10)] public bool? SleptWhileHotWarningEnabled    { get; set; }
         [JsonPropertyOrder(11)] public bool? SettingsNotSavedWarningEnabled { get; set; }
         [JsonPropertyOrder(12)] public bool? ScriptFailedWarningEnabled     { get; set; }
+        [JsonPropertyOrder(13)] public bool? AwakeHoldWarningEnabled        { get; set; }
+        // Hours, and nullable for the same reason: an absent key takes the application's default
+        // rather than zero, which would warn about every hold the moment it appeared.
+        [JsonPropertyOrder(14)] public int?  AwakeHoldWarningHours          { get; set; }
     }
 
     internal sealed class ScriptsGroup
@@ -251,6 +256,7 @@ internal sealed class SettingsFile
             NetworkLocationRules               = s.NetworkLocationRules,
             UnknownNetworkPresetName           = s.UnknownNetworkPresetName,
             NetworkRulesKeyedOnPhysicalAdapter = s.NetworkRulesKeyedOnPhysicalAdapter,
+            NetworkSavedPowerPlan              = s.NetworkSavedPowerPlan,
         },
         KeepAwake = new KeepAwakeGroup
         {
@@ -292,6 +298,8 @@ internal sealed class SettingsFile
             SleptWhileHotWarningEnabled    = s.SleptWhileHotWarningEnabled,
             SettingsNotSavedWarningEnabled = s.SettingsNotSavedWarningEnabled,
             ScriptFailedWarningEnabled     = s.ScriptFailedWarningEnabled,
+            AwakeHoldWarningEnabled        = s.AwakeHoldWarningEnabled,
+            AwakeHoldWarningHours          = s.AwakeHoldWarningHours,
         },
         Scripts     = new ScriptsGroup { Scripts = s.Scripts },
         Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
@@ -339,6 +347,7 @@ internal sealed class SettingsFile
         NetworkLocationRules               = Network.NetworkLocationRules,
         UnknownNetworkPresetName           = Network.UnknownNetworkPresetName,
         NetworkRulesKeyedOnPhysicalAdapter = Network.NetworkRulesKeyedOnPhysicalAdapter,
+        NetworkSavedPowerPlan              = Network.NetworkSavedPowerPlan,
 
         KeepAwakeDisplayOn = KeepAwake.KeepAwakeDisplayOn,
         KeepAwakePresets   = KeepAwake.KeepAwakePresets,
@@ -374,6 +383,8 @@ internal sealed class SettingsFile
         SleptWhileHotWarningEnabled    = Notifications.SleptWhileHotWarningEnabled    ?? true,
         SettingsNotSavedWarningEnabled = Notifications.SettingsNotSavedWarningEnabled ?? true,
         ScriptFailedWarningEnabled     = Notifications.ScriptFailedWarningEnabled     ?? true,
+        AwakeHoldWarningEnabled        = Notifications.AwakeHoldWarningEnabled        ?? true,
+        AwakeHoldWarningHours          = Notifications.AwakeHoldWarningHours          ?? AwakeHoldPolicy.DefaultWarnAfterHours,
 
         Scripts = Scripts.Scripts,
 

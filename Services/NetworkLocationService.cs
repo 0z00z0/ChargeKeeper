@@ -22,6 +22,11 @@ internal sealed class NetworkLocationRule
     /// <summary>Hold the machine awake here; leaving is then the off switch.</summary>
     public bool KeepAwakeHere { get; set; }
 
+    /// <summary>The Windows power plan to run here, as the plan's own identifier — never its name,
+    /// which is editable and is not unique. Null or blank means the plan is left alone, which is
+    /// what every profile written before this key existed reads as.</summary>
+    public string? PowerPlan { get; set; }
+
     /// <summary>
     /// Whether the stored subnet plays no part in matching <paramref name="location"/>: this rule names
     /// the mobile adapter we are on, and a carrier lease rotates, so the modem is the whole key. A

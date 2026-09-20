@@ -435,6 +435,15 @@
                                             Description="Notify the first time a script fails, and again only after one of its runs has succeeded.">
                         <ToggleSwitch x:Name="ScriptFailedToggle" Tag="ScriptFailed" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Something keeping this computer awake"
+                                            Description="Notify once another program has asked Windows to stay awake for this long without a break. This application's own holds are never counted.">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ComboBox x:Name="AwakeHoldHoursCombo" MinWidth="110"
+                                      SelectionChanged="OnAwakeHoldHoursChanged"/>
+                            <ToggleSwitch x:Name="AwakeHoldToggle" Tag="AwakeHold" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <!-- The rows are built in code: a script's editor is a name, an event and a box for
@@ -516,8 +525,8 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard x:Name="DigitStyleCard"
-                                            Header="Percentage digit style"
-                                            Description="How the number is drawn in the tray.">
+                                            Header="Tray digits"
+                                            Description="What the tray draws as a number, and how.">
                         <!-- Item order IS the TrayDigitStyle order, as the style combo above:
                              the load and save cast by position. Append, never insert. Labels match
                              TrayDigitStyleLabels, which the tray menu reads. -->
@@ -527,6 +536,9 @@
                             <!-- The persisted value is still TrayDigitStyle.ClockCells; only the
                                  label reads differently. -->
                             <ComboBoxItem Content="Staggered"/>
+                            <!-- The one entry that changes the value drawn rather than the face:
+                                 hours left, in the Standard face. -->
+                            <ComboBoxItem Content="Hours left"/>
                         </ComboBox>
                     </controls:SettingsCard>
 

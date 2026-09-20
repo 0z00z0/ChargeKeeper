@@ -9,6 +9,28 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.61.0
+
+- #237 A network profile can now switch the Windows power plan as well as the charge preset: pick a
+  plan on the profile's row, and it is applied when that network is the one in use and the previous
+  plan put back once no profile asks for one — including after a run that ended without getting the
+  chance. The list offered is whatever plans Windows exposes on the machine, which on many Windows 11
+  installations is Balanced alone.
+- #233 The dashboard now lists what is asking Windows to stay awake, with ChargeKeeper's own holds
+  named as its own, and a new notification says so once another program has held the machine awake
+  without a break for longer than a chosen number of hours — four by default. The list is taken every
+  few minutes rather than live, and says when it was read.
+- #235 Why the machine woke is now written to the log at every resume and shown on the dashboard, in
+  Windows' own words. No administrator rights are involved.
+- #236 The battery history window now shows what each of the last few sleeps cost: how long the
+  machine was in standby, how much battery it used, how much of the time it spent running rather
+  than in low power, and why it woke. Which programs kept it up is not among the figures.
+- #231 The tray can now draw the hours left instead of the percentage, as a fourth choice beside the
+  three digit styles. A machine with no usable estimate draws "?", and ten hours or more draws "9+".
+- #240 Accepting an update again shows a small window while the installer downloads, with the file
+  being fetched and a bar — a moving one where the size is not stated — and it says when the file is
+  being checked rather than leaving a finished bar standing still.
+
 ## 1.60.0
 
 - #226 The What's new window now opens tall enough to show the whole report, with no scroll bar;

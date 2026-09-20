@@ -62,6 +62,10 @@ internal static class UnpublishedSettings
         nameof(AppSettings.LidDelaySavedBatterySleepSeconds),
         nameof(AppSettings.LidDelaySavedBatterySleepScheme),
 
+        // The power plan a network profile displaced. A record of what to put back, not a choice,
+        // and it moves on every arrival and departure.
+        nameof(AppSettings.NetworkSavedPowerPlan),
+
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),
 
@@ -69,7 +73,7 @@ internal static class UnpublishedSettings
         // absent from the MQTT surface, so editing one reaches nothing outside this process.
         nameof(AppSettings.Scripts),
 
-        // The notification sound and the five switches that have no entity. They decide what this
+        // The notification sound and the six switches that have no entity. They decide what this
         // machine shows and plays; the three warnings with entities keep theirs and are not here.
         nameof(AppSettings.NotificationSound),
         nameof(AppSettings.ChargeCompleteNoticeEnabled),
@@ -77,6 +81,8 @@ internal static class UnpublishedSettings
         nameof(AppSettings.SleptWhileHotWarningEnabled),
         nameof(AppSettings.SettingsNotSavedWarningEnabled),
         nameof(AppSettings.ScriptFailedWarningEnabled),
+        nameof(AppSettings.AwakeHoldWarningEnabled),
+        nameof(AppSettings.AwakeHoldWarningHours),
 
         // What the shell held for each tray icon before it was promoted. Restore bookkeeping for
         // PromoteTrayIcons, which is itself published; this is not.

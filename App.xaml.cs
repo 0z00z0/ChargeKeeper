@@ -256,6 +256,12 @@ public partial class App : Application
         PowerLog.Say($"{StandbyCapability.Describe(StandbyCapability.Read())}, " +
                      "asked once at startup, from the OS power capabilities.");
         KeepAwakeService.Start();
+        // Periodic, not live: reading the list starts a console process, which is far too expensive
+        // at any surface's own cadence.
+        AwakeHoldWatch.Start();
+        // Also the crash-recovery point for the power plan: puts back a plan a previous run left
+        // switched for a profile it never got to leave.
+        NetworkProfiles.Start();
         // Also the crash-recovery point: puts the user's own Windows lid-close action back if a
         // previous run died with it still overridden.
         LidDelayService.Start();
@@ -675,6 +681,8 @@ public partial class App : Application
                 AppLog.Error("ReportWake.Read", ex);
             }
 
+            SayWhyItWoke();
+
             if (SleepWatch.Wake(at, levelNow) is { } sentence)
             {
                 PowerLog.Say(sentence);
@@ -687,6 +695,23 @@ public partial class App : Application
                 PowerLog.Say($"{SleepWatch.WakeSentence(gap.Slept, null, levelNow)} Windows sent no " +
                              "matching suspend, so the time away was measured against the clock.");
         });
+    }
+
+    /// <summary>
+    /// Writes what Windows recorded as the cause of this wake. Its own line rather than part of the
+    /// sleep sentence: the two come from different places and either can be missing, and a sentence
+    /// that has to cope with both halves being absent reads as neither.
+    /// </summary>
+    private static void SayWhyItWoke()
+    {
+        try
+        {
+            if (WakeSourceReader.LastWake() is { } wake)
+                PowerLog.Say($"Windows recorded why the machine woke — {WakeSourceReader.Describe(wake)}.");
+            else
+                PowerLog.Say("Windows recorded nothing about why the machine woke.");
+        }
+        catch (Exception ex) { AppLog.Error("ReportWake.WhyItWoke", ex); }
     }
 
     /// <summary>State of charge from a battery report, or null when the report carries no usable
@@ -996,6 +1021,13 @@ public partial class App : Application
     private bool    _lastLowPowerMode;   // Windows Energy Saver active
     private ChargeThresholdState? _lastThresholdState;
 
+    /// <summary>Whole hours left, from the same estimate the tooltip and the dashboard show, floored
+    /// rather than rounded: a reading of 3 must not appear while under three hours are left.</summary>
+    private int? WholeHoursLeft() =>
+        BatteryStatsFormatter.HoursRemaining(_lastRateMw, _lastRemainingMwh, _lastFullMwh) is { } estimate
+            ? (int)Math.Floor(estimate.Hours)
+            : null;
+
     private void UpdateTrayIcon(int pct, PowerState state, PowerFlow? flow)
     {
         // A start-up that failed must never paint a battery reading. The icon is the only thing
@@ -1012,7 +1044,8 @@ public partial class App : Application
         // threshold state is already cached from this tick's ChargeThresholdService.Read.
         var settings = SettingsService.Current;
         var request  = new TrayIconRequest(pct, state, settings.IconMode, _lastThresholdState, flow,
-                                           settings.PercentageIconWanted, settings.PercentageDigitStyle);
+                                           settings.PercentageIconWanted, settings.PercentageDigitStyle,
+                                           WholeHoursLeft());
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -1031,7 +1064,8 @@ public partial class App : Application
         try
         {
             var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.State, request.Mode,
-                                                          request.Threshold, request.Flow, request.DigitStyle);
+                                                          request.Threshold, request.Flow, request.DigitStyle,
+                                                          request.HoursLeft);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
@@ -1095,7 +1129,8 @@ public partial class App : Application
             _percentageIcon = icon;
         }
 
-        var next     = IconGenerator.RenderPercentageIcon(request.Pct, request.State, request.DigitStyle);
+        var next     = IconGenerator.RenderPercentageIcon(request.Pct, request.State, request.DigitStyle,
+                                                          request.HoursLeft);
         var previous = _currentPercentageIcon;
         _percentageIcon.Icon    = next;
         _currentPercentageIcon  = next;

@@ -32,16 +32,30 @@ internal static class BatteryStatsFormatter
     /// nothing to estimate — every caller hides the line rather than showing a placeholder for it.
     /// The label stays static in both windows, so the value must carry the direction or a charging
     /// reading would read as "battery time left".</summary>
-    public static string? FormatTimeRemaining(int? chargeRateMw, int? remainingMwh, int? fullChargeMwh)
+    public static string? FormatTimeRemaining(int? chargeRateMw, int? remainingMwh, int? fullChargeMwh) =>
+        HoursRemaining(chargeRateMw, remainingMwh, fullChargeMwh) is { } estimate
+            ? FormatHours(estimate.Hours, estimate.Charging)
+            : null;
+
+    /// <summary>
+    /// The estimate behind the REMAINING line: hours until full while charging, hours until empty
+    /// while discharging, with the direction, and null where there is nothing to estimate. Separate
+    /// from the formatting because the tray's hours-left digits draw the number rather than the
+    /// sentence, and a second calculation of the same thing would drift from this one.
+    /// </summary>
+    internal static (double Hours, bool Charging)? HoursRemaining(
+        int? chargeRateMw, int? remainingMwh, int? fullChargeMwh)
     {
         if (chargeRateMw is not { } rate || PowerFlows.From(rate) is null or PowerFlow.Rest) return null;
         if (remainingMwh is not { } remaining) return null;
 
         if (rate > 0)
-            return HoursToFull(rate, remainingMwh, fullChargeMwh) is { } h
-                ? FormatHours(h, chargingDirection: true) : null;
+            return HoursToFull(rate, remainingMwh, fullChargeMwh) is { } h ? (h, true) : null;
         if (rate < 0)
-            return FormatHours(remaining / (double)Math.Abs(rate), chargingDirection: false);
+        {
+            double h = remaining / (double)Math.Abs(rate);
+            return h > 0 && !double.IsInfinity(h) && !double.IsNaN(h) ? (h, false) : null;
+        }
         return null;
     }
 

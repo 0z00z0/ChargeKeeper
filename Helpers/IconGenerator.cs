@@ -155,9 +155,9 @@ internal static class IconGenerator
     internal static System.Drawing.Icon RenderBatteryIcon(
         int percent, PowerState state, TrayIconMode mode = TrayIconMode.Arc,
         ChargeThresholdState? threshold = null, PowerFlow? flow = null,
-        TrayDigitStyle digits = TrayDigitStyle.Standard)
+        TrayDigitStyle digits = TrayDigitStyle.Standard, int? hoursLeft = null)
     {
-        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow, digits);
+        Bitmap Render(int size) => RenderStyleBitmap(size, percent, state, mode, threshold, flow, digits, hoursLeft);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -169,9 +169,9 @@ internal static class IconGenerator
     /// tray-slot size. Draws exactly what <see cref="TrayIconMode.Numeric"/> draws, so the two can
     /// never disagree about the same number.</summary>
     internal static System.Drawing.Icon RenderPercentageIcon(
-        int percent, PowerState state, TrayDigitStyle digits = TrayDigitStyle.Standard)
+        int percent, PowerState state, TrayDigitStyle digits = TrayDigitStyle.Standard, int? hoursLeft = null)
     {
-        Bitmap Render(int size) => RenderPercentageBitmap(size, percent, state, digits);
+        Bitmap Render(int size) => RenderPercentageBitmap(size, percent, state, digits, hoursLeft);
 
         using var ms = new MemoryStream();
         WriteIco(ms, Render, [CurrentTraySlotSize()]);
@@ -200,14 +200,15 @@ internal static class IconGenerator
     /// live tray slot happens to be.</summary>
     internal static Bitmap RenderStyleBitmap(int size, int percent, PowerState state, TrayIconMode mode,
                                              ChargeThresholdState? threshold = null, PowerFlow? flow = null,
-                                             TrayDigitStyle digits = TrayDigitStyle.Standard) =>
+                                             TrayDigitStyle digits = TrayDigitStyle.Standard,
+                                             int? hoursLeft = null) =>
         mode switch
         {
             // Only the arc carries the flow mark. Numeric's frame is already spent on the digits, and
             // every placement tried clipped them at 16 px. The brand mark's payload IS its interior
             // fill band, and the moat that keeps the mark legible erases the band it sits on. Both
             // keep the power state in their colour, as before.
-            TrayIconMode.Numeric   => RenderPercentageBitmap(size, percent, state, digits),
+            TrayIconMode.Numeric   => RenderPercentageBitmap(size, percent, state, digits, hoursLeft),
             TrayIconMode.BrandMark => RenderMarkBitmap(size, percent, FillFor(percent, state), threshold,
                                                       TraySlotHeights),
             _                      => RenderBatteryBitmap(size, percent, state, threshold, flow),
@@ -227,9 +228,12 @@ internal static class IconGenerator
     /// <paramref name="digits"/> selects. Public so the second, display-only tray icon draws the
     /// same thing as the numeric style rather than a copy.</summary>
     internal static Bitmap RenderPercentageBitmap(int size, int percent, PowerState state,
-                                                  TrayDigitStyle digits = TrayDigitStyle.Standard)
+                                                  TrayDigitStyle digits = TrayDigitStyle.Standard,
+                                                  int? hoursLeft = null)
     {
-        string label   = percent > 0 ? $"{percent}" : "?";
+        string label   = digits == TrayDigitStyle.HoursRemaining
+                             ? HoursLabel(hoursLeft)
+                             : percent > 0 ? $"{percent}" : "?";
         var    metrics = MetricsFor(digits);
         Color  fill    = FillFor(percent, state);
         var    contrast = CurrentContrast();
@@ -240,6 +244,20 @@ internal static class IconGenerator
             ? RenderCellDigits(size, label, metrics, fill, contrast)
             : RenderFullBleedDigits(size, label, metrics, fill, contrast);
     }
+
+    /// <summary>
+    /// What the hours-left style draws for a whole number of hours. One glyph wherever it can be:
+    /// two digits at 16 px are condensed to read at all, and the hours reading is worth least
+    /// precisely where it is largest. So ten hours or more draws "9+" — a ceiling that is visibly a
+    /// ceiling rather than a wrong number — and no estimate draws the same "?" the percentage does.
+    /// </summary>
+    internal static string HoursLabel(int? hoursLeft) => hoursLeft switch
+    {
+        null       => "?",
+        < 0        => "?",
+        >= 10      => "9+",
+        { } hours  => hours.ToString(System.Globalization.CultureInfo.CurrentCulture),
+    };
 
     /// <summary>How far the digits are allowed past the top and bottom of the frame, as a fraction
     /// of it. The reading is what the icon is for, so the numerals are sized to the frame and

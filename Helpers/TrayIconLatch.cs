@@ -17,10 +17,14 @@ namespace ChargeKeeper.Helpers;
 /// <param name="DigitStyle">How the digits are drawn wherever the tray shows a reading as a number.
 /// Part of the key for the same reason the mode is: it redraws the icon at an unchanged level, and
 /// it is the only thing that repaints on a style change — the setting reaches no other surface.</param>
+/// <param name="HoursLeft">Whole hours until empty, or until full while charging, and null where
+/// there is nothing to estimate. The digit styles are typography for a value handed to them, so the
+/// hours-left style needs the value carried here: leaving it out draws the first reading for ever,
+/// because nothing else in the key moves when only the hours do.</param>
 internal readonly record struct TrayIconRequest(
     int Pct, PowerState State, TrayIconMode Mode, ChargeThresholdState? Threshold,
     PowerFlow? Flow = null, bool Percentage = false,
-    TrayDigitStyle DigitStyle = TrayDigitStyle.Standard);
+    TrayDigitStyle DigitStyle = TrayDigitStyle.Standard, int? HoursLeft = null);
 
 /// <summary>
 /// What the tray icon is actually showing, committed by the repaint itself rather than by the

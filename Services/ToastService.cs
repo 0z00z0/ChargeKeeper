@@ -121,6 +121,15 @@ internal static class ToastService
         TryShow(NotificationKind.ScriptFailed, null, "Script failed",
                 ScriptMessages.FailureNotice(script, reason));
 
+    /// <summary>
+    /// Said once per hold, and not again until that holder lets go: a program that has held the
+    /// machine awake for hours is one fact, not one per reading.
+    /// </summary>
+    public static void NotifyAwakeHold(string holder, TimeSpan held) =>
+        TryShow(NotificationKind.AwakeHold, null, "Something is keeping this computer awake",
+                $"{holder} has been asking Windows to stay awake for {SleepWatch.Duration(held)}. "
+              + "The dashboard lists everything holding the machine awake.");
+
     public static void Cleanup()
     {
         try

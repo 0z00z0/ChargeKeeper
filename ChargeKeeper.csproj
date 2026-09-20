@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>1.60.0</Version>
+    <Version>1.61.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -239,6 +239,10 @@
          no longer part of the runtime on .NET Core/5+ — PerformanceCounter was forwarded out to this
          package. -->
     <PackageReference Include="System.Diagnostics.PerformanceCounter" />
+    <!-- Services/WakeSourceReader and Services/StandbySessionReader: the System event log is what
+         records why the machine woke and what each modern-standby session cost, and
+         System.Diagnostics.Eventing.Reader was forwarded out to this package. -->
+    <PackageReference Include="System.Diagnostics.EventLog" />
     <PackageReference Include="System.ServiceProcess.ServiceController" />
     <PackageReference Include="TaskScheduler" />
     <!-- WindowExtensions.CenterOnScreen on the Settings window; NOT WindowEx or PersistenceId (the

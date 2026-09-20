@@ -596,6 +596,35 @@
                                 Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
+
+            <!-- A reading, not a control: no switch and no chevron, so it carries none of the
+                 expand/collapse machinery the four cards above do. -->
+            <Border x:Name="PowerActivityBadge"
+                    CornerRadius="6"
+                    Padding="10,5">
+                <StackPanel Spacing="1">
+                    <TextBlock Text="Power activity" Style="{StaticResource DashboardHeaderStyle}">
+                        <ToolTipService.ToolTip>
+                            <ToolTip>
+                                <StackPanel MaxWidth="280" Spacing="6">
+                                    <TextBlock Text="What Windows says about staying awake and waking up."
+                                               FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                                               Text="The list of programs holding the machine awake is taken every few minutes, not live: reading it starts a console process."/>
+                                </StackPanel>
+                            </ToolTip>
+                        </ToolTipService.ToolTip>
+                    </TextBlock>
+                    <!-- Live readings, set in code rather than written here. -->
+                    <TextBlock x:Name="AwakeHoldsText"
+                               TextWrapping="Wrap" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="LastWakeText"
+                               TextWrapping="Wrap" FontSize="12"
+                               Margin="0,2,0,0"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
     </Grid>

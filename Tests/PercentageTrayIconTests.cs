@@ -257,9 +257,15 @@ public class PercentageTrayIconTests
     {
         // The settings document stores the member name, so a renamed or reordered member resets every
         // installation's chosen style. "Staggered" is a label; ClockCells is what is on disk.
-        Assert.Equal(["Standard", "Cropped", "ClockCells"], Enum.GetNames<TrayDigitStyle>());
-        Assert.Equal(["\"Standard\"", "\"Cropped\"", "\"ClockCells\""],
+        Assert.Equal(["Standard", "Cropped", "ClockCells", "HoursRemaining"], Enum.GetNames<TrayDigitStyle>());
+        Assert.Equal(["\"Standard\"", "\"Cropped\"", "\"ClockCells\"", "\"HoursRemaining\""],
                      Enum.GetValues<TrayDigitStyle>().Select(s => System.Text.Json.JsonSerializer.Serialize(s)));
+
+        // The three that were there before keep their positions: the Settings page casts the box's
+        // index to this enum, so a member that moved would silently pick a different style.
+        Assert.Equal(0, (int)TrayDigitStyle.Standard);
+        Assert.Equal(1, (int)TrayDigitStyle.Cropped);
+        Assert.Equal(2, (int)TrayDigitStyle.ClockCells);
     }
 
     [Fact]
@@ -276,7 +282,7 @@ public class PercentageTrayIconTests
                          .Select(m => m.Groups["label"].Value);
 
         var labels = Enum.GetValues<TrayDigitStyle>().Select(TrayDigitStyleLabels.For).ToArray();
-        Assert.Equal(["Standard", "Cropped", "Staggered"], labels);
+        Assert.Equal(["Standard", "Cropped", "Staggered", "Hours left"], labels);
         Assert.Equal(labels, combo);
     }
 

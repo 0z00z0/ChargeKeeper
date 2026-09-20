@@ -60,6 +60,10 @@ internal sealed partial class SettingsWindow : Window
     private NetworkLocation _profileRowLocation;
     private IReadOnlyList<BridgePeer> _profileRowAdapters = [];
     private IReadOnlyList<string> _profileRowPresets = [];
+
+    // Read from Windows rather than listed here: many Windows 11 machines expose Balanced alone,
+    // and a machine can carry plans somebody made.
+    private IReadOnlyList<(Guid Id, string Name)> _profileRowPowerPlans = [];
     private int _winningProfileRow = -1;
 
     public SettingsWindow(TrayMenu menu, Services.MqttPublisher? mqtt)
@@ -557,6 +561,10 @@ internal sealed partial class SettingsWindow : Window
         [("60 %", 60), ("70 %", 70), ("75 %", 75), ("80 %", 80), ("85 %", 85), ("90 %", 90), ("95 %", 95)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
+    // Hours a stranger's keep-awake hold may last before it is worth saying. Nothing under one
+    // hour: a hold that short is a video or a build, which is the feature working rather than news.
+    private static readonly (string Label, int Value)[] AwakeHoldHoursPresets =
+        [("1 hour", 1), ("2 hours", 2), ("4 hours", 4), ("8 hours", 8), ("12 hours", 12), ("24 hours", 24)];
 
     /// <summary>Populates a preset-picker and selects the item matching <paramref name="current"/>.
     /// A stored value that is not one of the presets becomes a custom entry rather than being
@@ -849,8 +857,14 @@ internal sealed partial class SettingsWindow : Window
                 ?? NotificationSoundCombo.Items[0];
             NotificationSoundPreviewButton.IsEnabled = NotificationSounds.HasOwnRecording(s.NotificationSound);
 
+            AwakeHoldToggle.IsOn = s.AwakeHoldWarningEnabled;
+            LoadPresetCombo(AwakeHoldHoursCombo, AwakeHoldHoursPresets,
+                            s.AwakeHoldWarningHours ?? AwakeHoldPolicy.DefaultWarnAfterHours,
+                            v => $"{v} hours");
+            AwakeHoldHoursCombo.IsEnabled = s.AwakeHoldWarningEnabled;
+
             foreach (var toggle in new[] { ChargeCompleteToggle, ChargingStartedToggle, SleptWhileHotToggle,
-                                           SettingsNotSavedToggle, ScriptFailedToggle })
+                                           SettingsNotSavedToggle, ScriptFailedToggle, AwakeHoldToggle })
                 toggle.IsOn = NotificationSwitches.IsOn(s, Enum.Parse<NotificationKind>((string)toggle.Tag));
         });
     }
@@ -861,6 +875,7 @@ internal sealed partial class SettingsWindow : Window
         var  kind = Enum.Parse<NotificationKind>(tag);
         bool on   = toggle.IsOn;
         SettingsService.Update(s => NotificationSwitches.Set(s, kind, on));
+        if (kind == NotificationKind.AwakeHold) AwakeHoldHoursCombo.IsEnabled = on;
     }
 
     private void OnNotificationSoundChanged(object sender, SelectionChangedEventArgs e)
@@ -909,6 +924,9 @@ internal sealed partial class SettingsWindow : Window
 
     private void OnDrainPctPerHourChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(DrainPctPerHourCombo, (s, v) => s.DrainAnomalyPercentPerHour = v);
+
+    private void OnAwakeHoldHoursChanged(object sender, SelectionChangedEventArgs e)
+        => CommitPresetCombo(AwakeHoldHoursCombo, (s, v) => s.AwakeHoldWarningHours = v);
 
     private void LoadSmartCharge() => RebuildPresetRows();   // also (re)populates UnknownPresetCombo
 
@@ -1330,6 +1348,7 @@ internal sealed partial class SettingsWindow : Window
         _profileRowLocation = NetworkProfiles.CurrentLocation();
         _profileRowAdapters = NetworkLocationService.EnumerateAdapters();
         _profileRowPresets  = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        _profileRowPowerPlans = NativeMethods.PowerPlans();
         _winningProfileRow  = WinningProfileRow(_profileRowLocation);
 
         _networkProfileList.Rebuild();
@@ -1356,7 +1375,7 @@ internal sealed partial class SettingsWindow : Window
 
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRulePresetSummary(rule),
-            new SettingsCard { Header = "Preset", Content = presetCombo },
+            [new SettingsCard { Header = "Preset", Content = presetCombo }],
             () => _keepAwakeProfileList.Rebuild());
 
         presetCombo.SelectionChanged += (_, _) =>
@@ -1399,7 +1418,8 @@ internal sealed partial class SettingsWindow : Window
     /// <param name="rebuildOtherPage">The other page's rebuild, run after a rename: both pages show
     /// the rule's name, and the row being edited keeps its focus rather than being rebuilt under it.</param>
     private PresetRows.Parts BuildNetworkRuleRow(
-        int index, NetworkLocationRule rule, string summary, SettingsCard pageCard, Action rebuildOtherPage)
+        int index, NetworkLocationRule rule, string summary, IReadOnlyList<SettingsCard> pageCards,
+        Action rebuildOtherPage)
     {
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
@@ -1410,7 +1430,7 @@ internal sealed partial class SettingsWindow : Window
             [
                 new SettingsCard { Header = "Name",    Content = nameBox },
                 new SettingsCard { Header = "Matches", Description = DescribeMatchKey(rule, _profileRowLocation, _profileRowAdapters) },
-                pageCard,
+                .. pageCards,
             ],
             CriticalBrush(), deleteLabel: "Delete profile");
 
@@ -1476,6 +1496,7 @@ internal sealed partial class SettingsWindow : Window
         var location = NetworkProfiles.CurrentLocation();
         NetworkProfiles.ApplyWinner(location);
         KeepAwakeService.ReconcileNetworkHold(location, "a network profile was deleted");
+        NetworkProfiles.ReconcilePowerPlan(location, "a network profile was deleted");
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
@@ -2275,10 +2296,30 @@ internal sealed partial class SettingsWindow : Window
         var rule   = SettingsService.Current.NetworkLocationRules[index];
         var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rule.KeepAwakeHere };
 
+        var planCombo = new ComboBox { MinWidth = 220 };
+        planCombo.Items.Add(LeavePowerPlanText);
+        foreach (var plan in _profileRowPowerPlans) planCombo.Items.Add(plan.Name);
+        planCombo.SelectedIndex = PowerPlanRowIndex(rule.PowerPlan);
+
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRuleKeepAwakeSummary(rule.KeepAwakeHere),
-            new SettingsCard { Header = "Keep awake here", Content = toggle },
+            [
+                new SettingsCard { Header = "Keep awake here", Content = toggle },
+                new SettingsCard
+                {
+                    Header      = "Windows power plan",
+                    Description = PowerPlanCardText,
+                    Content     = planCombo,
+                },
+            ],
             () => _networkProfileList.Rebuild());
+
+        // Attached after the initial selection, so seeding the box cannot commit anything.
+        planCombo.SelectionChanged += (_, _) =>
+        {
+            if (_updating) return;
+            CommitNetworkRulePowerPlan(index, planCombo.SelectedIndex);
+        };
 
         // Attached after the initial IsOn, so seeding the switch cannot commit anything.
         toggle.Toggled += (_, _) =>
@@ -2288,6 +2329,39 @@ internal sealed partial class SettingsWindow : Window
             row.Expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
         };
         return row.Expander;
+    }
+
+    /// <summary>The first entry of every profile's power-plan box: the plan is not this profile's
+    /// business. What a profile written before the choice existed reads as.</summary>
+    private const string LeavePowerPlanText = "Leave as it is";
+
+    private const string PowerPlanCardText =
+        "Switched when this profile matches, and put back when no profile asks for a plan.";
+
+    /// <summary>The position in the box for a stored plan: the "leave as it is" entry for no plan,
+    /// and for one this machine no longer has — a plan that is gone cannot be shown as chosen.</summary>
+    private int PowerPlanRowIndex(string? stored)
+    {
+        if (!Guid.TryParse(stored, out var plan)) return 0;
+        int found = _profileRowPowerPlans.ToList().FindIndex(p => p.Id == plan);
+        return found < 0 ? 0 : found + 1;
+    }
+
+    private void CommitNetworkRulePowerPlan(int index, int rowIndex)
+    {
+        string? plan = rowIndex > 0 && rowIndex - 1 < _profileRowPowerPlans.Count
+            ? _profileRowPowerPlans[rowIndex - 1].Id.ToString()
+            : null;
+
+        SettingsService.Update(s =>
+        {
+            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PowerPlan = plan;
+        });
+
+        // Without this, choosing a plan does nothing until the machine moves network, since the
+        // reconcile only runs on a location change.
+        NetworkProfiles.ReconcilePowerPlan(NetworkProfiles.CurrentLocation(),
+                                           "a network profile's power plan was changed");
     }
 
     private void CommitKeepAwakeHere(int index, bool on)
