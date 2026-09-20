@@ -64,14 +64,10 @@ internal static class UnattendedUpdate
     /// it and no process left to own it; the outcome is reported by the version that starts next
     /// instead. <c>/LOG</c> because nothing else records what an unattended run did.
     /// </summary>
-    internal static IReadOnlyList<string> Arguments(string installerLogPath) =>
-    [
-        "/SILENT",
-        "/SUPPRESSMSGBOXES",
-        "/NORESTART",
-        StartedByApplicationSwitch,
-        $"/LOG={installerLogPath}",
-    ];
+    /// <remarks>One string, because the shared update component hands the command line to Setup as
+    /// it stands. The log path is quoted: a data folder can carry a space.</remarks>
+    internal static string Arguments(string installerLogPath) =>
+        $"/SILENT /SUPPRESSMSGBOXES /NORESTART {StartedByApplicationSwitch} /LOG=\"{installerLogPath}\"";
 
     /// <summary>Records the attempt before Setup is started, so a version that never gets the
     /// chance to write anything is still accounted for. Never throws.</summary>

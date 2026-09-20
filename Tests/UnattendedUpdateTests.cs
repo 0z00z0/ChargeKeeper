@@ -25,7 +25,7 @@ public class UnattendedUpdateTests
         Assert.Contains("/SUPPRESSMSGBOXES", arguments);
         Assert.Contains("/NORESTART", arguments);
         Assert.Contains(UnattendedUpdate.StartedByApplicationSwitch, arguments);
-        Assert.Contains(@"/LOG=C:\log.txt", arguments);
+        Assert.Contains(@"/LOG=""C:\log.txt""", arguments);
     }
 
     [Fact]

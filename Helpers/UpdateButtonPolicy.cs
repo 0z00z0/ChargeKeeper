@@ -1,5 +1,5 @@
-using ChargeKeeper.Services;
 using ZeroZero.Brand.WinUI;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.Helpers;
 
@@ -23,6 +23,8 @@ internal enum UpdateCheckTrigger
 /// What the Check for updates button shows and which outcomes still reach a dialog. Pure, so the
 /// promise that a window opening never raises a dialog is assertable without a display.
 /// </summary>
+/// <remarks>Every check runs under <see cref="UpdateTrigger.Silent"/>, so the shared flow shows
+/// nothing of its own and this is the only rule deciding what appears.</remarks>
 internal static class UpdateButtonPolicy
 {
     internal const string RestLabel     = "Check for updates";
@@ -40,24 +42,24 @@ internal static class UpdateButtonPolicy
 
     /// <summary>The button once a check has ended. A failure has no state of its own and returns the
     /// button to rest.</summary>
-    internal static Look After(UpdateCheckService.CheckOutcome outcome) => outcome.Status switch
+    internal static Look After(UpdateFlowRun run) => run.Result switch
     {
-        UpdateStatus.UpToDate => new(BrandBracketButtonState.Success, UpToDateLabel),
-        UpdateStatus.Available when outcome.LatestVersion is { Length: > 0 } version
+        UpdateFlowResult.UpToDate => new(BrandBracketButtonState.Success, UpToDateLabel),
+        UpdateFlowResult.UpdateAvailable when run.Release?.VersionText is { Length: > 0 } version
             => new(BrandBracketButtonState.Attention, AvailableLabel(version)),
         _ => Rest,
     };
 
     /// <summary>Whether the outcome's message box is shown.</summary>
-    internal static bool ShowsNotice(UpdateStatus status, UpdateCheckTrigger trigger) => trigger switch
+    internal static bool ShowsNotice(UpdateFlowResult result, UpdateCheckTrigger trigger) => trigger switch
     {
         UpdateCheckTrigger.Automatic => false,
-        UpdateCheckTrigger.Button    => status is not (UpdateStatus.UpToDate or UpdateStatus.Available),
-        _                            => status is not UpdateStatus.Available,
+        UpdateCheckTrigger.Button    => result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable),
+        _                            => result is not UpdateFlowResult.UpdateAvailable,
     };
 
     /// <summary>Whether the update dialog opens as soon as the check ends. From a button it opens
     /// only when the button is selected in its update-available state.</summary>
-    internal static bool OpensUpdateDialog(UpdateStatus status, UpdateCheckTrigger trigger) =>
-        trigger == UpdateCheckTrigger.TrayMenu && status == UpdateStatus.Available;
+    internal static bool OpensUpdateDialog(UpdateFlowResult result, UpdateCheckTrigger trigger) =>
+        trigger == UpdateCheckTrigger.TrayMenu && result == UpdateFlowResult.UpdateAvailable;
 }

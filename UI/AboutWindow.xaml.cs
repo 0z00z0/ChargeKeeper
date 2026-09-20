@@ -80,10 +80,12 @@ internal sealed partial class AboutWindow : Window
     /// <summary>The check run each time the window is shown; its outcome shows on the button alone.</summary>
     internal void CheckForUpdatesAutomatically() => _updateButton.CheckAutomatically();
 
-    private void HoldOpenAround(Action showDialog)
+    // Awaited rather than called: the offer and the download behind it are one asynchronous run, and
+    // releasing the hold at the first await would let the window dismiss out from under its dialog.
+    private async Task HoldOpenAround(Func<Task> showDialog)
     {
         _dialogOpen = true;
-        try { showDialog(); }
+        try { await showDialog(); }
         finally { _dialogOpen = false; }
     }
 

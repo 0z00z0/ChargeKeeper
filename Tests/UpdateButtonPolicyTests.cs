@@ -1,7 +1,8 @@
 using ChargeKeeper.Helpers;
-using ChargeKeeper.Services;
 using Xunit;
 using ZeroZero.Brand.WinUI;
+using ZeroZero.Update;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.Tests;
 
@@ -12,54 +13,50 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class UpdateButtonPolicyTests
 {
-    // By name: the status type is internal and a public test method cannot take it as a parameter.
-    public static TheoryData<string> EveryStatus()
+    public static TheoryData<UpdateFlowResult> EveryResult()
     {
-        var data = new TheoryData<string>();
-        foreach (string name in Enum.GetNames<UpdateStatus>()) data.Add(name);
+        var data = new TheoryData<UpdateFlowResult>();
+        foreach (var result in Enum.GetValues<UpdateFlowResult>()) data.Add(result);
         return data;
     }
 
     [Theory]
-    [MemberData(nameof(EveryStatus))]
-    public void AnAutomaticCheckNeverOpensADialog(string statusName)
+    [MemberData(nameof(EveryResult))]
+    public void AnAutomaticCheckNeverOpensADialog(UpdateFlowResult result)
     {
-        var status = Enum.Parse<UpdateStatus>(statusName);
-        Assert.False(UpdateButtonPolicy.ShowsNotice(status, UpdateCheckTrigger.Automatic));
-        Assert.False(UpdateButtonPolicy.OpensUpdateDialog(status, UpdateCheckTrigger.Automatic));
+        Assert.False(UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.Automatic));
+        Assert.False(UpdateButtonPolicy.OpensUpdateDialog(result, UpdateCheckTrigger.Automatic));
     }
 
     [Theory]
-    [MemberData(nameof(EveryStatus))]
-    public void TheButtonReportsOnlyAFailureInADialog(string statusName)
+    [MemberData(nameof(EveryResult))]
+    public void TheButtonReportsOnlyAFailureInADialog(UpdateFlowResult result)
     {
-        var status = Enum.Parse<UpdateStatus>(statusName);
-        bool failure = status is not (UpdateStatus.UpToDate or UpdateStatus.Available);
-        Assert.Equal(failure, UpdateButtonPolicy.ShowsNotice(status, UpdateCheckTrigger.Button));
-        Assert.False(UpdateButtonPolicy.OpensUpdateDialog(status, UpdateCheckTrigger.Button));
+        bool failure = result is not (UpdateFlowResult.UpToDate or UpdateFlowResult.UpdateAvailable);
+        Assert.Equal(failure, UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.Button));
+        Assert.False(UpdateButtonPolicy.OpensUpdateDialog(result, UpdateCheckTrigger.Button));
     }
 
     [Theory]
-    [MemberData(nameof(EveryStatus))]
-    public void TheTrayMenuReportsEveryOutcomeInADialog(string statusName)
+    [MemberData(nameof(EveryResult))]
+    public void TheTrayMenuReportsEveryOutcomeInADialog(UpdateFlowResult result)
     {
-        var status = Enum.Parse<UpdateStatus>(statusName);
-        bool available = status == UpdateStatus.Available;
-        Assert.Equal(available,  UpdateButtonPolicy.OpensUpdateDialog(status, UpdateCheckTrigger.TrayMenu));
-        Assert.Equal(!available, UpdateButtonPolicy.ShowsNotice(status, UpdateCheckTrigger.TrayMenu));
+        bool available = result == UpdateFlowResult.UpdateAvailable;
+        Assert.Equal(available,  UpdateButtonPolicy.OpensUpdateDialog(result, UpdateCheckTrigger.TrayMenu));
+        Assert.Equal(!available, UpdateButtonPolicy.ShowsNotice(result, UpdateCheckTrigger.TrayMenu));
     }
 
     [Fact]
     public void TheButtonShowsTheOutcome()
     {
-        var upToDate  = UpdateCheckService.CheckOutcome.Release(false, "1.0.0", "1.0.0", "https://example.invalid", null, null);
-        var available = UpdateCheckService.CheckOutcome.Release(true, "9.9.9", "1.0.0", "https://example.invalid", null, null);
+        var release = new ReleaseInfo("v9.9.9", new Version(9, 9, 9), "9.9.9", "ChargeKeeper v9.9.9",
+                                      "", new Uri("https://example.invalid"), null, []);
 
         Assert.Equal(new UpdateButtonPolicy.Look(BrandBracketButtonState.Success, "Up to date"),
-                     UpdateButtonPolicy.After(upToDate));
+                     UpdateButtonPolicy.After(new UpdateFlowRun(UpdateFlowResult.UpToDate)));
         Assert.Equal(new UpdateButtonPolicy.Look(BrandBracketButtonState.Attention, "Update to 9.9.9"),
-                     UpdateButtonPolicy.After(available));
+                     UpdateButtonPolicy.After(new UpdateFlowRun(UpdateFlowResult.UpdateAvailable, Release: release)));
         Assert.Equal(new UpdateButtonPolicy.Look(BrandBracketButtonState.Rest, "Check for updates"),
-                     UpdateButtonPolicy.After(UpdateCheckService.CheckOutcome.NetworkUnavailable()));
+                     UpdateButtonPolicy.After(new UpdateFlowRun(UpdateFlowResult.CheckFailed)));
     }
 }

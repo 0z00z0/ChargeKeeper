@@ -21,6 +21,8 @@
     <PackageVersion Include="ZeroZero.Lifecycle" Version="0.7.1" />
     <PackageVersion Include="ZeroZero.Mqtt.WinUI" Version="0.7.3" />
     <PackageVersion Include="ZeroZero.Tray" Version="0.7.0" />
+    <PackageVersion Include="ZeroZero.Update" Version="0.9.0" />
+    <PackageVersion Include="ZeroZero.Update.Win32" Version="0.9.0" />
   </ItemGroup>
 
   <ItemGroup>

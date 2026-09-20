@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using ChargeKeeper.Helpers;
 using ChargeKeeper.Services;
 using ZeroZero.Brand.WinUI;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.UI;
 
@@ -15,19 +16,20 @@ internal sealed class UpdateCheckButtonController
     private readonly BrandBracketButton _button;
     private readonly TrayMenu _menu;
 
-    /// <summary>Wraps the update dialog, for a host that must stay open while it is up.</summary>
-    private readonly Action<Action> _aroundDialog;
+    /// <summary>Wraps the update dialog, for a host that must stay open while it is up. Awaited, so
+    /// the hold lasts as long as the offer and the download behind it.</summary>
+    private readonly Func<Func<Task>, Task> _aroundDialog;
 
     // The check the button currently reflects. A newer one replaces it, and a stale result is dropped.
-    private Task<UpdateCheckService.CheckOutcome>? _following;
+    private Task<UpdateFlowRun>? _following;
 
-    // The outcome behind the update-available state, offered as it stands when the button is selected.
-    private UpdateCheckService.CheckOutcome? _available;
+    // The run behind the update-available state, offered as it stands when the button is selected.
+    private UpdateFlowRun? _available;
 
     private bool _detached;
 
     internal UpdateCheckButtonController(BrandBracketButton button, TrayMenu menu,
-                                         Action<Action>? aroundDialog = null)
+                                         Func<Func<Task>, Task>? aroundDialog = null)
     {
         _button       = button;
         _menu         = menu;
@@ -53,7 +55,7 @@ internal sealed class UpdateCheckButtonController
         _menu.UpdateChecks.CheckStarted -= OnCheckStarted;
     }
 
-    private void OnCheckStarted(Task<UpdateCheckService.CheckOutcome> check) => Follow(check);
+    private void OnCheckStarted(Task<UpdateFlowRun> check) => Follow(check);
 
     private void OnClick()
     {
@@ -64,10 +66,10 @@ internal sealed class UpdateCheckButtonController
                 case BrandBracketButtonState.Busy:
                     return;
 
-                case BrandBracketButtonState.Attention when _available is { } outcome:
+                case BrandBracketButtonState.Attention when _available is { } run:
                     _available = null;
                     Show(UpdateButtonPolicy.Rest);
-                    _aroundDialog(() => _menu.OfferUpdate(outcome));
+                    _ = OfferAsync(run);
                     return;
 
                 default:
@@ -81,6 +83,12 @@ internal sealed class UpdateCheckButtonController
         }
     }
 
+    private async Task OfferAsync(UpdateFlowRun run)
+    {
+        try { await _aroundDialog(() => _menu.OfferUpdate(run)); }
+        catch (Exception ex) { AppLog.Error("UpdateCheckButtonController.Offer", ex); }
+    }
+
     private void OnStateChanged(DependencyObject sender, DependencyProperty property)
     {
         if (_button.State == BrandBracketButtonState.Rest && _button.Label != UpdateButtonPolicy.RestLabel)
@@ -88,7 +96,7 @@ internal sealed class UpdateCheckButtonController
     }
 
     // async void: an event and click continuation with nothing to return to. Every path is caught.
-    private async void Follow(Task<UpdateCheckService.CheckOutcome> check)
+    private async void Follow(Task<UpdateFlowRun> check)
     {
         try
         {
@@ -99,11 +107,11 @@ internal sealed class UpdateCheckButtonController
             _available = null;
             Show(UpdateButtonPolicy.Checking);
 
-            var outcome = await check;
+            var run = await check;
             if (_detached || !ReferenceEquals(check, _following)) return;
 
-            _available = outcome.Status == UpdateStatus.Available ? outcome : null;
-            Show(UpdateButtonPolicy.After(outcome));
+            _available = run.Result == UpdateFlowResult.UpdateAvailable ? run : null;
+            Show(UpdateButtonPolicy.After(run));
         }
         catch (Exception ex)
         {

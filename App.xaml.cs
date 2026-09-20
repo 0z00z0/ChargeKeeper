@@ -7,6 +7,8 @@ using ChargeKeeper.Services;
 using ChargeKeeper.UI;
 using ZeroZero.Diagnostics;
 using ZeroZero.Lifecycle;
+using ZeroZero.Update;
+using ZeroZero.Update.Win32;
 using ZeroZero.Win32;
 
 namespace ChargeKeeper;
@@ -1405,29 +1407,37 @@ public partial class App : Application
     /// <summary>How often the background check re-asks GitHub after the first one.</summary>
     internal static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(24);
 
+    /// <summary>Delayed so the first check does not slow the cold-start path.</summary>
+    private static readonly TimeSpan FirstUpdateCheckDelay = TimeSpan.FromSeconds(30);
+
+    // Held for the life of the process: this is the whole background update mechanism, so a machine
+    // left signed in has to keep checking.
+    private UpdateScheduler? _updateScheduler;
+
     private void ScheduleUpdateCheck()
     {
-        // Delayed 30 s so the check doesn't slow the cold-start path, then repeated daily: this is
-        // the whole background update mechanism, so a machine left signed in has to keep checking.
-        // The async lambda is what makes the inner CheckAsync awaited — ContinueWith would return
-        // Task<Task> and orphan the request.
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            while (true)
-            {
-                await UpdateCheckService.Shared.CheckAsync(version =>
-                {
-                    _updateAvailableVersion = version;
-                    // Pass the cached capacities: nulls here would drop the "remaining" line and
-                    // latch the shortened text into _lastTooltip.
-                    UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
-                    RunOnUi(() => _menu?.SetUpdateBadge(version));
-                }).ConfigureAwait(false);
+        _updateScheduler = new UpdateScheduler(
+            FirstUpdateCheckDelay, UpdateCheckInterval, CheckForUpdatesInBackground, new AppLogSink());
+        _updateScheduler.Start();
+    }
 
-                await Task.Delay(UpdateCheckInterval).ConfigureAwait(false);
-            }
-        });
+    /// <summary>One background check, joined with whatever a surface has running. Silent: the badge
+    /// and the tooltip are the only places its outcome appears.</summary>
+    private async Task CheckForUpdatesInBackground(CancellationToken cancellationToken)
+    {
+        // The menu is built after this is scheduled, so the first tick can arrive before it exists.
+        if (_menu is not { } menu) return;
+
+        var run = await menu.UpdateChecks.Run().ConfigureAwait(false);
+        if (run.Result != UpdateFlowResult.UpdateAvailable ||
+            run.Release?.VersionText is not { Length: > 0 } version)
+            return;
+
+        _updateAvailableVersion = version;
+        // Pass the cached capacities: nulls here would drop the "remaining" line and latch the
+        // shortened text into _lastTooltip.
+        UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
+        RunOnUi(() => _menu?.SetUpdateBadge(version));
     }
 
     // A tray click that lands while the popup is open first deactivates it, so guard against

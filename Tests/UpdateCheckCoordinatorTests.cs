@@ -1,5 +1,6 @@
 using ChargeKeeper.Services;
 using Xunit;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.Tests;
 
@@ -10,14 +11,13 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class UpdateCheckCoordinatorTests
 {
-    private static UpdateCheckService.CheckOutcome UpToDate() =>
-        UpdateCheckService.CheckOutcome.Release(false, "1.0.0", "1.0.0", "https://example.invalid", null, null);
+    private static UpdateFlowRun UpToDate() => new(UpdateFlowResult.UpToDate);
 
     [Fact]
     public async Task TwoRequestsWhileACheckRuns_ShareOneCheck()
     {
         int checks = 0;
-        var answer = new TaskCompletionSource<UpdateCheckService.CheckOutcome>();
+        var answer = new TaskCompletionSource<UpdateFlowRun>();
         var coordinator = new UpdateCheckCoordinator(() => { checks++; return answer.Task; });
 
         var first  = coordinator.Run();
@@ -27,8 +27,8 @@ public class UpdateCheckCoordinatorTests
         Assert.Equal(1, checks);
 
         answer.SetResult(UpToDate());
-        Assert.Equal(UpdateStatus.UpToDate, (await first).Status);
-        Assert.Equal(UpdateStatus.UpToDate, (await second).Status);
+        Assert.Equal(UpdateFlowResult.UpToDate, (await first).Result);
+        Assert.Equal(UpdateFlowResult.UpToDate, (await second).Result);
     }
 
     [Fact]
@@ -46,8 +46,8 @@ public class UpdateCheckCoordinatorTests
     [Fact]
     public async Task EveryCheckAnnouncesItselfOnce()
     {
-        var started = new List<Task<UpdateCheckService.CheckOutcome>>();
-        var answer  = new TaskCompletionSource<UpdateCheckService.CheckOutcome>();
+        var started = new List<Task<UpdateFlowRun>>();
+        var answer  = new TaskCompletionSource<UpdateFlowRun>();
         var coordinator = new UpdateCheckCoordinator(() => answer.Task);
         coordinator.CheckStarted += started.Add;
 

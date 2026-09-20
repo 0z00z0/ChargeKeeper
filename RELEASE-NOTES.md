@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 1.60.0
+
+- #226 The What's new window now opens tall enough to show the whole report, with no scroll bar;
+  before, it opened at its smallest height with the text cut off.
+- #232 Checking for and installing an update now runs on the studio's shared update components.
+  Nothing changes in use: the same button, the same wording on it, the same offer to install, and
+  the same rule about which check may interrupt with a dialog and which may not.
+
 ## 1.59.1
 
 - #225 The About window now opens tall enough to show the whole card and Check for updates under
