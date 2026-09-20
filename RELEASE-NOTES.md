@@ -9,6 +9,24 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.0.0
+
+ChargeKeeper now reaches beyond the battery: a focus session can block the network and dim the
+screen for a chosen stretch of time, armed and timed from Home Assistant, and the screen's own
+brightness can be read and set from there too.
+
+- #241 A focus session can now be armed from Home Assistant for a chosen number of minutes, with
+  two independent levers: blocking every network connection but the MQTT broker, and dimming the
+  screen to nothing. Nothing on the machine itself can end one early — only Home Assistant's
+  staged cancel, or the timer running out, can — and the tray icon and menu show that one is
+  running.
+- #242 The screen's brightness can now be read and set from Home Assistant, with a button that
+  puts it back to what it was. A machine whose display does not support this says so on its
+  Settings page instead of showing controls that would do nothing.
+- #243 A network profile no longer offers a Windows power plan to switch to. The setting gave
+  nothing on a machine exposing only one plan, so it and its restore-on-exit are gone; the battery
+  sleep park it shared none of its code with is untouched.
+
 ## 1.61.0
 
 - #237 A network profile can now switch the Windows power plan as well as the charge preset: pick a
