@@ -28,6 +28,7 @@ internal readonly record struct SurfaceState(
     int FocusSessionMinutes,
     bool FocusBlocksNetwork,
     bool FocusDimsScreen,
+    bool FocusCoversScreen,
     bool LowBatteryWarning,
     int LowBatteryLevel,
     bool HighBatteryWarning,
@@ -138,10 +139,11 @@ internal static class SurfaceReader
             // than a countdown of zero.
             FocusRemainingMinutes:  MinutesUntil(focus.EndsAt, now),
             FocusSessionMinutes:    s.FocusSessionMinutes,
-            // A running session reports the levers it actually owns; with none running the two read
-            // the defaults the next session would start from.
+            // A running session reports the levers it actually owns; with none running the three
+            // read the defaults the next session would start from.
             FocusBlocksNetwork:     focus.IsRunning ? focus.BlocksNetwork : s.FocusBlocksNetwork,
             FocusDimsScreen:        focus.IsRunning ? focus.DimsScreen : s.FocusDimsScreen,
+            FocusCoversScreen:      focus.IsRunning ? focus.CoversScreen : s.FocusCoversScreen,
             LowBatteryWarning:      s.LowBatteryWarningEnabled,
             LowBatteryLevel:        s.LowBatteryWarningPct,
             HighBatteryWarning:     s.HighBatteryWarningEnabled,

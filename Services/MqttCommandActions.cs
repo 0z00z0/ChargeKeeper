@@ -63,6 +63,10 @@ internal interface ISettingsActions
     /// runs.</summary>
     void SetFocusDimsScreen(bool on);
 
+    /// <summary>The default the next session's cover lever starts from. Refused while a session
+    /// runs.</summary>
+    void SetFocusCoversScreen(bool on);
+
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
     void SetHighBatteryWarning(bool on);
@@ -259,6 +263,9 @@ internal sealed class SettingsActions : ISettingsActions
 
     public void SetFocusDimsScreen(bool on) => WriteUnlessSessionRunning(
         s => s.FocusDimsScreen = on, "which lever dims the screen");
+
+    public void SetFocusCoversScreen(bool on) => WriteUnlessSessionRunning(
+        s => s.FocusCoversScreen = on, "which lever covers the screen");
 
     /// <summary>A lever choice, refused while a session runs. Turning one off part-way through would
     /// either restore normal access while the session still claims to be running, or leave that

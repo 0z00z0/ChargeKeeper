@@ -16,6 +16,7 @@ public class DashboardBadgeLayoutTests
     private static readonly string[] DetailLines =
     [
         "SmartChargeDetailText", "SmartStandbyDetailText", "LidDelayDetailText", "KeepAwakeDetailText",
+        "FocusDetailText",
     ];
 
     /// <summary>The markup of one element, from its x:Name to the end of its tag.</summary>
@@ -35,6 +36,7 @@ public class DashboardBadgeLayoutTests
     [InlineData("SmartStandbyDetailText")]
     [InlineData("LidDelayDetailText")]
     [InlineData("KeepAwakeDetailText")]
+    [InlineData("FocusDetailText")]
     public void EveryBadgeDescriptionConstrainsItsOwnWidth(string name)
     {
         // Width alone never fixes this: a long enough string overflows whatever the window measures
@@ -56,8 +58,8 @@ public class DashboardBadgeLayoutTests
     [Fact]
     public void TheBadgeDescriptionsAreTheOnlyOnesThisRuleCovers()
     {
-        // A fifth badge added without a description line would otherwise pass by never being looked
-        // at, since the theory above only names the four that exist.
+        // A further badge added without a description line would otherwise pass by never being
+        // looked at, since the theory above only names the ones that exist.
         int declared = Regex.Matches(DashboardMarkup(), @"x:Name=""\w+DetailText""").Count;
         Assert.Equal(DetailLines.Length, declared);
     }

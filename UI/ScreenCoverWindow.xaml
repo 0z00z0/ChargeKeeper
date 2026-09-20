@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="ChargeKeeper.UI.ScreenCoverWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:ChargeKeeper.UI"
+    mc:Ignorable="d">
+
+    <!-- No backdrop and no theme brush: the point of this window is that it is black, so the colour
+         is a literal rather than anything that could resolve to a translucent or lighter value. -->
+    <Grid Background="#FF000000">
+
+        <!-- The panel is sized in device-independent units and scaled as one, so it is the same
+             physical size at 100 % and at 200 %. DownOnly: it shrinks to fit a short or narrow
+             display and never grows to fill a wide one, which keeps it centred and proportional on
+             a 3:2 panel and on a 16:9 one alike. The margin is what stops it touching the edge on
+             the smallest screen it can land on. -->
+        <Viewbox x:Name="Reveal"
+                 Stretch="Uniform"
+                 StretchDirection="DownOnly"
+                 Margin="48"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 Visibility="Collapsed">
+            <StackPanel Width="460" Spacing="28" HorizontalAlignment="Center">
+
+                <!-- The gauge the dashboard draws, at the same clock-face start and sweep, built
+                     from the shared arc. Stroke widths are declared here in the same units as the
+                     canvas, so they scale with the panel instead of staying fixed pixels. -->
+                <Grid Width="220" Height="220" HorizontalAlignment="Center">
+                    <Canvas Width="220" Height="220">
+                        <Path x:Name="RingTrack"
+                              Stroke="#28FFFFFF"
+                              StrokeThickness="14"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Canvas.Left="0" Canvas.Top="0"/>
+                        <Path x:Name="RingFill"
+                              StrokeThickness="14"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Canvas.Left="0" Canvas.Top="0"/>
+                    </Canvas>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="-6">
+                        <TextBlock x:Name="MinutesText"
+                                   Text="--"
+                                   FontSize="62"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   Foreground="#FFFFFFFF"/>
+                        <TextBlock Text="MIN LEFT"
+                                   FontSize="15"
+                                   CharacterSpacing="120"
+                                   HorizontalAlignment="Center"
+                                   Foreground="#B4FFFFFF"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Pure white on pure black: the highest contrast the surface can carry, which is
+                     what keeps this readable when the brightness lever has taken the panel to its
+                     floor. Nothing here writes a brightness. -->
+                <TextBlock Text="Focus session in progress"
+                           FontSize="34"
+                           FontWeight="Bold"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           HorizontalAlignment="Center"
+                           Foreground="#FFFFFFFF"/>
+
+                <TextBlock x:Name="LeversText"
+                           FontSize="16"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           HorizontalAlignment="Center"
+                           Foreground="#B4FFFFFF"/>
+
+                <TextBlock Text="It ends by itself. Nothing on this computer can end it early."
+                           FontSize="15"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           HorizontalAlignment="Center"
+                           Foreground="#8CFFFFFF"/>
+            </StackPanel>
+        </Viewbox>
+    </Grid>
+</Window>

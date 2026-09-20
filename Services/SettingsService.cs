@@ -287,6 +287,19 @@ internal sealed class AppSettings
     /// <see cref="FocusBlocksNetwork"/>.</summary>
     public bool FocusDimsScreen { get; set; } = true;
 
+    /// <summary>Whether the next focus session covers every display with a black window. The same
+    /// default-only rule as <see cref="FocusBlocksNetwork"/>. Dimming to the panel's floor still
+    /// leaves enough glow to read by, which is what this lever answers.</summary>
+    public bool FocusCoversScreen { get; set; } = true;
+
+    /// <summary>Whether the dashboard offers a control that starts a session. It never offers one
+    /// that ends a session, whatever this holds: nothing on the machine ends one.</summary>
+    public bool FocusStartFromDashboard { get; set; } = true;
+
+    /// <summary>When the running focus session was armed. Only the cover's countdown ring reads it,
+    /// to know what a full ring means; nothing about ending a session depends on it.</summary>
+    public DateTimeOffset? FocusSessionStartedAt { get; set; }
+
     /// <summary>When the running focus session ends, or null when none is running. The session is
     /// defined by this instant rather than by a countdown, so a machine switched off mid-session
     /// still ends it — at the next start if the instant has already passed.</summary>
@@ -296,6 +309,7 @@ internal sealed class AppSettings
     /// Meaningless without <see cref="FocusSessionEndsAt"/>.</summary>
     public bool FocusSessionBlockedNetwork { get; set; }
     public bool FocusSessionDimmedScreen { get; set; }
+    public bool FocusSessionCoveredScreen { get; set; }
 
     /// <summary>The firewall profile settings displaced by a network block, saved before anything
     /// changes so a crash cannot lose them. Null means nothing is displaced.</summary>

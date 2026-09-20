@@ -30,6 +30,9 @@ internal static class FocusSessionService
         new FocusScreenLever(() => ScreenBrightnessService.IsSupported,
                              ScreenBrightnessService.Set,
                              ScreenBrightnessService.Restore),
+        new FocusCoverLever(() => ScreenCoverService.HasDisplay,
+                            ScreenCoverService.Show,
+                            ScreenCoverService.Hide),
         new SettingsFocusSessionRecord(),
         () => DateTimeOffset.Now,
         (what, cause) => PowerLog.Event(what, cause));
@@ -69,13 +72,16 @@ internal static class FocusSessionService
         _timer = new Timer(_ => Tick(), null, TickInterval, TickInterval);
     }
 
-    /// <summary>Starts a session from the defaults the settings hold. The duration and the two lever
-    /// choices are whatever was last left in them.</summary>
-    public static FocusArmOutcome Arm(string cause)
+    /// <summary>Starts a session from the defaults the settings hold. The three lever choices are
+    /// whatever was last left in them; the duration is <paramref name="minutes"/> where a surface
+    /// asked for one, and the stored default otherwise.</summary>
+    /// <param name="minutes">The duration chosen in the dashboard's start box. Null from Home
+    /// Assistant, which sets the duration through its own number instead.</param>
+    public static FocusArmOutcome Arm(string cause, int? minutes = null)
     {
-        var (minutes, network, screen) = SettingsService.Read(
-            s => (s.FocusSessionMinutes, s.FocusBlocksNetwork, s.FocusDimsScreen));
-        return _engine.Arm(minutes, network, screen, cause);
+        var (stored, network, screen, cover) = SettingsService.Read(
+            s => (s.FocusSessionMinutes, s.FocusBlocksNetwork, s.FocusDimsScreen, s.FocusCoversScreen));
+        return _engine.Arm(FocusStartRequest.Minutes(minutes, stored), network, screen, cover, cause);
     }
 
     public static void RequestCancel(string cause) => _engine.RequestCancel(cause);
@@ -89,6 +95,10 @@ internal static class FocusSessionService
         SettingsService.Reloaded -= KeepRecords;
         _timer?.Dispose();
         _timer = null;
+        // The cover is a window and dies with the process anyway; taking it down here keeps the
+        // shutdown ordered rather than relying on that. The session itself is untouched — its record
+        // stays on disk and the next start resumes or ends it.
+        ScreenCoverService.Hide("the application is closing");
     }
 
     private static void Tick()
@@ -102,6 +112,17 @@ internal static class FocusSessionService
         _engine.KeepRecord();
         _firewall.KeepRecord();
     }
+}
+
+/// <summary>What duration a start request runs for. Its own type because two surfaces ask for a
+/// session and only one of them names a duration.</summary>
+internal static class FocusStartRequest
+{
+    /// <summary>The duration to use: the one chosen in the dashboard's start box where there is one,
+    /// the stored default otherwise, and never outside the range a session accepts.</summary>
+    internal static int Minutes(int? chosen, int storedDefault) =>
+        Math.Clamp(chosen ?? storedDefault,
+                   FocusSessionEngine.MinMinutes, FocusSessionEngine.MaxMinutes);
 }
 
 /// <summary>The live broker and resolver addresses the network lever writes its exceptions

@@ -38,8 +38,9 @@ public sealed partial class DashboardWindow : Window
     private const double GaugeCy         = 50;
     // The largest radius that keeps the tick tips inside the canvas: they add 6 beyond it.
     private const double GaugeRadius     = 42;
-    private const double GaugeStartAngle = 135;
-    private const double GaugeSweep      = 270;
+    // Shared with the focus session's countdown ring, so the two read as the same instrument.
+    private const double GaugeStartAngle = RingGeometry.StartAngle;
+    private const double GaugeSweep      = RingGeometry.Sweep;
 
     // The border toggled onto an off badge once BadgeInactiveBrush lost its tint, and the absence of
     // one on an active/costly badge — kept pixel-identical to before that change.
@@ -143,7 +144,7 @@ public sealed partial class DashboardWindow : Window
         BrandMarkImage.Attach(BrandMark);
 
         // Track arc never changes — build it once here instead of every refresh tick.
-        GaugeTrack.Data = BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
+        GaugeTrack.Data = RingGeometry.Arc(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep);
 
         // From the shared palette, so "charge limit" is the same brush here and in the history graph.
         GaugeStartTick.Stroke = AppColors.HistoryLimitBrush;
@@ -379,9 +380,49 @@ public sealed partial class DashboardWindow : Window
         // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
         ApplyLidBadge();
 
+        ApplyFocusBadge();
+
         ApplyPowerActivityBadge();
 
         BeginVendorRead();
+    }
+
+    /// <summary>
+    /// The focus session as this window shows it: what it is doing and how long it has left, with a
+    /// Start button only where Settings allows one.
+    /// </summary>
+    /// <remarks>There is no control here that ends a session, and adding one would defeat the
+    /// feature. Ending is Home Assistant's, after the five-minute wait and the second request.</remarks>
+    private void ApplyFocusBadge()
+    {
+        var session = FocusSessionService.Current;
+        bool running = session.IsRunning;
+
+        FocusDetailText.Text = running
+            ? FocusSessionStages.Detail(session, DateTimeOffset.Now)
+            : "Not running.";
+
+        FocusBadge.Background     = running ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
+        FocusBadge.BorderBrush    = running ? null : AppColors.BadgeBorderBrush;
+        FocusBadge.BorderThickness = running ? NoBorder : BadgeBorder;
+
+        FocusStartButton.Visibility =
+            !running && SettingsService.Current.FocusStartFromDashboard
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    /// <summary>Opens the start box. The dashboard closes behind it, as it does for every other
+    /// window opened from here.</summary>
+    private void OnFocusStartButton(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var box = new FocusStartWindow(_app, Refresh);
+            box.Activate();
+            HideWindow();
+        }
+        catch (Exception ex) { AppLog.Error("DashboardWindow.OnFocusStartButton", ex); }
     }
 
     private void OnAwakeHoldsUpdated() => RunOnUi(ApplyPowerActivityBadge);
@@ -1512,7 +1553,7 @@ public sealed partial class DashboardWindow : Window
     {
         // Track geometry is constant and set in the constructor — only fill changes here.
         GaugeFill.Data = percent > 0
-            ? BuildArcGeometry(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep * percent / 100.0)
+            ? RingGeometry.Arc(GaugeCx, GaugeCy, GaugeRadius, GaugeStartAngle, GaugeSweep * percent / 100.0)
             : null;
 
         _gaugeFillBrush.Color = AppColors.FromPacked(GaugePalette.FillFor(percent, state));
@@ -1532,32 +1573,4 @@ public sealed partial class DashboardWindow : Window
         };
     }
 
-    /// <summary>Circular-arc geometry; angles follow clock-face convention (0° = 12 o'clock, clockwise).</summary>
-    private static Geometry BuildArcGeometry(
-        double cx, double cy, double r, double startDeg, double sweepDeg)
-    {
-        // A full 360° arc is degenerate in SVG/XAML — cap slightly below.
-        sweepDeg = Math.Min(sweepDeg, 359.99);
-
-        // Rotate reference frame: clock-face 0° maps to math 270° (i.e. subtract 90°).
-        double startRad = (startDeg - 90) * Math.PI / 180;
-        double endRad   = (startDeg + sweepDeg - 90) * Math.PI / 180;
-
-        var startPt = new Point(cx + r * Math.Cos(startRad), cy + r * Math.Sin(startRad));
-        var endPt   = new Point(cx + r * Math.Cos(endRad),   cy + r * Math.Sin(endRad));
-
-        var figure = new PathFigure { StartPoint = startPt, IsClosed = false };
-        figure.Segments.Add(new ArcSegment
-        {
-            Point          = endPt,
-            Size           = new Size(r, r),
-            IsLargeArc     = sweepDeg > 180,
-            SweepDirection = SweepDirection.Clockwise,
-            RotationAngle  = 0
-        });
-
-        var geo = new PathGeometry();
-        geo.Figures.Add(figure);
-        return geo;
-    }
 }

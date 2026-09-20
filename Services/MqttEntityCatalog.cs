@@ -36,7 +36,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: sixty-three entities, their groups, their capability gates and
+/// ChargeKeeper's published surface: sixty-four entities, their groups, their capability gates and
 /// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -91,6 +91,7 @@ internal static class MqttEntityCatalog
     public const string FocusSessionMinutes      = "focus_session_minutes";
     public const string FocusSessionBlocksNetwork = "focus_session_blocks_network";
     public const string FocusSessionDimsScreen   = "focus_session_dims_screen";
+    public const string FocusSessionCoversScreen = "focus_session_covers_screen";
     public const string FocusSessionState        = "focus_session_state";
     public const string FocusSessionRemaining    = "focus_session_remaining";
 
@@ -551,8 +552,9 @@ internal static class MqttEntityCatalog
             },
 
             // ── Focus session ────────────────────────────────────────────────────────────────────
-            // The only way in and out. Nothing on the machine arms or ends a session, so these six
-            // are the whole of the feature's control surface.
+            // The only way out. Nothing on the machine ends a session; the dashboard's start box
+            // can begin one, so these seven are the whole of the feature's remote surface and the
+            // only surface that ends one.
             new MqttSwitch
             {
                 // On arms a session; off asks to cancel one, which opens the staged wait rather than
@@ -595,6 +597,18 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().ScreenBrightness,
                 Read = () => surface()?.FocusDimsScreen,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusDimsScreen(on)),
+            },
+            new MqttSwitch
+            {
+                // Not gated on the display: a window goes over any panel, whether or not that panel
+                // accepts a brightness. Dimming to the floor still leaves enough glow to read by,
+                // which is what this lever answers.
+                EntityId = FocusSessionCoversScreen, Name = "Focus session covers screen",
+                Group = MqttPublishGroups.Focus,
+                Category = MqttEntityCategory.Config, Icon = "mdi:monitor-off",
+                Debounce = MqttConnection.ReflectDebounce,
+                Read = () => surface()?.FocusCoversScreen,
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusCoversScreen(on)),
             },
             MqttEnumSensor.Of(
                 FocusSessionState, "Focus session state", MqttPublishGroups.Focus,

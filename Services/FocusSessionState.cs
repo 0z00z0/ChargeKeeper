@@ -44,17 +44,21 @@ internal static class FocusSessionStages
 
     /// <summary>The session in one line, for the tray menu and the Settings page. Both say the same
     /// thing, and neither offers anything to act on: nothing local ends a session.</summary>
-    public static string Describe(FocusSnapshot session, DateTimeOffset now)
+    public static string Describe(FocusSnapshot session, DateTimeOffset now) =>
+        session.IsRunning ? $"Focus session: {Detail(session, now)}" : "No focus session is running.";
+
+    /// <summary>The same line without its subject, for a surface whose heading already names the
+    /// session — the dashboard's own row. One composition, so the two can never disagree.</summary>
+    public static string Detail(FocusSnapshot session, DateTimeOffset now)
     {
-        if (!session.IsRunning) return "No focus session is running.";
+        if (!session.IsRunning) return "not running";
 
         int minutes = SurfaceReader.MinutesUntil(session.EndsAt, now) ?? 0;
-        string levers = (session.BlocksNetwork, session.DimsScreen) switch
-        {
-            (true, true)  => "network blocked, screen dimmed",
-            (true, false) => "network blocked",
-            _             => "screen dimmed",
-        };
+        var levers = new List<string>(3);
+        if (session.BlocksNetwork) levers.Add("network blocked");
+        if (session.DimsScreen)    levers.Add("screen dimmed");
+        if (session.CoversScreen)  levers.Add("screen covered");
+
         string stage = session.Stage switch
         {
             FocusSessionStage.Ending  => ", cancel asked for",
@@ -62,18 +66,22 @@ internal static class FocusSessionStages
             _                         => "",
         };
 
-        return $"Focus session: {minutes} min left — {levers}{stage}";
+        return $"{minutes} min left — {string.Join(", ", levers)}{stage}";
     }
 }
 
 /// <summary>The session as the published surface and the tray report it. Composed under the
 /// engine's own lock, so the stage and the levers cannot disagree.</summary>
+/// <param name="StartedAt">Null when no session is running. When the session was armed — the
+/// reference a full countdown ring is drawn against, and nothing else.</param>
 /// <param name="EndsAt">Null when no session is running. The instant the session ends, never a
 /// countdown: the system clock keeps time whether or not the machine is awake to watch it.</param>
 internal readonly record struct FocusSnapshot(
-    FocusSessionStage Stage, DateTimeOffset? EndsAt, bool BlocksNetwork, bool DimsScreen)
+    FocusSessionStage Stage, DateTimeOffset? StartedAt, DateTimeOffset? EndsAt,
+    bool BlocksNetwork, bool DimsScreen, bool CoversScreen)
 {
-    public static readonly FocusSnapshot None = new(FocusSessionStage.Off, null, false, false);
+    public static readonly FocusSnapshot None =
+        new(FocusSessionStage.Off, null, null, false, false, false);
 
     public bool IsRunning => Stage != FocusSessionStage.Off;
 }

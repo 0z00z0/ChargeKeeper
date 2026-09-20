@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the sixty-three entity ids, the component each is announced
+/// The published surface as a declaration: the sixty-four entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -122,6 +122,8 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:lan-disconnect"),
         new(MqttEntityCatalog.FocusSessionDimsScreen, "switch", "Focus session dims screen",
             MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:brightness-2"),
+        new(MqttEntityCatalog.FocusSessionCoversScreen, "switch", "Focus session covers screen",
+            MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:monitor-off"),
         new(MqttEntityCatalog.FocusSessionState, "sensor", "Focus session state",
             MqttPublishGroups.Focus, MqttEntityCategory.Diagnostic,
             Icon: "mdi:progress-clock", DeviceClass: "enum"),
@@ -201,13 +203,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheSixtyThreeEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheSixtyFourEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsTwentySixSensorsSixteenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
+    public void TheEntityMix_IsTwentySixSensorsSeventeenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -216,7 +218,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 26, ["switch"] = 16, ["number"] = 11,
+                ["sensor"] = 26, ["switch"] = 17, ["number"] = 11,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
@@ -356,6 +358,7 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.ScreenBrightness, MqttEntityCatalog.ScreenBrightnessRestore,
             MqttEntityCatalog.FocusSession, MqttEntityCatalog.FocusSessionMinutes,
             MqttEntityCatalog.FocusSessionBlocksNetwork, MqttEntityCatalog.FocusSessionDimsScreen,
+            MqttEntityCatalog.FocusSessionCoversScreen,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
             MqttEntityCatalog.DrainWarning, MqttEntityCatalog.DrainRate,
@@ -540,6 +543,7 @@ public class MqttEntityCatalogTests
                                                or MqttEntityCatalog.FocusSessionMinutes
                                                or MqttEntityCatalog.FocusSessionBlocksNetwork
                                                or MqttEntityCatalog.FocusSessionDimsScreen
+                                               or MqttEntityCatalog.FocusSessionCoversScreen
                                                or MqttEntityCatalog.FocusSessionState
                                                or MqttEntityCatalog.FocusSessionRemaining
                                                or MqttEntityCatalog.LastChange

@@ -67,10 +67,15 @@ internal static class UnpublishedSettings
         nameof(AppSettings.ScreenSavedBrightness),
 
         // The firewall state a focus session's network block displaced. A record of what to put
-        // back, not a choice, and nothing published reads it. The session's own end time and the two
-        // levers it owns are NOT here: they move the state reading, the countdown and both lever
-        // switches.
+        // back, not a choice, and nothing published reads it. The session's own end time and the
+        // three levers it owns are NOT here: they move the state reading, the countdown and all
+        // three lever switches.
         nameof(AppSettings.FocusSavedFirewall),
+
+        // Whether the dashboard offers a control that starts a session. Decides how one window
+        // draws, like the graph settings above — deliberately absent from the MQTT surface, which
+        // is the surface that arms a session in the first place.
+        nameof(AppSettings.FocusStartFromDashboard),
 
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),

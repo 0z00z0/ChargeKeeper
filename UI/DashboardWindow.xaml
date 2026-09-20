@@ -597,6 +597,61 @@
                 </StackPanel>
             </Border>
 
+            <!-- A reading with one control, and the control only ever starts a session. No toggle
+                 switch, deliberately: a switch says it can be turned off, and nothing on this
+                 computer ends a focus session. No chevron either, so none of the expand/collapse
+                 machinery the four cards above carry. -->
+            <Border x:Name="FocusBadge"
+                    CornerRadius="6"
+                    Padding="10,5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                        <TextBlock Text="Focus session"
+                                   Style="{StaticResource DashboardHeaderStyle}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip>
+                                    <StackPanel MaxWidth="280" Spacing="6">
+                                        <TextBlock Text="A fixed stretch of time with the distractions taken away, ended only by its own clock or by Home Assistant."
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
+                                            A session can block every network connection except the one back to Home Assistant, dim the screen, and cover every screen with a black window. Which of the three it uses is chosen in Home Assistant. Start opens a box that sets the length; once a session is running nothing on this computer can end it, and Home Assistant ends it early only after a five-minute wait and a second request.
+                                        </TextBlock>
+                                    </StackPanel>
+                                </ToolTip>
+                            </ToolTipService.ToolTip>
+                        </TextBlock>
+                        <!-- Wrapping and trimming for the same reason as the badges above: the line
+                             sits in a star column beside a button and would otherwise run on
+                             underneath it. -->
+                        <TextBlock x:Name="FocusDetailText"
+                                   Text="—"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   MaxLines="2"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <!-- Shown only while Settings allows starting from here and no session is
+                         running. There is no matching control for ending one, and there never is. -->
+                    <Button Grid.Column="1"
+                            x:Name="FocusStartButton"
+                            Style="{StaticResource TimeScaleButtonStyle}"
+                            Content="Start"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed"
+                            ToolTipService.ToolTip="Choose a length and start a focus session"
+                            AutomationProperties.Name="Start a focus session"
+                            Click="OnFocusStartButton"/>
+                </Grid>
+            </Border>
+
             <!-- A reading, not a control: no switch and no chevron, so it carries none of the
                  expand/collapse machinery the four cards above do. -->
             <Border x:Name="PowerActivityBadge"

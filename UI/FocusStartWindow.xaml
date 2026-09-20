@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="ChargeKeeper.UI.FocusStartWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:ChargeKeeper.UI"
+    mc:Ignorable="d">
+
+    <!-- Same chrome as the other frameless popups reached from the tray and the dashboard. -->
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid KeyboardAcceleratorPlacementMode="Hidden">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked"/>
+        </Grid.KeyboardAccelerators>
+
+        <!-- A scroller so a work area shorter than the box still shows all of it. The content is
+             kept short enough that it does not scroll on the smallest screen this runs on; the
+             scroller is the floor, not the plan. -->
+        <ScrollViewer x:Name="ContentScroller" Padding="20" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="Content" Spacing="14">
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Start a focus session"
+                               FontSize="15" FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    <Button Grid.Column="1"
+                            x:Name="FocusSettingsButton"
+                            Style="{StaticResource TimeScaleButtonStyle}"
+                            Width="28" Height="28" Padding="0"
+                            VerticalAlignment="Center"
+                            ToolTipService.ToolTip="Open the focus session page in Settings"
+                            AutomationProperties.Name="Focus session settings"
+                            Click="OnFocusSettingsButton">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" FontSize="14"/>
+                    </Button>
+                </Grid>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="LENGTH" Style="{StaticResource StatLabelStyle}"/>
+                    <ComboBox x:Name="MinutesCombo" HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="Session length"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="WHAT IT DOES" Style="{StaticResource StatLabelStyle}"/>
+                    <!-- Read-only. Which levers a session uses is chosen from Home Assistant, one
+                         switch per lever; this box changes the length and nothing else. -->
+                    <StackPanel x:Name="LeverRows" Spacing="2"/>
+                </StackPanel>
+
+                <TextBlock Text="Once it starts, nothing on this computer can end it. Home Assistant ends it early, after a five-minute wait and a second request."
+                           FontSize="11"
+                           TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <TextBlock x:Name="RefusalText"
+                           FontSize="11"
+                           TextWrapping="Wrap"
+                           Visibility="Collapsed"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" x:Name="CancelButton"
+                            Content="Cancel"
+                            HorizontalAlignment="Stretch"
+                            Click="OnCancelButton"/>
+                    <Button Grid.Column="1" x:Name="StartButton"
+                            Content="Start"
+                            Style="{StaticResource AccentButtonStyle}"
+                            HorizontalAlignment="Stretch"
+                            Click="OnStartButton"/>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

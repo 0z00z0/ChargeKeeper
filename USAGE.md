@@ -166,11 +166,12 @@ future option).
 
 ### Focus session
 
-A focus session is a machine-wide pause on distraction. It is started and ended from Home Assistant
-and it runs for however many minutes it was given. **Nothing on the computer itself ends one** —
-that is the point of the feature, not an omission.
+A focus session is a machine-wide pause on distraction. It runs for however many minutes it was
+given, and it is **ended from Home Assistant alone** — nothing on the computer itself ends one, which
+is the point of the feature and not an omission. Starting one is easier: Home Assistant arms a
+session, and so does the dashboard, where a Start button opens a box that sets the length.
 
-A session uses up to two levers, each chosen before it starts:
+A session uses up to three levers, each chosen before it starts:
 
 - **Block the network.** Every firewall profile's default outbound action goes to Block and every
   one refuses unsolicited inbound, with two narrow exceptions left open: the MQTT broker, and the
@@ -179,9 +180,24 @@ A session uses up to two levers, each chosen before it starts:
   Automatic sweeps several candidate ports and an exception covering all of them is not a narrow one.
 - **Dim the screen.** The same brightness mechanism the Screen page and the `Screen brightness`
   entity use, so the level in force before the dim is remembered and put back at the end.
+- **Cover the screen.** A black window over every attached display, above everything else on the
+  desktop, including a full-screen program. It cannot be clicked, keyed or switched away from, and
+  it follows a display being plugged in, unplugged or moved while a session runs. The keyboard and
+  the mouse go on working, so a program already running carries on — the cover takes the screen and
+  nothing else. Touching the machine brings up, for a few seconds, a line saying a session is
+  running and a ring counting down the time left; then it goes black again. The panel is white on
+  black so it stays readable when the screen has also been dimmed, and nothing about the cover
+  changes the brightness.
 
-A session with neither lever chosen is refused rather than armed, and neither lever can be changed
-while a session is running.
+A session with no lever chosen is refused rather than armed, and no lever can be changed while a
+session is running.
+
+**Starting one from the dashboard.** The dashboard's **Focus session** row says what a session is
+doing and how long it has left. While none is running — and while **Start a session from the
+dashboard** is on, on the Settings **Focus session** page — it also carries a Start button. The box
+that opens sets the length and shows the three levers as they stand; the levers themselves are
+chosen in Home Assistant, and the button beside the heading opens the Settings focus page. There is
+no matching control for ending a session, on the dashboard or anywhere else on the computer.
 
 **Ending one early is staged.** Switching the session off in Home Assistant opens a five-minute
 wait; a second request in the ten seconds after that wait ends the session. Missing that window
@@ -189,14 +205,15 @@ leaves the session running to its original end time, and asking again starts the
 Repeating the request during the wait changes nothing. The `Focus session state` reading moves Off →
 Active → Ending → Confirm so a dashboard can show which stage it is in.
 
-**What a session survives.** The end time is written to `settings.json` before either lever moves,
-so a crash, a restart, an update that replaces the program, and the computer being switched off all
-leave the session intact. A session whose end time has already passed when the application next
-starts is lifted there and then — both levers go back and the block comes off.
+**What a session survives.** The end time is written to `settings.json` before any lever moves, so a
+crash, a restart, an update that replaces the program, and the computer being switched off all leave
+the session intact. A session whose end time has already passed when the application next starts is
+lifted there and then — every lever goes back and the block comes off. The cover is a window, so it
+dies with the program and is put back up only if the session it belonged to is still running.
 
 **What it looks like on the computer.** The tray icon carries a small corner badge, the tray menu
-names the session in a line of text, and the Settings window's **Focus session** page shows the same.
-None of the three offers anything to press.
+names the session in a line of text, and the dashboard's focus row and the Settings window's **Focus
+session** page show the same. None of them offers anything that ends a session.
 
 #### If you are stuck
 
@@ -211,6 +228,9 @@ The block is ordinary Windows Firewall settings, so it can always be removed by 
    whatever it was before (**Block** is the Windows default, and **Block all connections** is what a
    session sets).
 4. Turn the screen back up from the Windows brightness slider, or from ChargeKeeper's **Screen** page.
+5. The black cover cannot be removed by hand while ChargeKeeper runs. Exiting ChargeKeeper from its
+   tray icon takes it down, and starting ChargeKeeper again puts it back only while the session it
+   belongs to is still inside its end time.
 
 Doing this by hand does not end the session's own timer: the session still reports as running until
 its end time passes. Nothing puts the block back — a session that resumes after a restart leaves the

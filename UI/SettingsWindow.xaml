@@ -410,8 +410,31 @@
                                     MaxWidth="320" TextTrimming="CharacterEllipsis"/>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="Length"
+                                            Description="How long the next session runs. A session's length is fixed when it starts, so changing this while one runs changes the next one only.">
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <ComboBox x:Name="FocusMinutesCombo" MinWidth="110"
+                                      SelectionChanged="OnFocusMinutesChanged"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <!-- Read-only on purpose. Which levers a session uses is chosen per session from
+                         Home Assistant; this says what the next one would use, and the start box on
+                         the dashboard shows the same three the same way. -->
+                    <controls:SettingsCard Header="What the next session does"
+                                            Description="Chosen from Home Assistant, one switch per lever, and locked for the length of a session once it starts.">
+                        <TextBlock x:Name="FocusLeversValue" VerticalAlignment="Center"
+                                    MaxWidth="320" TextWrapping="Wrap"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Start a session from the dashboard"
+                                            Description="Adds a Start button to the dashboard's focus row. It only starts a session — ending one still needs Home Assistant, and still takes the five-minute wait and the second request.">
+                        <ToggleSwitch x:Name="FocusStartFromDashboardToggle" OnContent="" OffContent=""
+                                      MinWidth="0" Toggled="OnFocusStartFromDashboardToggled"/>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="If you are stuck"
-                                            Description="Windows Defender Firewall with Advanced Security lists two rules called &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;. Deleting both, then setting each profile's outbound and inbound actions back to Allow, ends the block. The screen goes back up from the Windows brightness slider or from the Screen page. USAGE.md sets it out step by step."/>
+                                            Description="Windows Defender Firewall with Advanced Security lists two rules called &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;. Deleting both, then setting each profile's outbound and inbound actions back to Allow, ends the block. The screen goes back up from the Windows brightness slider or from the Screen page, and the black cover goes when the session does. USAGE.md sets it out step by step."/>
                 </StackPanel>
 
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">

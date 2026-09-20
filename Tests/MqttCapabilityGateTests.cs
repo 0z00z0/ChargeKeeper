@@ -36,7 +36,7 @@ public class MqttCapabilityGateTests
 
     [Fact]
     public void OnHardwareWithNumericThresholds_EveryEntityIsAnnounced() =>
-        Assert.Equal(63, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
+        Assert.Equal(64, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
 
     [Fact]
     public void OnHardwareWithNoChargeLimitInterface_NoSmartChargeEntityIsAnnounced()
@@ -87,13 +87,15 @@ public class MqttCapabilityGateTests
         // A slider and a button that reach nothing are worse than no entities at all: the receiver
         // shows a control, the machine ignores it, and nothing says why. The focus session's screen
         // lever is the same control under another name, so it goes with them — while the rest of the
-        // focus session stays, because the network lever still works.
+        // focus session stays, because the network lever still works. The cover lever stays too: a
+        // black window goes over a panel whether or not that panel accepts a brightness.
         var published = Published(WithCapabilities(
             PublishCapabilities.Full with { ScreenBrightness = false }));
 
         Assert.DoesNotContain(MqttEntityCatalog.ScreenBrightness, published);
         Assert.DoesNotContain(MqttEntityCatalog.ScreenBrightnessRestore, published);
         Assert.DoesNotContain(MqttEntityCatalog.FocusSessionDimsScreen, published);
+        Assert.Contains(MqttEntityCatalog.FocusSessionCoversScreen, published);
         Assert.Contains(MqttEntityCatalog.FocusSession, published);
     }
 

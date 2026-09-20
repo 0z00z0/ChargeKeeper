@@ -396,6 +396,22 @@ internal sealed partial class SettingsWindow : Window
             ShowSection(tag);
     }
 
+    /// <summary>Selects the page whose navigation item carries <paramref name="tag"/>. The
+    /// dashboard's start box uses it so its settings button lands on the focus page rather than on
+    /// whichever page the window was last left on.</summary>
+    internal void ShowPage(string tag)
+    {
+        foreach (object item in Nav.MenuItems)
+            if (item is NavigationViewItem { Tag: string itemTag } nav && itemTag == tag)
+            {
+                // Selection raises OnNavSelectionChanged, which is what shows the panel.
+                Nav.SelectedItem = nav;
+                return;
+            }
+
+        AppLog.Info($"SettingsWindow.ShowPage: no page is tagged {tag}.");
+    }
+
     private void ShowSection(string tag)
     {
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
@@ -723,11 +739,50 @@ internal sealed partial class SettingsWindow : Window
 
     // ── Focus session ───────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Shows what the session is doing. Read-only by design: every control for a session
-    /// lives in Home Assistant, and adding one here would give the keyboard a way out.</summary>
-    private void LoadFocus() =>
-        FocusStatusValue.Text = FocusSessionStages.Describe(FocusSessionService.Current,
-                                                             DateTimeOffset.Now);
+    /// <summary>The lengths offered, from a short stretch to the longest a session may run.</summary>
+    private static readonly (string Label, int Value)[] FocusMinutesPresets =
+    [
+        ("15 min", 15), ("25 min", 25), ("45 min", 45), ("1 hour", 60),
+        ("90 min", 90), ("2 hours", 120), ("3 hours", 180), ("4 hours", 240),
+    ];
+
+    /// <summary>Shows what the session is doing, and the two things that can be decided here. What
+    /// a session does is not among them: the lever switches live in Home Assistant, and nothing on
+    /// this page ends a session.</summary>
+    private void LoadFocus()
+    {
+        var session = FocusSessionService.Current;
+        var s = SettingsService.Current;
+
+        FocusStatusValue.Text = FocusSessionStages.Describe(session, DateTimeOffset.Now);
+
+        var levers = new List<string>(3);
+        if (s.FocusBlocksNetwork) levers.Add("blocks the network");
+        if (s.FocusDimsScreen)    levers.Add("dims the screen");
+        if (s.FocusCoversScreen)  levers.Add("covers every screen with a black window");
+        FocusLeversValue.Text = levers.Count == 0
+            ? "Nothing — a session with no lever chosen is refused rather than armed."
+            : char.ToUpperInvariant(levers[0][0]) + string.Join(", ", levers)[1..] + ".";
+
+        WithUpdatingSuppressed(() =>
+        {
+            LoadPresetCombo(FocusMinutesCombo, FocusMinutesPresets, s.FocusSessionMinutes,
+                            v => $"{v} min");
+            FocusStartFromDashboardToggle.IsOn = s.FocusStartFromDashboard;
+        });
+    }
+
+    private void OnFocusMinutesChanged(object sender, SelectionChangedEventArgs e)
+    {
+        CommitPresetCombo(FocusMinutesCombo, (s, v) => s.FocusSessionMinutes = v);
+        _mqtt?.Republish();
+    }
+
+    private void OnFocusStartFromDashboardToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        SettingsService.Update(s => s.FocusStartFromDashboard = FocusStartFromDashboardToggle.IsOn);
+    }
 
     private void OnScreenRestore(object sender, RoutedEventArgs e)
     {

@@ -9,6 +9,20 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.0.1
+
+A focus session can now take the screen away outright, and one can be started from the dashboard
+without reaching for Home Assistant.
+
+- #244 A focus session has a third lever: covering every attached display with a black window that
+  cannot be clicked or keyed away. Dimming to the panel's floor still left enough glow to read by;
+  this does not. The keyboard and mouse keep working throughout, and touching the machine shows
+  for a few seconds that a session is running, with the battery ring counting the time down. The
+  dashboard gains a focus row showing what a session is doing and how long it has left, with a
+  Start button — switched on from the Settings focus page — that opens a box setting the length.
+  Nothing on the machine ends a session: that is still Home Assistant's, after the five-minute
+  wait and the second request.
+
 ## 2.0.0
 
 ChargeKeeper now reaches beyond the battery: a focus session can block the network and dim the

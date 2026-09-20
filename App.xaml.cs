@@ -324,6 +324,10 @@ public partial class App : Application
             _mqtt?.PublishSurfaceNow();
             RepaintTrayIconFromLastReading();
         };
+        // Before FocusSessionService.Start, which can ask for a cover at once when it resumes a
+        // session the machine was switched off during.
+        ScreenCoverService.Start(_dispatcher ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
+                                 () => FocusSessionService.Current);
         // After the publisher, so the network lever reads the broker the publisher actually uses, and
         // after ScreenBrightnessService.Start, which puts a dimmed display back before a resuming
         // session dims it again and parks the level it finds.
@@ -1658,6 +1662,21 @@ public partial class App : Application
             LogCrash("ShowSettingsWindow", ex);
             _settings = null;   // drop the half-built window so the next click retries cleanly
         }
+    }
+
+    /// <summary>Opens Settings on one named page. The dashboard's focus start box uses it so its
+    /// settings button lands on the focus page and not merely in Settings.</summary>
+    internal async void ShowSettingsWindowOnPage(string tag)
+    {
+        try
+        {
+            ShowSettingsWindow();
+            // ShowSettingsWindow is itself async void and yields before the window exists, so the
+            // same wait has to be made here before the page can be selected.
+            await WindowsReady.ConfigureAwait(true);
+            _settings?.ShowPage(tag);
+        }
+        catch (Exception ex) { LogCrash("ShowSettingsWindowOnPage", ex); }
     }
 
     private void Shutdown()
