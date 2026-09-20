@@ -296,7 +296,7 @@ packages). The only **non-Microsoft** dependencies are:
 ## MQTT
 
 ChargeKeeper can publish its battery, charge and settings surface to an MQTT broker. When enabled it
-connects to your broker and announces a single **ChargeKeeper** device with fifty-five entities — battery
+connects to your broker and announces a single **ChargeKeeper** device with fifty-seven entities — battery
 level and state, charge power, on-AC, battery health and the raw capacities, the system temperature
 and its recommended maximum where a reading is available, the Smart Charge limit
 and preset, Keep Awake, lid handling with both of its sleep conditions, the warning thresholds, the
@@ -364,7 +364,7 @@ The **MQTT module** comes from the same library — `ZeroZero.Mqtt` for the prot
 `ZeroZero.Mqtt.Discovery` for the entity and document layer, and `ZeroZero.Mqtt.WinUI` for the
 settings panel the MQTT page hosts. Only the last of those is referenced: it brings the other two,
 the primitives, the controls, the Win32 numbers and the single-type settings store with it.
-ChargeKeeper supplies the topic root, the fifty-five entity
+ChargeKeeper supplies the topic root, the fifty-seven entity
 declarations, the seven publish groups and the copy saying what it publishes; everything else —
 the endpoint sweep, the encryption model, the retained document, the eviction ledger and every
 protocol sentence in the panel — belongs to the module.

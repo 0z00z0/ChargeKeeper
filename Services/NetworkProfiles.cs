@@ -15,30 +15,6 @@ internal static class NetworkProfiles
     /// </summary>
     public static Action<string>? ApplyPreset { get; set; }
 
-    private static readonly Lock _sync = new();
-    private static bool _started;
-
-    // The Windows power plan a profile asks for, parked and restored the same crash-safe way the
-    // lid-close wait parks the battery sleep timeout.
-    private static readonly PowerPlanPark _powerPlan =
-        new(new WindowsPowerPlanSetting(), new SettingsPowerPlanRecord(),
-            (what, cause) => PowerLog.Event(what, cause));
-
-    /// <summary>Wires the power-plan reaction to the machine moving, and settles the plan for where it
-    /// is now — which is also what puts back a plan a run that ended mid-profile left switched.
-    /// Called once at startup; never unsubscribed, since the subscription lives for the process.</summary>
-    public static void Start()
-    {
-        lock (_sync)
-        {
-            if (_started) return;
-            _started = true;
-        }
-        NetworkLocationService.LocationChanged += location =>
-            ReconcilePowerPlan(location, "the network changed");
-        ReconcilePowerPlan(CurrentLocation(), "starting up");
-    }
-
     /// <summary>
     /// The preset a location gets: the matching profile's, and the unknown-network preset where a
     /// network resolved but matches no profile. No network at all is not an unknown network — it is
@@ -52,27 +28,6 @@ internal static class NetworkProfiles
 
     private static string? Named(string? presetName) =>
         string.IsNullOrWhiteSpace(presetName) ? null : presetName;
-
-    /// <summary>
-    /// The Windows power plan a location gets, or null where nothing asks for one. Unlike the preset
-    /// there is no unknown-network fallback: a network nobody named is not a reason to change what
-    /// the machine is running on.
-    /// </summary>
-    internal static Guid? WinningPowerPlan(AppSettings settings, NetworkLocation location) =>
-        settings.NetworkProfilesEnabled
-        && settings.FindNetworkRule(location) is { PowerPlan: { } plan }
-        && Guid.TryParse(plan, out var wanted)
-            ? wanted
-            : null;
-
-    /// <summary>
-    /// Applies the power plan the profiles ask for at <paramref name="location"/>, or puts back the
-    /// plan they displaced once none of them asks for one — the feature switched off, no profile
-    /// matched, or the matched profile naming no plan. What a rule edit, a rule delete and the
-    /// feature's own switch all need, none of which moves the machine.
-    /// </summary>
-    public static void ReconcilePowerPlan(NetworkLocation location, string cause) =>
-        _powerPlan.Reconcile(WinningPowerPlan(SettingsService.Current, location), cause);
 
     /// <summary>Applies whatever profile wins at <paramref name="location"/>. Nothing happens while
     /// the feature is off, or where the winning name is no longer a preset.</summary>
@@ -99,7 +54,6 @@ internal static class NetworkProfiles
         var location = CurrentLocation();
         if (on) ApplyWinner(location);
         KeepAwakeService.ReconcileNetworkHold(location, cause);
-        ReconcilePowerPlan(location, cause);
     }
 
     /// <summary>The cached reading, falling back to a live one only before the first evaluation has

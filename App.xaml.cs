@@ -259,9 +259,9 @@ public partial class App : Application
         // Periodic, not live: reading the list starts a console process, which is far too expensive
         // at any surface's own cadence.
         AwakeHoldWatch.Start();
-        // Also the crash-recovery point for the power plan: puts back a plan a previous run left
-        // switched for a profile it never got to leave.
-        NetworkProfiles.Start();
+        // The crash-recovery point for the display: puts back a brightness a previous run dimmed and
+        // never restored, which Windows keeps across a restart.
+        ScreenBrightnessService.Start();
         // Also the crash-recovery point: puts the user's own Windows lid-close action back if a
         // previous run died with it still overridden.
         LidDelayService.Start();

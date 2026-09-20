@@ -230,6 +230,7 @@ internal sealed class SettingsStore
             Network       = Bind<SettingsFile.NetworkGroup>(SettingsFile.NetworkKey),
             KeepAwake     = Bind<SettingsFile.KeepAwakeGroup>(SettingsFile.KeepAwakeKey),
             LidClose      = Bind<SettingsFile.LidCloseGroup>(SettingsFile.LidCloseKey),
+            Screen        = Bind<SettingsFile.ScreenGroup>(SettingsFile.ScreenKey),
             Notifications = Bind<SettingsFile.NotificationsGroup>(SettingsFile.NotificationsKey),
             Scripts       = Bind<SettingsFile.ScriptsGroup>(SettingsFile.ScriptsKey),
             Mqtt          = Bind<SettingsFile.MqttGroup>(SettingsFile.MqttKey),
@@ -266,6 +267,7 @@ internal sealed class SettingsStore
         Put(SettingsFile.NetworkKey,       file.Network);
         Put(SettingsFile.KeepAwakeKey,     file.KeepAwake);
         Put(SettingsFile.LidCloseKey,      file.LidClose);
+        Put(SettingsFile.ScreenKey,        file.Screen);
         Put(SettingsFile.NotificationsKey, file.Notifications);
         Put(SettingsFile.ScriptsKey,       file.Scripts);
         Put(SettingsFile.MqttKey,          file.Mqtt);

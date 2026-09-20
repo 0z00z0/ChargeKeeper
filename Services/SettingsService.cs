@@ -269,6 +269,11 @@ internal sealed class AppSettings
 
     public bool KeepAwakeDisplayOn { get; set; } = false;
 
+    /// <summary>The display brightness in force before the first change this application made, so it
+    /// can be put back exactly — including after a run that ended without restoring it. Null means
+    /// nothing is owed back. Written by <see cref="SettingsScreenBrightnessRecord"/> alone.</summary>
+    public int? ScreenSavedBrightness { get; set; }
+
     /// <summary>Never defaulted on: it parks a Windows power setting outside the app for as long as it runs.</summary>
     public bool LidDelayEnabled { get; set; } = false;
 
@@ -379,12 +384,6 @@ internal sealed class AppSettings
     /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
     /// on a network the user simply hasn't named yet.</summary>
     public string? UnknownNetworkPresetName { get; set; }
-
-    /// <summary>The Windows power plan that was running before a network profile first switched it,
-    /// so it can be put back when no profile asks for one — including after a run that ended without
-    /// restoring. Null means no profile holds the plan. Written by
-    /// <see cref="SettingsPowerPlanRecord"/> alone.</summary>
-    public string? NetworkSavedPowerPlan { get; set; }
 
     /// <summary>The single lookup for both the tray status row and the auto-apply, so list order
     /// decides which rule wins in exactly one place.</summary>

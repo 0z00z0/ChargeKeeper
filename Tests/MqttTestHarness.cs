@@ -73,6 +73,8 @@ internal sealed class FakeSettingsActions : ISettingsActions
     public void SetLidDelayOffAfterSleep(bool on) => Calls.Add($"LidDelayOffAfterSleep={on}");
 
     public void SetSmartStandby(bool on) => Calls.Add($"SmartStandby={on}");
+    public void SetScreenBrightness(int percent) => Calls.Add($"ScreenBrightness={percent}");
+    public void RestoreScreenBrightness() => Calls.Add("RestoreScreenBrightness");
     public void SetLowBatteryWarning(bool on) => Calls.Add($"LowBatteryWarning={on}");
     public void SetLowBatteryLevel(int percent) => Calls.Add($"LowBatteryLevel={percent}");
     public void SetHighBatteryWarning(bool on) => Calls.Add($"HighBatteryWarning={on}");
@@ -107,7 +109,8 @@ internal static class MqttTestBed
         bool lidDelay = true, bool lidDelayTime = true, int lidDelayMinutes = 10,
         bool lidDischarge = false, int lidDischargePercent = 50, bool lidDelayLock = true,
         bool lidDelayOffAfterSleep = false,
-        bool smartStandby = false, bool lowBatteryWarning = true, int lowBatteryLevel = 20,
+        bool smartStandby = false, int? screenBrightness = 70,
+        bool lowBatteryWarning = true, int lowBatteryLevel = 20,
         bool highBatteryWarning = false, int highBatteryLevel = 90, bool drainWarning = true,
         int drainRate = 3, bool networkProfiles = true, string? unknownNetworkPreset = null,
         string? networkAlias = "Ethernet", string? networkIp = "10.0.0.5",
@@ -121,7 +124,7 @@ internal static class MqttTestBed
         new(travelOverride, keepAwake, keepAwakeFor, keepAwakeExpires, keepAwakeDisplayOn,
             lidDelay, lidDelayTime, lidDelayMinutes, lidDischarge, lidDischargePercent,
             lidDelayLock, lidDelayOffAfterSleep,
-            smartStandby, lowBatteryWarning, lowBatteryLevel,
+            smartStandby, screenBrightness, lowBatteryWarning, lowBatteryLevel,
             highBatteryWarning, highBatteryLevel, drainWarning, drainRate, networkProfiles,
             unknownNetworkPreset ?? PresetEditValidator.UnknownNetworkSentinel,
             networkAlias, networkIp, networkAdapter, matchedProfile, appVersion, startupDelay,

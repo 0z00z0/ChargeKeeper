@@ -33,7 +33,7 @@ public class KeepAwakeLidCouplingTests
     [Fact]
     public void LidDelayPage_StatesThatAKeepAwakeSessionHoldsOffTheSleep() =>
         Assert.Contains("keep-awake session holding off the sleep",
-                        Page("LidClosePanel", "NotificationsPanel"), StringComparison.Ordinal);
+                        Page("LidClosePanel", "ScreenPanel"), StringComparison.Ordinal);
 
     // DescribeLidEffect
 

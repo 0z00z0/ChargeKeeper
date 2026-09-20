@@ -20,7 +20,7 @@ public class SettingsSectionLayoutTests
     /// <summary>The window's pages, in markup order. A page ends where the next one is declared.</summary>
     private static readonly string[] Pages =
     [
-        "GeneralPanel", "SmartChargePanel", "KeepAwakePanel", "LidClosePanel",
+        "GeneralPanel", "SmartChargePanel", "KeepAwakePanel", "LidClosePanel", "ScreenPanel",
         "NotificationsPanel", "ScriptsPanel", "HomeAssistantPanel", "AppearancePanel", "AppDiagnosticsPanel",
         "AboutPanel",
     ];

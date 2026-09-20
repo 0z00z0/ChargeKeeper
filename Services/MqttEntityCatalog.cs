@@ -36,7 +36,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: fifty-five entities, their groups, their capability gates and
+/// ChargeKeeper's published surface: fifty-seven entities, their groups, their capability gates and
 /// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -83,6 +83,9 @@ internal static class MqttEntityCatalog
     public const string LidDischarge            = "lid_discharge";
     public const string LidDischargePercent     = "lid_discharge_percent";
     public const string SmartStandby            = "smart_standby";
+
+    public const string ScreenBrightness        = "screen_brightness";
+    public const string ScreenBrightnessRestore = "screen_brightness_restore";
 
     public const string LowBatteryWarning  = "low_battery_warning";
     public const string LowBatteryLevel    = "low_battery_level";
@@ -514,6 +517,30 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().SmartStandby,
                 Read = () => surface()?.SmartStandbyRunning,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetSmartStandby(on)),
+            },
+
+            // ── Screen ───────────────────────────────────────────────────────────────────────────
+            // Both uncategorised, so the slider and the button sort together in the receiver's
+            // Controls section with the shorter name immediately above the longer one. Withheld
+            // together on a machine with no display the brightness interface reaches.
+            new MqttNumber
+            {
+                // The state is the level the display reports now, which a function key or Windows
+                // itself can move without this application being told.
+                EntityId = ScreenBrightness, Name = "Screen brightness", Group = MqttPublishGroups.Screen,
+                Unit = "%", Icon = "mdi:brightness-6",
+                Min = ScreenBrightnessPark.Minimum, Max = ScreenBrightnessPark.Maximum,
+                Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
+                Include = () => s.Capabilities().ScreenBrightness,
+                Read = () => surface()?.ScreenBrightness,
+                Apply = value => MqttCommandVerdict.Accept(() => set.SetScreenBrightness(Whole(value))),
+            },
+            new MqttButton
+            {
+                EntityId = ScreenBrightnessRestore, Name = "Screen brightness restore",
+                Group = MqttPublishGroups.Screen, Icon = "mdi:brightness-auto",
+                Include = () => s.Capabilities().ScreenBrightness,
+                Press = () => MqttCommandVerdict.Accept(set.RestoreScreenBrightness),
             },
 
             // ── Notifications ────────────────────────────────────────────────────────────────────

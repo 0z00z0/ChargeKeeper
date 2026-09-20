@@ -62,9 +62,9 @@ internal static class UnpublishedSettings
         nameof(AppSettings.LidDelaySavedBatterySleepSeconds),
         nameof(AppSettings.LidDelaySavedBatterySleepScheme),
 
-        // The power plan a network profile displaced. A record of what to put back, not a choice,
-        // and it moves on every arrival and departure.
-        nameof(AppSettings.NetworkSavedPowerPlan),
+        // The display brightness displaced by a dim. A record of what to put back, not a choice: the
+        // level itself is read off the display, so this moving publishes nothing.
+        nameof(AppSettings.ScreenSavedBrightness),
 
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),

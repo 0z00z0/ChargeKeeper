@@ -40,6 +40,13 @@ internal interface ISettingsActions
     void SetLidDelayLock(bool on);
     void SetLidDelayOffAfterSleep(bool on);
     void SetSmartStandby(bool on);
+
+    /// <summary>Sets the display brightness, remembering what it was on the first change.</summary>
+    void SetScreenBrightness(int percent);
+
+    /// <summary>Puts back the brightness remembered before the first change.</summary>
+    void RestoreScreenBrightness();
+
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
     void SetHighBatteryWarning(bool on);
@@ -203,6 +210,20 @@ internal sealed class SettingsActions : ISettingsActions
     public void SetSmartStandby(bool on)
     {
         StandbyService.SetEnabled(on);
+        Raise();
+    }
+
+    // Through the service, like SetSmartStandby above: the display is what changes, and the record
+    // of what to put back is written inside it. A plain settings write would reach neither.
+    public void SetScreenBrightness(int percent)
+    {
+        ScreenBrightnessService.Set(percent, "Home Assistant");
+        Raise();
+    }
+
+    public void RestoreScreenBrightness()
+    {
+        ScreenBrightnessService.Restore("Home Assistant");
         Raise();
     }
 

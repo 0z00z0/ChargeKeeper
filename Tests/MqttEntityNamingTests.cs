@@ -64,6 +64,8 @@ public class MqttEntityNamingTests
         "chargekeeper_office_x1_lid_delay_lock",
         "chargekeeper_office_x1_lid_delay_off_after_sleep",
         "chargekeeper_office_x1_smart_standby",
+        "chargekeeper_office_x1_screen_brightness",
+        "chargekeeper_office_x1_screen_brightness_restore",
         "chargekeeper_office_x1_low_battery_warning",
         "chargekeeper_office_x1_low_battery_level",
         "chargekeeper_office_x1_high_battery_warning",
@@ -156,6 +158,7 @@ public class MqttEntityNamingTests
             Exceptions = ["Smart Standby"],
         },
 
+        new() { Group = MqttPublishGroups.Screen, Word = "Screen" },
         new() { Group = MqttPublishGroups.Notifications, Word = "Notify" },
         new() { Group = MqttPublishGroups.Network, Word = "Network" },
         new() { Group = MqttPublishGroups.AppDiagnostics, Word = "App" },

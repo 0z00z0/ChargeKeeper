@@ -33,6 +33,7 @@ internal sealed class SettingsFile
     public const string NetworkKey      = "Network";
     public const string KeepAwakeKey    = "KeepAwake";
     public const string LidCloseKey     = "LidClose";
+    public const string ScreenKey       = "Screen";
     public const string NotificationsKey = "Notifications";
     public const string ScriptsKey      = "Scripts";
     public const string MqttKey         = "Mqtt";
@@ -45,7 +46,7 @@ internal sealed class SettingsFile
     /// spelling, and one spelled in another case binds nothing and hands back defaults.</summary>
     public static readonly string[] SectionNames =
     [
-        GeneralKey, GraphKey, SmartChargeKey, NetworkKey, KeepAwakeKey, LidCloseKey,
+        GeneralKey, GraphKey, SmartChargeKey, NetworkKey, KeepAwakeKey, LidCloseKey, ScreenKey,
         NotificationsKey, ScriptsKey, MqttKey, DiagnosticsKey, AppearanceKey, WindowKey,
     ];
 
@@ -73,23 +74,26 @@ internal sealed class SettingsFile
     [JsonPropertyName(LidCloseKey), JsonPropertyOrder(6)]
     public LidCloseGroup LidClose { get; set; } = new();
 
-    [JsonPropertyName(NotificationsKey), JsonPropertyOrder(7)]
+    [JsonPropertyName(ScreenKey), JsonPropertyOrder(7)]
+    public ScreenGroup Screen { get; set; } = new();
+
+    [JsonPropertyName(NotificationsKey), JsonPropertyOrder(8)]
     public NotificationsGroup Notifications { get; set; } = new();
 
-    [JsonPropertyName(ScriptsKey), JsonPropertyOrder(8)]
+    [JsonPropertyName(ScriptsKey), JsonPropertyOrder(9)]
     public ScriptsGroup Scripts { get; set; } = new();
 
-    [JsonPropertyName(MqttKey), JsonPropertyOrder(9)]
+    [JsonPropertyName(MqttKey), JsonPropertyOrder(10)]
     public MqttGroup Mqtt { get; set; } = new();
 
-    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(10)]
+    [JsonPropertyName(DiagnosticsKey), JsonPropertyOrder(11)]
     public DiagnosticsGroup Diagnostics { get; set; } = new();
 
-    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(11)]
+    [JsonPropertyName(AppearanceKey), JsonPropertyOrder(12)]
     public AppearanceGroup Appearance { get; set; } = new();
 
     // Window placement is state rather than a page: nothing on screen edits it, so it sits last.
-    [JsonPropertyName(WindowKey), JsonPropertyOrder(12)]
+    [JsonPropertyName(WindowKey), JsonPropertyOrder(13)]
     public WindowGroup Window { get; set; } = new();
 
     internal sealed class GeneralGroup
@@ -124,7 +128,6 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(2)] public List<NetworkLocationRule> NetworkLocationRules     { get; set; } = [];
         [JsonPropertyOrder(3)] public string?                   UnknownNetworkPresetName { get; set; }
         [JsonPropertyOrder(4)] public bool? NetworkRulesKeyedOnPhysicalAdapter { get; set; }
-        [JsonPropertyOrder(5)] public string? NetworkSavedPowerPlan { get; set; }
     }
 
     internal sealed class KeepAwakeGroup
@@ -163,6 +166,13 @@ internal sealed class SettingsFile
         // captured per wait, not with the lid action, and the active plan can change in between.
         [JsonPropertyOrder(17)] public uint?   LidDelaySavedBatterySleepSeconds { get; set; }
         [JsonPropertyOrder(18)] public string? LidDelaySavedBatterySleepScheme  { get; set; }
+    }
+
+    internal sealed class ScreenGroup
+    {
+        // The brightness displaced by a dim, waiting to be put back. State rather than a setting:
+        // nothing on the page edits it, and null means the display carries its own level.
+        [JsonPropertyOrder(1)] public int? ScreenSavedBrightness { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -256,7 +266,6 @@ internal sealed class SettingsFile
             NetworkLocationRules               = s.NetworkLocationRules,
             UnknownNetworkPresetName           = s.UnknownNetworkPresetName,
             NetworkRulesKeyedOnPhysicalAdapter = s.NetworkRulesKeyedOnPhysicalAdapter,
-            NetworkSavedPowerPlan              = s.NetworkSavedPowerPlan,
         },
         KeepAwake = new KeepAwakeGroup
         {
@@ -284,6 +293,7 @@ internal sealed class SettingsFile
             LidDelaySavedBatterySleepSeconds = s.LidDelaySavedBatterySleepSeconds,
             LidDelaySavedBatterySleepScheme  = s.LidDelaySavedBatterySleepScheme,
         },
+        Screen = new ScreenGroup { ScreenSavedBrightness = s.ScreenSavedBrightness },
         Notifications = new NotificationsGroup
         {
             NotificationSound          = s.NotificationSound,
@@ -347,7 +357,6 @@ internal sealed class SettingsFile
         NetworkLocationRules               = Network.NetworkLocationRules,
         UnknownNetworkPresetName           = Network.UnknownNetworkPresetName,
         NetworkRulesKeyedOnPhysicalAdapter = Network.NetworkRulesKeyedOnPhysicalAdapter,
-        NetworkSavedPowerPlan              = Network.NetworkSavedPowerPlan,
 
         KeepAwakeDisplayOn = KeepAwake.KeepAwakeDisplayOn,
         KeepAwakePresets   = KeepAwake.KeepAwakePresets,
@@ -370,6 +379,8 @@ internal sealed class SettingsFile
         LidDelaySavedScheme       = LidClose.LidDelaySavedScheme,
         LidDelaySavedBatterySleepSeconds = LidClose.LidDelaySavedBatterySleepSeconds,
         LidDelaySavedBatterySleepScheme  = LidClose.LidDelaySavedBatterySleepScheme,
+
+        ScreenSavedBrightness = Screen.ScreenSavedBrightness,
 
         LowBatteryWarningPct       = Notifications.LowBatteryWarningPct,
         LowBatteryWarningEnabled   = Notifications.LowBatteryWarningEnabled,

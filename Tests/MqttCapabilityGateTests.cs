@@ -36,7 +36,7 @@ public class MqttCapabilityGateTests
 
     [Fact]
     public void OnHardwareWithNumericThresholds_EveryEntityIsAnnounced() =>
-        Assert.Equal(55, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
+        Assert.Equal(57, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
 
     [Fact]
     public void OnHardwareWithNoChargeLimitInterface_NoSmartChargeEntityIsAnnounced()
@@ -79,6 +79,18 @@ public class MqttCapabilityGateTests
 
         Assert.DoesNotContain(MqttEntityCatalog.SmartStandby, published);
         foreach (string entityId in _lidCloseEntities) Assert.Contains(entityId, published);
+    }
+
+    [Fact]
+    public void WithNoDisplayThatAcceptsABrightness_BothScreenEntitiesGo()
+    {
+        // A slider and a button that reach nothing are worse than no entities at all: the receiver
+        // shows a control, the machine ignores it, and nothing says why.
+        var published = Published(WithCapabilities(
+            PublishCapabilities.Full with { ScreenBrightness = false }));
+
+        Assert.DoesNotContain(MqttEntityCatalog.ScreenBrightness, published);
+        Assert.DoesNotContain(MqttEntityCatalog.ScreenBrightnessRestore, published);
     }
 
     [Fact]

@@ -61,7 +61,11 @@
             </NavigationViewItem>
             <NavigationViewItem Content="Lid delay"        Tag="LidClose">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/lid-close.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
-            </NavigationViewItem>            <NavigationViewItem Content="Notifications"    Tag="Notifications">
+            </NavigationViewItem>
+            <NavigationViewItem Content="Screen"            Tag="Screen">
+                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/screen.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <!-- Network profiles have no nav item of their own: a profile's only effect is which
@@ -359,6 +363,36 @@
                             <ToggleSwitch x:Name="LidThermalToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnLidThermalToggled"/>
                         </StackPanel>
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <StackPanel x:Name="ScreenPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock Text="Screen" Style="{StaticResource SectionHeaderStyle}"/>
+
+                    <!-- The unsupported line and the two controls swap: a machine whose only screen
+                         is an external monitor gets the explanation instead of a slider that would
+                         reach nothing. -->
+                    <controls:SettingsCard x:Name="ScreenUnsupportedCard"
+                                            Header="Brightness"
+                                            Description="This computer reports no display whose brightness Windows can set. An external monitor is set from its own buttons."
+                                            Visibility="Collapsed"/>
+
+                    <controls:SettingsCard x:Name="ScreenBrightnessCard"
+                                            Header="Brightness"
+                                            Description="Dims the built-in screen without sleeping the computer.">
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <zz:InfoIcon Subject="brightness"
+                                            Info="Reaches the built-in screen only. The level before the first change is remembered, and Restore puts exactly that back — including after a restart."/>
+                            <TextBlock x:Name="ScreenBrightnessValue" VerticalAlignment="Center" MinWidth="44"/>
+                            <Slider x:Name="ScreenBrightnessSlider" Width="200" Minimum="0" Maximum="100"
+                                    StepFrequency="1" ValueChanged="OnScreenBrightnessChanged"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard x:Name="ScreenRestoreCard"
+                                            Header="Restore brightness"
+                                            Description="Puts back the level the screen was on before the first change.">
+                        <Button x:Name="ScreenRestoreBtn" Content="Restore" Click="OnScreenRestore"/>
                     </controls:SettingsCard>
                 </StackPanel>
 

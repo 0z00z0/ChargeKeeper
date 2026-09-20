@@ -97,17 +97,6 @@ internal static class NativeMethods
     private static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, IntPtr schemeGuid);
 
     [DllImport("powrprof.dll")]
-    private static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, ref Guid schemeGuid);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerEnumerate(IntPtr rootPowerKey, IntPtr schemeGuid,
-        IntPtr subGroupOfPowerSettingsGuid, uint accessFlags, uint index, byte[]? buffer, ref uint bufferSize);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerReadFriendlyName(IntPtr rootPowerKey, ref Guid schemeGuid,
-        IntPtr subGroupOfPowerSettingsGuid, IntPtr powerSettingGuid, byte[]? buffer, ref uint bufferSize);
-
-    [DllImport("powrprof.dll")]
     private static extern uint PowerReadACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid,
         ref Guid subGroupGuid, ref Guid powerSettingGuid, out uint valueIndex);
 
@@ -283,67 +272,6 @@ internal static class NativeMethods
     /// mains value untouched. Same contract as <see cref="WriteLidCloseAction"/>.</summary>
     internal static bool WriteBatterySleepDelay(Guid scheme, uint dcSeconds) =>
         WriteAndActivate(scheme, GUID_SUB_SLEEP, GUID_STANDBYIDLE, ac: null, dcSeconds);
-
-    /// <summary>ACCESS_SCHEME — enumerate power plans rather than the settings inside one.</summary>
-    private const uint ACCESS_SCHEME = 16;
-
-    private const uint ERROR_MORE_DATA = 234;
-
-    /// <summary>The active power plan's identifier, or null when it cannot be read.</summary>
-    internal static Guid? ActivePowerPlan() => WithActiveScheme<Guid?>((scheme, _) => scheme, null);
-
-    /// <summary>
-    /// Every power plan this machine exposes, each with the name Windows shows for it. Read rather
-    /// than listed here: Windows 11 ships many machines with Balanced alone, and a machine can carry
-    /// plans somebody made.
-    /// </summary>
-    internal static IReadOnlyList<(Guid Id, string Name)> PowerPlans()
-    {
-        var plans = new List<(Guid, string)>();
-        try
-        {
-            for (uint index = 0; index < 64; index++)
-            {
-                uint size = 16;
-                var raw = new byte[16];
-                if (PowerEnumerate(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, ACCESS_SCHEME, index, raw, ref size) != 0) break;
-                var id = new Guid(raw);
-                plans.Add((id, PowerPlanName(id) ?? id.ToString()));
-            }
-        }
-        catch { return plans; }
-        return plans;
-    }
-
-    /// <summary>The name Windows shows for a plan, or null when it has none — which is also how a
-    /// plan that has since been deleted reads.</summary>
-    internal static string? PowerPlanName(Guid plan)
-    {
-        try
-        {
-            uint size = 0;
-            uint probe = PowerReadFriendlyName(IntPtr.Zero, ref plan, IntPtr.Zero, IntPtr.Zero, null, ref size);
-            if ((probe != 0 && probe != ERROR_MORE_DATA) || size == 0) return null;
-
-            var buffer = new byte[size];
-            if (PowerReadFriendlyName(IntPtr.Zero, ref plan, IntPtr.Zero, IntPtr.Zero, buffer, ref size) != 0) return null;
-            string name = System.Text.Encoding.Unicode.GetString(buffer).TrimEnd('\0');
-            return name.Length == 0 ? null : name;
-        }
-        catch { return null; }
-    }
-
-    /// <summary>Makes <paramref name="plan"/> the active power plan. No administrator rights are
-    /// involved. False when Windows refused it, which a deleted plan does.</summary>
-    internal static bool SetActivePowerPlan(Guid plan)
-    {
-        try
-        {
-            LastSchemeActivatedAt = DateTimeOffset.Now;
-            return PowerSetActiveScheme(IntPtr.Zero, ref plan) == 0;
-        }
-        catch { return false; }
-    }
 
     /// <summary>Writes one setting's AC and/or DC index into an explicit scheme, then re-activates the
     /// active scheme, which is what makes a written value reach the running system.</summary>

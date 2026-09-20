@@ -60,10 +60,6 @@ internal sealed partial class SettingsWindow : Window
     private NetworkLocation _profileRowLocation;
     private IReadOnlyList<BridgePeer> _profileRowAdapters = [];
     private IReadOnlyList<string> _profileRowPresets = [];
-
-    // Read from Windows rather than listed here: many Windows 11 machines expose Balanced alone,
-    // and a machine can carry plans somebody made.
-    private IReadOnlyList<(Guid Id, string Name)> _profileRowPowerPlans = [];
     private int _winningProfileRow = -1;
 
     public SettingsWindow(TrayMenu menu, Services.MqttPublisher? mqtt)
@@ -93,6 +89,8 @@ internal sealed partial class SettingsWindow : Window
         // page, and Smart Charge is much shorter once its sections are hidden on fixed-mode hardware.
         SafeInit(nameof(ApplyThresholdCapabilityToSmartChargePage), ApplyThresholdCapabilityToSmartChargePage);
         SafeInit(nameof(WireKeepAwakeHandlers), WireKeepAwakeHandlers);
+        SafeInit("WireScreenBrightnessDebounce",
+                 () => _screenBrightnessDebounce.Tick += (_, _) => ApplyScreenBrightness());
         SafeInit("SelectInitialSection", () =>
         {
             Nav.SelectedItem = Nav.MenuItems[0];
@@ -159,6 +157,7 @@ internal sealed partial class SettingsWindow : Window
         LoadNetwork();
         LoadKeepAwake();
         LoadScripts();
+        LoadScreen();
         LoadAppearance();
         LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
@@ -266,8 +265,8 @@ internal sealed partial class SettingsWindow : Window
     private double MeasureTallestPageExtent()
     {
         FrameworkElement[] panels =
-            [GeneralPanel, AppearancePanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, NotificationsPanel,
-             ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel, AboutPanel];
+            [GeneralPanel, AppearancePanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, ScreenPanel,
+             NotificationsPanel, ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -335,6 +334,8 @@ internal sealed partial class SettingsWindow : Window
         // Before the timers stop: a script typed and not yet committed is minutes of work, and the
         // debounce would otherwise be stopped with the edit still in it.
         FlushScriptEdits();
+        // Same reason: the slider's last position is not yet on the display while the debounce runs.
+        if (_screenBrightnessDebounce.IsEnabled) ApplyScreenBrightness();
         StopAllPresetDebounceTimers();
 
         // Static events, instance handlers: without these the closed window stays reachable from
@@ -399,12 +400,17 @@ internal sealed partial class SettingsWindow : Window
         SmartChargePanel.Visibility   = tag == "SmartCharge"    ? Visibility.Visible : Visibility.Collapsed;
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
+        ScreenPanel.Visibility        = tag == "Screen"         ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         ScriptsPanel.Visibility       = tag == "Scripts"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
         AppearancePanel.Visibility     = tag == "Appearance"     ? Visibility.Visible : Visibility.Collapsed;
         AppDiagnosticsPanel.Visibility = tag == "AppDiagnostics" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility         = tag == "About"          ? Visibility.Visible : Visibility.Collapsed;
+
+        // Read afresh: the level moves outside this application, so a page opened later would
+        // otherwise show whatever was on the display when the window was built.
+        if (tag == "Screen") LoadScreen();
 
         // The graph only paints while its page is on screen. Its own Visibility follows the page
         // because that is what stops its repaint: a collapsed parent panel does not reach it.
@@ -653,6 +659,68 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.PromoteTrayIcons = on);
         // The same path the style change takes; the tray applies or reverses the promotion there.
         _menu.ReconcileFromExternalChange();
+    }
+
+    // ── Screen ──────────────────────────────────────────────────────────────────────────────────
+    // The level is read off the display rather than out of settings: a function key or Windows
+    // itself moves it without this application hearing anything, so the page reads it afresh every
+    // time it is shown.
+
+    /// <summary>Holds the slider's last position back from the display. A brightness write is a
+    /// synchronous WMI call, and one per pixel of drag would stall the thread that draws the
+    /// slider.</summary>
+    private readonly DispatcherTimer _screenBrightnessDebounce =
+        new() { Interval = TimeSpan.FromMilliseconds(250) };
+
+    private int _screenBrightnessWanted;
+
+    private void LoadScreen()
+    {
+        bool supported = ScreenBrightnessService.IsSupported;
+        int? level     = supported ? ScreenBrightnessService.Current : null;
+
+        WithUpdatingSuppressed(() =>
+        {
+            ScreenUnsupportedCard.Visibility = supported ? Visibility.Collapsed : Visibility.Visible;
+            ScreenBrightnessCard.Visibility  = supported ? Visibility.Visible : Visibility.Collapsed;
+            ScreenRestoreCard.Visibility     = supported ? Visibility.Visible : Visibility.Collapsed;
+
+            if (level is { } percent)
+            {
+                ScreenBrightnessSlider.Value = percent;
+                ScreenBrightnessValue.Text   = $"{percent} %";
+            }
+
+            ScreenRestoreBtn.IsEnabled = ScreenBrightnessService.Holding;
+        });
+    }
+
+    private void OnScreenBrightnessChanged(
+        object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_updating) return;
+
+        _screenBrightnessWanted  = (int)Math.Round(e.NewValue);
+        ScreenBrightnessValue.Text = $"{_screenBrightnessWanted} %";
+
+        _screenBrightnessDebounce.Stop();
+        _screenBrightnessDebounce.Start();
+    }
+
+    private void ApplyScreenBrightness()
+    {
+        _screenBrightnessDebounce.Stop();
+        ScreenBrightnessService.Set(_screenBrightnessWanted, "the Settings window");
+        ScreenRestoreBtn.IsEnabled = ScreenBrightnessService.Holding;
+        _mqtt?.Republish();
+    }
+
+    private void OnScreenRestore(object sender, RoutedEventArgs e)
+    {
+        _screenBrightnessDebounce.Stop();
+        ScreenBrightnessService.Restore("the Settings window");
+        LoadScreen();
+        _mqtt?.Republish();
     }
 
     // ── Appearance ──────────────────────────────────────────────────────────────────────────────
@@ -1348,7 +1416,6 @@ internal sealed partial class SettingsWindow : Window
         _profileRowLocation = NetworkProfiles.CurrentLocation();
         _profileRowAdapters = NetworkLocationService.EnumerateAdapters();
         _profileRowPresets  = SettingsService.Current.Presets.Select(p => p.Name).ToList();
-        _profileRowPowerPlans = NativeMethods.PowerPlans();
         _winningProfileRow  = WinningProfileRow(_profileRowLocation);
 
         _networkProfileList.Rebuild();
@@ -1496,7 +1563,6 @@ internal sealed partial class SettingsWindow : Window
         var location = NetworkProfiles.CurrentLocation();
         NetworkProfiles.ApplyWinner(location);
         KeepAwakeService.ReconcileNetworkHold(location, "a network profile was deleted");
-        NetworkProfiles.ReconcilePowerPlan(location, "a network profile was deleted");
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
@@ -2296,30 +2362,10 @@ internal sealed partial class SettingsWindow : Window
         var rule   = SettingsService.Current.NetworkLocationRules[index];
         var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", IsOn = rule.KeepAwakeHere };
 
-        var planCombo = new ComboBox { MinWidth = 220 };
-        planCombo.Items.Add(LeavePowerPlanText);
-        foreach (var plan in _profileRowPowerPlans) planCombo.Items.Add(plan.Name);
-        planCombo.SelectedIndex = PowerPlanRowIndex(rule.PowerPlan);
-
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRuleKeepAwakeSummary(rule.KeepAwakeHere),
-            [
-                new SettingsCard { Header = "Keep awake here", Content = toggle },
-                new SettingsCard
-                {
-                    Header      = "Windows power plan",
-                    Description = PowerPlanCardText,
-                    Content     = planCombo,
-                },
-            ],
+            [new SettingsCard { Header = "Keep awake here", Content = toggle }],
             () => _networkProfileList.Rebuild());
-
-        // Attached after the initial selection, so seeding the box cannot commit anything.
-        planCombo.SelectionChanged += (_, _) =>
-        {
-            if (_updating) return;
-            CommitNetworkRulePowerPlan(index, planCombo.SelectedIndex);
-        };
 
         // Attached after the initial IsOn, so seeding the switch cannot commit anything.
         toggle.Toggled += (_, _) =>
@@ -2329,39 +2375,6 @@ internal sealed partial class SettingsWindow : Window
             row.Expander.Description = DescribeRuleKeepAwakeSummary(toggle.IsOn);
         };
         return row.Expander;
-    }
-
-    /// <summary>The first entry of every profile's power-plan box: the plan is not this profile's
-    /// business. What a profile written before the choice existed reads as.</summary>
-    private const string LeavePowerPlanText = "Leave as it is";
-
-    private const string PowerPlanCardText =
-        "Switched when this profile matches, and put back when no profile asks for a plan.";
-
-    /// <summary>The position in the box for a stored plan: the "leave as it is" entry for no plan,
-    /// and for one this machine no longer has — a plan that is gone cannot be shown as chosen.</summary>
-    private int PowerPlanRowIndex(string? stored)
-    {
-        if (!Guid.TryParse(stored, out var plan)) return 0;
-        int found = _profileRowPowerPlans.ToList().FindIndex(p => p.Id == plan);
-        return found < 0 ? 0 : found + 1;
-    }
-
-    private void CommitNetworkRulePowerPlan(int index, int rowIndex)
-    {
-        string? plan = rowIndex > 0 && rowIndex - 1 < _profileRowPowerPlans.Count
-            ? _profileRowPowerPlans[rowIndex - 1].Id.ToString()
-            : null;
-
-        SettingsService.Update(s =>
-        {
-            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PowerPlan = plan;
-        });
-
-        // Without this, choosing a plan does nothing until the machine moves network, since the
-        // reconcile only runs on a location change.
-        NetworkProfiles.ReconcilePowerPlan(NetworkProfiles.CurrentLocation(),
-                                           "a network profile's power plan was changed");
     }
 
     private void CommitKeepAwakeHere(int index, bool on)

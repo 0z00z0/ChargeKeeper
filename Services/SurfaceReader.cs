@@ -22,6 +22,7 @@ internal readonly record struct SurfaceState(
     bool LidDelayLockOnClose,
     bool LidDelayOffAfterSleep,
     bool SmartStandbyRunning,
+    int? ScreenBrightness,
     bool LowBatteryWarning,
     int LowBatteryLevel,
     bool HighBatteryWarning,
@@ -50,10 +51,10 @@ internal readonly record struct SurfaceState(
 /// a control the machine cannot honour would leave the receiver with an entity that silently does
 /// nothing.</summary>
 internal readonly record struct PublishCapabilities(
-    SmartChargeSurface SmartCharge, bool LidClose, bool SmartStandby)
+    SmartChargeSurface SmartCharge, bool LidClose, bool SmartStandby, bool ScreenBrightness)
 {
     /// <summary>A machine with every gate open — the baseline the tests compare against.</summary>
-    public static readonly PublishCapabilities Full = new(SmartChargeSurface.Numeric, true, true);
+    public static readonly PublishCapabilities Full = new(SmartChargeSurface.Numeric, true, true, true);
 }
 
 /// <summary>
@@ -123,6 +124,9 @@ internal static class SurfaceReader
             LidDelayLockOnClose:       s.LidDelayLockOnClose,
             LidDelayOffAfterSleep:     s.LidDelayOffAfterSleep,
             SmartStandbyRunning:    standbyRunning,
+            // Read off the display rather than out of settings: the level lives in the panel, and
+            // Windows or a function key moves it without this application hearing anything.
+            ScreenBrightness:       ScreenBrightnessService.Current,
             LowBatteryWarning:      s.LowBatteryWarningEnabled,
             LowBatteryLevel:        s.LowBatteryWarningPct,
             HighBatteryWarning:     s.HighBatteryWarningEnabled,
@@ -161,7 +165,11 @@ internal static class SurfaceReader
         SmartCharge:  ThresholdCapabilityPolicy.Classify(
                           ChargeThresholdService.Read(), ChargeThresholdService.SupportsNumericThresholds),
         LidClose:     LidDelayService.IsSupported,
-        SmartStandby: StandbyService.IsSupported);
+        SmartStandby: StandbyService.IsSupported,
+        // Not a vendor read: a machine whose only screen is an external monitor reports no display
+        // the brightness interface reaches, and announcing a control it cannot honour would leave
+        // the receiver with a slider that does nothing.
+        ScreenBrightness: ScreenBrightnessService.IsSupported);
 
     // A published reading, not a capability: the facade is best-effort by contract, and a vendor RPC
     // that does throw must not take the whole surface read with it.

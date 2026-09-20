@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the fifty-five entity ids, the component each is announced
+/// The published surface as a declaration: the fifty-seven entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -109,6 +109,11 @@ public class MqttEntityCatalogTests
         new(MqttEntityCatalog.SmartStandby, "switch", "Smart Standby",
             MqttPublishGroups.LidClose, MqttEntityCategory.Primary, Icon: "mdi:sleep"),
 
+        new(MqttEntityCatalog.ScreenBrightness, "number", "Screen brightness",
+            MqttPublishGroups.Screen, MqttEntityCategory.Primary, Icon: "mdi:brightness-6", Unit: "%"),
+        new(MqttEntityCatalog.ScreenBrightnessRestore, "button", "Screen brightness restore",
+            MqttPublishGroups.Screen, MqttEntityCategory.Primary, Icon: "mdi:brightness-auto"),
+
         new(MqttEntityCatalog.LowBatteryWarning, "switch", "Notify low battery",
             MqttPublishGroups.Notifications, MqttEntityCategory.Config, Icon: "mdi:battery-alert"),
         new(MqttEntityCatalog.LowBatteryLevel, "number", "Notify low battery level",
@@ -181,13 +186,13 @@ public class MqttEntityCatalogTests
     };
 
     [Fact]
-    public void TheTable_HoldsExactlyTheFiftySixEntitiesTheAppPublishes() =>
+    public void TheTable_HoldsExactlyTheFiftySevenEntitiesTheAppPublishes() =>
         Assert.Equal(
             _table.Select(r => r.EntityId).Order(StringComparer.Ordinal),
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsTwentyFourSensorsThirteenSwitchesNineNumbersFourBinaryThreeSelectsAButtonAndAText()
+    public void TheEntityMix_IsTwentyFourSensorsThirteenSwitchesTenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -196,8 +201,8 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 24, ["switch"] = 13, ["number"] = 9,
-                ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 1, ["text"] = 1,
+                ["sensor"] = 24, ["switch"] = 13, ["number"] = 10,
+                ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
     }
@@ -333,6 +338,7 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.LidDelayLock,
             MqttEntityCatalog.LidDelayOffAfterSleep,
             MqttEntityCatalog.SmartStandby,
+            MqttEntityCatalog.ScreenBrightness, MqttEntityCatalog.ScreenBrightnessRestore,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
             MqttEntityCatalog.DrainWarning, MqttEntityCatalog.DrainRate,
@@ -356,8 +362,8 @@ public class MqttEntityCatalogTests
     }
 
     [Fact]
-    public void OnlyTheButton_HasNoStateTopic() =>
-        Assert.Equal([MqttEntityCatalog.ChargeToFull],
+    public void OnlyTheButtons_HaveNoStateTopic() =>
+        Assert.Equal([MqttEntityCatalog.ChargeToFull, MqttEntityCatalog.ScreenBrightnessRestore],
                      MqttTestBed.Declared().All.Where(e => !e.HasState).Select(e => e.EntityId));
 
     [Fact]
@@ -511,6 +517,8 @@ public class MqttEntityCatalogTests
                                                or MqttEntityCatalog.LidDischargePercent
                                                or MqttEntityCatalog.SystemTemperature
                                                or MqttEntityCatalog.SystemTemperatureMaximum
+                                               or MqttEntityCatalog.ScreenBrightness
+                                               or MqttEntityCatalog.ScreenBrightnessRestore
                                                or MqttEntityCatalog.LastChange
                                                or MqttEntityCatalog.LastChangeTime
                                                or MqttEntityCatalog.LastLidEvent
