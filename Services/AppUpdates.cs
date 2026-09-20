@@ -54,9 +54,6 @@ internal sealed class AppUpdates
     /// <summary>The version the check compares a release against.</summary>
     internal Version RunningVersion => _service.RunningVersion;
 
-    /// <summary>Where every refused download sends the user instead.</summary>
-    internal static Uri ReleasesPage { get; } = new($"https://github.com/{Owner}/{Repository}/releases");
-
     /// <summary>One check, reported by nobody: the caller reads the run and decides what to show.</summary>
     internal Task<UpdateFlowRun> CheckAsync() => _checks.RunAsync(UpdateTrigger.Silent);
 
