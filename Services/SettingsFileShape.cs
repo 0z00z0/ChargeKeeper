@@ -197,14 +197,17 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(3)] public bool? FocusDimsScreen         { get; set; }
         [JsonPropertyOrder(4)] public bool? FocusCoversScreen       { get; set; }
         [JsonPropertyOrder(5)] public bool? FocusStartFromDashboard { get; set; }
+        // Null rather than an empty list so a document written before the list existed is not
+        // rewritten with a key it never had.
+        [JsonPropertyOrder(6)] public List<string>? FocusAllowedPrograms { get; set; }
         // The running session and the firewall state it displaced. State rather than settings:
         // nothing on the page edits them, so they trail the visible rows.
-        [JsonPropertyOrder(6)]  public DateTimeOffset? FocusSessionStartedAt { get; set; }
-        [JsonPropertyOrder(7)]  public DateTimeOffset? FocusSessionEndsAt { get; set; }
-        [JsonPropertyOrder(8)]  public bool FocusSessionBlockedNetwork { get; set; }
-        [JsonPropertyOrder(9)]  public bool FocusSessionDimmedScreen   { get; set; }
-        [JsonPropertyOrder(10)] public bool FocusSessionCoveredScreen  { get; set; }
-        [JsonPropertyOrder(11)] public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
+        [JsonPropertyOrder(7)]  public DateTimeOffset? FocusSessionStartedAt { get; set; }
+        [JsonPropertyOrder(8)]  public DateTimeOffset? FocusSessionEndsAt { get; set; }
+        [JsonPropertyOrder(9)]  public bool FocusSessionBlockedNetwork { get; set; }
+        [JsonPropertyOrder(10)] public bool FocusSessionDimmedScreen   { get; set; }
+        [JsonPropertyOrder(11)] public bool FocusSessionCoveredScreen  { get; set; }
+        [JsonPropertyOrder(12)] public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -335,6 +338,7 @@ internal sealed class SettingsFile
             FocusDimsScreen            = s.FocusDimsScreen,
             FocusCoversScreen          = s.FocusCoversScreen,
             FocusStartFromDashboard    = s.FocusStartFromDashboard,
+            FocusAllowedPrograms       = s.FocusAllowedPrograms.Count > 0 ? s.FocusAllowedPrograms : null,
             FocusSessionStartedAt      = s.FocusSessionStartedAt,
             FocusSessionEndsAt         = s.FocusSessionEndsAt,
             FocusSessionBlockedNetwork = s.FocusSessionBlockedNetwork,
@@ -437,6 +441,7 @@ internal sealed class SettingsFile
         FocusDimsScreen            = Focus.FocusDimsScreen ?? true,
         FocusCoversScreen          = Focus.FocusCoversScreen ?? true,
         FocusStartFromDashboard    = Focus.FocusStartFromDashboard ?? true,
+        FocusAllowedPrograms       = Focus.FocusAllowedPrograms ?? [],
         FocusSessionStartedAt      = Focus.FocusSessionStartedAt,
         FocusSessionEndsAt         = Focus.FocusSessionEndsAt,
         FocusSessionBlockedNetwork = Focus.FocusSessionBlockedNetwork,

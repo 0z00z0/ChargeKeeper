@@ -102,6 +102,7 @@ public class SettingsFileShapeTests : IDisposable
         "Focus.FocusDimsScreen",
         "Focus.FocusCoversScreen",
         "Focus.FocusStartFromDashboard",
+        "Focus.FocusAllowedPrograms",
         "Focus.FocusSessionStartedAt",
         "Focus.FocusSessionEndsAt",
         "Focus.FocusSessionBlockedNetwork",

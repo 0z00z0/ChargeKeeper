@@ -306,6 +306,11 @@ internal sealed class AppSettings
     /// that ends a session, whatever this holds: nothing on the machine ends one.</summary>
     public bool FocusStartFromDashboard { get; set; } = true;
 
+    /// <summary>The programs that keep the network while a session's network lever blocks everything
+    /// else, each by its executable's full path. Empty blocks everything but the broker, which is
+    /// what an installation that has chosen none carries.</summary>
+    public List<string> FocusAllowedPrograms { get; set; } = [];
+
     /// <summary>When the running focus session was armed. Only the cover's countdown ring reads it,
     /// to know what a full ring means; nothing about ending a session depends on it.</summary>
     public DateTimeOffset? FocusSessionStartedAt { get; set; }

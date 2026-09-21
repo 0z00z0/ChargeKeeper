@@ -63,8 +63,11 @@ internal interface IFocusNetworkTargets
 
 /// <summary>The network lever: every connection blocked but the broker and the name resolution it
 /// depends on.</summary>
+/// <param name="allowedPrograms">The programs that keep the network, read at the moment a session
+/// arms. The list cannot move while one runs, so one reading covers the whole session.</param>
 internal sealed class FocusNetworkLever(
-    FirewallBlockPark park, IFocusNetworkTargets targets, Action<string, string> log) : IFocusLever
+    FirewallBlockPark park, IFocusNetworkTargets targets, Action<string, string> log,
+    Func<IReadOnlyList<string>>? allowedPrograms = null) : IFocusLever
 {
     public string? Refusal() => (targets.BrokerHost(), targets.BrokerPort()) switch
     {
@@ -90,7 +93,9 @@ internal sealed class FocusNetworkLever(
             return false;
         }
 
-        return park.Engage(FocusFirewallRules.For(addresses, port, targets.Resolvers()), cause);
+        return park.Engage(
+            FocusFirewallRules.For(addresses, port, targets.Resolvers(), allowedPrograms?.Invoke()),
+            cause);
     }
 
     /// <summary>Nothing. The firewall carries the block across a restart with no help, and a block
@@ -149,9 +154,12 @@ internal sealed class FocusCoverLever(
 /// while the application does: the running timer ends a session that expires while the application
 /// is up, and <see cref="Start"/> is what ends one that expired while it was not.</para>
 /// </remarks>
+/// <param name="history">Where a finished session is written down. Behind a seam, so the three
+/// endings are exercised without a file.</param>
 internal sealed class FocusSessionEngine(
     IFocusLever network, IFocusLever screen, IFocusLever cover, IFocusSessionRecord record,
-    Func<DateTimeOffset> now, Action<string, string> log)
+    Func<DateTimeOffset> now, Action<string, string> log,
+    Action<FocusHistoryEntry>? history = null)
 {
     public const int MinMinutes = 1;
 
@@ -194,7 +202,8 @@ internal sealed class FocusSessionEngine(
                 _cancelRequestedAt = null;
 
                 if (saved.EndsAt <= now())
-                    Finish("a session that ran its length while the application was not running");
+                    Finish("a session that ran its length while the application was not running",
+                           FocusSessionOutcome.FoundStale);
                 else
                     Resume();
             }
@@ -255,7 +264,7 @@ internal sealed class FocusSessionEngine(
                     break;
 
                 case FocusSessionStage.Confirm:
-                    Finish(cause);
+                    Finish(cause, FocusSessionOutcome.EndedEarly);
                     break;
             }
 
@@ -274,7 +283,7 @@ internal sealed class FocusSessionEngine(
             if (_session is { } session)
             {
                 if (now() >= session.EndsAt)
-                    Finish("the session ran its length");
+                    Finish("the session ran its length", FocusSessionOutcome.RanToTime);
                 else if (_cancelRequestedAt is not null && Compose().Stage == FocusSessionStage.Active)
                 {
                     _cancelRequestedAt = null;
@@ -387,7 +396,7 @@ internal sealed class FocusSessionEngine(
     /// <summary>Lifts every lever the session owns and clears the record. A lever that will not lift
     /// keeps its own record, which the next start puts back; the session still ends, because nothing
     /// is holding it any more.</summary>
-    private void Finish(string cause)
+    private void Finish(string cause, FocusSessionOutcome outcome)
     {
         if (_session is not { } session) return;
 
@@ -401,6 +410,13 @@ internal sealed class FocusSessionEngine(
         record.Clear();
         _session = null;
         _cancelRequestedAt = null;
+
+        // After the levers and the record, so a history write that throws cannot leave a session
+        // still holding them.
+        history?.Invoke(new FocusHistoryEntry(
+            session.StartedAt, session.EndsAt, now(),
+            session.BlocksNetwork, session.DimsScreen, session.CoversScreen, outcome));
+
         log("Focus session ended", cause);
     }
 

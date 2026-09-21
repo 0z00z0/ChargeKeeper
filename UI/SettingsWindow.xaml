@@ -446,6 +446,16 @@
                                       MinWidth="0" Toggled="OnFocusBlocksNetworkToggled"/>
                     </controls:SettingsCard>
 
+                    <!-- The allow-list on the network lever. Empty is the whole of what an
+                         installation that has chosen no program carries, so nothing changes for
+                         one that never opens this. -->
+                    <controls:SettingsCard Header="Programs that keep the network"
+                                            Description="These reach the network while a session runs. Everything else stays blocked.">
+                        <Button x:Name="FocusAllowProgramBtn" Content="Allow a program"
+                                Click="OnFocusAllowProgram"/>
+                    </controls:SettingsCard>
+                    <StackPanel x:Name="FocusAllowedProgramsPanel" Spacing="4"/>
+
                     <controls:SettingsCard Header="Dims the screen"
                                             Description="Lowers the built-in screen's brightness for the length of a session and puts it back afterwards.">
                         <ToggleSwitch x:Name="FocusDimsScreenToggle" OnContent="" OffContent=""
@@ -464,6 +474,13 @@
                                       MinWidth="0" Toggled="OnFocusStartFromDashboardToggled"/>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="Recent sessions"
+                                            Description="The last few sessions, with how long each ran and how it ended."
+                                            ContentAlignment="Vertical"
+                                            HorizontalContentAlignment="Stretch">
+                        <StackPanel x:Name="FocusRecentPanel" Spacing="4"/>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="If you are stuck"
                                             ContentAlignment="Vertical"
                                             HorizontalContentAlignment="Stretch">
@@ -472,6 +489,8 @@
                                        Text="End it early from Home Assistant: send the request, wait five minutes, send it again within ten seconds."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="Lift the network block: in Windows Defender Firewall with Advanced Security, delete the two rules named &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;."/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="Each allowed program has a numbered rule beside those two. Delete those as well."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="Turn the screen brightness back up by hand."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"

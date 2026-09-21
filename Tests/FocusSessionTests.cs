@@ -78,16 +78,22 @@ internal sealed class FakeFirewallPolicy : IFirewallPolicy
         return true;
     }
 
+    /// <summary>Every rule added, so a test can read back the program a rule was scoped to.</summary>
+    public List<FirewallAllowRule> Added { get; } = [];
+
     public bool AddAllowRule(FirewallAllowRule rule)
     {
         Rules.Add(rule.Name);
+        Added.Add(rule);
         return true;
     }
 
+    /// <summary>Removes by the same reading the live policy uses — whether the name belongs to this
+    /// feature — rather than by a fixed list, which cannot reach an allowed program's rule.</summary>
     public bool RemoveOwnRules()
     {
         Removals++;
-        Rules.RemoveAll(FocusFirewallRules.Names.Contains);
+        Rules.RemoveAll(FocusFirewallRules.IsOwnName);
         return true;
     }
 
@@ -599,6 +605,42 @@ public class FocusSessionTests
                      policy.Rules);
 
         park.Lift("a test");
+        Assert.Empty(policy.Rules);
+    }
+
+    /// <summary>An allowed program's rule has to go with the block that wrote it. One left standing
+    /// is a program permanently outside every later block — the worse of the two ways this feature
+    /// can fail.</summary>
+    [Fact]
+    public void AnAllowedProgramsRule_GoesInWithTheBlockAndGoesAgainWithIt()
+    {
+        var policy = Firewall();
+        var park = new FirewallBlockPark(policy, new FakeFirewallRecord(), (_, _) => { });
+        var exceptions = FocusFirewallRules.For(
+            "198.51.100.7", 8883, "198.51.100.1", [@"C:\Program Files\Example\editor.exe"]);
+
+        park.Engage(exceptions, "a test");
+
+        Assert.Contains(FocusFirewallRules.AllowedProgramName(1), policy.Rules);
+        Assert.Equal(@"C:\Program Files\Example\editor.exe",
+                     policy.Added.Single(r => r.ApplicationPath.Length > 0).ApplicationPath);
+
+        park.Lift("a test");
+        Assert.Empty(policy.Rules);
+    }
+
+    /// <summary>A rule an earlier session wrote for a program since taken off the list still has to
+    /// go. The removal reads the rules that are there, never the list as it stands now.</summary>
+    [Fact]
+    public void ARuleFromASessionWithALongerList_IsStillRemoved()
+    {
+        var policy = Firewall();
+        policy.Rules.Add(FocusFirewallRules.AllowedProgramName(4));
+        var park = new FirewallBlockPark(policy, new FakeFirewallRecord(), (_, _) => { });
+
+        park.Engage(FocusFirewallRules.For("198.51.100.7", 8883, "", []), "a test");
+        park.Lift("a test");
+
         Assert.Empty(policy.Rules);
     }
 

@@ -77,6 +77,11 @@ internal static class UnpublishedSettings
         // is the surface that arms a session in the first place.
         nameof(AppSettings.FocusStartFromDashboard),
 
+        // The programs a session's network block keeps reachable. Machine-specific file paths that
+        // no Home Assistant control could edit, so the list reaches no entity and editing one costs
+        // no republish.
+        nameof(AppSettings.FocusAllowedPrograms),
+
         // The once-only network rule migration marker.
         nameof(AppSettings.NetworkRulesKeyedOnPhysicalAdapter),
 

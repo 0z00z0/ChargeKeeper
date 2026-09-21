@@ -26,7 +26,8 @@ internal static class FocusSessionService
 
     private static readonly FocusSessionEngine _engine = new(
         new FocusNetworkLever(_firewall, new LiveFocusNetworkTargets(() => _broker()),
-                              (what, cause) => PowerLog.Event(what, cause)),
+                              (what, cause) => PowerLog.Event(what, cause),
+                              () => SettingsService.Read(s => s.FocusAllowedPrograms.ToList())),
         new FocusScreenLever(() => ScreenBrightnessService.IsSupported,
                              ScreenBrightnessService.Set,
                              ScreenBrightnessService.Restore),
@@ -35,7 +36,8 @@ internal static class FocusSessionService
                             ScreenCoverService.Hide),
         new SettingsFocusSessionRecord(),
         () => DateTimeOffset.Now,
-        (what, cause) => PowerLog.Event(what, cause));
+        (what, cause) => PowerLog.Event(what, cause),
+        FocusHistoryService.Record);
 
     private static Timer? _timer;
 

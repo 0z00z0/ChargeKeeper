@@ -24,11 +24,13 @@ internal readonly record struct FirewallProfileSetting(
 internal enum FirewallDirection { Inbound, Outbound }
 
 /// <summary>An allow rule narrow enough to be one exception: one protocol, one set of remote
-/// addresses, one set of remote ports.</summary>
+/// addresses, one set of remote ports, and optionally one program.</summary>
 /// <param name="RemoteAddresses">Comma-separated, as Windows Firewall spells an address list.</param>
+/// <param name="ApplicationPath">The executable the rule is scoped to, or empty for a rule that
+/// covers every program. A path is what the firewall itself keys an application rule on.</param>
 internal sealed record FirewallAllowRule(
     string Name, string Group, string Description, FirewallDirection Direction,
-    int Protocol, string RemoteAddresses, string RemotePorts);
+    int Protocol, string RemoteAddresses, string RemotePorts, string ApplicationPath = "");
 
 /// <summary>The Windows Firewall settings a focus session displaces, behind an interface so the
 /// lever can be exercised without touching a machine's firewall.</summary>
@@ -44,8 +46,10 @@ internal interface IFirewallPolicy
     /// <summary>Adds one allow rule. False when nothing was added.</summary>
     bool AddAllowRule(FirewallAllowRule rule);
 
-    /// <summary>Removes every rule this feature owns, by name. True when none is left, including
-    /// when there was none to begin with.</summary>
+    /// <summary>Removes every rule this feature owns. True when none is left, including when there
+    /// was none to begin with.</summary>
+    /// <remarks>Reaches a rule an earlier run left behind whatever the allow-list holds now: a
+    /// program still carrying an exception is a program permanently outside a later block.</remarks>
     bool RemoveOwnRules();
 }
 
@@ -61,31 +65,50 @@ internal interface IFirewallBlockRecord
     void Clear();
 }
 
-/// <summary>The two named exceptions a blocked session keeps open, and the names they carry in the
+/// <summary>The named exceptions a blocked session keeps open, and the names they carry in the
 /// Windows Firewall console.</summary>
 /// <remarks>The names are the published way out: somebody stuck removes these by hand, so they say
-/// what they are in plain words rather than needing to be worked out under pressure. They are also
-/// what <see cref="IFirewallPolicy.RemoveOwnRules"/> matches on, so changing one strands the rules
-/// an earlier run left behind.</remarks>
+/// what they are in plain words rather than needing to be worked out under pressure. The two fixed
+/// ones are quoted on the Settings page and in USAGE.md, so changing either strands the rules an
+/// earlier run left behind.</remarks>
 internal static class FocusFirewallRules
 {
     public const string Group = "ChargeKeeper focus session";
     public const string BrokerRuleName = "ChargeKeeper focus session: broker";
     public const string ResolverRuleName = "ChargeKeeper focus session: name resolution";
 
-    /// <summary>Every rule name this feature owns, for removal.</summary>
+    /// <summary>What an allowed program's rule is called, before its number.</summary>
+    public const string AllowedProgramPrefix = "ChargeKeeper focus session: allowed program ";
+
+    /// <summary>The two rules that exist for every blocked session, whatever the allow-list holds.
+    /// A removal falls back to these where the live rules cannot be enumerated.</summary>
     public static IReadOnlyList<string> Names { get; } = [BrokerRuleName, ResolverRuleName];
+
+    /// <summary>Whether a rule name belongs to this feature. Read off the name alone, so a rule whose
+    /// grouping was cleared by hand is still recognised as one to remove.</summary>
+    public static bool IsOwnName(string? name) =>
+        name is not null
+        && (Names.Contains(name, StringComparer.Ordinal)
+            || name.StartsWith(AllowedProgramPrefix, StringComparison.Ordinal));
 
     public const int ProtocolTcp = 6;
     public const int ProtocolUdp = 17;
 
-    /// <summary>The exceptions for one session: the broker, and the name resolution the broker
-    /// address was found through. The resolver rule is left out where no resolver address is known,
-    /// which is a machine whose broker is named by address and needs no lookup at all.</summary>
+    /// <summary>Every protocol. A rule carrying this may name no port at all — the firewall refuses
+    /// a port on a rule that has not committed to TCP or UDP.</summary>
+    public const int ProtocolAny = 256;
+
+    /// <summary>The exceptions for one session: the broker, the name resolution the broker address
+    /// was found through, and one per allowed program. The resolver rule is left out where no
+    /// resolver address is known, which is a machine whose broker is named by address and needs no
+    /// lookup at all.</summary>
     /// <param name="brokerAddresses">The broker's resolved addresses, comma-separated.</param>
     /// <param name="resolverAddresses">The configured resolvers, comma-separated, or empty.</param>
+    /// <param name="allowedPrograms">Executable paths that keep the network, in list order. Empty is
+    /// the whole of what an installation that has chosen none carries.</param>
     public static IReadOnlyList<FirewallAllowRule> For(
-        string brokerAddresses, int brokerPort, string resolverAddresses)
+        string brokerAddresses, int brokerPort, string resolverAddresses,
+        IReadOnlyList<string>? allowedPrograms = null)
     {
         var rules = new List<FirewallAllowRule>
         {
@@ -104,8 +127,22 @@ internal static class FocusFirewallRules
               + "everything else. Removing this rule ends that exception.",
                 FirewallDirection.Outbound, ProtocolUdp, resolverAddresses, "53"));
 
+        // Numbered rather than named after the file: two programs can share a file name, and a rule
+        // name is the key a removal works on.
+        foreach (string program in FocusAllowedPrograms.Usable(allowedPrograms))
+            rules.Add(new(
+                AllowedProgramName(rules.Count(r => r.ApplicationPath.Length > 0) + 1), Group,
+                $"Lets {Path.GetFileName(program)} keep the network while a focus session blocks "
+              + "everything else. Removing this rule ends that exception.",
+                FirewallDirection.Outbound, ProtocolAny, "*", "", program));
+
         return rules;
     }
+
+    /// <summary>The name of the <paramref name="number"/>th allowed program's rule, counting from
+    /// one.</summary>
+    public static string AllowedProgramName(int number) =>
+        AllowedProgramPrefix + number.ToString(CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -360,7 +397,10 @@ internal sealed class WindowsFirewallPolicy : IFirewallPolicy
             Set(entry, "Action", ActionAllow);
             Set(entry, "Protocol", rule.Protocol);
             Set(entry, "RemoteAddresses", rule.RemoteAddresses);
-            Set(entry, "RemotePorts", rule.RemotePorts);
+            // A port only means anything once the rule has committed to TCP or UDP; setting one on a
+            // rule covering every protocol is refused outright.
+            if (rule.RemotePorts.Length > 0) Set(entry, "RemotePorts", rule.RemotePorts);
+            if (rule.ApplicationPath.Length > 0) Set(entry, "ApplicationName", rule.ApplicationPath);
             Set(entry, "Profiles", ProfileAll);
             Set(entry, "Enabled", true);
 
@@ -393,7 +433,7 @@ internal sealed class WindowsFirewallPolicy : IFirewallPolicy
         // Remove throws for a name that is not there, which is the ordinary case on a lift that
         // follows a failed engage — so each name is taken on its own and an absent one is not a
         // failure. A name that is there and will not go is, and is reported.
-        foreach (string name in FocusFirewallRules.Names)
+        foreach (string name in OwnNames(rules))
         {
             try { Call(rules, "Remove", name); }
             catch (Exception ex)
@@ -412,6 +452,39 @@ internal sealed class WindowsFirewallPolicy : IFirewallPolicy
     {
         try { return Get(rules, "Item", name) is not null; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Every rule name on this machine that belongs to a focus session, read off the live collection
+    /// rather than composed from the allow-list as it stands now.
+    /// </summary>
+    /// <remarks>
+    /// The allow-list can be shorter than it was when a block went on — a program taken off it, or a
+    /// document arriving from another machine — and a rule that outlives its session is a program
+    /// permanently outside every later block. Enumerating is the only reading that cannot miss one.
+    /// The two fixed names are always included, so a collection that cannot be walked still loses
+    /// the rule that keeps the machine reachable.
+    /// </remarks>
+    private static IEnumerable<string> OwnNames(object rules)
+    {
+        var found = new List<string>(FocusFirewallRules.Names);
+        try
+        {
+            foreach (object? entry in (System.Collections.IEnumerable)rules)
+            {
+                if (entry is null) continue;
+                if (Get(entry, "Name") as string is not { Length: > 0 } name) continue;
+                if (FocusFirewallRules.IsOwnName(name) && !found.Contains(name, StringComparer.Ordinal))
+                    found.Add(name);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Reported rather than swallowed: the sweep is what stops a stale exception standing, so
+            // falling back to the two fixed names is a partial removal and has to be visible.
+            AppLog.Error("WindowsFirewallPolicy.OwnNames", ex);
+        }
+        return found;
     }
 
     // The RCW is left to the finaliser rather than released by hand: this runs a handful of times per

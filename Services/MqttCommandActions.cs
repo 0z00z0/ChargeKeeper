@@ -267,6 +267,31 @@ internal sealed class SettingsActions : ISettingsActions
     public void SetFocusCoversScreen(bool on) => WriteUnlessSessionRunning(
         s => s.FocusCoversScreen = on, "which lever covers the screen");
 
+    /// <summary>Puts one program on the allow-list, and says what became of the request. Refused
+    /// while a session runs, on the same grounds as a lever switch: the rules were written when the
+    /// session armed, so a list that moved under them would describe a state the firewall is
+    /// not in.</summary>
+    public FocusAllowVerdict AllowProgram(string? path) => ChangeAllowedPrograms(
+        list => FocusAllowedPrograms.Add(list, path, FocusSessionService.LeversAreLocked));
+
+    public FocusAllowVerdict DisallowProgram(string? path) => ChangeAllowedPrograms(
+        list => FocusAllowedPrograms.Remove(list, path, FocusSessionService.LeversAreLocked));
+
+    /// <summary>Runs one change against a copy and writes the list back only where it moved, so a
+    /// refusal leaves the document untouched.</summary>
+    private FocusAllowVerdict ChangeAllowedPrograms(Func<IList<string>, FocusAllowVerdict> change)
+    {
+        var list = SettingsService.Read(s => s.FocusAllowedPrograms.ToList());
+        var verdict = change(list);
+
+        if (verdict is FocusAllowVerdict.Added or FocusAllowVerdict.Removed)
+            Write(s => s.FocusAllowedPrograms = list);
+        else if (verdict == FocusAllowVerdict.SessionRunning)
+            AppLog.Info("Focus: the allowed programs cannot change while a session is running.");
+
+        return verdict;
+    }
+
     /// <summary>A lever choice, refused while a session runs. Turning one off part-way through would
     /// either restore normal access while the session still claims to be running, or leave that
     /// lever's record parked with nothing owning it.</summary>

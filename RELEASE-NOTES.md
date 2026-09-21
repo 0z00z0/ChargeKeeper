@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.3.0
+
+- A focus session that blocks the network can now keep chosen programs reachable: the Settings
+  Focus page has a list of programs, each picked as a file, and everything not on it is still
+  blocked. An empty list blocks everything but Home Assistant, exactly as before (#247).
+- The Settings Focus page now shows the last few finished sessions — when each ran, how long for,
+  which levers it used and whether it ran to time or was ended early (#248).
+
 ## 2.2.2
 
 - Every hover text and every description in the Settings window and on the dashboard is now short

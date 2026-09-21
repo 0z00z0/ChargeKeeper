@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.WinUI.Controls;
+using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -796,6 +797,74 @@ internal sealed partial class SettingsWindow : Window
         FocusBlocksNetworkToggle.IsEnabled = !locked;
         FocusDimsScreenToggle.IsEnabled    = !locked;
         FocusCoversScreenToggle.IsEnabled  = !locked;
+        FocusAllowProgramBtn.IsEnabled     = !locked;
+
+        LoadFocusAllowedPrograms(locked);
+        LoadFocusRecentSessions();
+    }
+
+    /// <summary>How many finished sessions the page shows. A few recent ones answer "what have I
+    /// been doing"; the file behind them holds the rest.</summary>
+    private const int FocusRecentShown = 5;
+
+    /// <summary>One row per allowed program: the program's own name, its path beneath, and a way to
+    /// take it off. Locked for the length of a session, like the lever switches above.</summary>
+    private void LoadFocusAllowedPrograms(bool locked)
+    {
+        FocusAllowedProgramsPanel.Children.Clear();
+
+        foreach (string path in SettingsService.Current.FocusAllowedPrograms)
+        {
+            var remove = new Button { Content = "Remove", IsEnabled = !locked };
+            string program = path;
+            remove.Click += (_, _) => RemoveFocusAllowedProgram(program);
+
+            FocusAllowedProgramsPanel.Children.Add(new SettingsCard
+            {
+                Header      = FocusAllowedPrograms.DisplayName(path),
+                Description = path,
+                Content     = remove,
+            });
+        }
+    }
+
+    private void LoadFocusRecentSessions()
+    {
+        FocusRecentPanel.Children.Clear();
+
+        var recent = FocusHistoryService.Recent(FocusRecentShown);
+        if (recent.Count == 0)
+        {
+            FocusRecentPanel.Children.Add(
+                new TextBlock { Text = "No session has finished yet.", FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            return;
+        }
+
+        foreach (var entry in recent)
+            FocusRecentPanel.Children.Add(new TextBlock
+            {
+                Text         = FocusHistoryService.Describe(entry),
+                FontSize     = 12,
+                TextWrapping = TextWrapping.Wrap,
+            });
+    }
+
+    /// <summary>Asks for a program and puts it on the list. The dialog is the Win32 one: a WinRT
+    /// picker is brokered outside this process and refuses while it runs elevated.</summary>
+    private void OnFocusAllowProgram(object sender, RoutedEventArgs e)
+    {
+        var owner = Win32Interop.GetWindowFromWindowId(AppWindow.Id);
+        if (ProgramFileDialog.Choose(owner, "Allow a program through a focus session") is not { } chosen)
+            return;
+
+        _focusLeverActions.AllowProgram(chosen);
+        LoadFocus();
+    }
+
+    private void RemoveFocusAllowedProgram(string path)
+    {
+        _focusLeverActions.DisallowProgram(path);
+        LoadFocus();
     }
 
     private void OnFocusMinutesChanged(object sender, SelectionChangedEventArgs e)
