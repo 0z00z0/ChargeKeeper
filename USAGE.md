@@ -195,9 +195,10 @@ session is running.
 **Starting one from the dashboard.** The dashboard's **Focus session** row says what a session is
 doing and how long it has left. While none is running — and while **Start a session from the
 dashboard** is on, on the Settings **Focus session** page — it also carries a Start button. The box
-that opens sets the length and shows the three levers as they stand; the levers themselves are
-chosen in Home Assistant, and the button beside the heading opens the Settings focus page. There is
-no matching control for ending a session, on the dashboard or anywhere else on the computer.
+that opens sets the length and shows the three levers as they stand; the levers themselves are set
+from Home Assistant or from the Settings focus page, which the button beside the heading opens.
+There is no matching control for ending a session, on the dashboard or anywhere else on the
+computer.
 
 **Ending one early is staged.** Switching the session off in Home Assistant opens a five-minute
 wait; a second request in the ten seconds after that wait ends the session. Missing that window

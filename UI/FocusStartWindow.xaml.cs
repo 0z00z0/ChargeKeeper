@@ -14,9 +14,9 @@ namespace ChargeKeeper.UI;
 /// <para>It starts a session and nothing else. There is no control here that ends one, and there is
 /// none anywhere else on the machine — ending is Home Assistant's, after the five-minute wait and
 /// the second request.</para>
-/// <para>The length is the one thing this box decides; the three levers are shown as they stand and
-/// are chosen from Home Assistant. The settings button opens the focus page, which is where the
-/// length can also be set and where the levers are explained.</para>
+/// <para>The length is the one thing this box decides; the three levers are shown as they stand,
+/// chosen either from Home Assistant or from the Settings focus page, which the settings button
+/// opens and where the length can also be set.</para>
 /// </remarks>
 internal sealed partial class FocusStartWindow : Window
 {

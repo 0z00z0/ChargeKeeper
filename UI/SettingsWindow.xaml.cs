@@ -34,6 +34,11 @@ internal sealed partial class SettingsWindow : Window
     // discovery document.
     private readonly Services.MqttPublisher? _mqtt;
 
+    // The three focus-lever switches write through the same actions an inbound MQTT command uses,
+    // so a lever set here and one set over MQTT are one write path rather than two: both get the
+    // refusal while a session runs, and neither can leave the other's record out of step.
+    private readonly SettingsActions _focusLeverActions = new();
+
     // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
     private bool _updating;
@@ -746,30 +751,33 @@ internal sealed partial class SettingsWindow : Window
         ("90 min", 90), ("2 hours", 120), ("3 hours", 180), ("4 hours", 240),
     ];
 
-    /// <summary>Shows what the session is doing, and the two things that can be decided here. What
-    /// a session does is not among them: the lever switches live in Home Assistant, and nothing on
-    /// this page ends a session.</summary>
+    /// <summary>Shows what the session is doing and sets up the three things that can be decided
+    /// here: the length, whether the dashboard offers a start button, and the three levers — each
+    /// locked while a session is running, decided at the point the page is shown rather than kept
+    /// live while it stays open, the same way the other cards on this window decide their state.
+    /// </summary>
     private void LoadFocus()
     {
         var session = FocusSessionService.Current;
         var s = SettingsService.Current;
+        bool locked = FocusSessionService.LeversAreLocked;
 
         FocusStatusValue.Text = FocusSessionStages.Describe(session, DateTimeOffset.Now);
-
-        var levers = new List<string>(3);
-        if (s.FocusBlocksNetwork) levers.Add("blocks the network");
-        if (s.FocusDimsScreen)    levers.Add("dims the screen");
-        if (s.FocusCoversScreen)  levers.Add("covers every screen with a black window");
-        FocusLeversValue.Text = levers.Count == 0
-            ? "Nothing — a session with no lever chosen is refused rather than armed."
-            : char.ToUpperInvariant(levers[0][0]) + string.Join(", ", levers)[1..] + ".";
 
         WithUpdatingSuppressed(() =>
         {
             LoadPresetCombo(FocusMinutesCombo, FocusMinutesPresets, s.FocusSessionMinutes,
                             v => $"{v} min");
             FocusStartFromDashboardToggle.IsOn = s.FocusStartFromDashboard;
+
+            FocusBlocksNetworkToggle.IsOn = s.FocusBlocksNetwork;
+            FocusDimsScreenToggle.IsOn    = s.FocusDimsScreen;
+            FocusCoversScreenToggle.IsOn  = s.FocusCoversScreen;
         });
+
+        FocusBlocksNetworkToggle.IsEnabled = !locked;
+        FocusDimsScreenToggle.IsEnabled    = !locked;
+        FocusCoversScreenToggle.IsEnabled  = !locked;
     }
 
     private void OnFocusMinutesChanged(object sender, SelectionChangedEventArgs e)
@@ -782,6 +790,27 @@ internal sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         SettingsService.Update(s => s.FocusStartFromDashboard = FocusStartFromDashboardToggle.IsOn);
+    }
+
+    private void OnFocusBlocksNetworkToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        _focusLeverActions.SetFocusBlocksNetwork(FocusBlocksNetworkToggle.IsOn);
+        _mqtt?.Republish();
+    }
+
+    private void OnFocusDimsScreenToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        _focusLeverActions.SetFocusDimsScreen(FocusDimsScreenToggle.IsOn);
+        _mqtt?.Republish();
+    }
+
+    private void OnFocusCoversScreenToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        _focusLeverActions.SetFocusCoversScreen(FocusCoversScreenToggle.IsOn);
+        _mqtt?.Republish();
     }
 
     private void OnScreenRestore(object sender, RoutedEventArgs e)

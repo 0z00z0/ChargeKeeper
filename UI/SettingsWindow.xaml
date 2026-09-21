@@ -418,13 +418,26 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <!-- Read-only on purpose. Which levers a session uses is chosen per session from
-                         Home Assistant; this says what the next one would use, and the start box on
-                         the dashboard shows the same three the same way. -->
-                    <controls:SettingsCard Header="What the next session does"
-                                            Description="Chosen from Home Assistant, one switch per lever, and locked for the length of a session once it starts.">
-                        <TextBlock x:Name="FocusLeversValue" VerticalAlignment="Center"
-                                    MaxWidth="320" TextWrapping="Wrap"/>
+                    <!-- One switch per lever, settable here or from Home Assistant — both write
+                         through the same action, so the two stay one value. Locked for the length of
+                         a session once it starts: a lever turned off part-way through would leave its
+                         record parked with nothing owning it. -->
+                    <controls:SettingsCard Header="Blocks the network"
+                                            Description="Sets every firewall profile to block outbound and refuse unsolicited inbound while a session runs, aside from Home Assistant's own two exceptions. Locked while a session is running.">
+                        <ToggleSwitch x:Name="FocusBlocksNetworkToggle" OnContent="" OffContent=""
+                                      MinWidth="0" Toggled="OnFocusBlocksNetworkToggled"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Dims the screen"
+                                            Description="Lowers the built-in screen's brightness for the length of a session and puts it back afterwards. Locked while a session is running.">
+                        <ToggleSwitch x:Name="FocusDimsScreenToggle" OnContent="" OffContent=""
+                                      MinWidth="0" Toggled="OnFocusDimsScreenToggled"/>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Covers the screen"
+                                            Description="Puts a black window over every display for the length of a session. Locked while a session is running.">
+                        <ToggleSwitch x:Name="FocusCoversScreenToggle" OnContent="" OffContent=""
+                                      MinWidth="0" Toggled="OnFocusCoversScreenToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Start a session from the dashboard"

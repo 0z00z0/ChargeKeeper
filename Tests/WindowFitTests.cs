@@ -229,6 +229,27 @@ public class WindowFitTests
     }
 
     [Fact]
+    public void FocusStartWindow_RetriesTheFitOnceTheContentHasItsHeight()
+    {
+        // Same wiring as the About and What's new windows, for the same reason.
+        string code = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "FocusStartWindow.xaml.cs")));
+        Assert.Contains("Content.SizeChanged +=", code, StringComparison.Ordinal);
+        Assert.Contains("_fit.FitToContent()", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FocusStartWindow_ContentPanelHasAMaxWidth()
+    {
+        // Measured: without a MaxWidth, the wrapping paragraph on this window's content had nothing
+        // stable to wrap against during the layout pass PopupWindowFit reads, so ActualHeight came
+        // back at 1631 DIP for content that renders at a few hundred — the window then opened at the
+        // 80% work-area cap, four times its real content. AboutWindow and WhatsNewWindow already pin
+        // their content panel this way; this is the same fix for the same class of window.
+        string markup = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "FocusStartWindow.xaml")));
+        Assert.Contains("x:Name=\"Content\" Spacing=\"14\" MaxWidth=\"300\"", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PopupWindowFit_IsWhatBothWindowsRetryThrough_AndItCallsThePureGeometry()
     {
         // AboutWindow and WhatsNewWindow both retry through this one class rather than each keeping

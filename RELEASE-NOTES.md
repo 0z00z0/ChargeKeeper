@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.1.1
+
+- The focus start box now opens sized to what it shows, instead of stretching most of the way down
+  the screen with empty space below the buttons. The Focus page in Settings can now switch each of
+  the three levers directly — blocking the network, dimming the screen, covering it — the same
+  switches Home Assistant already had, and each is locked while a session is running.
+
 ## 2.1.0
 
 The update now has a window of its own, in the application's own style, instead of the grey Windows

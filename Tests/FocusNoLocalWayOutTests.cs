@@ -76,4 +76,14 @@ public class FocusNoLocalWayOutTests
         Assert.Contains("FocusStartFromDashboard",
                         Source(Path.Combine("UI", "DashboardWindow.xaml.cs")),
                         StringComparison.Ordinal);
+
+    [Theory]
+    [InlineData("_focusLeverActions.SetFocusBlocksNetwork(")]
+    [InlineData("_focusLeverActions.SetFocusDimsScreen(")]
+    [InlineData("_focusLeverActions.SetFocusCoversScreen(")]
+    public void TheSettingsPageLeverSwitchesWriteThroughTheSharedAction(string call) =>
+        // The same action an inbound MQTT command uses, so a lever changed from the Settings page
+        // gets the same refusal while a session runs rather than a second, unguarded write path
+        // straight to the settings document.
+        Assert.Contains(call, Source(Path.Combine("UI", "SettingsWindow.xaml.cs")), StringComparison.Ordinal);
 }

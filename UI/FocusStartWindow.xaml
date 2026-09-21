@@ -23,7 +23,13 @@
              scroller is the floor, not the plan. -->
         <ScrollViewer x:Name="ContentScroller" Padding="20" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="Content" Spacing="14">
+            <!-- MaxWidth pins the wrapping paragraph below to a stable width. Without it the
+                 paragraph wraps against the scroller's transient viewport width during the layout
+                 pass PopupWindowFit reads, inflating ActualHeight to dozens of near-empty lines and
+                 driving the window to the work-area cap — measured: 1631 DIP of reported content for
+                 what renders as a few hundred. AboutWindow and WhatsNewWindow already pin their
+                 content panel this way. 300 = the 340 DIP window width less this padding. -->
+            <StackPanel x:Name="Content" Spacing="14" MaxWidth="300">
 
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -54,8 +60,9 @@
 
                 <StackPanel Spacing="4">
                     <TextBlock Text="WHAT IT DOES" Style="{StaticResource StatLabelStyle}"/>
-                    <!-- Read-only. Which levers a session uses is chosen from Home Assistant, one
-                         switch per lever; this box changes the length and nothing else. -->
+                    <!-- Read-only. Which levers a session uses is chosen from Home Assistant or from
+                         the Settings focus page, one switch per lever; this box changes the length
+                         and nothing else. -->
                     <StackPanel x:Name="LeverRows" Spacing="2"/>
                 </StackPanel>
 
