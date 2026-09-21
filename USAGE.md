@@ -171,7 +171,8 @@ given, and it is **ended from Home Assistant alone** — nothing on the computer
 is the point of the feature and not an omission. Starting one is easier: Home Assistant arms a
 session, and so does the dashboard, where a Start button opens a box that sets the length.
 
-A session uses up to three levers, each chosen before it starts:
+A session uses up to three levers, each chosen before it starts — one switch per lever on the
+Settings **Focus session** page, or the matching switch in Home Assistant:
 
 - **Block the network.** Every firewall profile's default outbound action goes to Block and every
   one refuses unsolicited inbound, with two narrow exceptions left open: the MQTT broker, and the

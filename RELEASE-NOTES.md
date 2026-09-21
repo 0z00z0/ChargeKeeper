@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.2.2
+
+- Every hover text and every description in the Settings window and on the dashboard is now short
+  enough to read at a glance — the focus row's two-paragraph bubble most of all — and a test keeps
+  them that way (#246).
+- The focus row no longer claims the three levers a session uses are chosen in Home Assistant; the
+  Settings Focus page has carried a switch for each of them since 2.1.1 (#246).
+
 ## 2.2.1
 
 - Help text throughout the Settings window and the dashboard is shorter and more direct, and the

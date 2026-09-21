@@ -16,7 +16,7 @@
     <controls:SettingsCard Header="Current network">
         <StackPanel Orientation="Horizontal" Spacing="8">
             <zz:InfoIcon Subject="the current network"
-                            Info="The profile name appears here when one matches. Otherwise the adapter and subnet detected are shown — the same key a new profile would be created from. “No network detected” means nothing resolved at all, and no profile can apply."/>
+                            Info="The matching profile's name, or else the adapter and subnet detected — the key a new profile is created from."/>
             <TextBlock x:Name="ValueText" Text="—" VerticalAlignment="Center"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </StackPanel>

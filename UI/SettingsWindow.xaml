@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="ChargeKeeper.UI.SettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -148,7 +148,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Install updates automatically"
-                                            Description="Installs a newer version without asking, once nobody has touched this computer for ten minutes and no focus session or lid-close wait is running. ChargeKeeper closes while Setup runs.">
+                                            Description="Installs a newer version without asking once the computer has been idle ten minutes. ChargeKeeper closes while Setup runs.">
                         <ToggleSwitch x:Name="AutomaticInstallToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnAutomaticInstallToggled"/>
                     </controls:SettingsCard>
@@ -269,7 +269,7 @@
                     </controls:SettingsCard>
 
                     <zz:SettingsSectionHeader Heading="Presets" InfoSubject="keep-awake presets"
-                                                 Info="“Expires” takes a duration (3h, 90m, 1h30) or a clock time (17:00). The tray toggle and dashboard switch use the first preset."/>
+                                                 Info="“Expires” takes a duration (3h, 90m, 1h30) or a clock time (17:00). The tray uses the first preset."/>
                     <StackPanel x:Name="KeepAwakePresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddKeepAwakePresetBtn" Content="Add preset" Click="OnAddKeepAwakePreset" Margin="0,4,0,12"/>
 
@@ -278,7 +278,7 @@
                          which collapses entirely on fixed-mode hardware where keep-awake-per-network
                          still has to work. -->
                     <zz:SettingsSectionHeader Heading="Networks" InfoSubject="keep-awake networks"
-                                                 Info="The hold runs from arrival at a network to leaving it. These reuse the Smart Charge network profiles — enable them there for this to act."/>
+                                                 Info="The hold runs from arrival at a network to leaving it. Needs the Smart Charge network profiles on."/>
 
                     <!-- The same setting the Smart Charge page carries. It is repeated here because
                          it decides whether these rules act at all, and that page's copy is out of
@@ -302,7 +302,7 @@
                         <TextBlock Text="Lid delay" Style="{StaticResource SectionHeaderStyle}"
                                    Margin="0" VerticalAlignment="Center"/>
                         <zz:InfoIcon Subject="lid delay"
-                                        Info="Sets the Windows lid-close action to “Do nothing”, and its battery sleep timeout to Never while a wait runs — both restored when this turns off, or at the next start. A connected mouse can still wake the computer with the lid shut."/>
+                                        Info="Sets the Windows lid-close action to “Do nothing”, and its battery sleep timeout to Never while a wait runs."/>
                     </StackPanel>
 
                     <!-- No section heading above the master switch: it governs everything on the
@@ -311,7 +311,7 @@
                                             Description="ChargeKeeper decides when the computer sleeps after the lid closes, instead of Windows.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="lid handling"
-                                            Info="Sleeps on whichever condition below is reached first, or as soon as the lid closes if neither is on. Opening the lid before then cancels the wait."/>
+                                            Info="Sleeps on whichever condition below is reached first, or at once if neither is on."/>
                             <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -331,7 +331,7 @@
                                             Description="Turns lid handling off again after one lid close ends in sleep.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="switching lid handling off after it has held"
-                                            Info="Only a lid close that ends in sleep counts. Opening the lid first, or a keep-awake session holding off the sleep, leaves lid handling on."/>
+                                            Info="Only a lid close that ends in sleep counts. Opening the lid first leaves lid handling on."/>
                             <ToggleSwitch x:Name="LidOffAfterSleepToggle" OnContent="On" OffContent="Off" Toggled="OnLidOffAfterSleepToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -343,13 +343,13 @@
                                             Description="Locks the computer as soon as the lid closes.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="locking at lid close"
-                                            Info="Handling the lid removes the normal sign-in prompt at lid close; this restores it. The lock happens as the lid closes, before the computer sleeps."/>
+                                            Info="Handling the lid removes the normal sign-in prompt at lid close; this restores it."/>
                             <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <zz:SettingsSectionHeader Heading="Sleep after a time" InfoSubject="the sleep delay"
-                                                 Info="Sleeps after this delay once the lid is shut; opening it first cancels the wait. With a battery target too, whichever arrives first wins."/>
+                                                 Info="Sleeps after this delay once the lid is shut. With a battery target too, whichever arrives first wins."/>
 
                     <controls:SettingsCard Header="Sleep once a delay has run out"
                                             Description="Sleeps when the delay below runs out, unless the battery target is reached first.">
@@ -373,7 +373,7 @@
                             Click="OnAddLidDischargeTarget" Margin="0,4,0,12"/>
 
                     <zz:SettingsSectionHeader Heading="Sleep if the computer gets hot" InfoSubject="the temperature ceiling"
-                                                 Info="Crossing this sleeps the computer at once — never shuts down, so nothing open is lost. What happened is shown at the next wake."/>
+                                                 Info="Crossing this sleeps the computer at once. It never shuts down, so nothing open is lost."/>
 
                     <controls:SettingsCard x:Name="LidThermalCard"
                                             Header="Sleep if the computer reaches a temperature"
@@ -395,7 +395,7 @@
                          reach nothing. -->
                     <controls:SettingsCard x:Name="ScreenUnsupportedCard"
                                             Header="Brightness"
-                                            Description="This computer reports no display whose brightness Windows can set. An external monitor is set from its own buttons."
+                                            Description="No display here accepts a brightness from Windows. An external monitor is set from its own buttons."
                                             Visibility="Collapsed"/>
 
                     <controls:SettingsCard x:Name="ScreenBrightnessCard"
@@ -403,7 +403,7 @@
                                             Description="Dims the built-in screen without sleeping the computer.">
                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                             <zz:InfoIcon Subject="brightness"
-                                            Info="Reaches the built-in screen only. The level before the first change is remembered, and Restore puts exactly that back — including after a restart."/>
+                                            Info="Reaches the built-in screen only. Restore puts back the level in force before the first change."/>
                             <TextBlock x:Name="ScreenBrightnessValue" VerticalAlignment="Center" MinWidth="44"/>
                             <Slider x:Name="ScreenBrightnessSlider" Width="200" Minimum="0" Maximum="100"
                                     StepFrequency="1" ValueChanged="OnScreenBrightnessChanged"/>
@@ -423,13 +423,13 @@
                     <!-- Status, and nothing to press. A person at the keyboard cannot end a session:
                          that is the feature's central property, not an omission to be filled in. -->
                     <controls:SettingsCard Header="Status"
-                                            Description="A session is started and ended from Home Assistant, and runs for however long it was given. Nothing on this computer can end one.">
+                                            Description="A session runs for the length it was given. Nothing on this computer ends one early.">
                         <TextBlock x:Name="FocusStatusValue" VerticalAlignment="Center"
                                     MaxWidth="320" TextTrimming="CharacterEllipsis"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Length"
-                                            Description="How long the next session runs. A session's length is fixed when it starts, so changing this while one runs changes the next one only.">
+                                            Description="How long the next session runs. Changing this while one runs changes the next one only.">
                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                             <ComboBox x:Name="FocusMinutesCombo" MinWidth="110"
                                       SelectionChanged="OnFocusMinutesChanged"/>
@@ -441,25 +441,25 @@
                          a session once it starts: a lever turned off part-way through would leave its
                          record parked with nothing owning it. -->
                     <controls:SettingsCard Header="Blocks the network"
-                                            Description="Sets every firewall profile to block outbound and refuse unsolicited inbound while a session runs, aside from Home Assistant's own two exceptions. Locked while a session is running.">
+                                            Description="Blocks outbound and unsolicited inbound traffic on every firewall profile while a session runs, aside from two Home Assistant exceptions.">
                         <ToggleSwitch x:Name="FocusBlocksNetworkToggle" OnContent="" OffContent=""
                                       MinWidth="0" Toggled="OnFocusBlocksNetworkToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Dims the screen"
-                                            Description="Lowers the built-in screen's brightness for the length of a session and puts it back afterwards. Locked while a session is running.">
+                                            Description="Lowers the built-in screen's brightness for the length of a session and puts it back afterwards.">
                         <ToggleSwitch x:Name="FocusDimsScreenToggle" OnContent="" OffContent=""
                                       MinWidth="0" Toggled="OnFocusDimsScreenToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Covers the screen"
-                                            Description="Puts a black window over every display for the length of a session. Locked while a session is running.">
+                                            Description="Puts a black window over every display for the length of a session.">
                         <ToggleSwitch x:Name="FocusCoversScreenToggle" OnContent="" OffContent=""
                                       MinWidth="0" Toggled="OnFocusCoversScreenToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Start a session from the dashboard"
-                                            Description="Adds a Start button to the dashboard's focus row. It only starts a session — ending one still needs Home Assistant, and still takes the five-minute wait and the second request.">
+                                            Description="Adds a Start button to the dashboard's focus row. It starts a session; ending one still needs Home Assistant.">
                         <ToggleSwitch x:Name="FocusStartFromDashboardToggle" OnContent="" OffContent=""
                                       MinWidth="0" Toggled="OnFocusStartFromDashboardToggled"/>
                     </controls:SettingsCard>
@@ -469,13 +469,13 @@
                                             HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="6">
                             <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="End the session early from Home Assistant: send the request, wait five minutes, then send it again within ten seconds."/>
+                                       Text="End it early from Home Assistant: send the request, wait five minutes, send it again within ten seconds."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="Lift the network block: in Windows Defender Firewall with Advanced Security, delete the two rules named &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="Turn the screen brightness back up by hand."/>
                             <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="Exit ChargeKeeper from the tray icon to take the black cover down. The session keeps running and the cover returns at the next start."/>
+                                       Text="Exit ChargeKeeper from the tray icon to take the black cover down. The session keeps running."/>
                         </StackPanel>
                     </controls:SettingsCard>
                 </StackPanel>
@@ -486,7 +486,7 @@
                     <!-- One sound for every row below. The choices are filled in code from
                          NotificationSounds.Choices, which also holds their order. -->
                     <controls:SettingsCard Header="Sound"
-                                            Description="Played with every notification. Low battery plays a falling version and High battery a rising one.">
+                                            Description="Played with every notification. Low battery falls, High battery rises.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ComboBox x:Name="NotificationSoundCombo" MinWidth="160"
                                       SelectionChanged="OnNotificationSoundChanged"/>
@@ -512,7 +512,7 @@
                                             Description="Notify when the battery rises to this level.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <zz:InfoIcon Subject="the high battery warning"
-                                            Info="Fires once on the way up, then stays silent until the level drops back below. Suppressed while Smart Charge is holding the level within its cap."/>
+                                            Info="Fires once on the way up, then stays silent until the level drops back below."/>
                             <ComboBox x:Name="HighBattPctCombo" MinWidth="110"
                                       SelectionChanged="OnHighBattPctChanged"/>
                             <ToggleSwitch x:Name="HighBattEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHighBattEnabledToggled"/>
@@ -520,7 +520,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Overnight-drain warning"
-                                            Description="Notify when the battery loses charge faster than this rate across a detected downtime gap.">
+                                            Description="Notify when the battery drains faster than this rate while the computer is off.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <ComboBox x:Name="DrainPctPerHourCombo" MinWidth="110"
                                       SelectionChanged="OnDrainPctPerHourChanged"/>
@@ -555,7 +555,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Something keeping this computer awake"
-                                            Description="Notify once another program has asked Windows to stay awake for this long without a break. This application's own holds are never counted.">
+                                            Description="Notify once another program has held the computer awake for this long. This application's own holds are never counted.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <ComboBox x:Name="AwakeHoldHoursCombo" MinWidth="110"
                                       SelectionChanged="OnAwakeHoldHoursChanged"/>
@@ -661,12 +661,12 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Show icons in main tray (experimental)"
-                                            Description="Asks Windows to keep ChargeKeeper's tray icons on the taskbar instead of behind the overflow chevron.">
+                                            Description="Keeps the tray icons on the taskbar instead of behind the overflow chevron.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleSwitch x:Name="PromoteIconsToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnPromoteIconsToggled"/>
                             <zz:InfoIcon Subject="Show icons in main tray"
-                                            Info="No supported Windows API for this, so it may do nothing on some Windows versions. Switching off restores the previous value."/>
+                                            Info="No supported Windows API for this, so it may do nothing on some Windows versions."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
@@ -677,7 +677,7 @@
                             <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnPercentageIconToggled"/>
                             <zz:InfoIcon Subject="Also show percentage"
-                                            Info="Right-click the second icon for its own digit style; everything else stays on the main icon. New tray icons start behind the overflow chevron — drag it out to keep it visible."/>
+                                            Info="Right-click the second icon for its own digit style. A new tray icon starts behind the overflow chevron."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
@@ -687,7 +687,7 @@
                                             Description="Collapse an off feature on the dashboard popup to its name, its switch and nothing else.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="One line until it matters"
-                                            Info="Only an off feature collapses, to its name, switch and a small arrow to expand it. A feature that is on is never collapsed."/>
+                                            Info="Only an off feature collapses, to its name, switch and an arrow to expand it."/>
                             <ToggleSwitch x:Name="OneLineUntilItMattersToggle" Toggled="OnOneLineUntilItMattersToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -697,7 +697,7 @@
                                             Description="Replaces the dashboard's history graph with a button that opens it.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="Hide graph in dashboard"
-                                            Info="Leaves out the range buttons, plot and legend; the button opens the same larger graph window as the graph's own expand control."/>
+                                            Info="Leaves out the range buttons, plot and legend. The button opens the same larger graph window."/>
                             <ToggleSwitch x:Name="HideGraphInDashboardToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnHideGraphInDashboardToggled"/>
                         </StackPanel>
@@ -731,7 +731,7 @@
                                 <ComboBoxItem Content="By level and state" Tag="ByLevelAndState"/>
                             </ComboBox>
                             <zz:InfoIcon Subject="colouring by level and state"
-                                            Info="By level uses the on-battery scale only. By level and state also reflects whether it was on battery, charging or on mains; older samples with no recorded state keep the plain accent."/>
+                                            Info="By level uses the on-battery scale only. By level and state also reflects charging and mains."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
@@ -742,7 +742,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Downtime gap threshold"
-                                            Description="How long a hole in the sample timeline must be before the history graph shows it as a break (0 = none).">
+                                            Description="How long a gap in the samples must be before the graph shows it as a break (0 = none).">
                         <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
                                   SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
@@ -766,7 +766,7 @@
                                             Description="How often processor time is read. Memory, handles and I/O are always read once a second.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="Sampling rate"
-                                            Info="At 10, 5 or 2 Hz a single sample can spike well above real cost, from how Windows accounts processor time. Read the dashed mean for the true figure."/>
+                                            Info="At 10, 5 or 2 Hz a single sample can spike well above real cost. Read the dashed mean instead."/>
                             <!-- Item order IS the PerformanceSampleRate order: the load and save cast
                                  between the enum and SelectedIndex by position. Append, never insert. -->
                             <ComboBox x:Name="PerformanceRateCombo" MinWidth="140"
@@ -795,7 +795,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Logs"
-                                            Description="app.log holds activity and power, lid and sleep events. Performance history is kept beside the battery history.">
+                                            Description="app.log holds activity and power, lid and sleep events.">
                         <DropDownButton x:Name="OpenLogButton" Content="Open log">
                             <DropDownButton.Flyout>
                                 <MenuFlyout Placement="Bottom">

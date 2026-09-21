@@ -435,8 +435,8 @@ internal sealed partial class SettingsWindow : Window
         // Read afresh: the level moves outside this application, so a page opened later would
         // otherwise show whatever was on the display when the window was built.
         if (tag == "Screen") LoadScreen();
-        // Same reason: a session is armed and ended from Home Assistant, so the line is only ever
-        // current at the moment the page is shown.
+        // Same reason: a session is also armed and ended from Home Assistant, so the line is only
+        // ever current at the moment the page is shown.
         if (tag == "Focus") LoadFocus();
 
         // The graph only paints while its page is on screen. Its own Visibility follows the page

@@ -84,7 +84,7 @@
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Processor time ChargeKeeper itself uses, as a share of the whole machine, on the left scale. The figure after the dot is how often it is read.">
+                            ToolTipService.ToolTip="Processor time ChargeKeeper itself uses, on the left scale. The dot names how often it is read.">
                     <Border x:Name="LegendProcessorSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendProcessorText" Text="Processor" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

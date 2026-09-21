@@ -164,7 +164,7 @@
                 </StackPanel>
                 <StackPanel x:Name="LegendPowerItem" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Power flowing into or out of the battery, in watts on the right scale: above zero while charging, below zero while the battery is being drawn on.">
+                            ToolTipService.ToolTip="Power into or out of the battery, in watts on the right scale. Above zero while charging.">
                     <Border x:Name="LegendPowerSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock Text="Power" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>

@@ -339,12 +339,12 @@
                             <ToolTipService.ToolTip>
                                 <ToolTip>
                                     <StackPanel MaxWidth="280" Spacing="6">
-                                        <TextBlock Text="Puts the computer into a deeper sleep after a period of inactivity, instead of the shallow sleep Windows uses by default."
+                                        <TextBlock Text="Puts the computer into a deeper sleep after a period of inactivity."
                                                    FontWeight="SemiBold"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"/>
                                         <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
-                                                   Text="Only idle standby changes; a manual sleep is unaffected."/>
+                                                   Text="A manual sleep is unaffected."/>
                                     </StackPanel>
                                 </ToolTip>
                             </ToolTipService.ToolTip>
@@ -411,9 +411,8 @@
                                                        FontWeight="SemiBold"
                                                        FontSize="13"
                                                        TextWrapping="Wrap"/>
-                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                                Opening the lid before then cancels the wait, and a running keep-awake session holds the sleep off entirely. Pick a delay or a battery level below. The lock-at-close switch, and the saved delays and battery levels, are on the Settings page.
-                                            </TextBlock>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                                                       Text="Opening the lid cancels the wait."/>
                                         </StackPanel>
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
@@ -499,13 +498,12 @@
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="280" Spacing="6">
-                                            <TextBlock Text="Keeps the computer from sleeping for a while — for a long download, a presentation or a build."
+                                            <TextBlock Text="Keeps the computer from sleeping for a while."
                                                        FontWeight="SemiBold"
                                                        FontSize="13"
                                                        TextWrapping="Wrap"/>
-                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                                The row below sets how long: a fixed span, a time of day, or "Net", which lasts until the computer moves to a different network. A span or a time of day ends by itself. Turning the switch off, or moving to another network during a "Net" session, ends the hold at once.
-                                            </TextBlock>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                                                       Text="The row below sets how long. The switch ends it at once."/>
                                         </StackPanel>
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
@@ -611,13 +609,12 @@
                             <ToolTipService.ToolTip>
                                 <ToolTip>
                                     <StackPanel MaxWidth="280" Spacing="6">
-                                        <TextBlock Text="A fixed stretch of time with the distractions taken away, ended only by its own clock or by Home Assistant."
+                                        <TextBlock Text="A fixed stretch of time with the distractions taken away."
                                                    FontWeight="SemiBold"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"/>
-                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                            A session can block every network connection except the one back to Home Assistant, dim the screen, and cover every screen with a black window. Which of the three it uses is chosen in Home Assistant. Start opens a box that sets the length; once a session is running nothing on this computer can end it, and Home Assistant ends it early only after a five-minute wait and a second request.
-                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                                                   Text="Nothing on this computer ends one early."/>
                                     </StackPanel>
                                 </ToolTip>
                             </ToolTipService.ToolTip>
@@ -661,7 +658,7 @@
                                     <TextBlock Text="What Windows says about staying awake and waking up."
                                                FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap"/>
                                     <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
-                                               Text="The list of programs holding the machine awake updates every few minutes, not live."/>
+                                               Text="The list of holds updates every few minutes, not live."/>
                                 </StackPanel>
                             </ToolTip>
                         </ToolTipService.ToolTip>
