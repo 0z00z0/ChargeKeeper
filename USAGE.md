@@ -179,6 +179,12 @@ Settings **Focus session** page, or the matching switch in Home Assistant:
   name resolution that finds it. The broker's address is resolved once, before the block lands. A
   session cannot be armed on the network lever while the broker port is set to Automatic, because
   Automatic sweeps several candidate ports and an exception covering all of them is not a narrow one.
+  **Named programs can be left reachable.** The Settings **Focus session** page carries a list under
+  **Programs that keep the network**; **Allow a program** asks for a program file, and each one on
+  the list gets its own outbound exception for the length of a session. Everything not on it is
+  still blocked. An empty list is the behaviour described above and is what an installation that has
+  chosen none carries. A program is held by its executable's full path, so moving or renaming the
+  file breaks the exception, and the list cannot be changed while a session runs.
 - **Dim the screen.** The same brightness mechanism the Screen page and the `Screen brightness`
   entity use, so the level in force before the dim is remembered and put back at the end.
 - **Cover the screen.** A black window over every attached display, above everything else on the
@@ -217,6 +223,12 @@ dies with the program and is put back up only if the session it belonged to is s
 names the session in a line of text, and the dashboard's focus row and the Settings window's **Focus
 session** page show the same. None of them offers anything that ends a session.
 
+**What is kept afterwards.** Every finished session is written to `focus-history.csv` in the data
+folder's `History` subfolder — when it started, when it was due to end, when it actually ended,
+which levers it used, and whether it ran to time, was ended early, or was found finished at a later
+start. Rows are kept for a year, at most five hundred of them. The Settings **Focus session** page
+shows the last five under **Recent sessions**.
+
 #### If you are stuck
 
 The block is ordinary Windows Firewall settings, so it can always be removed by hand.
@@ -224,7 +236,10 @@ The block is ordinary Windows Firewall settings, so it can always be removed by 
 1. Open **Windows Defender Firewall with Advanced Security** as an administrator.
 2. Under **Outbound Rules**, delete the two rules named
    **ChargeKeeper focus session: broker** and
-   **ChargeKeeper focus session: name resolution**.
+   **ChargeKeeper focus session: name resolution**. Where programs were allowed through, delete
+   their rules too — **ChargeKeeper focus session: allowed program 1** and so on, one per program.
+   All of them sit in the **ChargeKeeper focus session** group, so sorting by group brings them
+   together.
 3. Open **Windows Defender Firewall Properties** and, on each of the Domain, Private and Public
    profile tabs, set **Outbound connections** back to **Allow** and **Inbound connections** to
    whatever it was before (**Block** is the Windows default, and **Block all connections** is what a
