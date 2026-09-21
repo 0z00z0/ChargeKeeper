@@ -308,7 +308,7 @@
                     <!-- No section heading above the master switch: it governs everything on the
                          page, and a heading over it would claim it belongs to one part. -->
                     <controls:SettingsCard Header="Handle the lid closing"
-                                            Description="ChargeKeeper decides when the computer sleeps after the lid closes, instead of Windows.">
+                                            Description="ChargeKeeper decides when the computer sleeps after the lid closes, instead of Windows. A keep-awake session holds the sleep off.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="lid handling"
                                             Info="Sleeps on whichever condition below is reached first, or at once if neither is on."/>

@@ -24,6 +24,9 @@ public class KeepAwakeLidCouplingTests
     // it looks exactly the same as one that never had it, which is the state #172 was filed against.
     // #221 shortened both pages' help text and dropped the phrase the two sides used to share, so
     // each page now states the rule in its own words rather than an identical shared sentence.
+    // #246 capped every hover text and description, so the Lid delay page states it on the master
+    // switch, where the rule governs the whole page, rather than inside a bubble about something
+    // else.
 
     [Fact]
     public void KeepAwakePage_StatesWhatASessionDoesToALidClose() =>
@@ -32,7 +35,7 @@ public class KeepAwakeLidCouplingTests
 
     [Fact]
     public void LidDelayPage_StatesThatAKeepAwakeSessionHoldsOffTheSleep() =>
-        Assert.Contains("keep-awake session holding off the sleep",
+        Assert.Contains("keep-awake session holds the sleep off",
                         Page("LidClosePanel", "ScreenPanel"), StringComparison.Ordinal);
 
     // DescribeLidEffect
