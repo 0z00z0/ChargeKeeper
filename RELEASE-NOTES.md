@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.2.1
+
+- Help text throughout the Settings window and the dashboard is shorter and more direct, and the
+  Focus page's "If you are stuck" section is now a short list of the four ways to get a session's
+  levers back to normal.
+
 ## 2.2.0
 
 - The General page in Settings now decides how often ChargeKeeper looks for a new version — every

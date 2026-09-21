@@ -209,9 +209,6 @@
                                                        FontWeight="SemiBold"
                                                        FontSize="13"
                                                        TextWrapping="Wrap"/>
-                                            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                                A battery wears fastest when it is kept full for long periods, and faster still while plugged in and warm, as a laptop on a desk usually is. Holding the charge in a middle range lets the battery last more years before its runtime shortens. For a full charge before a trip, "Charge to 100 % once" below lifts the limit for one charge and puts it back afterwards.
-                                            </TextBlock>
                                         </StackPanel>
                                     </ToolTip>
                                 </ToolTipService.ToolTip>
@@ -346,9 +343,8 @@
                                                    FontWeight="SemiBold"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"/>
-                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                            Windows' default "Modern Standby" keeps parts of the computer lightly active with the lid closed, so it can check for notifications and updates in the background. That drains the battery slowly the whole time, including in a closed bag. Smart Standby schedules a deeper, fully-off sleep once the computer has been idle for a while, so it loses much less charge overnight. Only idle standby changes; a manual sleep is unaffected.
-                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                                                   Text="Only idle standby changes; a manual sleep is unaffected."/>
                                     </StackPanel>
                                 </ToolTip>
                             </ToolTipService.ToolTip>
@@ -416,7 +412,7 @@
                                                        FontSize="13"
                                                        TextWrapping="Wrap"/>
                                             <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                                Turning this on sets the Windows lid-close action to "Do nothing" and waits before sleeping instead; the Windows setting is put back when it is turned off. Opening the lid before that cancels it, and a running keep-awake session holds the sleep off entirely. Pick a delay or a battery level below — whichever is reached first decides when it sleeps. The computer also locks as the lid closes by default; that switch, and the saved delays and battery levels themselves, are on the Settings page.
+                                                Opening the lid before then cancels the wait, and a running keep-awake session holds the sleep off entirely. Pick a delay or a battery level below. The lock-at-close switch, and the saved delays and battery levels, are on the Settings page.
                                             </TextBlock>
                                         </StackPanel>
                                     </ToolTip>
@@ -508,7 +504,7 @@
                                                        FontSize="13"
                                                        TextWrapping="Wrap"/>
                                             <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85">
-                                                The row below sets how long: a fixed span, a time of day, or "Net", which lasts until the computer moves to a different network — a way to stay awake only while at one desk. A span or a time of day ends by itself, so nothing is left running overnight by mistake. Turning the switch off, or moving to another network during a "Net" session, ends the hold at once.
+                                                The row below sets how long: a fixed span, a time of day, or "Net", which lasts until the computer moves to a different network. A span or a time of day ends by itself. Turning the switch off, or moving to another network during a "Net" session, ends the hold at once.
                                             </TextBlock>
                                         </StackPanel>
                                     </ToolTip>
@@ -665,7 +661,7 @@
                                     <TextBlock Text="What Windows says about staying awake and waking up."
                                                FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap"/>
                                     <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
-                                               Text="The list of programs holding the machine awake is taken every few minutes, not live: reading it starts a console process."/>
+                                               Text="The list of programs holding the machine awake updates every few minutes, not live."/>
                                 </StackPanel>
                             </ToolTip>
                         </ToolTipService.ToolTip>

@@ -465,7 +465,19 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="If you are stuck"
-                                            Description="Windows Defender Firewall with Advanced Security lists two rules called &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;. Deleting both, then setting each profile's outbound and inbound actions back to Allow, ends the block. The screen goes back up from the Windows brightness slider or from the Screen page, and the black cover goes when the session does. USAGE.md sets it out step by step."/>
+                                            ContentAlignment="Vertical"
+                                            HorizontalContentAlignment="Stretch">
+                        <StackPanel Spacing="6">
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="End the session early from Home Assistant: send the request, wait five minutes, then send it again within ten seconds."/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="Lift the network block: in Windows Defender Firewall with Advanced Security, delete the two rules named &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;."/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="Turn the screen brightness back up by hand."/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="Exit ChargeKeeper from the tray icon to take the black cover down. The session keeps running and the cover returns at the next start."/>
+                        </StackPanel>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <StackPanel x:Name="NotificationsPanel" Spacing="4" Visibility="Collapsed">
