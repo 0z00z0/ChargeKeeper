@@ -1455,29 +1455,54 @@ public partial class App : Application
         });
     }
 
-    /// <summary>How often the background check re-asks GitHub after the first one.</summary>
-    internal static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(24);
-
-    /// <summary>Delayed so the first check does not slow the cold-start path.</summary>
-    private static readonly TimeSpan FirstUpdateCheckDelay = TimeSpan.FromSeconds(30);
-
     // Held for the life of the process: this is the whole background update mechanism, so a machine
     // left signed in has to keep checking.
     private UpdateScheduler? _updateScheduler;
 
+    // When the last check ran, so UpdateSchedulePolicy can decide whether this tick is one that
+    // asks. In memory rather than on disk: the scheduler lives and dies with the process, and a
+    // restart runs the first check anyway.
+    private DateTimeOffset? _lastUpdateCheckAt;
+
+    // The release a check found, held until an automatic install may go ahead. Null under every
+    // other condition, including once an install has been attempted.
+    private ReleaseInfo? _updateHeldForInstall;
+
+    // True while an automatic install runs, so a later tick cannot start a second one.
+    private bool _automaticInstallRunning;
+
     private void ScheduleUpdateCheck()
     {
+        // The shared scheduler takes its interval once and cannot be told to stop, so the tick is
+        // fixed and the cadence is decided per tick — see UpdateSchedulePolicy.
         _updateScheduler = new UpdateScheduler(
-            FirstUpdateCheckDelay, UpdateCheckInterval, CheckForUpdatesInBackground, new AppLogSink());
+            UpdateSchedulePolicy.FirstTickDelay, UpdateSchedulePolicy.TickInterval,
+            OnUpdateTick, new AppLogSink());
         _updateScheduler.Start();
+    }
+
+    /// <summary>One tick: a check where the chosen cadence says one is due, and then a test of
+    /// whether a release already in hand may install itself.</summary>
+    private async Task OnUpdateTick(CancellationToken cancellationToken)
+    {
+        // The menu is built after this is scheduled, so the first tick can arrive before it exists.
+        if (_menu is not { } menu) return;
+
+        var settings = SettingsService.Current;
+
+        if (UpdateSchedulePolicy.IsDue(settings.UpdateCheckCadence, _lastUpdateCheckAt, DateTimeOffset.Now))
+            await CheckForUpdatesInBackground(menu).ConfigureAwait(false);
+
+        await InstallAutomaticallyIfTheMachineIsFree(menu, settings).ConfigureAwait(false);
     }
 
     /// <summary>One background check, joined with whatever a surface has running. Silent: the badge
     /// and the tooltip are the only places its outcome appears.</summary>
-    private async Task CheckForUpdatesInBackground(CancellationToken cancellationToken)
+    private async Task CheckForUpdatesInBackground(TrayMenu menu)
     {
-        // The menu is built after this is scheduled, so the first tick can arrive before it exists.
-        if (_menu is not { } menu) return;
+        // Stamped before the check rather than after, so a check that never returns cannot leave
+        // every following tick starting another one.
+        _lastUpdateCheckAt = DateTimeOffset.Now;
 
         var run = await menu.UpdateChecks.Run().ConfigureAwait(false);
         if (run.Result != UpdateFlowResult.UpdateAvailable ||
@@ -1485,10 +1510,44 @@ public partial class App : Application
             return;
 
         _updateAvailableVersion = version;
+        _updateHeldForInstall   = run.Release;
         // Pass the cached capacities: nulls here would drop the "remaining" line and latch the
         // shortened text into _lastTooltip.
         UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
         RunOnUi(() => _menu?.SetUpdateBadge(version));
+    }
+
+    /// <summary>
+    /// Installs the release in hand where the machine has been left alone, with no question and no
+    /// window. Re-tested every tick, so an update found while somebody is working goes in once they
+    /// stop rather than waiting for the next check.
+    /// </summary>
+    private async Task InstallAutomaticallyIfTheMachineIsFree(TrayMenu menu, AppSettings settings)
+    {
+        if (_automaticInstallRunning || _updateHeldForInstall is not { } release) return;
+
+        var hold = AutoInstallPolicy.Decide(
+            settings.InstallUpdatesAutomatically,
+            hasRelease:     true,
+            sinceLastInput: NativeMethods.SinceLastInput(),
+            focusRunning:   FocusSessionService.IsRunning,
+            lidWaitRunning: LidWaitStates.IsWaiting(LidDelayService.WaitNow().State));
+
+        if (hold != AutoInstallHold.None) return;
+
+        // Cleared before the attempt: a refused or failed install must not be retried every five
+        // minutes, and the next due check finds the release again.
+        _updateHeldForInstall   = null;
+        _automaticInstallRunning = true;
+        try
+        {
+            // Off the UI thread by design: SilentUpdatePrompts draws nothing, so unlike the window
+            // prompts this needs no marshalling. The flow's own shutdown already marshals itself.
+            var run = await menu.Updates.InstallSilentlyAsync(release).ConfigureAwait(false);
+            AppLog.Info($"Automatic update: {run.Result}.");
+        }
+        catch (Exception ex) { AppLog.Error("App.InstallAutomatically", ex); }
+        finally { _automaticInstallRunning = false; }
     }
 
     // A tray click that lands while the popup is open first deactivates it, so guard against

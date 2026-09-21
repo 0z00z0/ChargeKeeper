@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.2.0
+
+- The General page in Settings now decides how often ChargeKeeper looks for a new version — every
+  hour, every day, or only when it starts — and can install one without asking. An automatic
+  install waits until nobody has touched the computer for ten minutes and neither a focus session
+  nor a lid-close wait is running, then downloads and runs Setup with nothing on screen.
+
 ## 2.1.1
 
 - The focus start box now opens sized to what it shows, instead of stretching most of the way down

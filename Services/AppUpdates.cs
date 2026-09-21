@@ -75,6 +75,17 @@ internal sealed class AppUpdates
         return new UpdateFlow(_service, Prompts(), FlowOptions()).InstallAsync(release);
     }
 
+    /// <summary>
+    /// Installs a release already found with no question and no window, for the machine that has
+    /// been left alone — see <see cref="AutoInstallPolicy"/>. The same service, the same flow and
+    /// the same handover record as <see cref="InstallAsync"/>; only the answers differ.
+    /// </summary>
+    internal Task<UpdateFlowRun> InstallSilentlyAsync(ReleaseInfo release)
+    {
+        _launcher.TargetVersion = release.VersionText;
+        return new UpdateFlow(_service, new SilentUpdatePrompts(), FlowOptions()).InstallAsync(release);
+    }
+
     /// <summary>The component's own window and wording for every outcome a caller chooses to report.
     /// Built per use: the window is a field of the prompts, so one instance would hand a second
     /// caller the first one's window.</summary>

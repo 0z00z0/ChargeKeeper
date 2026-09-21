@@ -280,8 +280,10 @@ whose row holds **What's new**. On the About window and the Settings page the bu
 found: *Up to date* for a few seconds, or *Update to* the version available, which opens the update
 dialog when selected; a check that fails still explains itself in a dialog. Both run a check by
 themselves each time they open, showing the result on the button only, and two open at once share
-one check. The app also asks by itself 30 seconds after start and once every 24 hours while it
-runs. A downloaded
+one check. The app also asks by itself 30 seconds after start and then at whatever cadence the
+General page in Settings names — **every hour**, **every day** (the default, and what every
+installation had before the choice existed), or **only at startup**, which is the run 30 seconds in
+and nothing after it. A downloaded
 installer is refused unless its digest is intact, a signature is present and the signer is
 `CN=ZeroZero Software`.
 
@@ -290,6 +292,15 @@ app closes, the installer runs showing a progress window only, and the app start
 version and reports what changed. It does not wait on the installer: waiting would hold the very
 files the installer replaces. An update that does not complete is stated the next time the app
 starts, alongside the installer's own log at `%AppData%\ChargeKeeper\Logs\update-install.log`.
+
+**Install updates automatically** on the General page installs a newer version with no question
+asked. It waits for the computer to be free rather than interrupting: nobody may have touched it for
+ten minutes, no focus session may be running, and no lid-close wait may be running — a computer on
+its way to sleep is a bad moment to start Setup. The condition is re-tested every five minutes, so
+an update found while somebody is working goes in once they stop, whatever the check cadence is. An
+automatic install shows nothing at all on screen: no question, no progress, no report. What happened
+is in `app.log`, and the app starts again on the new version and shows what changed as usual. The
+switch is off unless it is switched on.
 
 An installer carrying the older `ChargeKeeper AutoUpdate` logon task removes it on install: that task
 ran `winget upgrade`, and the package is not in a winget source.

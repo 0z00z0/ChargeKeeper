@@ -627,7 +627,25 @@ internal sealed partial class SettingsWindow : Window
         WithUpdatingSuppressed(() =>
         {
             LoadPresetCombo(StartupDelayCombo, StartupDelayPresets, s.StartupDelaySeconds, v => $"{v} s");
+            SelectComboByTag(UpdateCadenceCombo, s.UpdateCheckCadence.ToString());
+            AutomaticInstallToggle.IsOn = s.InstallUpdatesAutomatically;
         });
+    }
+
+    private void OnUpdateCadenceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || UpdateCadenceCombo.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        // Parsed rather than cast from the index: the item's Tag is the stored member name, so a
+        // reordered list cannot quietly pick a different cadence.
+        if (!Enum.TryParse(tag, out UpdateCheckCadence cadence)) return;
+        SettingsService.Update(s => s.UpdateCheckCadence = cadence);
+    }
+
+    private void OnAutomaticInstallToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        bool on = AutomaticInstallToggle.IsOn;
+        SettingsService.Update(s => s.InstallUpdatesAutomatically = on);
     }
 
     /// <summary>Selects the item whose <c>Tag</c> is <paramref name="value"/>, falling back to the

@@ -50,6 +50,8 @@ public class SettingsFileShapeTests : IDisposable
         "ConfigVersion",
         "General",
         "General.StartupDelaySeconds",
+        "General.UpdateCheckCadence",
+        "General.InstallUpdatesAutomatically",
         "General.IconMode",
         "General.PromoteTrayIcons",
         "General.TrayPromotionRestore",

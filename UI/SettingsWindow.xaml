@@ -134,6 +134,24 @@
                                       SelectionChanged="OnStartupDelayChanged"/>
                         </StackPanel>
                     </controls:SettingsCard>
+
+                    <!-- The Tag on each item is the enum member name, which is what the settings
+                         document stores; the Content is only a label. -->
+                    <controls:SettingsCard Header="Check for updates"
+                                            Description="How often ChargeKeeper asks whether a newer version has been released.">
+                        <ComboBox x:Name="UpdateCadenceCombo" MinWidth="180"
+                                  SelectionChanged="OnUpdateCadenceChanged">
+                            <ComboBoxItem Content="Every hour"      Tag="EveryHour"/>
+                            <ComboBoxItem Content="Every day"       Tag="EveryDay"/>
+                            <ComboBoxItem Content="Only at startup" Tag="AtStartupOnly"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Install updates automatically"
+                                            Description="Installs a newer version without asking, once nobody has touched this computer for ten minutes and no focus session or lid-close wait is running. ChargeKeeper closes while Setup runs.">
+                        <ToggleSwitch x:Name="AutomaticInstallToggle" OnContent="On" OffContent="Off"
+                                      Toggled="OnAutomaticInstallToggled"/>
+                    </controls:SettingsCard>
                 </StackPanel>
 
                 <StackPanel x:Name="SmartChargePanel" Spacing="4" Visibility="Collapsed">

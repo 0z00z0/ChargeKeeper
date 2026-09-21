@@ -95,6 +95,11 @@ internal static class UnpublishedSettings
         nameof(AppSettings.AwakeHoldWarningEnabled),
         nameof(AppSettings.AwakeHoldWarningHours),
 
+        // How often the update check runs, and whether a release installs itself. They govern this
+        // machine's own update routine and were never asked to reach Home Assistant.
+        nameof(AppSettings.UpdateCheckCadence),
+        nameof(AppSettings.InstallUpdatesAutomatically),
+
         // What the shell held for each tray icon before it was promoted. Restore bookkeeping for
         // PromoteTrayIcons, which is itself published; this is not.
         nameof(AppSettings.TrayPromotionRestore),

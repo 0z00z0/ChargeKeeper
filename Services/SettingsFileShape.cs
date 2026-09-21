@@ -104,11 +104,17 @@ internal sealed class SettingsFile
 
     internal sealed class GeneralGroup
     {
-        [JsonPropertyOrder(1)] public int          StartupDelaySeconds { get; set; }
-        [JsonPropertyOrder(2)] public TrayIconMode IconMode            { get; set; }
-        [JsonPropertyOrder(3)] public bool         PromoteTrayIcons    { get; set; }
-        [JsonPropertyOrder(4)] public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
-        [JsonPropertyOrder(5)] public string       LastSeenVersion     { get; set; } = "";
+        [JsonPropertyOrder(1)] public int StartupDelaySeconds { get; set; }
+        // Nullable so a document written before the two update rows existed reads the cadence every
+        // installation already runs, and installing without asking as off. A plain enum would read
+        // as its first member — hourly — and a plain bool would be off by luck rather than by
+        // decision.
+        [JsonPropertyOrder(2)] public UpdateCheckCadence? UpdateCheckCadence { get; set; }
+        [JsonPropertyOrder(3)] public bool? InstallUpdatesAutomatically { get; set; }
+        [JsonPropertyOrder(4)] public TrayIconMode IconMode            { get; set; }
+        [JsonPropertyOrder(5)] public bool         PromoteTrayIcons    { get; set; }
+        [JsonPropertyOrder(6)] public List<TrayPromotionMemory> TrayPromotionRestore { get; set; } = [];
+        [JsonPropertyOrder(7)] public string       LastSeenVersion     { get; set; } = "";
     }
 
     internal sealed class GraphGroup
@@ -266,6 +272,8 @@ internal sealed class SettingsFile
         General = new GeneralGroup
         {
             StartupDelaySeconds = s.StartupDelaySeconds,
+            UpdateCheckCadence  = s.UpdateCheckCadence,
+            InstallUpdatesAutomatically = s.InstallUpdatesAutomatically,
             IconMode            = s.IconMode,
             PromoteTrayIcons    = s.PromoteTrayIcons,
             TrayPromotionRestore = s.TrayPromotionRestore,
@@ -377,6 +385,8 @@ internal sealed class SettingsFile
     public AppSettings ToSettings() => new()
     {
         StartupDelaySeconds = General.StartupDelaySeconds,
+        UpdateCheckCadence  = General.UpdateCheckCadence ?? Services.UpdateCheckCadence.EveryDay,
+        InstallUpdatesAutomatically = General.InstallUpdatesAutomatically ?? false,
         IconMode            = General.IconMode,
         PromoteTrayIcons    = General.PromoteTrayIcons,
         TrayPromotionRestore = General.TrayPromotionRestore,

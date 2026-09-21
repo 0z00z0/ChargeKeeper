@@ -64,6 +64,12 @@ internal static class LidWaitStates
         _                                       => "Waiting with nothing left to reach",
     };
 
+    /// <summary>Whether a wait is actually running, which is every state but the two that are not
+    /// waits. One reading of it, so a caller asking "is the machine on its way to sleep?" cannot
+    /// miss a state added later.</summary>
+    public static bool IsWaiting(LidWaitState state) =>
+        state is not (LidWaitState.Off or LidWaitState.Idle);
+
     /// <summary>Every word the entity can publish, in the order the states are declared.</summary>
     public static IReadOnlyList<string> Words { get; } =
         [.. Enum.GetValues<LidWaitState>().Select(Label)];

@@ -169,6 +169,16 @@ internal sealed class AppSettings
 
     public int StartupDelaySeconds { get; set; } = 0;
 
+    /// <summary>How often the background check asks whether a newer version has been released.
+    /// Every day is what every installation already does, so an update changes no cadence until the
+    /// choice is made. Deliberately absent from the MQTT surface.</summary>
+    public UpdateCheckCadence UpdateCheckCadence { get; set; } = UpdateCheckCadence.EveryDay;
+
+    /// <summary>Whether a release the check finds installs itself, with no question asked, once the
+    /// machine has been left alone — see <see cref="AutoInstallPolicy"/> for what "left alone"
+    /// means. Off by default: an installation that never asked for it keeps being asked.</summary>
+    public bool InstallUpdatesAutomatically { get; set; }
+
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;
 
     /// <summary>A second, display-only tray icon carrying the charge level as a number. Off by
