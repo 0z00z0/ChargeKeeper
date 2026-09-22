@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.4.2
+
+- The Check for updates button no longer crashes the application when a background check finishes
+  while an About window or the Settings window is open. The button now always paints itself from
+  the thread that owns it.
+
 ## 2.4.1
 
 - The focus session's screen cover no longer closes. Alt+F4, the task view's close and an ordinary
