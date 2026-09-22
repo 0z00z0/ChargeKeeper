@@ -67,6 +67,7 @@ public class SettingsFileShapeTests : IDisposable
         "SmartCharge.TravelOverrideActive",
         "SmartCharge.TravelOverrideRevertStart",
         "SmartCharge.TravelOverrideRevertStop",
+        "SmartCharge.TravelOverrideChargeStarted",
         "Network",
         "Network.NetworkProfilesEnabled",
         "Network.NetworkLocationRules",

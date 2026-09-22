@@ -129,10 +129,13 @@ internal sealed class AppSettings
         new("Travel", 80, 100),
     ];
 
-    /// <summary>The one-shot "charge to 100 % once" override, and what to restore when it completes.</summary>
-    public bool TravelOverrideActive      { get; set; }
-    public int? TravelOverrideRevertStart { get; set; }
-    public int? TravelOverrideRevertStop  { get; set; }
+    /// <summary>The one-shot "charge to 100 % once" override, and what to restore when it completes.
+    /// <see cref="TravelOverrideChargeStarted"/> is what tells a lift still waiting for its charger
+    /// from one whose charge has begun, so removing the charger ends only the second.</summary>
+    public bool TravelOverrideActive        { get; set; }
+    public int? TravelOverrideRevertStart   { get; set; }
+    public int? TravelOverrideRevertStop    { get; set; }
+    public bool TravelOverrideChargeStarted { get; set; }
 
     public bool LowBatteryWarningEnabled { get; set; } = true;
     public int  LowBatteryWarningPct     { get; set; } = 15;

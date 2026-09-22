@@ -2,9 +2,11 @@ using Windows.System.Power;
 
 namespace ChargeKeeper.Services;
 
-/// <summary>Manages the "charge to 100 % once" travel override: saves the Smart Charge threshold,
-/// disables it so the battery reaches 100 %, then restores it once <see cref="OnBatteryReport"/> sees
-/// charging complete. Persisted, so the override survives a restart mid-charge.</summary>
+/// <summary>Manages the "charge to 100 % once" travel override: parks the Smart Charge thresholds,
+/// disables the cap so the battery reaches 100 %, then puts the parked pair back as soon as the
+/// charge it was asked for is over — at full, or when the charger is removed, whichever comes first.
+/// The whole record is persisted, so a restart or a crash resumes the same single charge rather than
+/// leaving the cap off for every later one.</summary>
 internal static class TravelOverrideService
 {
     public static bool IsActive => SettingsService.Current.TravelOverrideActive;
@@ -12,6 +14,21 @@ internal static class TravelOverrideService
     /// <summary>False when Smart Charge was already off, so <see cref="Cancel"/> writes nothing.</summary>
     public static bool HasSavedRevertThresholds =>
         SettingsService.Current is { TravelOverrideRevertStart: not null, TravelOverrideRevertStop: not null };
+
+    /// <summary>Whether the machine has charged under this lift. On disk rather than in memory: a
+    /// lift armed on battery must still be waiting for its charger after a restart, and one whose
+    /// charge had begun must still end when the charger turns out to be gone.</summary>
+    public static bool ChargeStarted => SettingsService.Current.TravelOverrideChargeStarted;
+
+    /// <summary>The thresholds to show and publish while the lift is in force — the parked pair,
+    /// which is the setting the user actually chose and the one that comes back. Null when Smart
+    /// Charge was already off at activation, so nothing is owed back and nothing is claimed.</summary>
+    public static (int Start, int Stop)? ParkedThresholds =>
+        SettingsService.Current is { TravelOverrideActive: true,
+                                     TravelOverrideRevertStart: { } start,
+                                     TravelOverrideRevertStop:  { } stop }
+            ? (start, stop)
+            : null;
 
     /// <summary>Raised on a background thread once an activation or revert has settled. The tray tooltip
     /// is not driven by a battery event, so it refreshes from here.</summary>
@@ -52,7 +69,8 @@ internal static class TravelOverrideService
                     s.TravelOverrideRevertStop  = null;
                 }
 
-                s.TravelOverrideActive = true;
+                s.TravelOverrideActive        = true;
+                s.TravelOverrideChargeStarted = false;   // armed; the charger may not be in yet
             });
 
             // A rejected write leaves the override armed over an unchanged device — log it, or it
@@ -83,8 +101,9 @@ internal static class TravelOverrideService
         // Snapshot before Deactivate clears it. The saved pair is the only record of the user's real
         // thresholds, so a rejected write has to put it back.
         var s = SettingsService.Current;
-        var (wasActive, revertStart, revertStop) =
-            (s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop);
+        var (wasActive, revertStart, revertStop, chargeStarted) =
+            (s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop,
+             s.TravelOverrideChargeStarted);
 
         Deactivate();
 
@@ -94,9 +113,10 @@ internal static class TravelOverrideService
         if (wasActive)
             SettingsService.Update(x =>
             {
-                x.TravelOverrideActive      = true;
-                x.TravelOverrideRevertStart = revertStart;
-                x.TravelOverrideRevertStop  = revertStop;
+                x.TravelOverrideActive        = true;
+                x.TravelOverrideRevertStart   = revertStart;
+                x.TravelOverrideRevertStop    = revertStop;
+                x.TravelOverrideChargeStarted = chargeStarted;
             });
         return false;
     }
@@ -106,17 +126,18 @@ internal static class TravelOverrideService
     {
         SettingsService.Update(s =>
         {
-            s.TravelOverrideActive      = false;
-            s.TravelOverrideRevertStart = null;
-            s.TravelOverrideRevertStop  = null;
+            s.TravelOverrideActive        = false;
+            s.TravelOverrideRevertStart   = null;
+            s.TravelOverrideRevertStop    = null;
+            s.TravelOverrideChargeStarted = false;
         });
 
         StateChanged?.Invoke();   // tray tooltip + menu resync immediately
     }
 
-    /// <summary>Reverts once the override is active and charging has completed. "Complete" is the
-    /// Charging→Idle edge (catches a worn battery settling below 100 %) or Idle at 100 % (catches
-    /// firmware that never reports a Charging phase) — each alone misses one case.</summary>
+    /// <summary>Feeds one battery reading to <see cref="TravelOverridePolicy"/> and carries out what
+    /// it decides. Every ending — the charge completing and the charger being removed — is read
+    /// there, not here.</summary>
     public static void OnBatteryReport(int pct, BatteryStatus status)
     {
         if (!IsActive)
@@ -126,16 +147,21 @@ internal static class TravelOverrideService
             return;
         }
 
-        bool chargingJustCompleted = _lastStatus == BatteryStatus.Charging &&
-                                     status      == BatteryStatus.Idle;
-        bool fullAndIdle           = status == BatteryStatus.Idle && pct >= 100;
+        var last = _lastStatus;
         _lastStatus = status;
 
-        // CAS the latch so only the first qualifying report dispatches the revert.
-        if ((chargingJustCompleted || fullAndIdle) &&
-            Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0)
+        switch (TravelOverridePolicy.Decide(active: true, ChargeStarted, pct, status, last))
         {
-            ApplyRevert();
+            case TravelOverrideStep.RecordChargeStarted:
+                // Straight to disk: a crash between here and the charger coming out would otherwise
+                // leave the lift waiting for a charge that already happened.
+                SettingsService.Update(s => s.TravelOverrideChargeStarted = true);
+                break;
+
+            // CAS the latch so only the first qualifying report dispatches the revert.
+            case TravelOverrideStep.Revert when Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0:
+                ApplyRevert();
+                break;
         }
     }
 

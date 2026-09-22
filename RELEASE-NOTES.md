@@ -9,6 +9,16 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.3.1
+
+- "Charge to 100 % once" now means once: the charge limit comes back as soon as that charge is
+  over — at full, or the moment the charger is taken out — instead of staying off until some later
+  charge happens to finish while plugged in. The lift survives a restart and a crash, and one armed
+  while unplugged still waits for its charger (#249).
+- While the lift is in force the dashboard and the tray menu now say so and say that the limit
+  comes back, and Home Assistant shows Smart Charge as still on with its own thresholds rather than
+  as switched off (#249).
+
 ## 2.3.0
 
 - A focus session that blocks the network can now keep chosen programs reachable: the Settings

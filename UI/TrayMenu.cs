@@ -29,6 +29,11 @@ internal sealed class TrayMenu
     private readonly MenuFlyoutItem _focusSessionItem =
         new() { IsEnabled = false, Text = "Focus session" };
 
+    // A line of text, never a control: the dashboard already carries the way to end the lift early,
+    // and a second one here would be a third place to keep in step.
+    private readonly MenuFlyoutItem _travelOverrideItem =
+        new() { IsEnabled = false, Text = "Charge to 100 % once" };
+
     private readonly MenuFlyoutItem _settingsItem;
 
     private MenuFlyoutItem? _updateItem;
@@ -252,13 +257,17 @@ internal sealed class TrayMenu
         bool AutoStartEnabled,
         TrayIconMode IconMode,          // aligned with _iconModeItems
         TrayDigitStyle DigitStyle,      // aligned with _digitStyleItems
-        FocusSnapshot Focus);
+        FocusSnapshot Focus,
+        string? TravelOverrideLine);    // null when no charge-to-full lift is in force
 
     private MenuState ReadState()
     {
         bool autoStart = SafeCall(TaskSchedulerHelper.IsAutoStartEnabled, fallback: false);
         var (mode, digits) = SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle));
-        return new MenuState(autoStart, mode, digits, FocusSessionService.Current);
+        string? travelOverride = TravelOverrideService.IsActive
+            ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
+            : null;
+        return new MenuState(autoStart, mode, digits, FocusSessionService.Current, travelOverride);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -274,6 +283,23 @@ internal sealed class TrayMenu
             item.IsChecked = style == state.DigitStyle;
         ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric);
         ShowFocusSession(state.Focus);
+        ShowTravelOverride(state.TravelOverrideLine);
+    }
+
+    /// <summary>Puts the charge-to-full line into the menu while the lift is in force, and takes it
+    /// out when it is over. Removed rather than collapsed, like the focus line above.</summary>
+    private void ShowTravelOverride(string? line)
+    {
+        int index = Flyout.Items.IndexOf(_travelOverrideItem);
+
+        if (line is null)
+        {
+            if (index >= 0) Flyout.Items.RemoveAt(index);
+            return;
+        }
+
+        _travelOverrideItem.Text = line;
+        if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _travelOverrideItem);
     }
 
     /// <summary>Puts the focus session line at the top of the menu while one runs, and takes it out

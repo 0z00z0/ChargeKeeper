@@ -34,6 +34,7 @@ internal static class UnpublishedSettings
         // Restore bookkeeping for the one-shot override; the override itself is published.
         nameof(AppSettings.TravelOverrideRevertStart),
         nameof(AppSettings.TravelOverrideRevertStop),
+        nameof(AppSettings.TravelOverrideChargeStarted),
 
         // How one window draws its history graph. Deliberately absent from the MQTT surface.
         nameof(AppSettings.GraphTimeScale),

@@ -128,10 +128,11 @@ internal sealed class SettingsFile
 
     internal sealed class SmartChargeGroup
     {
-        [JsonPropertyOrder(1)] public List<ThresholdPreset> Presets                   { get; set; } = [];
-        [JsonPropertyOrder(2)] public bool                  TravelOverrideActive      { get; set; }
-        [JsonPropertyOrder(3)] public int?                  TravelOverrideRevertStart { get; set; }
-        [JsonPropertyOrder(4)] public int?                  TravelOverrideRevertStop  { get; set; }
+        [JsonPropertyOrder(1)] public List<ThresholdPreset> Presets                     { get; set; } = [];
+        [JsonPropertyOrder(2)] public bool                  TravelOverrideActive        { get; set; }
+        [JsonPropertyOrder(3)] public int?                  TravelOverrideRevertStart   { get; set; }
+        [JsonPropertyOrder(4)] public int?                  TravelOverrideRevertStop    { get; set; }
+        [JsonPropertyOrder(5)] public bool                  TravelOverrideChargeStarted { get; set; }
     }
 
     internal sealed class NetworkGroup
@@ -292,10 +293,11 @@ internal sealed class SettingsFile
         },
         SmartCharge = new SmartChargeGroup
         {
-            Presets                   = s.Presets,
-            TravelOverrideActive      = s.TravelOverrideActive,
-            TravelOverrideRevertStart = s.TravelOverrideRevertStart,
-            TravelOverrideRevertStop  = s.TravelOverrideRevertStop,
+            Presets                     = s.Presets,
+            TravelOverrideActive        = s.TravelOverrideActive,
+            TravelOverrideRevertStart   = s.TravelOverrideRevertStart,
+            TravelOverrideRevertStop    = s.TravelOverrideRevertStop,
+            TravelOverrideChargeStarted = s.TravelOverrideChargeStarted,
         },
         Network = new NetworkGroup
         {
@@ -402,10 +404,11 @@ internal sealed class SettingsFile
         DowntimeGapMinutes  = Graph.DowntimeGapMinutes,
         GraphDisplay        = Graph.GraphDisplay,
 
-        Presets                   = SmartCharge.Presets,
-        TravelOverrideActive      = SmartCharge.TravelOverrideActive,
-        TravelOverrideRevertStart = SmartCharge.TravelOverrideRevertStart,
-        TravelOverrideRevertStop  = SmartCharge.TravelOverrideRevertStop,
+        Presets                     = SmartCharge.Presets,
+        TravelOverrideActive        = SmartCharge.TravelOverrideActive,
+        TravelOverrideRevertStart   = SmartCharge.TravelOverrideRevertStart,
+        TravelOverrideRevertStop    = SmartCharge.TravelOverrideRevertStop,
+        TravelOverrideChargeStarted = SmartCharge.TravelOverrideChargeStarted,
 
         NetworkProfilesEnabled             = Network.NetworkProfilesEnabled,
         NetworkLocationRules               = Network.NetworkLocationRules,

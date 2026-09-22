@@ -80,10 +80,15 @@ forever.
 - **Smart Charge** — enable/disable the charge threshold  
 - **Presets** — submenu of named threshold profiles: **Daily** (60–80 %) and **Travel** (80–100 %).
   Selecting one enables Smart Charge and applies those thresholds; the active preset is checkmarked  
-- **⚡ Charge to 100 % once** — travel override: saves the current threshold, disables it so the
-  battery charges fully, then auto-restores the saved threshold on the next Charging → full
-  transition. While active the item reads **✕ Cancel charge override**; the override state persists
-  across an app restart  
+- **Charge to 100 % once** — travel override, started from the dashboard button or from Home
+  Assistant. It parks the current thresholds, lifts the cap so the battery charges fully, and puts
+  the parked pair back as soon as that charge is over: at full, or the moment the charger is taken
+  out, whichever comes first. While it is in force the tray menu carries a line saying so and saying
+  that the limit comes back, and the dashboard button reads **✕ Revert to charge threshold**. The
+  whole record is on disk, so a restart or a crash resumes the same single charge; a lift armed
+  while unplugged waits for its charger rather than ending at once. Smart Charge is never switched
+  off as a setting — the cap is lifted at the firmware, which is all a mode-based vendor offers, and
+  the parked thresholds are what the dashboard and the published entities show meanwhile  
 - **Smart Standby** — start/stop the `LenovoSmartStandby` service  
 - **Numeric % icon** — toggle the tray icon between the arc gauge and a numeric percentage  
 - **Launch at startup** — add/remove the Task Scheduler auto-start entry  

@@ -30,9 +30,13 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
 - **Threshold presets** — named charging profiles (**Daily** 60–80%, **Travel** 80–100%), added/
   renamed/deleted from the **Settings** window's Smart Charge section, quick-applied from the tray
   right-click **Presets** submenu.
-- **Charge to 100% once (travel override)** — a tray menu item that temporarily lifts the charge
-  threshold for one cycle, then auto-restores it once the battery reaches full. Survives an app
-  restart mid-charge.
+- **Charge to 100% once (travel override)** — lifts the charge threshold for one charge and puts it
+  back as soon as that charge is over, at full or when the charger is removed, whichever comes
+  first. Started from the dashboard or from Home Assistant; while it is in force the dashboard and
+  the tray menu say so. The whole record is on disk, so a restart or a crash resumes the same single
+  charge, and a lift armed while unplugged waits for its charger. Smart Charge keeps its own
+  thresholds throughout — lifting the cap disables it at the firmware, which is the only lever a
+  mode-based vendor has, so the parked pair is what is shown and published meanwhile.
 - **Network-aware presets** — automatically apply a preset when the detected network location
   (adapter MAC + IP subnet — never Wi-Fi network name) changes, e.g. a different preset at the
   office dock vs. on the road. Configured under **Network profiles** in the Settings window's

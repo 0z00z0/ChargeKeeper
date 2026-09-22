@@ -81,13 +81,14 @@ public class ActivePresetPolicyTests
     }
 
     [Fact]
-    public void Match_TravelOverrideActive_ReturnsNull_EvenWhenValuesStillEqualAPreset()
+    public void Match_NotLimiting_ReturnsNull_EvenWhenValuesStillEqualAPreset()
     {
-        // The override disables Smart Charge and leaves the saved pair readable, so the values can
-        // still equal a preset while the battery is deliberately charging past it.
-        var overridden = new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80);
+        // A device that is not capping matches nothing, whatever numbers it still reports. Under a
+        // charge-to-full lift the caller hands in the parked pair instead (ChargeThresholdView), so
+        // this branch is the genuine "Smart Charge is off" case.
+        var notLimiting = new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80);
 
-        Assert.Null(ActivePresetPolicy.Match(TwoPresets(), overridden));
+        Assert.Null(ActivePresetPolicy.Match(TwoPresets(), notLimiting));
     }
 
     [Fact]

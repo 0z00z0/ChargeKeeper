@@ -283,7 +283,7 @@ public partial class App : Application
                 if (_lastIconState.Pct < 0) return null;
                 return LiveStateBuilder.Build(
                     _lastIconState.Pct, _lastRateMw ?? 0, _lastIconState.State != PowerState.Discharging,
-                    _lastBatteryStatus, _lastThresholdState,
+                    _lastBatteryStatus, ChargeThresholdView.Shown(_lastThresholdState),
                     ChargerInfoService.CachedWattage, _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
             }
@@ -953,7 +953,8 @@ public partial class App : Application
 
                 // Built here for a coherent _last* view; published below, outside the lock.
                 liveSnapshot = LiveStateBuilder.Build(
-                    pct, _lastRateMw ?? 0, charging, report.Status, _lastThresholdState, ChargerInfoService.CachedWattage,
+                    pct, _lastRateMw ?? 0, charging, report.Status,
+                    ChargeThresholdView.Shown(_lastThresholdState), ChargerInfoService.CachedWattage,
                     _lastRemainingMwh, _lastFullMwh, _lastDesignMwh, _lastLowPowerMode,
                     SettingsService.Read(s => s.Presets.ToList()));
 
@@ -1420,7 +1421,7 @@ public partial class App : Application
         // A mode-based vendor (HP, Surface) reports Start as 0 by contract, so it gets a cap rather
         // than a range.
         if (TravelOverrideService.IsActive)
-            lines.Append("\n🔝 Charging to 100%");
+            lines.Append("\n🔝 Charging to 100% once");
         else if (_lastThresholdState is { IsLimiting: true } sc)
             lines.Append(sc.HasStartThreshold ? $"\n⚙ Smart Charge: {sc.Start}–{sc.Stop}%"
                                               : $"\n⚙ Smart Charge: to {sc.Stop}%");

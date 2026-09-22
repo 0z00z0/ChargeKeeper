@@ -60,15 +60,38 @@ public class LiveStateBuilderTests
     }
 
     [Fact]
-    public void Build_TravelOverrideActive_LooksLikeDisabled_Stop100_StartUnavailable()
+    public void Build_DeviceNotLimiting_ReadsOff_Stop100_StartUnavailable()
     {
-        // The "charge to 100 % once" override activates by calling SetEnabled(false), so the live
-        // threshold read comes back Enabled:false.
         var s = Build(soc: 90, rateMw: 30000,
             threshold: new ChargeThresholdState(Capable: true, Enabled: false, Start: 60, Stop: 80));
         Assert.False(s.SmartChargeEnabled);
         Assert.Null(s.ChargeStart);
         Assert.Equal(100, s.ChargeStop);
+    }
+
+    [Fact]
+    public void Build_UnderAChargeToFullLift_PublishesTheParkedThresholds_NotSmartChargeOff()
+    {
+        // Lifting the cap disables it at the firmware, so the device reads Enabled:false for the
+        // length of one charge. Published as it stands, a one-charge lift reads as Smart Charge
+        // switched off for good — which is what the parked pair exists to prevent.
+        var live   = new ChargeThresholdState(Capable: true, Enabled: false, Start: 0, Stop: 0);
+        var shown  = ChargeThresholdView.Shown(live, parked: (60, 80));
+
+        var s = Build(soc: 90, rateMw: 30000, threshold: shown);
+
+        Assert.True(s.SmartChargeEnabled);
+        Assert.Equal(60,  s.ChargeStart);
+        Assert.Equal(80,  s.ChargeStop);
+    }
+
+    [Fact]
+    public void Build_WithNoLiftInForce_PublishesWhatTheDeviceReports()
+    {
+        var live  = new ChargeThresholdState(Capable: true, Enabled: true, Start: 60, Stop: 80);
+        var shown = ChargeThresholdView.Shown(live, parked: null);
+
+        Assert.Same(live, shown);
     }
 
     [Fact]

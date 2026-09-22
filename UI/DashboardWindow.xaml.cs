@@ -631,7 +631,11 @@ public sealed partial class DashboardWindow : Window
         {
             SetFeatureBadge(SmartChargeBadge, SmartChargeToggle, chargeState!.Enabled);
             SmartChargeToggle.IsEnabled = chargeState.Capable;
-            SmartChargeDetailText.Text = (chargeState.Capable, chargeState.Enabled) switch
+            // A lift in force is said here rather than left as a bare "Off": the cap really is off
+            // at the firmware, and without this the one charge it was asked for reads as permanent.
+            SmartChargeDetailText.Text = TravelOverrideService.IsActive && chargeState.Capable
+                ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
+                : (chargeState.Capable, chargeState.Enabled) switch
             {
                 // Read-only BIOS setting: readable, but every write is refused.
                 (false, _) => "Not supported",

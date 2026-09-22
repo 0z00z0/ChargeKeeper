@@ -47,6 +47,7 @@ public class SettingsStoreTests : IDisposable
         s.GraphDisplay,
         string.Join(";", s.Presets.Select(p => $"{p.Name} {p.Start}-{p.Stop}")),
         s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop,
+        s.TravelOverrideChargeStarted,
         s.NetworkProfilesEnabled,
         string.Join(";", s.NetworkLocationRules.Select(r =>
             $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName} awake={r.KeepAwakeHere}")),
@@ -77,7 +78,7 @@ public class SettingsStoreTests : IDisposable
     private const string InstalledValues =
         "0|Arc|True|1|1.47.1|" +
         "TwelveHours|ByLevelAndState|True|5|System|" +
-        "Daily 60-80;Travel 80-100;Docking 45-55|False|||" +
+        "Daily 60-80;Travel 80-100;Docking 45-55|False|||False|" +
         "True|Office [Docking]@00:00:5E:00:53:01/192.0.2.0/23>Docking awake=False;" +
         "Second home [Wireless]@00:00:5E:00:53:02/198.51.100.0/24>Daily awake=False|Daily|True|" +
         "False|Duration/00:30:00//;Duration/01:00:00//;Duration/03:00:00//;" +
