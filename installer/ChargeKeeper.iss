@@ -70,16 +70,17 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=Output
 OutputBaseFilename=ChargeKeeper-Setup-{#AppVersion}
-; #60: high-contrast setup icon, rendered PER FRAME SIZE. SetupIconFile is not merely the wizard's
-; title-bar icon — it is Setup.exe's OWN file icon, so it lands on two opposite surfaces: Inno's
-; LIGHT wizard title bar (16 px, #F3F3F3) and DARK Explorer / desktop / taskbar (32 px+, #202020 on
-; Win11 dark). No single palette serves both: the dense "ink" tones score 11.87:1 on light but
-; 1.24:1 on dark (invisible), while a dark-plated glyph scores 6.36:1 on dark but reads as an ugly
-; box on light chrome. So the frames split by the size each surface asks for — 16 px stays ink on
-; transparent for the wizard bar; 32 px and up are plated (dark #0e1620 square, light product
-; glyph) for Explorer. Accepted cost: Explorer's "Small icons" view can request 16 px, where the
-; ink glyph is weak on dark — the wizard's 16 px on light is guaranteed on every run, that view
-; mode is optional, so we serve the certain case. Built by scripts\make-appicon.ps1 -HighContrast.
+; #60/#(icon legibility): high-contrast setup icon. SetupIconFile is not merely the wizard's
+; title-bar icon — it is Setup.exe's OWN file icon, so it lands on Inno's LIGHT wizard title bar
+; (#F3F3F3) and on DARK Explorer / desktop / taskbar (#202020 on Win11 dark), at whatever frame
+; size each surface's own DPI scaling requests — an earlier revision split the two treatments by
+; frame size (ink at 16 px, a dark plate at 32 px+) on the assumption that only Explorer asks for
+; the larger frames; a DPI-scaled title bar asks for one of those too, so the dark plate showed up
+; as a dark square in the light wizard window. Every frame is now the dense "ink" glyph on a
+; transparent background (11.87:1 on light) with a near-white halo outline underneath the strokes
+; (scripts\BatteryGlyph.ps1's Draw-BatteryGlyph): the halo all but disappears on light chrome and
+; reads as a defining ring on dark chrome, so no frame's background is decided by its size any
+; more. Built by scripts\make-appicon.ps1 -HighContrast.
 ; The app's own icon (dark chrome only) is the plain product-palette Assets\AppIcon.ico.
 SetupIconFile=..\Assets\SetupIcon.ico
 Compression=lzma2
@@ -273,10 +274,12 @@ end;
 
 procedure InitializeWizard();
 begin
-  // Dense-steel page headings (issue #66) — the same on-white SteelBlue the small wizard
-  // header image uses ($cSteelDense in installer\make-wizard-images.ps1 = #3F6374). This
-  // recolours only the heading labels; body text and everything else stays default, and
-  // WizardStyle / the light modern inner-page theme are untouched.
+  // Dense-steel page headings (issue #66) — the on-white SteelBlue tier
+  // ($BatteryGlyphPalettes.Dense.Body in scripts\BatteryGlyph.ps1 = #3F6374). The small wizard
+  // header image itself now draws in the denser Ink tier instead (see make-wizard-images.ps1's
+  // Render-Small), so the two no longer share one colour — this recolours only the heading
+  // labels; body text and everything else stays default, and WizardStyle / the light modern
+  // inner-page theme are untouched.
   //
   // ⚠ Pascal TColor is BGR, not RGB: #3F6374 (RGB) → $74633F. Do NOT "fix" this to $3F6374.
   //

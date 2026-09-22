@@ -217,9 +217,12 @@ function Render-Large([int]$w,[int]$h) {
 
 # ── Small header image (base 55x58) — product battery glyph on WHITE ──────────
 # The inner wizard pages are the light/modern Inno theme, so this clears to WHITE (not the studio
-# dark) to blend in rather than float as a dark box. The app's light-steel palette washes out on
-# white, so this variant uses the shared Dense palette. Passing it as an argument is why this
-# function no longer save/restores $script:cSteel et al around the call.
+# dark) to blend in rather than float as a dark box. The Dense palette this used to draw with holds
+# only on its own body stroke (measured ~6.5:1 on white); the fill and the guard line sit under
+# 4:1, and Inno then downscales this 300 % hero bitmap for display, which softens a thin stroke
+# further — together the header read as faint rather than as a battery. The denser "ink" tones (used
+# elsewhere for SetupIcon's 16 px frame) measure 13:1 / 6:1 / 5:1 on white and are used here too, and
+# the stroke floors below keep the body and guard from thinning past visibility once downscaled.
 function Render-Small([int]$w,[int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w,$h,[System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
     $g = New-Graphics $bmp
@@ -228,7 +231,8 @@ function Render-Small([int]$w,[int]$h) {
         $g.Clear([System.Drawing.Color]::White)
         # battery glyph ~46 units wide, centred.
         $glyphW = 46*$k
-        Draw-BatteryGlyph $g (($w-$glyphW)/2) (($h-$glyphW)/2) ($glyphW/256.0) $BatteryGlyphPalettes.Dense
+        Draw-BatteryGlyph $g (($w-$glyphW)/2) (($h-$glyphW)/2) ($glyphW/256.0) $BatteryGlyphPalettes.Ink `
+                          -MinBodyPen (8*$k) -MinGuardPen (6*$k)
     } finally {
         $g.Dispose()
     }

@@ -86,21 +86,23 @@ purple→indigo) — it is the studio's signature, not the app's. This is why th
 wizard banner even though it never appears in the app's own icon.
 
 **Product framing (flat, muted).** Everything *around* the mark that frames ChargeKeeper — the
-accent bars, the battery glyph, and the inner-page headings — uses ChargeKeeper's flat muted
+accent bars on the dark banner, and the inner-page heading text — uses ChargeKeeper's flat muted
 product palette as **flat fills** (no gradients on the product framing; the `[Ø]` mark is the only
 element that keeps gradients). The one exception is the dark banner's own background, which keeps a
 subtle radial *glow* vignette (a soft `#16232c`→`#0a0f17`) as part of the studio surface — a
 background tone, not framing:
 
-| Role                         | On dark banner            | Dense on-white (inner pages) |
-|------------------------------|---------------------------|------------------------------|
-| SteelBlue (body / structure) | `#7FA8B8`                 | `#3F6374`                    |
-| Sage (charge fill)           | `#7AB88F`                 | `#4F8F67`                    |
-| Terracotta (guard line)      | `#C9926B`                 | `#B57745`                    |
+| Role                         | On dark banner            | Dense on-white (inner-page headings) |
+|------------------------------|---------------------------|---------------------------------------|
+| SteelBlue (body / structure) | `#7FA8B8`                 | `#3F6374`                             |
+| Sage (charge fill)           | `#7AB88F`                 | `#4F8F67`                             |
+| Terracotta (guard line)      | `#C9926B`                 | `#B57745`                             |
 
-Both columns (plus the denser still "ink" tones the setup icon's 16 px frame uses) live in one
-table in `scripts\BatteryGlyph.ps1` — `$BatteryGlyphPalettes.Product` / `.Dense` / `.Ink`. Retint
-there, re-run both generators, and every surface follows.
+Both columns (plus the denser still "ink" tones the setup icon and the wizard-small header use)
+live in one table in `scripts\BatteryGlyph.ps1` — `$BatteryGlyphPalettes.Product` / `.Dense` /
+`.Ink`. Retint there, re-run both generators, and every surface follows. The battery glyph itself
+draws in Product on the dark banner and in Ink on the wizard-small header — Dense currently backs
+only the inner-page heading text (`installer\ChargeKeeper.iss`'s `InitializeWizard`), not a glyph.
 
 **Inner pages stay light.** The wizard runs `WizardStyle=modern` (light modern inner pages) with
 dense-steel headings. The brand typeface (Cascadia Mono) appears **only in the pre-rendered
@@ -120,7 +122,7 @@ with System.Drawing (GDI+) from the same geometry the reference SVGs describe:
 |--------------------------------------------|---------------------------------------|-------|
 | `installer\wizard\wizimg-492x942.bmp` (side banner) and `wizsmall-165x174.bmp` (header) | `installer\make-wizard-images.ps1` | 24-bit BMPs. **One bitmap each**, rendered at 300 % and referenced by `ChargeKeeper.iss` via `WizardImageFile` / `WizardSmallImageFile`, so Inno only ever **downscales** it (crisp at every 100–300 % display scaling) — see the "blurry banner" note below. |
 | The battery glyph inside all of the above | `scripts\BatteryGlyph.ps1` | Dot-sourced by **both** `make-wizard-images.ps1` and `scripts\make-appicon.ps1`: one copy of the geometry, and one palette table (Product / Dense / Ink) so a brand tint change is a single edit. Callers own their own surface (plates, banners, text); this file owns the glyph. |
-| `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -HighContrast` | The steel battery glyph, rendered **per frame size** because this file is Setup.exe's own icon and lands on two opposite surfaces: the **16 px** frame is dense "ink" (`#1C333F`/`#366B4A`/`#99592C`) on transparent, for Inno's light wizard title bar; the **32/48/64/128/256 px** frames are **plated** (dark `#0e1620` square, light product glyph) for dark Explorer. See "one glyph, two treatments" below. The app's own icon is the plain product-palette `Assets\AppIcon.ico`. |
+| `Assets\SetupIcon.ico` (`SetupIconFile`)   | `scripts\make-appicon.ps1 -HighContrast` | The dense "ink" battery glyph (`#1C333F`/`#366B4A`/`#99592C`) on a transparent background at **every** frame size, with a near-white halo outline under the strokes. This file is Setup.exe's own icon, shown on both Inno's light wizard title bar and dark Explorer/taskbar chrome — see "one glyph, two treatments" below. The app's own icon is the plain product-palette `Assets\AppIcon.ico`. |
 
 `installer\wizard\*.svg` (`wizard-image.svg`, `wizard-small.svg`) are **design references only** —
 they are not consumed by the build. They must be kept in sync with the GDI+ geometry in
@@ -133,21 +135,26 @@ icon reads on both dark and light chrome:
 | File | Frames | Treatment | Reads against |
 |------|--------|-----------|---------------|
 | `Assets\AppIcon.ico` | all | product / GaugePalette — SteelBlue `#7FA8B8`, Sage `#7AB88F`, Terracotta `#C9926B`, transparent, no plate | **Dark** chrome: the app's own `#0a0f17` title bar, taskbar, Alt-Tab |
-| `Assets\SetupIcon.ico` | 16 px | dense "ink" — `#1C333F`, `#366B4A`, `#99592C`, transparent, no plate | **Light** chrome: Inno's wizard title bar (`#F3F3F3`) |
-| `Assets\SetupIcon.ico` | 32/48/64/128/256 px | **plated** — dark `#0e1620` rounded square, `#1a2840` edge, product-palette glyph on top | **Dark** chrome: Explorer, desktop, taskbar (`#202020` on Win11 dark) |
+| `Assets\SetupIcon.ico` | all | dense "ink" — `#1C333F`, `#366B4A`, `#99592C`, transparent, no plate, plus a near-white halo outline under the strokes | **Both**: Inno's wizard title bar (`#F3F3F3`) and Explorer/desktop/taskbar (usually `#202020` on Win11 dark) |
 
 The app icon is simple: the app only ever shows it on dark chrome, so one transparent product
 palette covers every frame. `SetupIcon.ico` is the awkward one — `SetupIconFile` is **Setup.exe's
 own file icon**, not just the wizard's title-bar icon, so it is drawn on both a light title bar and
-(usually) dark Explorer. Measured, no palette wins both: ink scores **11.87:1** on `#F3F3F3` but
-**1.24:1** on `#202020`; a plated glyph scores **6.36:1** on `#202020` but reads as a dark box on
-the light title bar. An earlier revision tried each in turn and neither held.
+(usually) dark Explorer, at whatever frame size each surface's own DPI scaling requests. Measured,
+the ink glyph alone scores **11.87:1** on `#F3F3F3` but only **1.24:1** on `#202020` (its fill
+carries no contrast there). An earlier revision tried to resolve this by frame size instead — ink
+at 16 px, a dark `#0e1620` plate with the light product glyph at 32 px and up — on the assumption
+that only Explorer ever asks for the larger frames. A DPI-scaled title bar asks for one of those
+too (a laptop panel above 100% scaling is the common case), so the plate showed up as a dark square
+sitting in Inno's light title bar — which is the defect this file exists to describe, not repeat.
 
-Splitting by frame size resolves it, because the two surfaces ask for different sizes — the wizard
-bar takes 16 px, Explorer takes 32 px and up. **The accepted cost:** Explorer's "Small icons" list
-view can request 16 px, where the ink glyph is weak on dark (**2.96:1** at best). That is a real
-regression in one optional view mode, traded for the wizard's 16 px on light being correct on every
-single run. Serving the guaranteed case beats hedging both badly.
+The current design drops the plate and adds a halo instead: every frame draws the ink glyph, then a
+wider near-white copy of the body stroke, the cap and the guard line underneath it
+(`scripts\BatteryGlyph.ps1`'s `Draw-BatteryGlyph`, `-HaloColor`/`-HaloWidth`). Against `#F3F3F3` the
+halo is close enough to the background to disappear, so the icon reads exactly as the plain ink
+glyph did. Against `#202020` the halo is what the eye follows — a light ring around a dark shape —
+so the icon still reads as a battery even where the ink fill itself has next to no contrast of its
+own. Nothing about a frame's size decides its background any more.
 
 `AppIcon.ico` needs `CopyToOutputDirectory` in the csproj — `AppTitleBar.Apply` resolves it
 by path at runtime and silently does nothing if it isn't beside the exe.

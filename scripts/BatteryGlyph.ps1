@@ -143,6 +143,15 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]
     the guard line survive the 16 px frame; the wizard banners render far above those sizes and
     leave them at 0, i.e. purely proportional. The floors are a clamp, never an override — at any
     size where the proportional width already exceeds the floor they do nothing.
+
+.PARAMETER HaloColor
+.PARAMETER HaloWidth
+    Optional outline pass, drawn before the glyph itself: the body stroke, the cap and the guard
+    line each get a wider halo-coloured copy underneath, in target pixels on every side (not scaled
+    by $s — a fixed edge width holds at any frame size, the same reasoning as the pen floors above).
+    Left at the defaults (Empty / 0), nothing is drawn and the glyph is unchanged from before this
+    parameter existed. Used only where a fill colour will not itself hold against an unknown
+    background — see make-appicon.ps1's -HighContrast frames, which no longer use a plate.
 #>
 function Draw-BatteryGlyph {
     param(
@@ -152,47 +161,81 @@ function Draw-BatteryGlyph {
         [float]    $s,
         [hashtable]$Palette,
         [double]   $MinBodyPen  = 0.0,
-        [double]   $MinGuardPen = 0.0
+        [double]   $MinGuardPen = 0.0,
+        [System.Drawing.Color] $HaloColor = [System.Drawing.Color]::Empty,
+        [double]   $HaloWidth  = 0.0
     )
 
     # Every figure comes from $BatteryGlyphGeometry above, which is brand\chargekeeper-icon.svg.
     $m = $BatteryGlyphGeometry
+    $hasHalo = (-not $HaloColor.IsEmpty) -and ($HaloWidth -gt 0)
 
-    # Battery body outline: flat stroke, round line-join.
+    $bodyPenWidth  = [Math]::Max($m.BodyPen  * $s, $MinBodyPen)
+    $guardPenWidth = [Math]::Max($m.GuardPen * $s, $MinGuardPen)
+
     $bodyPath = New-RoundedRectPath ($ox + $m.BodyX * $s) ($oy + $m.BodyY * $s) `
                                     ($m.BodyW * $s) ($m.BodyH * $s) ($m.BodyRadius * $s)
+    $capPath  = New-RoundedRectPath ($ox + $m.CapX * $s) ($oy + $m.CapY * $s) `
+                                   ($m.CapW * $s) ($m.CapH * $s) ($m.CapRadius * $s)
     try {
-        $bodyPen = New-Object System.Drawing.Pen($Palette.Body, [Math]::Max($m.BodyPen * $s, $MinBodyPen))
+        # Halo pass: a wider copy of the body stroke, the cap and the guard line, in HaloColor,
+        # drawn BEFORE the glyph itself so it shows as an outline ring on either side of each shape.
+        # The interior charge fill is left out — it sits inside the body outline, which already
+        # carries the ring, and a second halo there would only dull the fill's own tone.
+        if ($hasHalo) {
+            $haloBodyWidth = $bodyPenWidth + 2 * $HaloWidth
+            $haloBodyPen = New-Object System.Drawing.Pen($HaloColor, $haloBodyWidth)
+            try {
+                $haloBodyPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+                $g.DrawPath($haloBodyPen, $bodyPath)
+            } finally { $haloBodyPen.Dispose() }
+
+            $haloCapPath = New-RoundedRectPath ($ox + $m.CapX * $s - $HaloWidth) ($oy + $m.CapY * $s - $HaloWidth) `
+                                               ($m.CapW * $s + 2 * $HaloWidth) ($m.CapH * $s + 2 * $HaloWidth) `
+                                               ($m.CapRadius * $s + $HaloWidth)
+            try {
+                $haloCapBrush = New-Object System.Drawing.SolidBrush($HaloColor)
+                try { $g.FillPath($haloCapBrush, $haloCapPath) } finally { $haloCapBrush.Dispose() }
+            } finally { $haloCapPath.Dispose() }
+
+            $haloGuardWidth = $guardPenWidth + 2 * $HaloWidth
+            $haloGuardPen = New-Object System.Drawing.Pen($HaloColor, $haloGuardWidth)
+            try {
+                $haloGuardPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Flat
+                $haloGuardPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Flat
+                $g.DrawLine($haloGuardPen, ($ox + $m.GuardX * $s), ($oy + $m.GuardTop    * $s),
+                                           ($ox + $m.GuardX * $s), ($oy + $m.GuardBottom * $s))
+            } finally { $haloGuardPen.Dispose() }
+        }
+
+        # Battery body outline: flat stroke, round line-join.
+        $bodyPen = New-Object System.Drawing.Pen($Palette.Body, $bodyPenWidth)
         try {
             $bodyPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
             $g.DrawPath($bodyPen, $bodyPath)
         } finally { $bodyPen.Dispose() }
-    } finally { $bodyPath.Dispose() }
 
-    # Battery cap (positive terminal): solid, same tone as the body.
-    $capPath = New-RoundedRectPath ($ox + $m.CapX * $s) ($oy + $m.CapY * $s) `
-                                   ($m.CapW * $s) ($m.CapH * $s) ($m.CapRadius * $s)
-    try {
+        # Battery cap (positive terminal): solid, same tone as the body.
         $cap = New-Object System.Drawing.SolidBrush($Palette.Body)
         try { $g.FillPath($cap, $capPath) } finally { $cap.Dispose() }
-    } finally { $capPath.Dispose() }
 
-    # Interior charge fill: solid at ~90 % opacity (alpha 230).
-    $fillPath = New-RoundedRectPath ($ox + $m.FillX * $s) ($oy + $m.FillY * $s) `
-                                    ($m.FillW * $s) ($m.FillH * $s) ($m.FillRadius * $s)
-    try {
-        $fillBrush = New-Object System.Drawing.SolidBrush(
-            [System.Drawing.Color]::FromArgb([int]$m.FillAlpha, $Palette.Fill))
-        try { $g.FillPath($fillBrush, $fillPath) } finally { $fillBrush.Dispose() }
-    } finally { $fillPath.Dispose() }
+        # Interior charge fill: solid at ~90 % opacity (alpha 230).
+        $fillPath = New-RoundedRectPath ($ox + $m.FillX * $s) ($oy + $m.FillY * $s) `
+                                        ($m.FillW * $s) ($m.FillH * $s) ($m.FillRadius * $s)
+        try {
+            $fillBrush = New-Object System.Drawing.SolidBrush(
+                [System.Drawing.Color]::FromArgb([int]$m.FillAlpha, $Palette.Fill))
+            try { $g.FillPath($fillBrush, $fillPath) } finally { $fillBrush.Dispose() }
+        } finally { $fillPath.Dispose() }
 
-    # Guard line crossing the body — flat/butt caps (NOT round); round caps would bulge past the
-    # line's declared ink extent at the top and bottom, which the vector does not do.
-    $limitPen = New-Object System.Drawing.Pen($Palette.Guard, [Math]::Max($m.GuardPen * $s, $MinGuardPen))
-    try {
-        $limitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Flat
-        $limitPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Flat
-        $g.DrawLine($limitPen, ($ox + $m.GuardX * $s), ($oy + $m.GuardTop    * $s),
-                               ($ox + $m.GuardX * $s), ($oy + $m.GuardBottom * $s))
-    } finally { $limitPen.Dispose() }
+        # Guard line crossing the body — flat/butt caps (NOT round); round caps would bulge past the
+        # line's declared ink extent at the top and bottom, which the vector does not do.
+        $limitPen = New-Object System.Drawing.Pen($Palette.Guard, $guardPenWidth)
+        try {
+            $limitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Flat
+            $limitPen.EndCap   = [System.Drawing.Drawing2D.LineCap]::Flat
+            $g.DrawLine($limitPen, ($ox + $m.GuardX * $s), ($oy + $m.GuardTop    * $s),
+                                   ($ox + $m.GuardX * $s), ($oy + $m.GuardBottom * $s))
+        } finally { $limitPen.Dispose() }
+    } finally { $bodyPath.Dispose(); $capPath.Dispose() }
 }

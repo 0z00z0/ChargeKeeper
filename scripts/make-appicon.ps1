@@ -31,38 +31,36 @@
                       Rendered PER FRAME SIZE (see below), because this one file is drawn on two
                       opposite surfaces.
 
-    Why -HighContrast branches per frame size
-    -----------------------------------------
+    Why -HighContrast uses the ink glyph with a halo, and no plate
+    ---------------------------------------------------------------
     SetupIconFile is not just the wizard's title-bar icon — it is the icon of Setup.exe as a file.
-    That means it is drawn on two backgrounds that pull in opposite directions:
+    That means it is drawn on backgrounds that pull in opposite directions:
 
-      * Inno's wizard title bar, at 16 px, on LIGHT chrome (#F3F3F3).
-      * Explorer / desktop / taskbar, at 32/48/256 px, usually on DARK chrome (#202020 on Win11
-        dark mode, which is the common default).
+      * Inno's wizard title bar, on LIGHT chrome (#F3F3F3) — at whatever frame size the title bar's
+        own DPI scaling asks for, not only 16 px: Windows requests a larger frame once display
+        scaling passes 100 %, which is the common case on a laptop panel.
+      * Explorer / desktop / taskbar, usually on DARK chrome (#202020 on Win11 dark mode, the
+        common default).
 
-    A single palette cannot serve both. Measured against #202020, the dense "ink" tones score
+    A single flat palette cannot serve both: measured against #202020, the dense "ink" tones score
     1.24:1 (body/cap #1C333F — effectively invisible), 2.61:1 (sage) and 2.96:1 (terra); against
-    #F3F3F3 the same ink is excellent at 11.87:1. The converse also holds: an earlier revision
-    plated the glyph on a dark #0e1620 rounded square with the light product palette, which scores
-    6.36:1 on dark Explorer but reads as an ugly dark BOX sitting in Inno's light title bar.
+    #F3F3F3 the same ink is excellent at 11.87:1. An earlier revision split the difference by frame
+    size instead — ink, transparent, at 16 px; a dark #0e1620 plate with the light product glyph at
+    32 px and up — on the assumption that only Explorer ever asks for the larger frames. That
+    assumption is false: a title bar under DPI scaling asks for one of those larger frames too, so
+    the plate showed up as a dark square sitting in Inno's light title bar.
 
-    So the frames split by the size each surface actually requests:
+    The fix removes the plate rather than re-drawing the size boundary: every frame is the ink
+    glyph on a transparent background, with a HALO — a wider, near-white copy of the body stroke,
+    the cap and the guard line drawn underneath (see BatteryGlyph.ps1's Draw-BatteryGlyph). Against
+    light chrome the halo is close enough to the background to disappear, so the icon reads exactly
+    as the plain ink glyph did. Against dark chrome the halo is what the eye follows — a light ring
+    around a dark shape — so the icon still reads as a battery even where the ink fill itself has
+    little contrast of its own. Nothing about the icon's SIZE decides its background any more,
+    which is the property a DPI-scaled title bar broke.
 
-      16 px          -> dense "ink" tones, transparent, NO plate. This is the size Inno's light
-                        wizard title bar asks for, and ink on light is what works there.
-      32/48/64/      -> the plated treatment: dark #0e1620 rounded plate with a #1a2840 edge, the
-      128/256 px        light product palette glyph on top. These are the sizes Explorer, the
-                        desktop and the taskbar ask for, where the background is usually dark.
-
-    Accepted cost, stated plainly: Explorer's "Small icons" list view can request the 16 px frame,
-    and there the ink glyph will be weak against a dark background (the same 1.24:1 as above). That
-    is the price of the split. It is the right trade: the 16 px frame is guaranteed to be shown on
-    LIGHT chrome by the installer wizard on every run, whereas 16 px on dark Explorer is one
-    optional view mode among several, and the 32 px+ frames that dark Explorer normally uses are
-    the plated ones. Serving the guaranteed case correctly beats hedging both badly.
-
-    The frames are each rendered natively at their own size — this is a per-size branch, not a
-    downscale of one master image.
+    The frames are each rendered natively at their own size — a per-size render, not a downscale of
+    one master image.
 
     After writing, the ICO is round-tripped through System.Drawing.Icon at several
     sizes as a sanity check that the file parses.
@@ -70,14 +68,13 @@
 .EXAMPLE
     .\scripts\make-appicon.ps1                    # writes Assets\AppIcon.ico + Assets\AppIcon.png
     .\scripts\make-appicon.ps1 -OutPath my.ico    # writes elsewhere
-    .\scripts\make-appicon.ps1 -HighContrast      # writes Assets\SetupIcon.ico (dense, for light chrome)
+    .\scripts\make-appicon.ps1 -HighContrast      # writes Assets\SetupIcon.ico (ink + halo, no plate)
 #>
 [CmdletBinding()]
 param(
     [string] $OutPath = "",  # default: <repo>\Assets\AppIcon.ico (or SetupIcon.ico with -HighContrast)
-    # -HighContrast: render the SetupIcon variant, which branches PER FRAME SIZE — 16 px in dense
-    # "ink" tones on transparent (Inno's LIGHT wizard title bar), 32 px and up plated on a dark
-    # rounded square (DARK Explorer / desktop / taskbar). See the .DESCRIPTION block for why.
+    # -HighContrast: render the SetupIcon variant — the dense "ink" glyph with a halo outline, on a
+    # transparent background at every frame size. See the .DESCRIPTION block for why.
     [switch] $HighContrast
 )
 
@@ -94,32 +91,28 @@ if (-not $OutPath) {
 
 $sizes = 256, 128, 64, 48, 32, 16
 
-# ── Plate ─────────────────────────────────────────────────────────────────────
-# The glyph palettes (Product / Ink) come from BatteryGlyph.ps1. The plate is this script's own —
-# no other surface renders it.
-#
-# Plate (SetupIcon's 32 px+ frames only): a dark rounded square that guarantees the light product
-# glyph a dark backdrop regardless of what Explorer paints behind the icon.
-$plateFill = [System.Drawing.Color]::FromArgb(0x0e, 0x16, 0x20)
-$plateEdge = [System.Drawing.Color]::FromArgb(0x1a, 0x28, 0x40)
+# ── Halo ──────────────────────────────────────────────────────────────────────
+# SetupIcon's own treatment: near-white, mostly invisible against Inno's light title bar, a defining
+# ring against dark Explorer chrome. Fixed pixel width rather than scaled by frame size — the same
+# reasoning as the pen floors below, and what keeps a thin edge from vanishing at 16 px or ballooning
+# at 256 px. Not the app's own AppIcon.ico, which stays plain product-palette on transparent — the
+# app only ever shows it on its own dark chrome.
+$haloColor = [System.Drawing.Color]::FromArgb(0xf5, 0xf7, 0xfa)
+$haloWidth = 1.4
 
 # Which treatment a given frame gets. The default (app) icon is uniform — transparent product
-# palette at every size. Only -HighContrast branches, and it branches on the size the consuming
-# surface requests: 16 px is Inno's light wizard title bar (ink, no plate); 32 px and up are
-# Explorer / desktop / taskbar, usually dark (plated product glyph).
+# palette at every size, no halo (dark chrome only). -HighContrast is uniform too, in its own
+# way — the ink glyph with the halo above, at every size, so no frame depends on where it ends up
+# being shown.
 function Get-FramePlan([int]$size) {
-    if ($HighContrast -and $size -gt 16) {
-        return @{ Palette = $BatteryGlyphPalettes.Product; Plated = $true }
-    }
     if ($HighContrast) {
-        return @{ Palette = $BatteryGlyphPalettes.Ink; Plated = $false }
+        return @{ Palette = $BatteryGlyphPalettes.Ink; Halo = $true }
     }
-    return @{ Palette = $BatteryGlyphPalettes.Product; Plated = $false }
+    return @{ Palette = $BatteryGlyphPalettes.Product; Halo = $false }
 }
 
-# Renders one frame and returns it as a PNG byte array. Palette and plating are decided per frame
-# by Get-FramePlan, because the SetupIcon variant must serve a light 16 px title bar and dark
-# 32 px+ Explorer chrome from the same file.
+# Renders one frame and returns it as a PNG byte array. Palette and halo are decided per frame by
+# Get-FramePlan.
 function New-IconFramePng([int]$size) {
     $plan = Get-FramePlan $size
 
@@ -133,24 +126,16 @@ function New-IconFramePng([int]$size) {
 
             [float]$s = $size / 256.0
 
-            # Dark plate behind the glyph (SetupIcon's 32 px+ frames): rounded square inset from the
-            # canvas, ~12 % corner radius, #0e1620 fill with a faint #1a2840 edge. Gives the light
-            # product glyph a dark backdrop on Explorer regardless of the user's theme.
-            if ($plan.Plated) {
-                $platePath = New-RoundedRectPath (10 * $s) (10 * $s) (236 * $s) (236 * $s) (28 * $s)
-                try {
-                    $pf = New-Object System.Drawing.SolidBrush($plateFill)
-                    try { $g.FillPath($pf, $platePath) } finally { $pf.Dispose() }
-                    $pe = New-Object System.Drawing.Pen($plateEdge, [Math]::Max(3 * $s, 1.0))
-                    try { $g.DrawPath($pe, $platePath) } finally { $pe.Dispose() }
-                } finally { $platePath.Dispose() }
-            }
-
             # Flat "0z0 geometric" battery glyph scaled to fill the canvas (offset 0,0 — the glyph
             # IS the icon here, unlike the wizard banners which place it on a larger composition).
             # The stroke floors are what make the 16 px frame legible: below ~31 px the body
             # outline and the guard line would otherwise render sub-pixel and wash out.
-            Draw-BatteryGlyph $g 0 0 $s $plan.Palette -MinBodyPen 1.6 -MinGuardPen 2.0
+            if ($plan.Halo) {
+                Draw-BatteryGlyph $g 0 0 $s $plan.Palette -MinBodyPen 1.6 -MinGuardPen 2.0 `
+                                  -HaloColor $haloColor -HaloWidth $haloWidth
+            } else {
+                Draw-BatteryGlyph $g 0 0 $s $plan.Palette -MinBodyPen 1.6 -MinGuardPen 2.0
+            }
         } finally { $g.Dispose() }
 
         $ms = New-Object System.IO.MemoryStream
@@ -168,8 +153,7 @@ Write-Host "==> Rendering frames: $($sizes -join ', ') px" -ForegroundColor Cyan
 $frames = [System.Collections.Generic.List[byte[]]]::new()
 foreach ($size in $sizes) {
     $plan = Get-FramePlan $size
-    $treatment = if ($plan.Plated) { "plated (product palette, dark plate)" } else { "transparent" }
-    if (-not $plan.Plated -and $HighContrast) { $treatment = "transparent (ink palette)" }
+    $treatment = if ($plan.Halo) { "transparent (ink palette + halo)" } else { "transparent" }
     Write-Host ("    {0,3}x{0,-3} {1}" -f $size, $treatment)
     $frames.Add([byte[]](New-IconFramePng $size))
 }

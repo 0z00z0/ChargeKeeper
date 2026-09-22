@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.3.2
+
+- The installer's title-bar and file icon no longer shows a dark square in a light window, and the
+  small battery image on each wizard page reads clearly instead of faintly.
+
 ## 2.3.1
 
 - "Charge to 100 % once" now means once: the charge limit comes back as soon as that charge is
