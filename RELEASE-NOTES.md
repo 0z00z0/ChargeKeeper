@@ -9,6 +9,14 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.4.0
+
+- Allowing a program through a focus session no longer means hunting through folders: the Focus
+  page opens a list of what is open right now and what the Start menu holds, narrowed by typing,
+  with what is open at the top and marked. Choosing a file by hand is still there for a program in
+  neither. Store apps are left out of the list and the window says why, because a firewall rule
+  cannot name one by its file (#250).
+
 ## 2.3.2
 
 - The installer's title-bar and file icon no longer shows a dark square in a light window, and the

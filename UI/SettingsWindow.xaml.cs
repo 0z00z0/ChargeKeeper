@@ -849,16 +849,18 @@ internal sealed partial class SettingsWindow : Window
             });
     }
 
-    /// <summary>Asks for a program and puts it on the list. The dialog is the Win32 one: a WinRT
-    /// picker is brokered outside this process and refuses while it runs elevated.</summary>
+    /// <summary>Opens the picker and puts what comes back on the list. The picker offers what is
+    /// open now and what the Start menu holds, and keeps the file dialog as a second route for a
+    /// program in neither.</summary>
     private void OnFocusAllowProgram(object sender, RoutedEventArgs e)
     {
-        var owner = Win32Interop.GetWindowFromWindowId(AppWindow.Id);
-        if (ProgramFileDialog.Choose(owner, "Allow a program through a focus session") is not { } chosen)
-            return;
+        var picker = new ProgramPickerWindow(chosen =>
+        {
+            _focusLeverActions.AllowProgram(chosen);
+            LoadFocus();
+        });
 
-        _focusLeverActions.AllowProgram(chosen);
-        LoadFocus();
+        picker.Activate();
     }
 
     private void RemoveFocusAllowedProgram(string path)

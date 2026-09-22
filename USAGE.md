@@ -185,11 +185,17 @@ Settings **Focus session** page, or the matching switch in Home Assistant:
   session cannot be armed on the network lever while the broker port is set to Automatic, because
   Automatic sweeps several candidate ports and an exception covering all of them is not a narrow one.
   **Named programs can be left reachable.** The Settings **Focus session** page carries a list under
-  **Programs that keep the network**; **Allow a program** asks for a program file, and each one on
-  the list gets its own outbound exception for the length of a session. Everything not on it is
-  still blocked. An empty list is the behaviour described above and is what an installation that has
-  chosen none carries. A program is held by its executable's full path, so moving or renaming the
-  file breaks the exception, and the list cannot be changed while a session runs.
+  **Programs that keep the network**, and each one on it gets its own outbound exception for the
+  length of a session. Everything not on it is still blocked. An empty list is the behaviour
+  described above and is what an installation that has chosen none carries. A program is held by its
+  executable's full path, so moving or renaming the file breaks the exception, and the list cannot be
+  changed while a session runs.
+  **Allow a program** opens a list rather than a folder. It holds what is open right now and what the
+  Start menu holds, as one list: type to narrow it, and what is open sorts to the top marked *open*.
+  Enter takes the top row. The list is read afresh on every open, so a program started since the last
+  one is on it. **Choose a file…** is there for a program in neither — a portable executable in a
+  folder no Start menu knows about. Store apps are left out, because a firewall rule cannot name one
+  by its file; such a program has to be allowed some other way.
 - **Dim the screen.** The same brightness mechanism the Screen page and the `Screen brightness`
   entity use, so the level in force before the dim is remembered and put back at the end.
 - **Cover the screen.** A black window over every attached display, above everything else on the
