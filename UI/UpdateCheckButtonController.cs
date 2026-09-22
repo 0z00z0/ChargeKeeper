@@ -96,6 +96,10 @@ internal sealed class UpdateCheckButtonController
     }
 
     // async void: an event and click continuation with nothing to return to. Every path is caught.
+    // The coordinator raises CheckStarted from whichever thread called Run() — the component's own
+    // background scheduler included — so this method's own body can already be running off the UI
+    // thread before the first await, and the await itself resumes wherever the check completed.
+    // Every touch of the button therefore goes through RunOnUi rather than Show() directly.
     private async void Follow(Task<UpdateFlowRun> check)
     {
         try
@@ -105,20 +109,43 @@ internal sealed class UpdateCheckButtonController
 
             _following = check;
             _available = null;
-            Show(UpdateButtonPolicy.Checking);
+            RunOnUi(() => Show(UpdateButtonPolicy.Checking));
 
             var run = await check;
             if (_detached || !ReferenceEquals(check, _following)) return;
 
-            _available = run.Result == UpdateFlowResult.UpdateAvailable ? run : null;
-            Show(UpdateButtonPolicy.After(run));
+            RunOnUi(() =>
+            {
+                _available = run.Result == UpdateFlowResult.UpdateAvailable ? run : null;
+                Show(UpdateButtonPolicy.After(run));
+            });
         }
         catch (Exception ex)
         {
             AppLog.Error("UpdateCheckButtonController.Follow", ex);
-            try { if (!_detached) Show(UpdateButtonPolicy.Rest); }
+            try { if (!_detached) RunOnUi(() => Show(UpdateButtonPolicy.Rest)); }
             catch (Exception inner) { AppLog.Error("UpdateCheckButtonController.Follow.Rest", inner); }
         }
+    }
+
+    /// <summary>Marshals <paramref name="action"/> onto the button's UI thread. An unhandled
+    /// exception inside a raw <see cref="DispatcherQueue"/> callback is a stowed exception that
+    /// tears the whole process down, so every touch that can be reached off the UI thread goes
+    /// through here.</summary>
+    private void RunOnUi(Action action)
+    {
+        try
+        {
+            _button.DispatcherQueue?.TryEnqueue(() =>
+            {
+                // Detach() can land between the enqueue and the callback running, and the button's
+                // own window can have been destroyed in between — nothing left to update.
+                if (_detached) return;
+                try { action(); }
+                catch (Exception ex) { AppLog.Error("UpdateCheckButtonController.RunOnUi", ex); }
+            });
+        }
+        catch (Exception ex) { AppLog.Error("UpdateCheckButtonController.RunOnUi enqueue", ex); }
     }
 
     private void Show(UpdateButtonPolicy.Look look)
