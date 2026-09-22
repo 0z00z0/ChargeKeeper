@@ -103,11 +103,11 @@ internal static class FocusSessionService
         // The cover is a window and dies with the process anyway; taking it down here keeps the
         // shutdown ordered rather than relying on that. The session itself is untouched — its record
         // stays on disk and the next start resumes or ends it.
-        ScreenCoverService.Hide(ActionCause.Shutdown());
+        ScreenCoverService.Hide(ActionCause.ApplicationClosing());
 
         // The input block is released here rather than left to the process ending, so a machine that
         // answers is not waiting on what a kill does to a block nobody can measure from inside it.
-        InputBlock.Release(ActionCause.Shutdown());
+        InputBlock.Release(ActionCause.ApplicationClosing());
     }
 
     private static void Tick()

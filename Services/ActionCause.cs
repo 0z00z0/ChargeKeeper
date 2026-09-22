@@ -82,8 +82,10 @@ internal readonly record struct ActionCause
     /// <summary>The application starting.</summary>
     public static ActionCause Startup() => new("the application starting");
 
-    /// <summary>The application closing.</summary>
-    public static ActionCause Shutdown() => new("the application closing");
+    /// <summary>The application closing. Deliberately not called a shutdown: that reads as the
+    /// machine being shut down, and <c>LidThermalWatchTests</c> forbids the word in the lid service
+    /// outright, because a shutdown taken on a temperature reading throws away unsaved work.</summary>
+    public static ActionCause ApplicationClosing() => new("the application closing");
 
     /// <summary>One of the application's own repeating checks, named for what it checks.</summary>
     public static ActionCause PeriodicCheck(string what) => new($"the periodic {what}");

@@ -62,7 +62,7 @@ public class FocusNoLocalWayOutTests
         // Not left to what ending the process does to a block, which cannot be measured from
         // inside it. The release names the shutdown as its cause, so the line recording it says
         // why the machine started answering again.
-        Assert.Contains("InputBlock.Release(ActionCause.Shutdown())",
+        Assert.Contains("InputBlock.Release(ActionCause.ApplicationClosing())",
                         Source(Path.Combine("Services", "FocusSessionService.cs")),
                         StringComparison.Ordinal);
 

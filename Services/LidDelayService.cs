@@ -178,7 +178,7 @@ internal static class LidDelayService
         // service would re-apply the override with no Stop left to undo it.
         SettingsService.Reloaded -= OnSettingsReloaded;
         KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
-        CancelDelay(ActionCause.Shutdown());
+        CancelDelay(ActionCause.ApplicationClosing());
         Unsubscribe();
         if (SettingsService.Current.HasSavedLidAction) RestoreSavedAction();
         lock (_sync) { _started = false; }
