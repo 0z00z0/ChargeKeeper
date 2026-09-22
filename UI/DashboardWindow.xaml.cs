@@ -849,7 +849,7 @@ public sealed partial class DashboardWindow : Window
         Task.Run(() =>
         {
             bool ok = false;
-            try { ok = ChargeControlService.ApplyPresetByName(name); }
+            try { ok = ChargeControlService.ApplyPresetByName(name, ActionCause.Dashboard("preset buttons")); }
             catch (Exception ex) { AppLog.Error("DashboardWindow.OnPresetButtonClick", ex); }
 
             RunOnUi(() =>
@@ -1032,7 +1032,7 @@ public sealed partial class DashboardWindow : Window
         bool on = SmartChargeToggle.IsOn;
         Task.Run(() =>
         {
-            try { ChargeControlService.SetSmartChargeEnabled(on); }
+            try { ChargeControlService.SetSmartChargeEnabled(on, ActionCause.Dashboard("Smart Charge toggle")); }
             catch (Exception ex)
             {
                 AppLog.Error("DashboardWindow.OnSmartChargeToggled", ex);
@@ -1052,15 +1052,8 @@ public sealed partial class DashboardWindow : Window
         bool on = SmartStandbyToggle.IsOn;
         Task.Run(() =>
         {
-            try
-            {
-                // The bool is the only signal a refused service-control write gives.
-                if (StandbyService.SetEnabled(on))
-                    PowerLog.Event($"Smart Standby scheduling {(on ? "enabled" : "disabled")}", "dashboard toggle");
-                else
-                    PowerLog.Event($"Smart Standby scheduling was NOT {(on ? "enabled" : "disabled")} — the vendor write was refused",
-                                   "dashboard toggle");
-            }
+            // The service records the outcome itself, refusal included, so nothing is written here.
+            try { StandbyService.SetEnabled(on, ActionCause.Dashboard("Smart Standby toggle")); }
             catch (Exception ex) { AppLog.Error("DashboardWindow.OnSmartStandbyToggled", ex); }
             finally { RunOnUi(Refresh); }
         });
@@ -1194,33 +1187,35 @@ public sealed partial class DashboardWindow : Window
         if (_updatingBadges) return;   // our own sync, not a user action
 
         if (KeepAwakeToggle.IsOn)
-            ActivateKeepAwake(_lastKeepAwake ?? KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+            ActivateKeepAwake(_lastKeepAwake ?? KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets),
+                              ActionCause.Dashboard("Keep Awake toggle"));
         else
-            KeepAwakeService.Deactivate();
+            KeepAwakeService.Deactivate(ActionCause.Dashboard("Keep Awake toggle"));
     }
 
     /// <summary><see cref="KeepAwakeService.Activate"/> is start-or-replace, so switching spans needs no cancel first.</summary>
     private void OnKeepAwakePresetChecked(object sender, RoutedEventArgs e)
     {
         if (_updatingBadges) return;
-        if (sender is ToggleButton { Tag: KeepAwakeRequest request }) ActivateKeepAwake(request);
+        if (sender is ToggleButton { Tag: KeepAwakeRequest request })
+            ActivateKeepAwake(request, ActionCause.Dashboard("keep-awake chips"));
     }
 
     /// <summary>Clicking the active chip cancels — a ToggleButton unchecking itself is that click.</summary>
     private void OnKeepAwakePresetUnchecked(object sender, RoutedEventArgs e)
     {
         if (_updatingBadges) return;
-        KeepAwakeService.Deactivate();
+        KeepAwakeService.Deactivate(ActionCause.Dashboard("keep-awake chips"));
     }
 
     /// <summary>On the UI thread, unlike the two badges above: the service arms a timer, with no blocking RPC.</summary>
-    private void ActivateKeepAwake(KeepAwakeRequest request)
+    private void ActivateKeepAwake(KeepAwakeRequest request, ActionCause cause)
     {
         _lastKeepAwake = request;
         try
         {
             // Raises StateChanged, whose handler reconciles the switch, the detail line and the chips.
-            KeepAwakeService.Activate(request);
+            KeepAwakeService.Activate(request, cause);
         }
         catch (Exception ex)
         {
@@ -1391,7 +1386,7 @@ public sealed partial class DashboardWindow : Window
     {
         if (_updatingBadges) return;   // our own sync, not a user action
 
-        try { LidDelayService.SetEnabled(LidDelayToggle.IsOn); }
+        try { LidDelayService.SetEnabled(LidDelayToggle.IsOn, ActionCause.Dashboard("lid-delay toggle")); }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayToggled", ex); }
         ApplyLidBadge();
     }
@@ -1405,9 +1400,10 @@ public sealed partial class DashboardWindow : Window
 
         try
         {
-            LidDelayService.SetDelayMinutes(minutes, "the dashboard");
-            if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true);
-            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
+            var cause = ActionCause.Dashboard("lid-delay chips");
+            LidDelayService.SetDelayMinutes(minutes, cause);
+            if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true, cause);
+            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true, cause);
         }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipChecked", ex); }
         ApplyLidBadge();
@@ -1419,7 +1415,7 @@ public sealed partial class DashboardWindow : Window
     {
         if (_updatingBadges) return;
 
-        try { LidDelayService.SetTimeEnabled(false); }
+        try { LidDelayService.SetTimeEnabled(false, ActionCause.Dashboard("lid-delay chips")); }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidDelayChipUnchecked", ex); }
         ApplyLidBadge();
     }
@@ -1433,9 +1429,10 @@ public sealed partial class DashboardWindow : Window
 
         try
         {
+            var cause = ActionCause.Dashboard("battery-target chips");
             SettingsService.Update(x => x.LidDischargeTargetPercent = percent);
-            if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true);
-            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true);
+            if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true, cause);
+            if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true, cause);
         }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidLevelChipChecked", ex); }
         ApplyLidBadge();
@@ -1447,7 +1444,7 @@ public sealed partial class DashboardWindow : Window
     {
         if (_updatingBadges) return;
 
-        try { LidDelayService.SetDischargeEnabled(false); }
+        try { LidDelayService.SetDischargeEnabled(false, ActionCause.Dashboard("battery-target chips")); }
         catch (Exception ex) { AppLog.Error("DashboardWindow.OnLidLevelChipUnchecked", ex); }
         ApplyLidBadge();
     }
@@ -1514,7 +1511,8 @@ public sealed partial class DashboardWindow : Window
             try
             {
                 // The shared composition the tray and MQTT paths use, so the drag reflects to them at once.
-                ok = ChargeControlService.SetExplicitThresholds(start, stop);
+                ok = ChargeControlService.SetExplicitThresholds(
+                         start, stop, ActionCause.Dashboard("threshold sliders"));
             }
             catch (Exception ex) { AppLog.Error("DashboardWindow.CommitThresholds", ex); }
 
@@ -1538,9 +1536,9 @@ public sealed partial class DashboardWindow : Window
     private void OnTravelOverrideButton(object sender, RoutedEventArgs e)
     {
         if (TravelOverrideService.IsActive)
-            TravelOverrideService.Cancel();
+            TravelOverrideService.Cancel(ActionCause.Dashboard("charge-to-full button"));
         else
-            TravelOverrideService.Activate();
+            TravelOverrideService.Activate(ActionCause.Dashboard("charge-to-full button"));
 
         // Re-read so the button label, badge, and sliders reflect the new state immediately.
         Refresh();

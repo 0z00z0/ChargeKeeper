@@ -19,14 +19,14 @@ internal static class ChargeThresholdService
     /// <c>LenovoChargeThreshold</c>), so it is where a thrown native exception is told apart from a
     /// clean rejection and both, plus the success case, are recorded — a silent write and a failed
     /// one otherwise look identical to the user afterwards.</summary>
-    internal static bool SetThresholds(int start, int stop)
+    internal static bool SetThresholds(int start, int stop, ActionCause cause)
     {
         try
         {
             bool ok = VendorCatalog.Active.ChargeThreshold.SetThresholds(start, stop);
-            AppLog.Info(ok
-                ? $"ChargeThreshold: wrote {start}/{stop}."
-                : $"ChargeThreshold: write {start}/{stop} rejected by the device.");
+            AppLog.Info((ok
+                ? $"ChargeThreshold: wrote {start}/{stop}"
+                : $"ChargeThreshold: write {start}/{stop} rejected by the device") + cause.Clause);
             return ok;
         }
         catch (Exception ex)

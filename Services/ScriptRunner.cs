@@ -103,15 +103,157 @@ internal sealed class ScriptRunner
     /// </summary>
     public void Fire(ScriptTrigger trigger, string? profileId, string? profileName)
     {
+        var window = SettleWindow;
+
+        // Off, or a trigger that keeps no window: the event runs as it always did.
+        if (window <= TimeSpan.Zero || ScriptSettleWindow.SubjectOf(trigger) is not { } subject)
+        {
+            RunMatching(trigger, profileId, CauseFor(trigger, profileName));
+            return;
+        }
+
+        SettleArrival arrival;
+        lock (_settleGate) arrival = _settle.Observe(trigger, window, Now());
+
+        if (arrival.Run) RunMatching(trigger, profileId, CauseFor(trigger, profileName));
+        else if (arrival.AnnounceIgnored) AppLog.Info(ScriptMessages.EventIgnored(trigger, subject));
+
+        ArmSettleTimer();
+    }
+
+    /// <summary>Starts every script the trigger matches. The scripts and the profile list are read
+    /// together, so a run cannot be decided against half of one document and half of another.</summary>
+    private void RunMatching(ScriptTrigger trigger, string? profileId, ActionCause cause)
+    {
         var (scripts, profiles) = SettingsService.Read(
             s => (s.Scripts.ToList(), s.NetworkLocationRules.Select(r => r.Id).ToList()));
 
-        string cause = profileName is { Length: > 0 } named
-            ? $"the '{ScriptTriggerLabels.For(trigger)}' event for '{named}'"
-            : $"the '{ScriptTriggerLabels.For(trigger)}' event";
-
         foreach (var script in ScriptTriggerPolicy.Matching(scripts, trigger, profileId, profiles))
             Start(script, cause, TimeLimit);
+    }
+
+    /// <summary>What a trigger reads as in the line recording the run. The specific thing rather
+    /// than its category: the profile that was joined, the direction the lid moved.</summary>
+    internal static ActionCause CauseFor(ScriptTrigger trigger, string? profileName) => trigger switch
+    {
+        ScriptTrigger.MainsConnected    => ActionCause.Charger(connected: true),
+        ScriptTrigger.MainsDisconnected => ActionCause.Charger(connected: false),
+        ScriptTrigger.LidClosed         => ActionCause.Lid(closed: true),
+        ScriptTrigger.LidOpened         => ActionCause.Lid(closed: false),
+        _ => profileName is { Length: > 0 } named
+             ? ActionCause.NetworkProfile(named, joined: trigger == ScriptTrigger.NetworkJoined)
+             : $"the '{ScriptTriggerLabels.For(trigger)}' event",
+    };
+
+    // ---- the settling window -------------------------------------------------------------------
+
+    private readonly ScriptSettleWindow _settle = new();
+    private readonly Lock _settleGate = new();
+    private System.Threading.Timer? _settleTimer;
+
+    /// <summary>The clock, as a seam: the flap has to be shown without waiting ten seconds.</summary>
+    internal Func<DateTimeOffset> Now { get; set; } = () => DateTimeOffset.Now;
+
+    /// <summary>How long a window runs. A seam for the same reason, and so a test need not write a
+    /// settings document. Zero is a real choice and switches the settling off.</summary>
+    internal Func<TimeSpan> SettleLength { get; set; } = () =>
+        TimeSpan.FromSeconds(Math.Max(0, SettingsService.Read(s => s.ScriptSettleSeconds)
+                                          ?? ScriptSettleWindow.DefaultSeconds));
+
+    /// <summary>
+    /// The subject's state as it is now, read fresh at the moment the window closes. Never the last
+    /// event that was swallowed: a charger pulled out and pushed back in leaves the machine on mains,
+    /// and replaying the disconnect would pause a sync client that should be running.
+    /// </summary>
+    internal Func<ScriptSubject, ScriptTrigger?> ReadState { get; set; } = LiveState;
+
+    private TimeSpan SettleWindow => SettleLength();
+
+    /// <summary>Reads the machine rather than a remembered event. The power source comes off the
+    /// battery interface; the lid switch has no query interface at all, so the latest state Windows
+    /// itself delivered is the current one.</summary>
+    private static ScriptTrigger? LiveState(ScriptSubject subject) => subject switch
+    {
+        ScriptSubject.Charger => Windows.System.Power.PowerManager.BatteryStatus switch
+        {
+            Windows.System.Power.BatteryStatus.NotPresent => null,
+            var status => Helpers.BatteryStatsFormatter.IsOnAC(status)
+                          ? ScriptTrigger.MainsConnected
+                          : ScriptTrigger.MainsDisconnected,
+        },
+        _ => ScriptLidTrigger.CurrentlyClosed switch
+        {
+            true  => ScriptTrigger.LidClosed,
+            false => ScriptTrigger.LidOpened,
+            null  => null,
+        },
+    };
+
+    // One timer for the runner's lifetime, re-armed at whichever window is due first.
+    private void ArmSettleTimer()
+    {
+        lock (_settleGate)
+        {
+            if (_settle.NextDueAt is not { } due)
+            {
+                _settleTimer?.Change(System.Threading.Timeout.InfiniteTimeSpan,
+                                     System.Threading.Timeout.InfiniteTimeSpan);
+                return;
+            }
+
+            var wait = due - Now();
+            if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+
+            _settleTimer ??= new System.Threading.Timer(_ => OnSettleElapsed(), null,
+                                                        System.Threading.Timeout.InfiniteTimeSpan,
+                                                        System.Threading.Timeout.InfiniteTimeSpan);
+            _settleTimer.Change(wait, System.Threading.Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>A window has passed. Driven by the timer, and called directly by a test that runs
+    /// its own clock rather than waiting on one.</summary>
+    internal void OnSettleElapsed()
+    {
+        IReadOnlyList<SettleClosure> closed;
+        var window = SettleWindow;
+        lock (_settleGate)
+            closed = _settle.Expire(Now(), window, ReadState, RunInProgressFor);
+
+        foreach (var closure in closed) Carry(closure);
+
+        ArmSettleTimer();
+    }
+
+    /// <summary>Whether a script the trailing run would start is still going. The one-run-at-a-time
+    /// gate is keyed on the script identifier and still applies, so the trailing run waits for
+    /// another window rather than being refused: dropping it would leave the wrong state as the last
+    /// word, which is the whole failure the window exists to stop.</summary>
+    private bool RunInProgressFor(ScriptTrigger trigger)
+    {
+        var scripts = SettingsService.Read(s => s.Scripts.ToList());
+        return ScriptTriggerPolicy.Matching(scripts, trigger).Any(script => IsRunning(script.Id));
+    }
+
+    private void Carry(SettleClosure closure)
+    {
+        if (closure.Ending == SettleEnding.StateUnreadable)
+        {
+            AppLog.Info(ScriptMessages.SettledOnNoReading(closure.Subject, closure.Ignored));
+            return;
+        }
+
+        var state = closure.State!.Value;
+        string phrase = ScriptSubjectLabels.State(state);
+
+        if (closure.Ending == SettleEnding.AlreadyInThatState)
+        {
+            AppLog.Info(ScriptMessages.SettledOnTheSameState(closure.Subject, phrase, closure.Ignored));
+            return;
+        }
+
+        AppLog.Info(ScriptMessages.SettledOnANewState(closure.Subject, phrase, closure.Ignored));
+        RunMatching(state, null, ActionCause.SettledState(phrase));
     }
 
     /// <summary>
@@ -119,7 +261,7 @@ internal sealed class ScriptRunner
     /// run is in progress is skipped rather than queued, and said in the log — a slow script silently
     /// swallowing the events that arrive while it runs is the failure that never gets found.
     /// </summary>
-    internal bool Start(ScriptDefinition script, string cause, TimeSpan limit)
+    internal bool Start(ScriptDefinition script, ActionCause cause, TimeSpan limit)
     {
         lock (_gate)
         {

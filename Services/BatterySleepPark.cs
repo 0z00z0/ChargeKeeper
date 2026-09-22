@@ -42,7 +42,7 @@ internal sealed class BatterySleepPark(
     IBatterySleepSetting setting,
     IBatterySleepRecord record,
     Func<bool> waitIsRunning,
-    Action<string, string> log)
+    Action<string, ActionCause> log)
 {
     public const uint Never = 0;
 
@@ -53,7 +53,7 @@ internal sealed class BatterySleepPark(
     private BatterySleepValue? _parked;
 
     /// <summary>Sets the timeout to never, if a wait is still running when this gets the lock.</summary>
-    public void Park(string cause)
+    public void Park(ActionCause cause)
     {
         lock (_gate)
         {
@@ -119,7 +119,7 @@ internal sealed class BatterySleepPark(
     /// <summary>Puts the recorded value back into its scheme. Does nothing while a wait is running,
     /// which then owns the park, or when nothing is recorded. False only when a write failed, which
     /// leaves the record for the next start.</summary>
-    public bool Restore(string cause)
+    public bool Restore(ActionCause cause)
     {
         lock (_gate)
         {

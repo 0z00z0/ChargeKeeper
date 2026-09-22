@@ -12,6 +12,10 @@ namespace ChargeKeeper.Tests;
 // file, and each test restores the global Primitives and StateChanged in a finally.
 public class ChargeControlServiceTests
 {
+    /// <summary>What a test says asked. The branches are what is under test here, not the
+    /// wording, and every one of these calls is made by the test rather than by a trigger.</summary>
+    private static readonly ActionCause ACause = "a test";
+
     private sealed class FakePrimitives : IChargeControlPrimitives
     {
         public bool OverrideActive;
@@ -32,9 +36,9 @@ public class ChargeControlServiceTests
 
         public bool IsOverrideActive => OverrideActive;
         public bool HasSavedRevertThresholds => SavedRevertThresholds;
-        public void CancelOverride() => CancelOverrideCalls++;
+        public void CancelOverride(ActionCause cause) => CancelOverrideCalls++;
         public void SetEnabled(bool enable) => SetEnabledArg = enable;
-        public bool ApplyExplicitThresholds(int start, int stop)
+        public bool ApplyExplicitThresholds(int start, int stop, ActionCause cause)
         {
             ApplyThresholdsArg = (start, stop);
             if (ApplyThresholdsResult) DeviceRange = (start, stop);
@@ -66,7 +70,7 @@ public class ChargeControlServiceTests
     {
         WithFake(new FakePrimitives { OverrideActive = true, SavedRevertThresholds = true }, (fake, fired) =>
         {
-            ChargeControlService.SetSmartChargeEnabled(true);
+            ChargeControlService.SetSmartChargeEnabled(true, ACause);
             Assert.Equal(1, fake.CancelOverrideCalls);
             Assert.Null(fake.SetEnabledArg);       // the restore IS the enable — no bare SetEnabled(true)
             Assert.Equal(1, fired());
@@ -80,7 +84,7 @@ public class ChargeControlServiceTests
         // nothing to the device — the enable must still reach it instead of being silently dropped.
         WithFake(new FakePrimitives { OverrideActive = true, SavedRevertThresholds = false }, (fake, fired) =>
         {
-            ChargeControlService.SetSmartChargeEnabled(true);
+            ChargeControlService.SetSmartChargeEnabled(true, ACause);
             Assert.Equal(1, fake.CancelOverrideCalls);
             Assert.True(fake.SetEnabledArg);
             Assert.Equal(1, fired());
@@ -92,7 +96,7 @@ public class ChargeControlServiceTests
     {
         WithFake(new FakePrimitives { OverrideActive = false }, (fake, fired) =>
         {
-            ChargeControlService.SetSmartChargeEnabled(true);
+            ChargeControlService.SetSmartChargeEnabled(true, ACause);
             Assert.Equal(0, fake.CancelOverrideCalls);
             Assert.True(fake.SetEnabledArg);
             Assert.Equal(1, fired());
@@ -105,7 +109,7 @@ public class ChargeControlServiceTests
         // Disabling is never the override's cancel path — the override-cancel branch is enable-only.
         WithFake(new FakePrimitives { OverrideActive = true }, (fake, fired) =>
         {
-            ChargeControlService.SetSmartChargeEnabled(false);
+            ChargeControlService.SetSmartChargeEnabled(false, ACause);
             Assert.Equal(0, fake.CancelOverrideCalls);
             Assert.False(fake.SetEnabledArg);
             Assert.Equal(1, fired());
@@ -119,7 +123,7 @@ public class ChargeControlServiceTests
     {
         WithFake(new FakePrimitives { ApplyThresholdsResult = true }, (fake, fired) =>
         {
-            bool ok = ChargeControlService.SetExplicitThresholds(55, 75);
+            bool ok = ChargeControlService.SetExplicitThresholds(55, 75, ACause);
             Assert.True(ok);
             Assert.Equal((55, 75), fake.ApplyThresholdsArg);
             Assert.Equal(1, fired());
@@ -134,7 +138,7 @@ public class ChargeControlServiceTests
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
         WithFake(fake, (f, fired) =>
         {
-            Assert.True(ChargeControlService.SetExplicitThresholds(80, 100));
+            Assert.True(ChargeControlService.SetExplicitThresholds(80, 100, ACause));
             Assert.Equal((80, 100), f.ApplyThresholdsArg);
             Assert.Equal("Travel", f.DerivedPreset);
             Assert.Equal(1, fired());
@@ -149,7 +153,7 @@ public class ChargeControlServiceTests
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
         WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.SetExplicitThresholds(50, 80);
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, ACause);
             Assert.True(ok);
             Assert.Equal((50, 80), f.ApplyThresholdsArg);
             Assert.Null(f.DerivedPreset);
@@ -165,7 +169,7 @@ public class ChargeControlServiceTests
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
         WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.SetExplicitThresholds(50, 80);
+            bool ok = ChargeControlService.SetExplicitThresholds(50, 80, ACause);
             Assert.False(ok);
             Assert.Equal((50, 80), f.ApplyThresholdsArg);   // write attempted
             Assert.Equal("Travel", f.DerivedPreset);        // device still on Travel's range
@@ -182,7 +186,7 @@ public class ChargeControlServiceTests
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 80, 100);
         WithFake(fake, (f, fired) =>
         {
-            new ChargeControlActions().ApplyThresholds(45, 70);
+            new ChargeControlActions().ApplyThresholds(45, 70, MqttEntityCatalog.ChargeStart);
             Assert.Equal((45, 70), f.ApplyThresholdsArg);
             Assert.Null(f.DerivedPreset);
             Assert.Equal(1, fired());
@@ -198,7 +202,7 @@ public class ChargeControlServiceTests
         fake.Presets["Travel"] = new ThresholdPreset("Travel", 40, 60);
         WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.ApplyPresetByName("Travel");
+            bool ok = ChargeControlService.ApplyPresetByName("Travel", ACause);
             Assert.True(ok);
             Assert.Equal((40, 60), f.ApplyThresholdsArg);
             Assert.Equal("Travel", f.DerivedPreset);   // the write alone makes it the active preset
@@ -214,7 +218,7 @@ public class ChargeControlServiceTests
         fake.Presets["Daily"]  = new ThresholdPreset("Daily",  60, 80);
         WithFake(fake, (f, fired) =>
         {
-            bool ok = ChargeControlService.ApplyPresetByName("Travel");
+            bool ok = ChargeControlService.ApplyPresetByName("Travel", ACause);
             Assert.False(ok);
             Assert.Equal((40, 60), f.ApplyThresholdsArg);   // write attempted
             Assert.Equal("Daily", f.DerivedPreset);         // device never left the old range
@@ -227,7 +231,7 @@ public class ChargeControlServiceTests
     {
         WithFake(new FakePrimitives(), (fake, fired) =>
         {
-            bool ok = ChargeControlService.ApplyPresetByName("does-not-exist");
+            bool ok = ChargeControlService.ApplyPresetByName("does-not-exist", ACause);
             Assert.False(ok);
             Assert.Null(fake.ApplyThresholdsArg);
             Assert.Equal(0, fired());
@@ -242,7 +246,7 @@ public class ChargeControlServiceTests
     {
         WithFake(new FakePrimitives(), (fake, fired) =>
         {
-            bool ok = ChargeControlService.ApplyPresetByName(name!);
+            bool ok = ChargeControlService.ApplyPresetByName(name!, ACause);
             Assert.False(ok);
             Assert.Null(fake.ApplyThresholdsArg);
             Assert.Equal(0, fired());

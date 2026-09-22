@@ -10,7 +10,7 @@ internal static class ScriptMessages
 {
     /// <summary>The clock time is written into the sentence as well as the entry's timestamp, so the
     /// line reads whole when copied out of the log on its own.</summary>
-    public static string Started(string script, string cause, DateTime at) =>
+    public static string Started(string script, ActionCause cause, DateTime at) =>
         $"The script '{script}' started at {at:HH:mm:ss}, run by {cause}.";
 
     public static string Succeeded(string script, TimeSpan took) =>
@@ -36,8 +36,44 @@ internal static class ScriptMessages
 
     /// <summary>Recorded once per firing that lands on a run already in progress. A script that
     /// quietly swallows the events arriving while it runs is the failure nobody finds.</summary>
-    public static string SkippedBecauseItIsRunning(string script, string cause) =>
+    public static string SkippedBecauseItIsRunning(string script, ActionCause cause) =>
         $"The script '{script}' was not run by {cause}: the previous run of it has not finished.";
+
+    // ---- the settling window -------------------------------------------------------------------
+
+    /// <summary>
+    /// Written once per window, on the first event it swallows rather than on every one: a charger
+    /// flapping for an hour would otherwise bury every other entry under near-identical lines. What
+    /// the rest of the window swallowed is counted and reported on the line that closes it.
+    /// </summary>
+    public static string EventIgnored(ScriptTrigger trigger, ScriptSubject subject) =>
+        $"The '{ScriptTriggerLabels.For(trigger)}' event was ignored, and the ones after it in this " +
+        $"window are counted rather than listed{ScriptSubjectLabels.SettlingCause(subject).Clause}";
+
+    /// <summary>The window passing on a state that is not the one that ran. What runs is decided by
+    /// the reading taken at this moment, never by the events that were swallowed — the machine has
+    /// to end in the state that matches reality.</summary>
+    public static string SettledOnANewState(ScriptSubject subject, string state, int ignored) =>
+        $"The settling window on the {ScriptSubjectLabels.For(subject)} closed after {Ignored(ignored)}; " +
+        $"the reading taken now is {state}, and that is what decides what runs" +
+        ScriptSubjectLabels.QuietCause().Clause;
+
+    /// <summary>The window passing on the state that already ran. Worth a line rather than silence:
+    /// a person who watched a charger flap has to be able to see why no script followed.</summary>
+    public static string SettledOnTheSameState(ScriptSubject subject, string state, int ignored) =>
+        $"The settling window on the {ScriptSubjectLabels.For(subject)} closed after {Ignored(ignored)}; " +
+        $"the reading taken now is {state}, which already ran, so nothing runs" +
+        ScriptSubjectLabels.QuietCause().Clause;
+
+    /// <summary>The window passing with no reading to act on. A refusal is no evidence that nothing
+    /// changed, so nothing is claimed and nothing runs.</summary>
+    public static string SettledOnNoReading(ScriptSubject subject, int ignored) =>
+        $"The settling window on the {ScriptSubjectLabels.For(subject)} closed after {Ignored(ignored)}, " +
+        $"but the {ScriptSubjectLabels.Reading(subject)} could not be read, so nothing runs" +
+        ScriptSubjectLabels.QuietCause().Clause;
+
+    private static string Ignored(int count) =>
+        count == 1 ? "1 ignored event" : $"{count} ignored events";
 
     /// <summary>What the script printed, on the entry that reports how it ended. Empty output says
     /// nothing rather than saying "nothing", which would be a line per run for no reading.</summary>

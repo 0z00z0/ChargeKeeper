@@ -129,6 +129,7 @@ public class SettingsFileShapeTests : IDisposable
         "Notifications.AwakeHoldWarningHours",
         "Scripts",
         "Scripts.Scripts",
+        "Scripts.ScriptSettleSeconds",
         "Mqtt",
         "Mqtt.MqttLastGoodEndpoint",
         "Diagnostics",

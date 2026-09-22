@@ -52,7 +52,7 @@ internal static class InputBlock
     /// <summary>Blocks input until the renewals stop, or until the session's end time once the
     /// first renewal has supplied it. False means Windows refused the block, which is a lever that
     /// did not engage.</summary>
-    internal static bool Take(string cause)
+    internal static bool Take(ActionCause cause)
     {
         lock (_gate)
         {
@@ -95,7 +95,7 @@ internal static class InputBlock
     }
 
     /// <summary>Releases the block. True once nothing is held, including when nothing was.</summary>
-    internal static bool Release(string cause)
+    internal static bool Release(ActionCause cause)
     {
         Thread? thread;
         lock (_gate)

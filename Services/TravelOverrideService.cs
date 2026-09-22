@@ -1,3 +1,4 @@
+using ChargeKeeper.Helpers;
 using Windows.System.Power;
 
 namespace ChargeKeeper.Services;
@@ -47,7 +48,7 @@ internal static class TravelOverrideService
     private static BatteryStatus _lastStatus = BatteryStatus.NotPresent;
 
     /// <summary>Saves the current thresholds, then disables Smart Charge so the battery reaches 100 %.</summary>
-    public static void Activate()
+    public static void Activate(ActionCause cause)
     {
         Task.Run(() =>
         {
@@ -75,14 +76,16 @@ internal static class TravelOverrideService
 
             // A rejected write leaves the override armed over an unchanged device — log it, or it
             // looks identical to a success.
-            if (!ChargeThresholdService.SetEnabled(false))
-                AppLog.Info("TravelOverride: activation rejected by the device — thresholds unchanged.");
+            AppLog.Info((ChargeThresholdService.SetEnabled(false)
+                ? "TravelOverride: the cap is lifted for one charge"
+                : "TravelOverride: lifting the cap was rejected by the device — thresholds unchanged")
+                + cause.Clause);
 
             StateChanged?.Invoke();   // refresh the tooltip now, don't wait for a battery event
         });
     }
 
-    public static void Cancel() => ApplyRevert();
+    public static void Cancel(ActionCause cause) => ApplyRevert(cause);
 
     /// <summary>Clears the override without touching the thresholds, for when an explicit new choice
     /// supersedes it. Restoring the saved pair (what <see cref="Cancel"/> does) would clobber the
@@ -96,7 +99,7 @@ internal static class TravelOverrideService
     /// <summary>The single primitive every "apply a Start/Stop" caller funnels through.
     /// <see cref="Deactivate"/> must run FIRST: an armed auto-revert would otherwise clobber the new
     /// thresholds at the next full charge.</summary>
-    public static bool ApplyExplicitThresholds(int start, int stop)
+    public static bool ApplyExplicitThresholds(int start, int stop, ActionCause cause)
     {
         // Snapshot before Deactivate clears it. The saved pair is the only record of the user's real
         // thresholds, so a rejected write has to put it back.
@@ -108,7 +111,7 @@ internal static class TravelOverrideService
         Deactivate();
 
         // Valid non-zero thresholds enable Smart Charge by themselves, so no SetEnabled first.
-        if (ChargeThresholdService.SetThresholds(start, stop)) return true;
+        if (ChargeThresholdService.SetThresholds(start, stop, cause)) return true;
 
         if (wasActive)
             SettingsService.Update(x =>
@@ -160,12 +163,15 @@ internal static class TravelOverrideService
 
             // CAS the latch so only the first qualifying report dispatches the revert.
             case TravelOverrideStep.Revert when Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0:
-                ApplyRevert();
+                // The policy decided the charge it was asked for is over; that reading is the cause.
+                ApplyRevert(BatteryStatsFormatter.IsOnAC(status)
+                    ? "the charge the cap was lifted for completing"
+                    : "the charger being removed after the charge had begun");
                 break;
         }
     }
 
-    private static void ApplyRevert()
+    private static void ApplyRevert(ActionCause cause)
     {
         // Read synchronously, before the async gap below. Only the write side needs Update().
         var s           = SettingsService.Current;
@@ -180,15 +186,15 @@ internal static class TravelOverrideService
                     // Attempt both writes, then judge — enabling is not a precondition for the
                     // threshold write.
                     bool ok = ChargeThresholdService.SetEnabled(true);
-                    ok     &= ChargeThresholdService.SetThresholds(start, stop);
+                    ok     &= ChargeThresholdService.SetThresholds(start, stop, cause);
                     if (!ok)
                     {
                         // Keep flag and values: they are the only record of the user's real
                         // thresholds, and the device is still at 0/0. Re-arm here too — the flag
                         // stays true, so OnBatteryReport's re-arm never runs and one rejection would
                         // otherwise ignore every later completion edge.
-                        AppLog.Info($"TravelOverride: revert to {start}/{stop} rejected by the device — " +
-                                    "override left active, saved thresholds kept.");
+                        AppLog.Info($"TravelOverride: putting {start}/{stop} back was rejected by the device, " +
+                                    "so the lift is left in force and the saved thresholds kept" + cause.Clause);
                         Interlocked.Exchange(ref _revertDispatched, 0);
                         return;
                     }

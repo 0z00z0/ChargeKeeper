@@ -41,7 +41,7 @@ internal interface IScreenBrightnessRecord
 internal sealed class ScreenBrightnessPark(
     IScreenBrightnessSetting setting,
     IScreenBrightnessRecord record,
-    Action<string, string> log)
+    Action<string, ActionCause> log)
 {
     public const int Minimum = 0;
     public const int Maximum = 100;
@@ -60,7 +60,7 @@ internal sealed class ScreenBrightnessPark(
 
     /// <summary>Sets the display to <paramref name="percent"/>, remembering what it was on the first
     /// change. False when nothing was written, which is also what an unsupported display gives.</summary>
-    public bool Set(int percent, string cause)
+    public bool Set(int percent, ActionCause cause)
     {
         int wanted = Math.Clamp(percent, Minimum, Maximum);
 
@@ -112,7 +112,7 @@ internal sealed class ScreenBrightnessPark(
 
     /// <summary>Puts the remembered level back. True when nothing is owed. False only when the write
     /// failed, which leaves the record for the next start.</summary>
-    public bool Restore(string cause)
+    public bool Restore(ActionCause cause)
     {
         lock (_gate)
         {

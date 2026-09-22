@@ -101,6 +101,10 @@ internal static class UnpublishedSettings
         nameof(AppSettings.AwakeHoldWarningEnabled),
         nameof(AppSettings.AwakeHoldWarningHours),
 
+        // How long a charger or lid event settles before its scripts run again. Scripts reach no
+        // MQTT entity at all, and neither does the window they settle in.
+        nameof(AppSettings.ScriptSettleSeconds),
+
         // How often the update check runs, and whether a release installs itself. They govern this
         // machine's own update routine and were never asked to reach Home Assistant.
         nameof(AppSettings.UpdateCheckCadence),

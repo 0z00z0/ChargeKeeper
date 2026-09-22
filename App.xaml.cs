@@ -990,7 +990,7 @@ public partial class App : Application
             // Outside the lock for the same reason the toasts are: the log write is file I/O.
             if (powerSourceEdge is { } onAc)
                 PowerLog.Event($"Power source: now on {(onAc ? "AC" : "battery")}, battery {pct} %",
-                               onAc ? "charger connected" : "charger disconnected");
+                               ActionCause.Charger(onAc));
 
             // Only the edge runs a script. A reading arrives every few seconds and reports the same
             // power source each time, so anything less than the edge would run a script continuously.

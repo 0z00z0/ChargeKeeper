@@ -16,9 +16,10 @@ internal static class PowerLog
     // LogManager.GetLogger here can hand back an unconfigured logger.
     private static readonly Logger _log = AppLog.NamedLogger(LoggerName);
 
-    /// <summary>Logs one event: what happened, and what caused it.</summary>
-    public static void Event(string what, string cause, [CallerFilePath] string callerFilePath = "") =>
-        AppLog.Write(_log, LogLevel.Info, $"{what} — cause: {cause}", callerFilePath);
+    /// <summary>Logs one event: what happened, and what caused it. The separator is
+    /// <see cref="ActionCause.Separator"/>, shared with every other line that names a cause.</summary>
+    public static void Event(string what, ActionCause cause, [CallerFilePath] string callerFilePath = "") =>
+        AppLog.Write(_log, LogLevel.Info, $"{what}{cause.Clause}", callerFilePath);
 
     /// <summary>
     /// Logs a sentence already written to be read as one — the machine slept and woke, monitoring

@@ -80,7 +80,7 @@ internal static class FocusSessionService
     /// asked for one, and the stored default otherwise.</summary>
     /// <param name="minutes">The duration chosen in the dashboard's start box. Null from Home
     /// Assistant, which sets the duration through its own number instead.</param>
-    public static FocusArmOutcome Arm(string cause, int? minutes = null)
+    public static FocusArmOutcome Arm(ActionCause cause, int? minutes = null)
     {
         var (stored, network, screen, cover, input) = SettingsService.Read(
             s => (s.FocusSessionMinutes, s.FocusBlocksNetwork, s.FocusDimsScreen, s.FocusCoversScreen,
@@ -89,7 +89,7 @@ internal static class FocusSessionService
                            cause);
     }
 
-    public static void RequestCancel(string cause) => _engine.RequestCancel(cause);
+    public static void RequestCancel(ActionCause cause) => _engine.RequestCancel(cause);
 
     /// <summary>Whether a lever switch may be changed. Refused while a session runs: a lever turned
     /// off part-way through would leave its record parked with nothing owning it.</summary>
@@ -103,11 +103,11 @@ internal static class FocusSessionService
         // The cover is a window and dies with the process anyway; taking it down here keeps the
         // shutdown ordered rather than relying on that. The session itself is untouched — its record
         // stays on disk and the next start resumes or ends it.
-        ScreenCoverService.Hide("the application is closing");
+        ScreenCoverService.Hide(ActionCause.Shutdown());
 
         // The input block is released here rather than left to the process ending, so a machine that
         // answers is not waiting on what a kill does to a block nobody can measure from inside it.
-        InputBlock.Release("the application is closing");
+        InputBlock.Release(ActionCause.Shutdown());
     }
 
     private static void Tick()

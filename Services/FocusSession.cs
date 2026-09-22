@@ -31,16 +31,16 @@ internal interface IFocusLever
     /// armed, so a session with a lever that would refuse arms nothing at all.</summary>
     string? Refusal();
 
-    bool Engage(string cause);
+    bool Engage(ActionCause cause);
 
     /// <summary>Puts the lever back on for a session that outlived the application. Separate from
     /// <see cref="Engage"/> because the two levers answer differently: a firewall block survives a
     /// restart on its own and removing it by hand is the documented way out, which nothing reverses,
     /// while a brightness does not survive and the startup restore has just put it back.</summary>
-    void Resume(string cause);
+    void Resume(ActionCause cause);
 
     /// <summary>Puts back what this lever displaced. False leaves the record for the next start.</summary>
-    bool Lift(string cause);
+    bool Lift(ActionCause cause);
 }
 
 /// <summary>What the network lever needs to keep its one exception open, behind an interface so the
@@ -66,7 +66,7 @@ internal interface IFocusNetworkTargets
 /// <param name="allowedPrograms">The programs that keep the network, read at the moment a session
 /// arms. The list cannot move while one runs, so one reading covers the whole session.</param>
 internal sealed class FocusNetworkLever(
-    FirewallBlockPark park, IFocusNetworkTargets targets, Action<string, string> log,
+    FirewallBlockPark park, IFocusNetworkTargets targets, Action<string, ActionCause> log,
     Func<IReadOnlyList<string>>? allowedPrograms = null) : IFocusLever
 {
     public string? Refusal() => (targets.BrokerHost(), targets.BrokerPort()) switch
@@ -78,7 +78,7 @@ internal sealed class FocusNetworkLever(
         _               => null,
     };
 
-    public bool Engage(string cause)
+    public bool Engage(ActionCause cause)
     {
         if (targets.BrokerHost() is not { Length: > 0 } host || targets.BrokerPort() is not { } port)
             return false;
@@ -101,27 +101,28 @@ internal sealed class FocusNetworkLever(
     /// <summary>Nothing. The firewall carries the block across a restart with no help, and a block
     /// an administrator removed by hand is the way out this feature publishes — putting it back
     /// would be exactly the reversal the design refuses to attempt.</summary>
-    public void Resume(string cause) { }
+    public void Resume(ActionCause cause) { }
 
-    public bool Lift(string cause) => park.Lift(cause);
+    public bool Lift(ActionCause cause) => park.Lift(cause);
 }
 
 /// <summary>The screen lever, over the brightness park the Screen page and Home Assistant already
 /// drive. Engaging is the same act as writing zero to that number and lifting the same act as
 /// pressing its restore button — there is no second parking mechanism.</summary>
 internal sealed class FocusScreenLever(
-    Func<bool> isSupported, Func<int, string, bool> set, Func<string, bool> restore) : IFocusLever
+    Func<bool> isSupported, Func<int, ActionCause, bool> set, Func<ActionCause, bool> restore)
+    : IFocusLever
 {
     public string? Refusal() =>
         isSupported() ? null : "no display on this machine accepts a brightness from Windows";
 
-    public bool Engage(string cause) => set(ScreenBrightnessPark.Minimum, cause);
+    public bool Engage(ActionCause cause) => set(ScreenBrightnessPark.Minimum, cause);
 
     /// <summary>Dims again. Brightness is volatile, and the startup restore has just put back the
     /// level a previous run displaced — which is the level this session is owed to put back.</summary>
-    public void Resume(string cause) => set(ScreenBrightnessPark.Minimum, cause);
+    public void Resume(ActionCause cause) => set(ScreenBrightnessPark.Minimum, cause);
 
-    public bool Lift(string cause) => restore(cause);
+    public bool Lift(ActionCause cause) => restore(cause);
 }
 
 /// <summary>The cover lever: a black window over every attached display. Dimming to the panel's
@@ -130,18 +131,18 @@ internal sealed class FocusScreenLever(
 /// process does and dies with it, so a run that crashed leaves no black screen for the next start to
 /// clear — only the session record, which the engine reads as usual.</remarks>
 internal sealed class FocusCoverLever(
-    Func<bool> hasDisplay, Func<string, bool> show, Func<string, bool> hide) : IFocusLever
+    Func<bool> hasDisplay, Func<ActionCause, bool> show, Func<ActionCause, bool> hide) : IFocusLever
 {
     public string? Refusal() =>
         hasDisplay() ? null : "no display is attached for the cover to go over";
 
-    public bool Engage(string cause) => show(cause);
+    public bool Engage(ActionCause cause) => show(cause);
 
     /// <summary>Puts the cover back up. A window does not survive a restart, so resuming means
     /// showing it again rather than finding it still there.</summary>
-    public void Resume(string cause) => show(cause);
+    public void Resume(ActionCause cause) => show(cause);
 
-    public bool Lift(string cause) => hide(cause);
+    public bool Lift(ActionCause cause) => hide(cause);
 }
 
 /// <summary>The input lever: physical mouse and keyboard off for the length of the session. The
@@ -152,17 +153,17 @@ internal sealed class FocusCoverLever(
 /// taken against the session's own end time and lapses unless the session's tick keeps renewing
 /// it.</remarks>
 internal sealed class FocusInputLever(
-    Func<string?> refusal, Func<string, bool> take, Func<string, bool> release) : IFocusLever
+    Func<string?> refusal, Func<ActionCause, bool> take, Func<ActionCause, bool> release) : IFocusLever
 {
     public string? Refusal() => refusal();
 
-    public bool Engage(string cause) => take(cause);
+    public bool Engage(ActionCause cause) => take(cause);
 
     /// <summary>Blocks again. Nothing survives the process ending, so resuming means taking the
     /// block afresh rather than finding it still held.</summary>
-    public void Resume(string cause) => take(cause);
+    public void Resume(ActionCause cause) => take(cause);
 
-    public bool Lift(string cause) => release(cause);
+    public bool Lift(ActionCause cause) => release(cause);
 }
 
 /// <summary>
@@ -180,7 +181,7 @@ internal sealed class FocusInputLever(
 internal sealed class FocusSessionEngine(
     IFocusLever network, IFocusLever screen, IFocusLever cover, IFocusLever input,
     IFocusSessionRecord record,
-    Func<DateTimeOffset> now, Action<string, string> log,
+    Func<DateTimeOffset> now, Action<string, ActionCause> log,
     Action<FocusHistoryEntry>? history = null)
 {
     public const int MinMinutes = 1;
@@ -233,9 +234,10 @@ internal sealed class FocusSessionEngine(
             {
                 // A lever record with nothing owning it: the run died before the session record was
                 // written, or after it was cleared. Nothing was owed, so everything goes back.
-                network.Lift("starting up");
-                screen.Lift("starting up");
-                cover.Lift("starting up");
+                var leftBehind = ActionCause.StartupRestore("a focus lever");
+                network.Lift(leftBehind);
+                screen.Lift(leftBehind);
+                cover.Lift(leftBehind);
             }
 
             changed = Sync();
@@ -246,7 +248,7 @@ internal sealed class FocusSessionEngine(
     /// <summary>Starts a session for <paramref name="minutes"/> using whichever levers are chosen.
     /// Nothing is armed unless every chosen lever can be.</summary>
     public FocusArmOutcome Arm(int minutes, bool blocksNetwork, bool dimsScreen, bool coversScreen,
-                               bool blocksInput, string cause)
+                               bool blocksInput, ActionCause cause)
     {
         FocusArmOutcome outcome;
         bool changed;
@@ -263,7 +265,7 @@ internal sealed class FocusSessionEngine(
 
     /// <summary>A cancel request. The first opens the wait, a repeat during it changes nothing, and
     /// one inside the confirm window ends the session.</summary>
-    public void RequestCancel(string cause)
+    public void RequestCancel(ActionCause cause)
     {
         bool changed;
         lock (_gate)
@@ -332,7 +334,7 @@ internal sealed class FocusSessionEngine(
     }
 
     private FocusArmOutcome ArmLocked(int minutes, bool blocksNetwork, bool dimsScreen,
-                                      bool coversScreen, bool blocksInput, string cause)
+                                      bool coversScreen, bool blocksInput, ActionCause cause)
     {
         if (_session is not null) return FocusArmOutcome.AlreadyRunning;
 
@@ -396,7 +398,7 @@ internal sealed class FocusSessionEngine(
     }
 
     /// <summary>Undoes a half-armed session, so a lever that failed leaves nothing engaged.</summary>
-    private FocusArmOutcome Rollback(FocusSessionRecord session, string cause)
+    private FocusArmOutcome Rollback(FocusSessionRecord session, ActionCause cause)
     {
         if (session.BlocksNetwork) network.Lift(cause);
         if (session.DimsScreen) screen.Lift(cause);
@@ -415,19 +417,20 @@ internal sealed class FocusSessionEngine(
     private void Resume()
     {
         if (_session is not { } session) return;
-        const string cause = "resuming a session the machine was switched off during";
+        ActionCause cause = "resuming a session the machine was switched off during";
         if (session.BlocksNetwork) network.Resume(cause);
         if (session.DimsScreen) screen.Resume(cause);
         if (session.CoversScreen) cover.Resume(cause);
         if (session.BlocksInput) input.Resume(cause);
         log($"Focus session resumed, running until "
-          + $"{session.EndsAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}", "starting up");
+          + $"{session.EndsAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}",
+            ActionCause.Startup());
     }
 
     /// <summary>Lifts every lever the session owns and clears the record. A lever that will not lift
     /// keeps its own record, which the next start puts back; the session still ends, because nothing
     /// is holding it any more.</summary>
-    private void Finish(string cause, FocusSessionOutcome outcome)
+    private void Finish(ActionCause cause, FocusSessionOutcome outcome)
     {
         if (_session is not { } session) return;
 

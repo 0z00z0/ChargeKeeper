@@ -320,28 +320,30 @@ internal sealed class TrayMenu
         if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _focusSessionItem);
     }
 
-    private void ApplyPreset(ThresholdPreset preset) => RunApplyPreset(preset.Name);
+    private void ApplyPreset(ThresholdPreset preset, ActionCause cause) => RunApplyPreset(preset.Name, cause);
 
-    /// <summary>Applies the named preset; a no-op when the name is blank or matches no preset.</summary>
-    public void ApplyPresetByName(string presetName)
+    /// <summary>Applies the named preset; a no-op when the name is blank or matches no preset. The
+    /// cause travels with the name because what decided is the caller's to say: this is reached from
+    /// <see cref="NetworkProfiles.ApplyPreset"/>, where a profile match is what asked.</summary>
+    public void ApplyPresetByName(string presetName, ActionCause cause)
     {
         if (string.IsNullOrWhiteSpace(presetName)) return;
         // Resolve first, so an unknown name is a no-op without spinning up a Task.
         if (SettingsService.Current.Presets.Any(p => p.Name == presetName))
-            RunApplyPreset(presetName);
+            RunApplyPreset(presetName, cause);
     }
 
     /// <summary>
     /// Applies the named preset off the UI thread (the vendor RPC blocks) via the shared
     /// <see cref="ChargeControlService"/>, which fires StateChanged → QueueRefresh itself.
     /// </summary>
-    private void RunApplyPreset(string name)
+    private void RunApplyPreset(string name, ActionCause cause)
         => Task.Run(() =>
         {
             // A device-rejected preset returns false; without this the apply is completely silent.
             try
             {
-                if (!ChargeControlService.ApplyPresetByName(name))
+                if (!ChargeControlService.ApplyPresetByName(name, cause))
                     AppLog.Info($"Preset '{name}' was not applied — the device rejected the write.");
             }
             catch { QueueRefresh(); }
@@ -364,7 +366,12 @@ internal sealed class TrayMenu
                 : null;
             if (preset is not null)
             {
-                ApplyPreset(preset); // applies + QueueRefresh internally
+                // The same resolution again, for its other half: which profile matched is what the
+                // line recording the apply has to name, and the preset name alone cannot say it.
+                ActionCause cause = s.FindNetworkRule(location) is { } rule
+                    ? ActionCause.NetworkProfile(rule.Name, joined: true)
+                    : "the network matching no profile, which the unknown-network preset covers";
+                ApplyPreset(preset, cause); // applies + QueueRefresh internally
                 return;
             }
         }

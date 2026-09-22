@@ -21,15 +21,15 @@ internal sealed class FakeFocusLever : IFocusLever
 
     public string? Refusal() => RefusalText;
 
-    public bool Engage(string cause)
+    public bool Engage(ActionCause cause)
     {
         Engagements++;
         return EngageSucceeds;
     }
 
-    public void Resume(string cause) => Resumptions++;
+    public void Resume(ActionCause cause) => Resumptions++;
 
-    public bool Lift(string cause)
+    public bool Lift(ActionCause cause)
     {
         Lifts++;
         return true;

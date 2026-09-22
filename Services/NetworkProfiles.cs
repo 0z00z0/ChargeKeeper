@@ -13,7 +13,14 @@ internal static class NetworkProfiles
     /// rather than a direct call: the apply marshals its own threads and refresh, and a test has no
     /// device to write to.
     /// </summary>
-    public static Action<string>? ApplyPreset { get; set; }
+    /// <remarks>The cause travels with the name: the apply is several layers from the network, so
+    /// nothing down there could say that a profile match is what chose this preset.</remarks>
+    public static Action<string, ActionCause>? ApplyPreset { get; set; }
+
+    /// <summary>A profile as a cause names it. One spelling, shared with the keep-awake reaction, so
+    /// the two lines a single network change writes cannot name one profile differently.</summary>
+    internal static string NameOf(NetworkLocationRule rule) =>
+        rule is null || string.IsNullOrWhiteSpace(rule.Name) ? "an unnamed profile" : rule.Name;
 
     /// <summary>
     /// The preset a location gets: the matching profile's, and the unknown-network preset where a
@@ -37,7 +44,13 @@ internal static class NetworkProfiles
         if (!settings.NetworkProfilesEnabled) return;
         if (WinningPresetName(settings, location) is not { } presetName) return;
         if (!settings.Presets.Any(p => p.Name == presetName)) return;
-        ApplyPreset?.Invoke(presetName);
+
+        // What chose this preset is the profile that matched, or the absence of one. Named here
+        // because no layer below this point can tell a network-driven apply from any other.
+        ActionCause cause = "a network matching no profile, so the fallback preset applies";
+        if (settings.FindNetworkRule(location) is { } rule)
+            cause = ActionCause.NetworkProfile(NameOf(rule), joined: true);
+        ApplyPreset?.Invoke(presetName, cause);
     }
 
     /// <summary>
@@ -47,7 +60,7 @@ internal static class NetworkProfiles
     /// hold a profile took is released; the charge preset is deliberately left running, because
     /// switching the feature off is not a request to change what the battery is doing.
     /// </summary>
-    public static void SetEnabled(bool on, string cause)
+    public static void SetEnabled(bool on, ActionCause cause)
     {
         SettingsService.Update(s => s.NetworkProfilesEnabled = on);
 

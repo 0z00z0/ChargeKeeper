@@ -425,6 +425,12 @@ internal sealed class AppSettings
     /// sensible one to ship.</summary>
     public List<ScriptDefinition> Scripts { get; set; } = [];
 
+    /// <summary>How long a charger or lid event settles before its scripts run again, in seconds.
+    /// Nullable for the same reason the notification switches are: an installed document lacks the
+    /// key, and a plain int would read as zero and switch the settling off on every machine that has
+    /// not been to the page. Zero is a real choice and means no window at all.</summary>
+    public int? ScriptSettleSeconds { get; set; } = ScriptSettleWindow.DefaultSeconds;
+
     /// <summary>Master on/off for auto-applying a preset when the detected network location changes.</summary>
     public bool NetworkProfilesEnabled { get; set; } = false;
 

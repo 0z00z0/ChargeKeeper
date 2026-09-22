@@ -68,9 +68,9 @@ internal static class KeepAwakeService
 
     /// <summary>Starts or replaces the session, applying the OS hold for the current
     /// <see cref="AppSettings.KeepAwakeDisplayOn"/>.</summary>
-    /// <param name="cause">Who asked, for the power trail. Defaults to the user because every entry
-    /// point but the network reaction below is one.</param>
-    public static void Activate(KeepAwakeRequest request, string cause = "user request")
+    /// <param name="cause">What asked, for the power trail. Required, so every entry point states
+    /// its own trigger rather than falling through to a default that names none.</param>
+    public static void Activate(KeepAwakeRequest request, ActionCause cause)
     {
         var now = DateTimeOffset.Now;
         var session = new KeepAwakeSession(request, now, KeepAwakePolicy.ExpiryFor(request, now));
@@ -87,8 +87,8 @@ internal static class KeepAwakeService
     }
 
     /// <summary>Ends the session and releases the OS hold. No-op when nothing is running.</summary>
-    /// <param name="cause">Who asked — see <see cref="Activate"/>.</param>
-    public static void Deactivate(string cause = "user request")
+    /// <param name="cause">What asked — see <see cref="Activate"/>.</param>
+    public static void Deactivate(ActionCause cause)
     {
         lock (_sync)
         {
@@ -116,7 +116,8 @@ internal static class KeepAwakeService
         }
         if (expired)
         {
-            PowerLog.Event("Keep-awake off", "the session expired while the machine was asleep");
+            PowerLog.Event("Keep-awake off",
+                           ActionCause.Timer("the session expired while the machine was asleep"));
             AppChangeLog.Record(AppChange.KeepAwakeEnded);
             RaiseStateChanged();
         }
@@ -134,9 +135,10 @@ internal static class KeepAwakeService
             Deactivate("left the network the session was tied to");
 
         var s = SettingsService.Current;
-        if (Current is null && s.NetworkProfilesEnabled && s.FindNetworkRule(location) is { KeepAwakeHere: true })
+        if (Current is null && s.NetworkProfilesEnabled &&
+            s.FindNetworkRule(location) is { KeepAwakeHere: true } rule)
             Activate(new KeepAwakeRequest(KeepAwakeKind.UntilNetworkChange, null, null),
-                     $"network rule for '{location.DisplayHint ?? location.IpCidr ?? "this network"}'");
+                     ActionCause.NetworkProfile(NetworkProfiles.NameOf(rule), joined: true));
     }
 
     /// <summary>
@@ -145,7 +147,7 @@ internal static class KeepAwakeService
     /// all need: the service reacts to the machine moving, and none of those move it. A session
     /// started by hand is never overridden.
     /// </summary>
-    public static void ReconcileNetworkHold(NetworkLocation location, string cause)
+    public static void ReconcileNetworkHold(NetworkLocation location, ActionCause cause)
     {
         var s = SettingsService.Current;
         bool wantsHold = s.NetworkProfilesEnabled &&
@@ -196,7 +198,7 @@ internal static class KeepAwakeService
                 return;
             ClearLocked();
         }
-        PowerLog.Event("Keep-awake off", "the session reached its own expiry time");
+        PowerLog.Event("Keep-awake off", ActionCause.Timer("the session reached its own expiry time"));
         AppChangeLog.Record(AppChange.KeepAwakeEnded);
         RaiseStateChanged();
     }

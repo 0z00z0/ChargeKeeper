@@ -242,6 +242,10 @@ internal sealed class SettingsFile
     internal sealed class ScriptsGroup
     {
         [JsonPropertyOrder(1)] public List<ScriptDefinition> Scripts { get; set; } = [];
+
+        // Nullable: an installed document lacks the key, and a plain int would read as zero, which
+        // is the real choice meaning no settling at all.
+        [JsonPropertyOrder(2)] public int? ScriptSettleSeconds { get; set; }
     }
 
     internal sealed class MqttGroup
@@ -371,7 +375,7 @@ internal sealed class SettingsFile
             AwakeHoldWarningEnabled        = s.AwakeHoldWarningEnabled,
             AwakeHoldWarningHours          = s.AwakeHoldWarningHours,
         },
-        Scripts     = new ScriptsGroup { Scripts = s.Scripts },
+        Scripts     = new ScriptsGroup { Scripts = s.Scripts, ScriptSettleSeconds = s.ScriptSettleSeconds },
         Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
         Diagnostics = new DiagnosticsGroup
         {
@@ -475,7 +479,8 @@ internal sealed class SettingsFile
         AwakeHoldWarningEnabled        = Notifications.AwakeHoldWarningEnabled        ?? true,
         AwakeHoldWarningHours          = Notifications.AwakeHoldWarningHours          ?? AwakeHoldPolicy.DefaultWarnAfterHours,
 
-        Scripts = Scripts.Scripts,
+        Scripts             = Scripts.Scripts,
+        ScriptSettleSeconds = Scripts.ScriptSettleSeconds ?? ScriptSettleWindow.DefaultSeconds,
 
         MqttLastGoodEndpoint = Mqtt.MqttLastGoodEndpoint,
 

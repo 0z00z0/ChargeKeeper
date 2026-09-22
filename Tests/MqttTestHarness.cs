@@ -38,15 +38,35 @@ internal sealed class FakeChargeControl : IChargeControlActions
     public List<string> PresetsApplied { get; } = [];
     public int ChargeToFullCalls { get; private set; }
 
+    /// <summary>The entity each command arrived on, in order. It is what the log line names, so a
+    /// test can show a command is attributed to the entity that carried it.</summary>
+    public List<string> Entities { get; } = [];
+
     public (int Start, int Stop) CurrentThresholds() => Current;
 
-    public void ApplyThresholds(int start, int stop) => Applied.Add((start, stop));
+    public void ApplyThresholds(int start, int stop, string entityId)
+    {
+        Applied.Add((start, stop));
+        Entities.Add(entityId);
+    }
 
-    public void SetSmartChargeEnabled(bool enable) => SmartChargeSet.Add(enable);
+    public void SetSmartChargeEnabled(bool enable, string entityId)
+    {
+        SmartChargeSet.Add(enable);
+        Entities.Add(entityId);
+    }
 
-    public void ChargeToFullOnce() => ChargeToFullCalls++;
+    public void ChargeToFullOnce(string entityId)
+    {
+        ChargeToFullCalls++;
+        Entities.Add(entityId);
+    }
 
-    public void ApplyPreset(string name) => PresetsApplied.Add(name);
+    public void ApplyPreset(string name, string entityId)
+    {
+        PresetsApplied.Add(name);
+        Entities.Add(entityId);
+    }
 }
 
 /// <summary>Records every settings write a command produces, and offers whatever preset list a test
@@ -59,23 +79,35 @@ internal sealed class FakeSettingsActions : ISettingsActions
 
     public List<string> Presets { get; set; } = ["Daily", "Travel"];
 
+    /// <summary>The entity each recorded command arrived on, in order.</summary>
+    public List<string> Entities { get; } = [];
+
+    private void Record(string call, string entityId)
+    {
+        Calls.Add(call);
+        Entities.Add(entityId);
+    }
+
     public IReadOnlyList<string> PresetNames() => Presets;
 
-    public void SetKeepAwake(bool on) => Calls.Add($"KeepAwake={on}");
-    public void StartKeepAwake(KeepAwakeRequest request) => Calls.Add($"StartKeepAwake={request.Kind}");
+    public void SetKeepAwake(bool on, string entityId) => Record($"KeepAwake={on}", entityId);
+    public void StartKeepAwake(KeepAwakeRequest request, string entityId) =>
+        Record($"StartKeepAwake={request.Kind}", entityId);
     public void SetKeepAwakeDisplayOn(bool on) => Calls.Add($"KeepAwakeDisplayOn={on}");
-    public void SetLidDelay(bool on) => Calls.Add($"LidDelay={on}");
-    public void SetLidDelayTime(bool on) => Calls.Add($"LidDelayTime={on}");
-    public void SetLidDelayMinutes(int minutes) => Calls.Add($"LidDelayMinutes={minutes}");
-    public void SetLidDischarge(bool on) => Calls.Add($"LidDischarge={on}");
+    public void SetLidDelay(bool on, string entityId) => Record($"LidDelay={on}", entityId);
+    public void SetLidDelayTime(bool on, string entityId) => Record($"LidDelayTime={on}", entityId);
+    public void SetLidDelayMinutes(int minutes, string entityId) =>
+        Record($"LidDelayMinutes={minutes}", entityId);
+    public void SetLidDischarge(bool on, string entityId) => Record($"LidDischarge={on}", entityId);
     public void SetLidDischargePercent(int percent) => Calls.Add($"LidDischargePercent={percent}");
     public void SetLidDelayLock(bool on) => Calls.Add($"LidDelayLock={on}");
     public void SetLidDelayOffAfterSleep(bool on) => Calls.Add($"LidDelayOffAfterSleep={on}");
 
-    public void SetSmartStandby(bool on) => Calls.Add($"SmartStandby={on}");
-    public void SetScreenBrightness(int percent) => Calls.Add($"ScreenBrightness={percent}");
-    public void RestoreScreenBrightness() => Calls.Add("RestoreScreenBrightness");
-    public void SetFocusSession(bool on) => Calls.Add($"FocusSession={on}");
+    public void SetSmartStandby(bool on, string entityId) => Record($"SmartStandby={on}", entityId);
+    public void SetScreenBrightness(int percent, string entityId) =>
+        Record($"ScreenBrightness={percent}", entityId);
+    public void RestoreScreenBrightness(string entityId) => Record("RestoreScreenBrightness", entityId);
+    public void SetFocusSession(bool on, string entityId) => Record($"FocusSession={on}", entityId);
     public void SetFocusSessionMinutes(int minutes) => Calls.Add($"FocusSessionMinutes={minutes}");
     public void SetFocusBlocksNetwork(bool on) => Calls.Add($"FocusBlocksNetwork={on}");
     public void SetFocusDimsScreen(bool on) => Calls.Add($"FocusDimsScreen={on}");
@@ -87,7 +119,8 @@ internal sealed class FakeSettingsActions : ISettingsActions
     public void SetHighBatteryLevel(int percent) => Calls.Add($"HighBatteryLevel={percent}");
     public void SetDrainWarning(bool on) => Calls.Add($"DrainWarning={on}");
     public void SetDrainRate(int percentPerHour) => Calls.Add($"DrainRate={percentPerHour}");
-    public void SetNetworkProfiles(bool on) => Calls.Add($"NetworkProfiles={on}");
+    public void SetNetworkProfiles(bool on, string entityId) =>
+        Record($"NetworkProfiles={on}", entityId);
     public void SetUnknownNetworkPreset(string? name) => Calls.Add($"UnknownNetworkPreset={name ?? "<null>"}");
     public void SetStartupDelay(int seconds) => Calls.Add($"StartupDelay={seconds}");
     public void SetIconMode(TrayIconMode mode) => Calls.Add($"IconMode={mode}");

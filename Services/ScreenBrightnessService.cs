@@ -39,18 +39,18 @@ internal static class ScreenBrightnessService
         SettingsService.Reloaded += KeepRecord;
 
         if (!_park.Holding) return;
-        _park.Restore("starting up");
+        _park.Restore(ActionCause.StartupRestore("a dimmed screen"));
         Changed?.Invoke();
     }
 
-    public static bool Set(int percent, string cause)
+    public static bool Set(int percent, ActionCause cause)
     {
         bool set = _park.Set(percent, cause);
         if (set) Changed?.Invoke();
         return set;
     }
 
-    public static bool Restore(string cause)
+    public static bool Restore(ActionCause cause)
     {
         bool restored = _park.Restore(cause);
         if (restored) Changed?.Invoke();

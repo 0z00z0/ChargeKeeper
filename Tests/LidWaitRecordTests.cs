@@ -40,14 +40,16 @@ public class LidWaitRecordTests
     public void EachSurfaceNamesItselfInTheTrail()
     {
         // The reason the entry exists is to tell the three apart: the Home Assistant route changes
-        // the armed wait with nothing local to observe.
-        Assert.Contains("\"the Settings page\"",
+        // the armed wait with nothing local to observe. Each surface says which it is through the
+        // cause factory for it, so one trigger cannot pick up a second spelling — "Home Assistant"
+        // and "MQTT command" once stood side by side for the one route.
+        Assert.Contains("ActionCause.SettingsPage(",
                         File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "SettingsWindow.xaml.cs"))),
                         StringComparison.Ordinal);
-        Assert.Contains("\"the dashboard\"",
+        Assert.Contains("ActionCause.Dashboard(",
                         File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "DashboardWindow.xaml.cs"))),
                         StringComparison.Ordinal);
-        Assert.Contains("\"Home Assistant\"",
+        Assert.Contains("ActionCause.HomeAssistant(",
                         File.ReadAllText(RepoFiles.Find(Path.Combine("Services", "MqttCommandActions.cs"))),
                         StringComparison.Ordinal);
     }

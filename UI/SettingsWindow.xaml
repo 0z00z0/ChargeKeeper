@@ -608,6 +608,22 @@
                                Margin="0,4,0,8"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
+                    <!-- One window for every script, not one per script: two scripts bound to the
+                         same charger edge have to settle together, or the pair would run at
+                         different moments and disagree about the state. -->
+                    <controls:SettingsCard Header="Settling window"
+                                            Description="Ignores further charger or lid events for this many seconds after one runs, then runs whatever the state settled at.">
+                        <ComboBox x:Name="ScriptSettleCombo" MinWidth="140"
+                                  SelectionChanged="OnScriptSettleChanged">
+                            <ComboBoxItem Content="Off"        Tag="0"/>
+                            <ComboBoxItem Content="5 seconds"  Tag="5"/>
+                            <ComboBoxItem Content="10 seconds" Tag="10"/>
+                            <ComboBoxItem Content="20 seconds" Tag="20"/>
+                            <ComboBoxItem Content="30 seconds" Tag="30"/>
+                            <ComboBoxItem Content="60 seconds" Tag="60"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
                     <StackPanel x:Name="ScriptsListPanel" Spacing="4"/>
                     <Button x:Name="AddScriptBtn" Content="Add script"
                             Click="OnAddScript" Margin="0,4,0,12"/>

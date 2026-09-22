@@ -756,7 +756,7 @@ internal sealed partial class SettingsWindow : Window
     private void ApplyScreenBrightness()
     {
         _screenBrightnessDebounce.Stop();
-        ScreenBrightnessService.Set(_screenBrightnessWanted, "the Settings window");
+        ScreenBrightnessService.Set(_screenBrightnessWanted, ActionCause.SettingsPage("Screen"));
         ScreenRestoreBtn.IsEnabled = ScreenBrightnessService.Holding;
         _mqtt?.Republish();
     }
@@ -914,7 +914,7 @@ internal sealed partial class SettingsWindow : Window
     private void OnScreenRestore(object sender, RoutedEventArgs e)
     {
         _screenBrightnessDebounce.Stop();
-        ScreenBrightnessService.Restore("the Settings window");
+        ScreenBrightnessService.Restore(ActionCause.SettingsPage("Screen"));
         LoadScreen();
         _mqtt?.Republish();
     }
@@ -1326,7 +1326,7 @@ internal sealed partial class SettingsWindow : Window
     private void ActivatePreset(string name) => Task.Run(() =>
     {
         bool ok = false;
-        try { ok = ChargeControlService.ApplyPresetByName(name); }
+        try { ok = ChargeControlService.ApplyPresetByName(name, ActionCause.SettingsPage("Smart Charge")); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.ActivatePreset", ex); }
 
         RunOnUi(() =>
@@ -1492,7 +1492,8 @@ internal sealed partial class SettingsWindow : Window
     {
         try
         {
-            if (!ChargeControlService.SetExplicitThresholds(start, stop))
+            if (!ChargeControlService.SetExplicitThresholds(start, stop,
+                                                           ActionCause.SettingsPage("Smart Charge")))
                 RunOnUi(() => NativeMessageBox.Warning(
                     IntPtr.Zero, AppName,
                     "Saved, but the device didn't accept these thresholds — check the Lenovo driver."));
@@ -1579,14 +1580,16 @@ internal sealed partial class SettingsWindow : Window
     private void OnNetworkEnabledToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
-        SetNetworkProfilesEnabled(((ToggleSwitch)sender).IsOn);
+        // Taken from the sender, so the cause names the copy that was used rather than both pages.
+        string page = ReferenceEquals(sender, KeepAwakeNetworkEnabledToggle) ? "Keep Awake" : "Smart Charge";
+        SetNetworkProfilesEnabled(((ToggleSwitch)sender).IsOn, ActionCause.SettingsPage(page));
     }
 
-    private void SetNetworkProfilesEnabled(bool on)
+    private void SetNetworkProfilesEnabled(bool on, ActionCause cause)
     {
         // Through the service, which applies the profile that wins here when it goes on and releases
         // the hold a profile took when it goes off. A plain settings write leaves both behind.
-        NetworkProfiles.SetEnabled(on, "the Settings page");
+        NetworkProfiles.SetEnabled(on, cause);
 
         WithUpdatingSuppressed(() =>
         {
@@ -1639,7 +1642,7 @@ internal sealed partial class SettingsWindow : Window
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRulePresetSummary(rule),
             [new SettingsCard { Header = "Preset", Content = presetCombo }],
-            () => _keepAwakeProfileList.Rebuild());
+            () => _keepAwakeProfileList.Rebuild(), "Smart Charge");
 
         presetCombo.SelectionChanged += (_, _) =>
         {
@@ -1680,9 +1683,11 @@ internal sealed partial class SettingsWindow : Window
     /// </summary>
     /// <param name="rebuildOtherPage">The other page's rebuild, run after a rename: both pages show
     /// the rule's name, and the row being edited keeps its focus rather than being rebuilt under it.</param>
+    /// <param name="page">The page this copy of the row is drawn on, so a line recording what the
+    /// row's buttons did names the page it was pressed on rather than either of the two.</param>
     private PresetRows.Parts BuildNetworkRuleRow(
         int index, NetworkLocationRule rule, string summary, IReadOnlyList<SettingsCard> pageCards,
-        Action rebuildOtherPage)
+        Action rebuildOtherPage, string page)
     {
         var nameBox = new TextBox { Text = rule.Name, MinWidth = 220 };
 
@@ -1697,12 +1702,12 @@ internal sealed partial class SettingsWindow : Window
             ],
             CriticalBrush(), deleteLabel: "Delete profile");
 
-        row.Activate.Click += (_, _) => ActivateNetworkProfile();
+        row.Activate.Click += (_, _) => ActivateNetworkProfile(page);
 
         void CommitName() => CommitNetworkRuleName(index, nameBox.Text, row.Header, rebuildOtherPage);
         nameBox.LostFocus += (_, _) => CommitName();
         nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitName(); };
-        row.Delete.Click  += (_, _) => DeleteNetworkRule(index);
+        row.Delete.Click  += (_, _) => DeleteNetworkRule(index, page);
 
         return row;
     }
@@ -1710,7 +1715,8 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>Puts the profile for the network we are on into effect: the feature goes on if it was
     /// off, and the profile that wins here is applied at once. Only the winning row offers this, so
     /// there is exactly one profile it can mean.</summary>
-    private void ActivateNetworkProfile() => SetNetworkProfilesEnabled(true);
+    private void ActivateNetworkProfile(string page) =>
+        SetNetworkProfilesEnabled(true, ActionCause.SettingsPage(page));
 
     private void CommitNetworkRuleName(int index, string? newNameRaw, TextBlock header,
         Action rebuildOtherPage)
@@ -1742,7 +1748,7 @@ internal sealed partial class SettingsWindow : Window
         NetworkProfiles.ApplyWinner(NetworkProfiles.CurrentLocation());
     }
 
-    private void DeleteNetworkRule(int index)
+    private void DeleteNetworkRule(int index, string page)
     {
         SettingsService.Update(s =>
         {
@@ -1758,7 +1764,7 @@ internal sealed partial class SettingsWindow : Window
         // rule was keeping is released.
         var location = NetworkProfiles.CurrentLocation();
         NetworkProfiles.ApplyWinner(location);
-        KeepAwakeService.ReconcileNetworkHold(location, "a network profile was deleted");
+        KeepAwakeService.ReconcileNetworkHold(location, ActionCause.SettingsPage(page));
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
@@ -1943,9 +1949,10 @@ internal sealed partial class SettingsWindow : Window
         if (KeepAwakeToggle.IsOn)
             // Applies the first configured preset: a toggle is one click, and picking a different
             // span is a dashboard or Settings job.
-            KeepAwakeService.Activate(KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets));
+            KeepAwakeService.Activate(KeepAwakePolicy.DefaultRequest(SettingsService.Current.KeepAwakePresets),
+                                      ActionCause.SettingsPage("Keep Awake"));
         else
-            KeepAwakeService.Deactivate();
+            KeepAwakeService.Deactivate(ActionCause.SettingsPage("Keep Awake"));
         RefreshKeepAwakeState();
     }
 
@@ -2004,7 +2011,7 @@ internal sealed partial class SettingsWindow : Window
         // LidDelayService owns the setting and the power-scheme write together, so the two cannot
         // drift. Only enabling can fail visibly; RefreshLidDelayState then puts the toggle back
         // rather than showing an on state the machine will not honour.
-        LidDelayService.SetEnabled(LidDelayToggle.IsOn);
+        LidDelayService.SetEnabled(LidDelayToggle.IsOn, ActionCause.SettingsPage("Lid delay"));
         RefreshLidDelayState();
     }
 
@@ -2018,7 +2025,7 @@ internal sealed partial class SettingsWindow : Window
     private void OnLidDelayTimeToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
-        LidDelayService.SetTimeEnabled(LidDelayTimeToggle.IsOn);
+        LidDelayService.SetTimeEnabled(LidDelayTimeToggle.IsOn, ActionCause.SettingsPage("Lid delay"));
         RefreshLidDelayPresetActivationStates();
     }
 
@@ -2147,10 +2154,11 @@ internal sealed partial class SettingsWindow : Window
         var presets = SettingsService.Current.LidDelayPresets;
         if (index < 0 || index >= presets.Count) return;
         int minutes = (int)LidDelayPolicy.DelayFor(presets[index].Minutes).TotalMinutes;
-        LidDelayService.SetDelayMinutes(minutes, "the Settings page");
+        LidDelayService.SetDelayMinutes(minutes, ActionCause.SettingsPage("Lid delay"));
         // Choosing a delay is asking for the condition it belongs to: a delay that is stored and not
         // run is the state the marking would otherwise claim was in use.
-        if (!SettingsService.Current.LidDelayTimeEnabled) LidDelayService.SetTimeEnabled(true);
+        if (!SettingsService.Current.LidDelayTimeEnabled)
+            LidDelayService.SetTimeEnabled(true, ActionCause.SettingsPage("Lid delay"));
         WithUpdatingSuppressed(() => LidDelayTimeToggle.IsOn = true);
         RefreshLidDelayPresetActivationStates();
     }
@@ -2190,7 +2198,7 @@ internal sealed partial class SettingsWindow : Window
         if (_updating) return;
         // Through the service, which also drops an outstanding target when this goes off — a plain
         // settings write would leave the machine held awake for a target no longer configured.
-        LidDelayService.SetDischargeEnabled(LidDischargeToggle.IsOn);
+        LidDelayService.SetDischargeEnabled(LidDischargeToggle.IsOn, ActionCause.SettingsPage("Lid delay"));
         RefreshLidDischargeActivationStates();
     }
 
@@ -2311,7 +2319,8 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.LidDischargeTargetPercent = percent);
         // Choosing a target is asking for the condition it belongs to; through the service, which
         // pairs the setting with the wait in flight.
-        if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true);
+        if (!SettingsService.Current.LidDischargeEnabled)
+            LidDelayService.SetDischargeEnabled(true, ActionCause.SettingsPage("Lid delay"));
         WithUpdatingSuppressed(() => LidDischargeToggle.IsOn = true);
         RefreshLidDischargeActivationStates();
     }
@@ -2421,7 +2430,7 @@ internal sealed partial class SettingsWindow : Window
         }
 
         KeepAwakeCustomErrorText.Visibility = Visibility.Collapsed;
-        KeepAwakeService.Activate(request);
+        KeepAwakeService.Activate(request, ActionCause.SettingsPage("Keep Awake"));
         RefreshKeepAwakeState();
     }
 
@@ -2452,7 +2461,7 @@ internal sealed partial class SettingsWindow : Window
 
     private void ActivateKeepAwakePreset(KeepAwakeRequest preset)
     {
-        KeepAwakeService.Activate(preset);
+        KeepAwakeService.Activate(preset, ActionCause.SettingsPage("Keep Awake"));
         RefreshKeepAwakeState();
     }
 
@@ -2561,7 +2570,7 @@ internal sealed partial class SettingsWindow : Window
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRuleKeepAwakeSummary(rule.KeepAwakeHere),
             [new SettingsCard { Header = "Keep awake here", Content = toggle }],
-            () => _networkProfileList.Rebuild());
+            () => _networkProfileList.Rebuild(), "Keep Awake");
 
         // Attached after the initial IsOn, so seeding the switch cannot commit anything.
         toggle.Toggled += (_, _) =>
@@ -2583,7 +2592,7 @@ internal sealed partial class SettingsWindow : Window
         // Without this, ticking "keep awake here" does nothing until you leave and come back, since
         // the service only reacts to a location change.
         KeepAwakeService.ReconcileNetworkHold(NetworkProfiles.CurrentLocation(),
-                                              "a network profile's keep-awake was changed");
+                                              ActionCause.SettingsPage("Keep Awake"));
         RefreshKeepAwakeState();
     }
 
@@ -2599,7 +2608,7 @@ internal sealed partial class SettingsWindow : Window
             RefreshKeepAwakeCurrentNetworkText();
             RefreshCurrentNetworkText();
             KeepAwakeService.ReconcileNetworkHold(NetworkProfiles.CurrentLocation(),
-                                                  "a network profile was added");
+                                                  ActionCause.SettingsPage("Keep Awake"));
             RefreshKeepAwakeState();
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddKeepAwakeNetworkRule", ex); }
@@ -2659,7 +2668,25 @@ internal sealed partial class SettingsWindow : Window
     /// losing it to a re-activation would be the page's worst behaviour.</summary>
     private readonly List<Action> _pendingScriptEdits = [];
 
-    private void LoadScripts() => RebuildScriptRows();
+    private void LoadScripts()
+    {
+        // The stored length is absent in a document written before the window existed, so the
+        // shipped default is what the combo shows rather than the first item.
+        int seconds = SettingsService.Current.ScriptSettleSeconds ?? ScriptSettleWindow.DefaultSeconds;
+        WithUpdatingSuppressed(() => SelectComboByTag(
+            ScriptSettleCombo, seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        RebuildScriptRows();
+    }
+
+    private void OnScriptSettleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || ScriptSettleCombo.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        // Parsed rather than taken from the index: the item's Tag is the stored length, so a
+        // reordered list cannot quietly pick a different window.
+        if (!int.TryParse(tag, System.Globalization.NumberStyles.Integer,
+                          System.Globalization.CultureInfo.InvariantCulture, out int seconds)) return;
+        SettingsService.Update(s => s.ScriptSettleSeconds = seconds);
+    }
 
     /// <summary>Saves anything typed into a script box and not yet committed. Safe to call twice: a
     /// row with nothing outstanding does nothing.</summary>
@@ -2900,7 +2927,9 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
-        if (!ScriptRunner.Instance.Start(script, "the Run now button", ScriptRunner.TimeLimit))
+        if (!ScriptRunner.Instance.Start(script,
+                                         ActionCause.SettingsPage("Run now button on the Scripts"),
+                                         ScriptRunner.TimeLimit))
         {
             ShowInlineError(error, "This script is already running. The application log says when it started.");
             return;

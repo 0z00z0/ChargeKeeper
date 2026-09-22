@@ -15,6 +15,17 @@ internal static class ScriptLidTrigger
     private static bool   _seeded;
     private static bool?  _lastPayload;
 
+    /// <summary>
+    /// Whether the lid is shut, or null where nothing has been delivered yet. The lid switch has no
+    /// query interface — a power setting notification is the only route Windows offers — so the
+    /// latest state it delivered is what "now" means, and it is delivered on every movement and once
+    /// at registration.
+    /// </summary>
+    public static bool? CurrentlyClosed
+    {
+        get { lock (_sync) return _seeded ? _lastPayload : null; }
+    }
+
     /// <summary>Starts the subscription. Safe to call more than once — a live registration is left as
     /// it is.</summary>
     public static void Start()

@@ -2,6 +2,9 @@ namespace ChargeKeeper.Services;
 
 /// <summary>The charge-control actions an inbound MQTT command can trigger, behind an interface so
 /// the entity table's command seam can be tested with a spy instead of the live vendor RPC.</summary>
+/// <remarks>Every acting method takes the entity id the command arrived on, which is the only thing
+/// that tells one Home Assistant command from another: the trigger is otherwise recorded as the
+/// receiver alone, which is what left a threshold write with no way back to what asked for it.</remarks>
 internal interface IChargeControlActions
 {
     /// <summary>Current start/stop to combine a single-bound number-set against; falls back to a valid
@@ -9,47 +12,50 @@ internal interface IChargeControlActions
     (int Start, int Stop) CurrentThresholds();
 
     /// <summary>Writes explicit thresholds, enabling Smart Charge and superseding any override.</summary>
-    void ApplyThresholds(int start, int stop);
+    void ApplyThresholds(int start, int stop, string entityId);
 
     /// <summary>Turns Smart Charge on/off; on while a "charge to 100 %" override runs cancels it.</summary>
-    void SetSmartChargeEnabled(bool enable);
+    void SetSmartChargeEnabled(bool enable, string entityId);
 
-    void ChargeToFullOnce();
+    void ChargeToFullOnce(string entityId);
 
     /// <summary>Applies the named preset; an unconfigured name is a no-op.</summary>
-    void ApplyPreset(string name);
+    void ApplyPreset(string name, string entityId);
 }
 
 /// <summary>The settings an inbound MQTT command can write — the same writes the Settings window
 /// makes. Behind an interface for the same reason as <see cref="IChargeControlActions"/>: the command
 /// seam is testable without touching settings.json, the power scheme or a vendor service.</summary>
+/// <remarks>A method whose write reaches a service that records a cause takes the entity id the
+/// command arrived on, so the trail names the entity rather than the receiver. A plain settings
+/// write records nothing and needs none.</remarks>
 internal interface ISettingsActions
 {
     /// <summary>The configured preset names, which are the two preset-backed selects' options. Read on
     /// every announcement pass, because the list changes while the app runs.</summary>
     IReadOnlyList<string> PresetNames();
 
-    void SetKeepAwake(bool on);
-    void StartKeepAwake(KeepAwakeRequest request);
+    void SetKeepAwake(bool on, string entityId);
+    void StartKeepAwake(KeepAwakeRequest request, string entityId);
     void SetKeepAwakeDisplayOn(bool on);
-    void SetLidDelay(bool on);
-    void SetLidDelayTime(bool on);
-    void SetLidDelayMinutes(int minutes);
-    void SetLidDischarge(bool on);
+    void SetLidDelay(bool on, string entityId);
+    void SetLidDelayTime(bool on, string entityId);
+    void SetLidDelayMinutes(int minutes, string entityId);
+    void SetLidDischarge(bool on, string entityId);
     void SetLidDischargePercent(int percent);
     void SetLidDelayLock(bool on);
     void SetLidDelayOffAfterSleep(bool on);
-    void SetSmartStandby(bool on);
+    void SetSmartStandby(bool on, string entityId);
 
     /// <summary>Sets the display brightness, remembering what it was on the first change.</summary>
-    void SetScreenBrightness(int percent);
+    void SetScreenBrightness(int percent, string entityId);
 
     /// <summary>Puts back the brightness remembered before the first change.</summary>
-    void RestoreScreenBrightness();
+    void RestoreScreenBrightness(string entityId);
 
     /// <summary>Arms a focus session, or asks to cancel the one running — which opens the staged
     /// wait rather than ending it.</summary>
-    void SetFocusSession(bool on);
+    void SetFocusSession(bool on, string entityId);
 
     /// <summary>How long the next session runs. Changing it while one runs changes the next one
     /// only: a session's length is fixed when it is armed.</summary>
@@ -74,7 +80,7 @@ internal interface ISettingsActions
     void SetHighBatteryLevel(int percent);
     void SetDrainWarning(bool on);
     void SetDrainRate(int percentPerHour);
-    void SetNetworkProfiles(bool on);
+    void SetNetworkProfiles(bool on, string entityId);
     void SetUnknownNetworkPreset(string? name);
     void SetStartupDelay(int seconds);
     void SetIconMode(TrayIconMode mode);
@@ -149,15 +155,18 @@ internal sealed class ChargeControlActions : IChargeControlActions
             : (60, 80);
     }
 
-    public void ApplyThresholds(int start, int stop) =>
-        ChargeControlService.SetExplicitThresholds(start, stop);
+    public void ApplyThresholds(int start, int stop, string entityId) =>
+        ChargeControlService.SetExplicitThresholds(start, stop, ActionCause.HomeAssistant(entityId));
 
-    public void SetSmartChargeEnabled(bool enable) => ChargeControlService.SetSmartChargeEnabled(enable);
+    public void SetSmartChargeEnabled(bool enable, string entityId) =>
+        ChargeControlService.SetSmartChargeEnabled(enable, ActionCause.HomeAssistant(entityId));
 
     // Activate() owns its background work and revert timer, raising StateChanged once it settles.
-    public void ChargeToFullOnce() => TravelOverrideService.Activate();
+    public void ChargeToFullOnce(string entityId) =>
+        TravelOverrideService.Activate(ActionCause.HomeAssistant(entityId));
 
-    public void ApplyPreset(string name) => ChargeControlService.ApplyPresetByName(name);
+    public void ApplyPreset(string name, string entityId) =>
+        ChargeControlService.ApplyPresetByName(name, ActionCause.HomeAssistant(entityId));
 }
 
 /// <summary>The live <see cref="ISettingsActions"/>. Each write goes through the same service the
@@ -172,20 +181,20 @@ internal sealed class SettingsActions : ISettingsActions
 
     public IReadOnlyList<string> PresetNames() => SettingsService.Read(s => s.Presets.Select(p => p.Name).ToList());
 
-    public void SetKeepAwake(bool on)
+    public void SetKeepAwake(bool on, string entityId)
     {
         if (on)
             KeepAwakeService.Activate(
                 KeepAwakePolicy.DefaultRequest(SettingsService.Read(s => s.KeepAwakePresets.ToList())),
-                "MQTT command");
+                ActionCause.HomeAssistant(entityId));
         else
-            KeepAwakeService.Deactivate("MQTT command");
+            KeepAwakeService.Deactivate(ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
-    public void StartKeepAwake(KeepAwakeRequest request)
+    public void StartKeepAwake(KeepAwakeRequest request, string entityId)
     {
-        KeepAwakeService.Activate(request, "MQTT command");
+        KeepAwakeService.Activate(request, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
@@ -193,31 +202,31 @@ internal sealed class SettingsActions : ISettingsActions
 
     // SetEnabled owns the power-scheme capture and restore, and refuses rather than promising a delay
     // the machine will not honour.
-    public void SetLidDelay(bool on)
+    public void SetLidDelay(bool on, string entityId)
     {
-        LidDelayService.SetEnabled(on);
+        LidDelayService.SetEnabled(on, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
     // Through the service, which pairs each condition with its runtime effect: a plain settings write
     // would leave a wait in flight holding the machine awake for a condition no longer configured.
-    public void SetLidDelayTime(bool on)
+    public void SetLidDelayTime(bool on, string entityId)
     {
-        LidDelayService.SetTimeEnabled(on);
+        LidDelayService.SetTimeEnabled(on, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
-    public void SetLidDischarge(bool on)
+    public void SetLidDischarge(bool on, string entityId)
     {
-        LidDelayService.SetDischargeEnabled(on);
+        LidDelayService.SetDischargeEnabled(on, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
     // Through the service rather than a plain write: this surface changes the armed wait with
     // nothing local to observe, which is exactly the case the trail entry exists for.
-    public void SetLidDelayMinutes(int minutes)
+    public void SetLidDelayMinutes(int minutes, string entityId)
     {
-        LidDelayService.SetDelayMinutes(minutes, "Home Assistant");
+        LidDelayService.SetDelayMinutes(minutes, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
@@ -228,32 +237,32 @@ internal sealed class SettingsActions : ISettingsActions
     // the power scheme or a hold in flight.
     public void SetLidDelayOffAfterSleep(bool on) => Write(s => s.LidDelayOffAfterSleep = on);
 
-    public void SetSmartStandby(bool on)
+    public void SetSmartStandby(bool on, string entityId)
     {
-        StandbyService.SetEnabled(on);
+        StandbyService.SetEnabled(on, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
     // Through the service, like SetSmartStandby above: the display is what changes, and the record
     // of what to put back is written inside it. A plain settings write would reach neither.
-    public void SetScreenBrightness(int percent)
+    public void SetScreenBrightness(int percent, string entityId)
     {
-        ScreenBrightnessService.Set(percent, "Home Assistant");
+        ScreenBrightnessService.Set(percent, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
-    public void RestoreScreenBrightness()
+    public void RestoreScreenBrightness(string entityId)
     {
-        ScreenBrightnessService.Restore("Home Assistant");
+        ScreenBrightnessService.Restore(ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
     // Through the service, like the two above: arming moves the firewall and the display, and the
     // record of what to put back is written inside it. A plain settings write would reach neither.
-    public void SetFocusSession(bool on)
+    public void SetFocusSession(bool on, string entityId)
     {
-        if (on) FocusSessionService.Arm("Home Assistant");
-        else FocusSessionService.RequestCancel("Home Assistant");
+        if (on) FocusSessionService.Arm(ActionCause.HomeAssistant(entityId));
+        else FocusSessionService.RequestCancel(ActionCause.HomeAssistant(entityId));
         Raise();
     }
 
@@ -323,9 +332,9 @@ internal sealed class SettingsActions : ISettingsActions
     // Through the service, like SetSmartStandby above: switching the feature on applies the profile
     // that wins here and switching it off releases the hold one took, which a plain settings write
     // leaves behind on either side.
-    public void SetNetworkProfiles(bool on)
+    public void SetNetworkProfiles(bool on, string entityId)
     {
-        NetworkProfiles.SetEnabled(on, "Home Assistant");
+        NetworkProfiles.SetEnabled(on, ActionCause.HomeAssistant(entityId));
         Raise();
     }
 

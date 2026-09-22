@@ -10,6 +10,18 @@ internal static class StandbyService
     internal static bool IsRunning() =>
         VendorCatalog.Active.Standby.IsRunning();
 
-    internal static bool SetEnabled(bool enable) =>
-        VendorCatalog.Active.Standby.SetEnabled(enable);
+    /// <summary>Starts or stops the vendor's standby scheduling, and records the outcome. The line is
+    /// written here rather than at each surface, so every route to the switch leaves the same
+    /// entry.</summary>
+    /// <param name="cause">What asked, for the power trail.</param>
+    /// <returns>False where the vendor write was refused, which is the only signal it gives.</returns>
+    internal static bool SetEnabled(bool enable, ActionCause cause)
+    {
+        bool written = VendorCatalog.Active.Standby.SetEnabled(enable);
+        PowerLog.Event(written
+            ? $"Smart Standby scheduling {(enable ? "enabled" : "disabled")}"
+            : $"Smart Standby scheduling was NOT {(enable ? "enabled" : "disabled")} — the vendor write was refused",
+            cause);
+        return written;
+    }
 }

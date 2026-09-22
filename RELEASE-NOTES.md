@@ -9,6 +9,19 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.5.0
+
+- Every line in the log that records something being changed now says what caused it, naming the
+  thing rather than its kind: which network profile was joined, which Home Assistant entity a
+  command arrived on, which Settings page or dashboard control was used. A charge threshold being
+  written and a preset being applied used to be two accurate lines that left no way of telling a
+  network rule had matched (#253).
+- Scripts no longer run on every edge while a charger flaps on and off. The first event runs, the
+  ones arriving inside a settling window are ignored, and once things are quiet the state the
+  machine is actually in is what runs — so the charger ending up out no longer leaves the script
+  for it being in as the last thing that ran. The window is on the Scripts page, ten seconds by
+  default, and each step of it is one short line in the log (#254).
+
 ## 2.4.2
 
 - The Check for updates button no longer crashes the application when a background check finishes

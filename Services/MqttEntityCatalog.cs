@@ -346,7 +346,7 @@ internal static class MqttEntityCatalog
                 Icon = "mdi:battery-heart-variant", Debounce = MqttConnection.ReflectDebounce,
                 Include = () => SmartChargeGate(s, SmartCharge),
                 Read = () => live()?.SmartChargeEnabled,
-                Apply = on => MqttCommandVerdict.Accept(() => charge.SetSmartChargeEnabled(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => charge.SetSmartChargeEnabled(on, SmartCharge)),
             },
             new MqttNumber
             {
@@ -360,7 +360,7 @@ internal static class MqttEntityCatalog
                 {
                     var (_, stop) = charge.CurrentThresholds();
                     var pair = ChargeThresholdCommands.WithStart(Whole(value), stop);
-                    charge.ApplyThresholds(pair.Start, pair.Stop);
+                    charge.ApplyThresholds(pair.Start, pair.Stop, ChargeStart);
                 }),
             },
             new MqttNumber
@@ -375,7 +375,7 @@ internal static class MqttEntityCatalog
                 {
                     var (start, _) = charge.CurrentThresholds();
                     var pair = ChargeThresholdCommands.WithStop(Whole(value), start);
-                    charge.ApplyThresholds(pair.Start, pair.Stop);
+                    charge.ApplyThresholds(pair.Start, pair.Stop, ChargeStop);
                 }),
             },
             new MqttButton
@@ -383,7 +383,7 @@ internal static class MqttEntityCatalog
                 EntityId = ChargeToFull, Name = "Charge to 100 % once", Group = MqttPublishGroups.SmartCharge,
                 Icon = "mdi:battery-charging-100",
                 Include = () => SmartChargeGate(s, ChargeToFull),
-                Press = () => MqttCommandVerdict.Accept(charge.ChargeToFullOnce),
+                Press = () => MqttCommandVerdict.Accept(() => charge.ChargeToFullOnce(ChargeToFull)),
             },
             new MqttSelect
             {
@@ -395,7 +395,7 @@ internal static class MqttEntityCatalog
                 Include = () => SmartChargeGate(s, Preset) && set.PresetNames().Count > 0,
                 Options = set.PresetNames,
                 Read = () => live()?.ActivePreset,
-                Apply = name => MqttCommandVerdict.Accept(() => charge.ApplyPreset(name)),
+                Apply = name => MqttCommandVerdict.Accept(() => charge.ApplyPreset(name, Preset)),
             },
             new MqttBinarySensor
             {
@@ -413,7 +413,7 @@ internal static class MqttEntityCatalog
                 EntityId = KeepAwake, Name = "Keep awake", Group = MqttPublishGroups.KeepAwake,
                 Icon = "mdi:coffee", Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.KeepAwakeActive,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetKeepAwake(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetKeepAwake(on, KeepAwake)),
             },
             new MqttText
             {
@@ -424,7 +424,7 @@ internal static class MqttEntityCatalog
                 // The same parser the Settings box uses, so "1h30", "17:00" and "45" mean here exactly
                 // what they mean there, and everything else is refused rather than guessed at.
                 Apply = text => KeepAwakeInputParser.TryParse(text, out var request)
-                    ? MqttCommandVerdict.Accept(() => set.StartKeepAwake(request))
+                    ? MqttCommandVerdict.Accept(() => set.StartKeepAwake(request, KeepAwakeFor))
                     : MqttCommandVerdict.Malformed("Expected a duration like '90', '1h30' or a clock time like '17:00'."),
             },
             new MqttSensor
@@ -457,7 +457,7 @@ internal static class MqttEntityCatalog
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayEnabled,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelay(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelay(on, LidDelay)),
             },
             new MqttSwitch
             {
@@ -468,7 +468,7 @@ internal static class MqttEntityCatalog
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayTimeEnabled,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayTime(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDelayTime(on, LidDelayTime)),
             },
             new MqttNumber
             {
@@ -478,7 +478,8 @@ internal static class MqttEntityCatalog
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDelayMinutes,
-                Apply = value => MqttCommandVerdict.Accept(() => set.SetLidDelayMinutes(Whole(value))),
+                Apply = value => MqttCommandVerdict.Accept(
+                    () => set.SetLidDelayMinutes(Whole(value), LidDelayMinutes)),
             },
             new MqttSwitch
             {
@@ -487,7 +488,7 @@ internal static class MqttEntityCatalog
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LidDischargeEnabled,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDischarge(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetLidDischarge(on, LidDischarge)),
             },
             new MqttNumber
             {
@@ -525,7 +526,7 @@ internal static class MqttEntityCatalog
                 Icon = "mdi:sleep", Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().SmartStandby,
                 Read = () => surface()?.SmartStandbyRunning,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetSmartStandby(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetSmartStandby(on, SmartStandby)),
             },
 
             // ── Screen ───────────────────────────────────────────────────────────────────────────
@@ -542,14 +543,16 @@ internal static class MqttEntityCatalog
                 Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().ScreenBrightness,
                 Read = () => surface()?.ScreenBrightness,
-                Apply = value => MqttCommandVerdict.Accept(() => set.SetScreenBrightness(Whole(value))),
+                Apply = value => MqttCommandVerdict.Accept(
+                    () => set.SetScreenBrightness(Whole(value), ScreenBrightness)),
             },
             new MqttButton
             {
                 EntityId = ScreenBrightnessRestore, Name = "Screen brightness restore",
                 Group = MqttPublishGroups.Screen, Icon = "mdi:brightness-auto",
                 Include = () => s.Capabilities().ScreenBrightness,
-                Press = () => MqttCommandVerdict.Accept(set.RestoreScreenBrightness),
+                Press = () => MqttCommandVerdict.Accept(
+                    () => set.RestoreScreenBrightness(ScreenBrightnessRestore)),
             },
 
             // ── Focus session ────────────────────────────────────────────────────────────────────
@@ -564,7 +567,7 @@ internal static class MqttEntityCatalog
                 EntityId = FocusSession, Name = "Focus session", Group = MqttPublishGroups.Focus,
                 Icon = "mdi:meditation", Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface() is { } v ? v.FocusStage != FocusSessionStage.Off : (bool?)null,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusSession(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusSession(on, FocusSession)),
             },
             new MqttNumber
             {
@@ -701,7 +704,7 @@ internal static class MqttEntityCatalog
                 Category = MqttEntityCategory.Config, Icon = "mdi:map-marker-radius",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.NetworkProfilesEnabled,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetNetworkProfiles(on)),
+                Apply = on => MqttCommandVerdict.Accept(() => set.SetNetworkProfiles(on, NetworkProfiles)),
             },
             new MqttSelect
             {

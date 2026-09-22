@@ -159,7 +159,7 @@ internal static class FocusFirewallRules
 internal sealed class FirewallBlockPark(
     IFirewallPolicy policy,
     IFirewallBlockRecord record,
-    Action<string, string> log)
+    Action<string, ActionCause> log)
 {
     private readonly Lock _gate = new();
 
@@ -177,7 +177,7 @@ internal sealed class FirewallBlockPark(
     /// Sets every profile to block, with <paramref name="exceptions"/> allowed through. False when
     /// nothing was displaced, which leaves the firewall exactly as it was found.
     /// </summary>
-    public bool Engage(IReadOnlyList<FirewallAllowRule> exceptions, string cause)
+    public bool Engage(IReadOnlyList<FirewallAllowRule> exceptions, ActionCause cause)
     {
         ArgumentNullException.ThrowIfNull(exceptions);
 
@@ -228,7 +228,7 @@ internal sealed class FirewallBlockPark(
     /// cut off with no way back, and that window is the whole of what a failure here costs.</summary>
     private bool Apply(
         IReadOnlyList<FirewallProfileSetting> profiles, IReadOnlyList<FirewallAllowRule> exceptions,
-        string cause)
+        ActionCause cause)
     {
         // Rules left by a run that died part-way through, so a re-apply cannot end with two of each.
         policy.RemoveOwnRules();
@@ -252,7 +252,7 @@ internal sealed class FirewallBlockPark(
 
     /// <summary>Puts the recorded settings back and removes the exceptions. True when nothing is
     /// owed. False only when a write failed, which leaves the record for the next start.</summary>
-    public bool Lift(string cause)
+    public bool Lift(ActionCause cause)
     {
         lock (_gate)
         {
@@ -297,7 +297,7 @@ internal sealed class FirewallBlockPark(
     }
 
     /// <summary>Rolls a half-applied engage back to what was found. Called with the lock held.</summary>
-    private void Undo(IReadOnlyList<FirewallProfileSetting> original, string cause)
+    private void Undo(IReadOnlyList<FirewallProfileSetting> original, ActionCause cause)
     {
         foreach (var profile in original) policy.Write(profile);
         policy.RemoveOwnRules();

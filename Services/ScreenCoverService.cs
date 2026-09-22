@@ -54,24 +54,25 @@ internal static class ScreenCoverService
 
     /// <summary>Raises the cover. False only when the UI thread could not be reached, which is a
     /// lever that did not engage.</summary>
-    internal static bool Show(string cause)
+    internal static bool Show(ActionCause cause)
     {
         if (_ui is not { } ui) return false;
         if (IsShowing) return true;
 
         IsShowing = true;
-        AppLog.Info($"Focus: the screen cover goes up ({cause}).");
+        // The same clause the power trail appends, so a cause reads identically wherever it lands.
+        AppLog.Info($"Focus: the screen cover goes up{cause.Clause}.");
         return ui.TryEnqueue(Raise);
     }
 
     /// <summary>Takes the cover down. True even when none was up: nothing is owed back.</summary>
-    internal static bool Hide(string cause)
+    internal static bool Hide(ActionCause cause)
     {
         if (!IsShowing) return true;
         IsShowing = false;
 
         if (_ui is not { } ui) return false;
-        AppLog.Info($"Focus: the screen cover comes down ({cause}).");
+        AppLog.Info($"Focus: the screen cover comes down{cause.Clause}.");
         return ui.TryEnqueue(Drop);
     }
 

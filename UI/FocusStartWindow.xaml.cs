@@ -122,7 +122,8 @@ internal sealed partial class FocusStartWindow : Window
         // Home Assistant publishes are one value rather than three.
         if (chosen is { } minutes) SettingsService.Update(s => s.FocusSessionMinutes = minutes);
 
-        var outcome = FocusSessionService.Arm("the dashboard", chosen);
+        var cause   = ActionCause.Dashboard("focus start box");
+        var outcome = FocusSessionService.Arm(cause, chosen);
         if (outcome == FocusArmOutcome.Armed)
         {
             _afterStart();

@@ -157,7 +157,7 @@ internal static class LidDelayService
                            "crash recovery at startup");
 
         // No wait survives a restart, so a record found here was left by a run that ended mid-wait.
-        _batterySleep.Restore("a previous run ended during a lid-close wait (crash recovery at startup)");
+        _batterySleep.Restore(ActionCause.StartupRestore("a battery sleep timeout from a lid-close wait"));
 
         Reconcile();
         SettingsService.Reloaded += OnSettingsReloaded;
@@ -178,7 +178,7 @@ internal static class LidDelayService
         // service would re-apply the override with no Stop left to undo it.
         SettingsService.Reloaded -= OnSettingsReloaded;
         KeepAwakeService.StateChanged -= OnKeepAwakeStateChanged;
-        CancelDelay("the application is closing");
+        CancelDelay(ActionCause.Shutdown());
         Unsubscribe();
         if (SettingsService.Current.HasSavedLidAction) RestoreSavedAction();
         lock (_sync) { _started = false; }
@@ -189,9 +189,9 @@ internal static class LidDelayService
     /// setting was left off rather than promising a delay the machine will not honour. Disabling
     /// always returns true; a failed restore stays owed to the next <see cref="Start"/>.
     /// </summary>
-    /// <param name="cause">Why it changed, for the power trail. Null means the user, because every
-    /// entry point but <see cref="TurnOffIfDue"/> and a refused suspend is one.</param>
-    public static bool SetEnabled(bool enable, string? cause = null)
+    /// <param name="cause">What changed it, for the power trail. Required, so a switch flipped from a
+    /// window, a tray menu or Home Assistant is told apart in the trail.</param>
+    public static bool SetEnabled(bool enable, ActionCause cause)
     {
         if (enable)
         {
@@ -203,19 +203,18 @@ internal static class LidDelayService
             }
             SettingsService.Update(x => x.LidDelayEnabled = true);
             Subscribe();
-            PowerLog.Event($"Lid delay on, {SettingsService.Current.LidDelayMinutes} min",
-                           cause ?? "the setting was turned on");
+            PowerLog.Event($"Lid delay on, {SettingsService.Current.LidDelayMinutes} min", cause);
             RaiseStateChanged();
             return true;
         }
 
         SettingsService.Update(x => x.LidDelayEnabled = false);
-        CancelDelay(cause ?? "Lid delay was switched off");
+        CancelDelay(cause);
         Unsubscribe();
         PowerLog.Event(RestoreSavedAction()
             ? "Lid delay off, the Windows lid-close action is back to its own value"
             : "Lid delay off, but the Windows lid-close action could not be restored — retrying at next start",
-            cause ?? "the setting was turned off");
+            cause);
         RaiseStateChanged();
         return true;
     }
@@ -252,13 +251,14 @@ internal static class LidDelayService
     /// while a target is outstanding must drop that condition from the current wait, or the machine
     /// keeps waiting for a level nothing is watching for.
     /// </summary>
-    public static void SetDischargeEnabled(bool enable)
+    /// <param name="cause">What changed it, for the power trail.</param>
+    public static void SetDischargeEnabled(bool enable, ActionCause cause)
     {
         SettingsService.Update(s => s.LidDischargeEnabled = enable);
         if (enable)
         {
             PowerLog.Event($"Lid-delay battery target on, {SettingsService.Current.LidDischargeTargetPercent} %",
-                           "the setting was turned on");
+                           cause);
             return;
         }
 
@@ -269,7 +269,7 @@ internal static class LidDelayService
             _discharge.Disarm();
             if (wasWatching) { _targetSet = false; _targetPaused = false; }
         }
-        PowerLog.Event("Lid-delay battery target off", "the setting was turned off");
+        PowerLog.Event("Lid-delay battery target off", cause);
         if (wasWatching) Complete();
     }
 
@@ -290,9 +290,9 @@ internal static class LidDelayService
     /// <para>Both the stored value and the span it arms are named, because they differ wherever the
     /// stored one falls outside <see cref="LidDelayPolicy.MinMinutes"/>…<see cref="LidDelayPolicy.MaxMinutes"/>.</para>
     /// </remarks>
-    /// <param name="surface">Where the write came from, in the words a reader of the trail knows the
+    /// <param name="cause">Where the write came from, in the words a reader of the trail knows the
     /// surface by.</param>
-    public static void SetDelayMinutes(int minutes, string surface)
+    public static void SetDelayMinutes(int minutes, ActionCause cause)
     {
         int previous = SettingsService.Current.LidDelayMinutes;
         if (previous == minutes) return;
@@ -304,16 +304,17 @@ internal static class LidDelayService
             arms == minutes
                 ? $"Lid-delay length {previous} min → {minutes} min"
                 : $"Lid-delay length {previous} min → {minutes} min, which arms {arms} min",
-            $"changed from {surface}");
+            cause);
     }
 
-    public static void SetTimeEnabled(bool enable)
+    /// <param name="cause">What changed it, for the power trail.</param>
+    public static void SetTimeEnabled(bool enable, ActionCause cause)
     {
         SettingsService.Update(s => s.LidDelayTimeEnabled = enable);
         PowerLog.Event(enable
             ? $"Lid-delay timer on, {SettingsService.Current.LidDelayMinutes} min"
             : "Lid-delay timer off",
-            enable ? "the setting was turned on" : "the setting was turned off");
+            cause);
     }
 
     /// <summary>
@@ -990,7 +991,7 @@ internal static class LidDelayService
     /// was awake for, or null where there was no wait to cancel or the platform gave no reading.
     /// </summary>
     /// <param name="cause">Why, for the battery sleep timeout's restore line.</param>
-    private static SleepGap? CancelDelay(string cause)
+    private static SleepGap? CancelDelay(ActionCause cause)
     {
         SleepGap? gap = null;
         bool cancelled;
