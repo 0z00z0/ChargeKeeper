@@ -197,18 +197,22 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(2)] public bool? FocusBlocksNetwork      { get; set; }
         [JsonPropertyOrder(3)] public bool? FocusDimsScreen         { get; set; }
         [JsonPropertyOrder(4)] public bool? FocusCoversScreen       { get; set; }
-        [JsonPropertyOrder(5)] public bool? FocusStartFromDashboard { get; set; }
+        // Nullable like its siblings, and off where the key is absent: an installed document lacks
+        // it, and reading the heaviest lever as on would block a machine nobody asked to block.
+        [JsonPropertyOrder(5)] public bool? FocusBlocksInput        { get; set; }
+        [JsonPropertyOrder(6)] public bool? FocusStartFromDashboard { get; set; }
         // Null rather than an empty list so a document written before the list existed is not
         // rewritten with a key it never had.
-        [JsonPropertyOrder(6)] public List<string>? FocusAllowedPrograms { get; set; }
+        [JsonPropertyOrder(7)] public List<string>? FocusAllowedPrograms { get; set; }
         // The running session and the firewall state it displaced. State rather than settings:
         // nothing on the page edits them, so they trail the visible rows.
-        [JsonPropertyOrder(7)]  public DateTimeOffset? FocusSessionStartedAt { get; set; }
-        [JsonPropertyOrder(8)]  public DateTimeOffset? FocusSessionEndsAt { get; set; }
-        [JsonPropertyOrder(9)]  public bool FocusSessionBlockedNetwork { get; set; }
-        [JsonPropertyOrder(10)] public bool FocusSessionDimmedScreen   { get; set; }
-        [JsonPropertyOrder(11)] public bool FocusSessionCoveredScreen  { get; set; }
-        [JsonPropertyOrder(12)] public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
+        [JsonPropertyOrder(8)]  public DateTimeOffset? FocusSessionStartedAt { get; set; }
+        [JsonPropertyOrder(9)]  public DateTimeOffset? FocusSessionEndsAt { get; set; }
+        [JsonPropertyOrder(10)] public bool FocusSessionBlockedNetwork { get; set; }
+        [JsonPropertyOrder(11)] public bool FocusSessionDimmedScreen   { get; set; }
+        [JsonPropertyOrder(12)] public bool FocusSessionCoveredScreen  { get; set; }
+        [JsonPropertyOrder(13)] public bool FocusSessionBlockedInput   { get; set; }
+        [JsonPropertyOrder(14)] public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
     }
 
     internal sealed class NotificationsGroup
@@ -339,6 +343,7 @@ internal sealed class SettingsFile
             FocusBlocksNetwork         = s.FocusBlocksNetwork,
             FocusDimsScreen            = s.FocusDimsScreen,
             FocusCoversScreen          = s.FocusCoversScreen,
+            FocusBlocksInput           = s.FocusBlocksInput,
             FocusStartFromDashboard    = s.FocusStartFromDashboard,
             FocusAllowedPrograms       = s.FocusAllowedPrograms.Count > 0 ? s.FocusAllowedPrograms : null,
             FocusSessionStartedAt      = s.FocusSessionStartedAt,
@@ -346,6 +351,7 @@ internal sealed class SettingsFile
             FocusSessionBlockedNetwork = s.FocusSessionBlockedNetwork,
             FocusSessionDimmedScreen   = s.FocusSessionDimmedScreen,
             FocusSessionCoveredScreen  = s.FocusSessionCoveredScreen,
+            FocusSessionBlockedInput   = s.FocusSessionBlockedInput,
             FocusSavedFirewall         = s.FocusSavedFirewall,
         },
         Notifications = new NotificationsGroup
@@ -443,6 +449,7 @@ internal sealed class SettingsFile
         FocusBlocksNetwork         = Focus.FocusBlocksNetwork ?? true,
         FocusDimsScreen            = Focus.FocusDimsScreen ?? true,
         FocusCoversScreen          = Focus.FocusCoversScreen ?? true,
+        FocusBlocksInput           = Focus.FocusBlocksInput ?? false,
         FocusStartFromDashboard    = Focus.FocusStartFromDashboard ?? true,
         FocusAllowedPrograms       = Focus.FocusAllowedPrograms ?? [],
         FocusSessionStartedAt      = Focus.FocusSessionStartedAt,
@@ -450,6 +457,7 @@ internal sealed class SettingsFile
         FocusSessionBlockedNetwork = Focus.FocusSessionBlockedNetwork,
         FocusSessionDimmedScreen   = Focus.FocusSessionDimmedScreen,
         FocusSessionCoveredScreen  = Focus.FocusSessionCoveredScreen,
+        FocusSessionBlockedInput   = Focus.FocusSessionBlockedInput,
         FocusSavedFirewall         = Focus.FocusSavedFirewall,
 
         LowBatteryWarningPct       = Notifications.LowBatteryWarningPct,

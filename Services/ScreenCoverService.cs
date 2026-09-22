@@ -99,7 +99,7 @@ internal static class ScreenCoverService
             _tick?.Stop();
             foreach (var window in _windows)
             {
-                try { window.Close(); }
+                try { window.Dismiss(); }
                 catch (Exception ex) { AppLog.Error("ScreenCoverService.Close", ex); }
             }
             _windows.Clear();
@@ -118,9 +118,11 @@ internal static class ScreenCoverService
             if (!session.IsRunning) { Hide("no session is running"); return; }
 
             // A display added, removed, moved or re-resolved while a session runs changes this list,
-            // and the covers are rebuilt against it.
+            // and the covers are rebuilt against it. A cover that is gone is rebuilt too: whatever
+            // took it down, it is back within a second, and this does not depend on knowing how.
             var displays = NativeMethods.AllDisplayBounds();
             if (!SameDisplays(displays, _covering)) Rebuild();
+            else if (AnyCoverIsGone()) { AppLog.Info("Focus: a screen cover had gone, and is put back."); Rebuild(); }
 
             var reading  = FocusCoverCountdown.For(session, DateTimeOffset.Now);
             string levers = Levers(session);
@@ -144,7 +146,7 @@ internal static class ScreenCoverService
 
         foreach (var window in _windows)
         {
-            try { window.Close(); }
+            try { window.Dismiss(); }
             catch (Exception ex) { AppLog.Error("ScreenCoverService.Rebuild close", ex); }
         }
         _windows.Clear();
@@ -164,6 +166,14 @@ internal static class ScreenCoverService
         AppLog.Info($"Focus: the screen cover is over {_windows.Count} display(s).");
     }
 
+    /// <summary>Whether any cover has been taken down under the service. A cover with no window
+    /// left is a display showing whatever is behind it, which the rebuild puts right.</summary>
+    private static bool AnyCoverIsGone()
+    {
+        foreach (var window in _windows) if (window.IsGone) return true;
+        return false;
+    }
+
     private static bool SameDisplays(IReadOnlyList<RectInt32> a, IReadOnlyList<RectInt32> b)
     {
         if (a.Count != b.Count) return false;
@@ -178,10 +188,11 @@ internal static class ScreenCoverService
     /// machine looking broken to whoever is sitting at it.</summary>
     private static string Levers(FocusSnapshot session)
     {
-        var levers = new List<string>(3);
+        var levers = new List<string>(4);
         if (session.BlocksNetwork) levers.Add("the network is blocked");
         if (session.DimsScreen)    levers.Add("the screen is dimmed");
         if (session.CoversScreen)  levers.Add("the screen is covered");
+        if (session.BlocksInput)   levers.Add("the mouse and keyboard are blocked");
         return levers.Count == 0 ? "" : $"While it runs, {string.Join(", ", levers)}.";
     }
 }

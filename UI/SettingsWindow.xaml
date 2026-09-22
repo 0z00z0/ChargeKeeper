@@ -468,6 +468,12 @@
                                       MinWidth="0" Toggled="OnFocusCoversScreenToggled"/>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="Blocks the mouse and keyboard"
+                                            Description="Turns the mouse and keyboard off for the length of a session. The machine answers nothing, this application included.">
+                        <ToggleSwitch x:Name="FocusBlocksInputToggle" OnContent="" OffContent=""
+                                      MinWidth="0" Toggled="OnFocusBlocksInputToggled"/>
+                    </controls:SettingsCard>
+
                     <controls:SettingsCard Header="Start a session from the dashboard"
                                             Description="Adds a Start button to the dashboard's focus row. It starts a session; ending one still needs Home Assistant.">
                         <ToggleSwitch x:Name="FocusStartFromDashboardToggle" OnContent="" OffContent=""

@@ -80,6 +80,7 @@ internal sealed class FakeSettingsActions : ISettingsActions
     public void SetFocusBlocksNetwork(bool on) => Calls.Add($"FocusBlocksNetwork={on}");
     public void SetFocusDimsScreen(bool on) => Calls.Add($"FocusDimsScreen={on}");
     public void SetFocusCoversScreen(bool on) => Calls.Add($"FocusCoversScreen={on}");
+    public void SetFocusBlocksInput(bool on) => Calls.Add($"FocusBlocksInput={on}");
     public void SetLowBatteryWarning(bool on) => Calls.Add($"LowBatteryWarning={on}");
     public void SetLowBatteryLevel(int percent) => Calls.Add($"LowBatteryLevel={percent}");
     public void SetHighBatteryWarning(bool on) => Calls.Add($"HighBatteryWarning={on}");
@@ -117,7 +118,7 @@ internal static class MqttTestBed
         bool smartStandby = false, int? screenBrightness = 70,
         FocusSessionStage focusStage = FocusSessionStage.Off, int? focusRemaining = null,
         int focusSessionMinutes = 60, bool focusBlocksNetwork = true, bool focusDimsScreen = true,
-        bool focusCoversScreen = true,
+        bool focusCoversScreen = true, bool focusBlocksInput = false,
         bool lowBatteryWarning = true, int lowBatteryLevel = 20,
         bool highBatteryWarning = false, int highBatteryLevel = 90, bool drainWarning = true,
         int drainRate = 3, bool networkProfiles = true, string? unknownNetworkPreset = null,
@@ -134,7 +135,7 @@ internal static class MqttTestBed
             lidDelayLock, lidDelayOffAfterSleep,
             smartStandby, screenBrightness,
             focusStage, focusRemaining, focusSessionMinutes, focusBlocksNetwork, focusDimsScreen,
-            focusCoversScreen,
+            focusCoversScreen, focusBlocksInput,
             lowBatteryWarning, lowBatteryLevel,
             highBatteryWarning, highBatteryLevel, drainWarning, drainRate, networkProfiles,
             unknownNetworkPreset ?? PresetEditValidator.UnknownNetworkSentinel,

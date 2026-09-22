@@ -176,7 +176,7 @@ given, and it is **ended from Home Assistant alone** — nothing on the computer
 is the point of the feature and not an omission. Starting one is easier: Home Assistant arms a
 session, and so does the dashboard, where a Start button opens a box that sets the length.
 
-A session uses up to three levers, each chosen before it starts — one switch per lever on the
+A session uses up to four levers, each chosen before it starts — one switch per lever on the
 Settings **Focus session** page, or the matching switch in Home Assistant:
 
 - **Block the network.** Every firewall profile's default outbound action goes to Block and every
@@ -205,7 +205,20 @@ Settings **Focus session** page, or the matching switch in Home Assistant:
   nothing else. Touching the machine brings up, for a few seconds, a line saying a session is
   running and a ring counting down the time left; then it goes black again. The panel is white on
   black so it stays readable when the screen has also been dimmed, and nothing about the cover
-  changes the brightness.
+  changes the brightness. **The cover refuses to close.** Alt+F4, the task view's close and an
+  ordinary End task all leave it standing, and a cover taken down by anything else is put back
+  within a second. Exiting ChargeKeeper from its tray icon still takes it down — the session keeps
+  running, and the next start puts the cover back if the end time has not passed.
+- **Block the mouse and keyboard.** Physical input is turned off for the whole machine for the
+  length of the session. Nothing responds: not another program, not the tray icon, not this
+  application. It is off unless it is switched on, and it is the only lever that is.
+  **Ctrl+Alt+Delete is the way out.** That screen is not part of the desktop, so the block does not
+  reach it; from there the machine can be signed out of or restarted. Returning to the desktop
+  instead puts the block back within a second, for as long as the session has left to run.
+  The block is given up rather than held: it lifts by itself within about three seconds if
+  ChargeKeeper stops answering, at the session's end time whatever else happens, and when
+  ChargeKeeper exits. A session that was running when the machine was switched off blocks input
+  again at the next start, until its end time passes.
 
 A session with no lever chosen is refused rather than armed, and no lever can be changed while a
 session is running.
@@ -213,7 +226,7 @@ session is running.
 **Starting one from the dashboard.** The dashboard's **Focus session** row says what a session is
 doing and how long it has left. While none is running — and while **Start a session from the
 dashboard** is on, on the Settings **Focus session** page — it also carries a Start button. The box
-that opens sets the length and shows the three levers as they stand; the levers themselves are set
+that opens sets the length and shows the four levers as they stand; the levers themselves are set
 from Home Assistant or from the Settings focus page, which the button beside the heading opens.
 There is no matching control for ending a session, on the dashboard or anywhere else on the
 computer.

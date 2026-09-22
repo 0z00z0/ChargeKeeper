@@ -10,7 +10,7 @@ namespace ChargeKeeper.Services;
 /// time whether or not the machine is awake to watch it.</param>
 internal readonly record struct FocusSessionRecord(
     DateTimeOffset StartedAt, DateTimeOffset EndsAt,
-    bool BlocksNetwork, bool DimsScreen, bool CoversScreen);
+    bool BlocksNetwork, bool DimsScreen, bool CoversScreen, bool BlocksInput);
 
 /// <summary>Where a running session is kept so nothing but the clock can end it.</summary>
 internal interface IFocusSessionRecord
@@ -23,7 +23,7 @@ internal interface IFocusSessionRecord
     void Clear();
 }
 
-/// <summary>One of the three things a session can do to the machine. Each restores only what it
+/// <summary>One of the four things a session can do to the machine. Each restores only what it
 /// itself displaced.</summary>
 internal interface IFocusLever
 {
@@ -144,8 +144,29 @@ internal sealed class FocusCoverLever(
     public bool Lift(string cause) => hide(cause);
 }
 
+/// <summary>The input lever: physical mouse and keyboard off for the length of the session. The
+/// heaviest of the four — while it holds, nothing on the machine answers, this application
+/// included.</summary>
+/// <remarks>Nothing is displaced and nothing is parked: a block dies with the thread holding it and
+/// therefore with the process, so a run that crashed leaves a machine that answers. The block is
+/// taken against the session's own end time and lapses unless the session's tick keeps renewing
+/// it.</remarks>
+internal sealed class FocusInputLever(
+    Func<string?> refusal, Func<string, bool> take, Func<string, bool> release) : IFocusLever
+{
+    public string? Refusal() => refusal();
+
+    public bool Engage(string cause) => take(cause);
+
+    /// <summary>Blocks again. Nothing survives the process ending, so resuming means taking the
+    /// block afresh rather than finding it still held.</summary>
+    public void Resume(string cause) => take(cause);
+
+    public bool Lift(string cause) => release(cause);
+}
+
 /// <summary>
-/// A focus session: one duration, up to three levers, and no way out from the machine itself.
+/// A focus session: one duration, up to four levers, and no way out from the machine itself.
 /// </summary>
 /// <remarks>
 /// <para>Pure but for the seams handed in, so every rule here — the refusals, the staged cancel, the
@@ -157,7 +178,8 @@ internal sealed class FocusCoverLever(
 /// <param name="history">Where a finished session is written down. Behind a seam, so the three
 /// endings are exercised without a file.</param>
 internal sealed class FocusSessionEngine(
-    IFocusLever network, IFocusLever screen, IFocusLever cover, IFocusSessionRecord record,
+    IFocusLever network, IFocusLever screen, IFocusLever cover, IFocusLever input,
+    IFocusSessionRecord record,
     Func<DateTimeOffset> now, Action<string, string> log,
     Action<FocusHistoryEntry>? history = null)
 {
@@ -224,14 +246,14 @@ internal sealed class FocusSessionEngine(
     /// <summary>Starts a session for <paramref name="minutes"/> using whichever levers are chosen.
     /// Nothing is armed unless every chosen lever can be.</summary>
     public FocusArmOutcome Arm(int minutes, bool blocksNetwork, bool dimsScreen, bool coversScreen,
-                               string cause)
+                               bool blocksInput, string cause)
     {
         FocusArmOutcome outcome;
         bool changed;
 
         lock (_gate)
         {
-            outcome = ArmLocked(minutes, blocksNetwork, dimsScreen, coversScreen, cause);
+            outcome = ArmLocked(minutes, blocksNetwork, dimsScreen, coversScreen, blocksInput, cause);
             changed = Sync();
         }
 
@@ -310,12 +332,12 @@ internal sealed class FocusSessionEngine(
     }
 
     private FocusArmOutcome ArmLocked(int minutes, bool blocksNetwork, bool dimsScreen,
-                                      bool coversScreen, string cause)
+                                      bool coversScreen, bool blocksInput, string cause)
     {
         if (_session is not null) return FocusArmOutcome.AlreadyRunning;
 
         // A switch that turns on and does nothing but count down looks identical to a broken one.
-        if (!blocksNetwork && !dimsScreen && !coversScreen)
+        if (!blocksNetwork && !dimsScreen && !coversScreen && !blocksInput)
         {
             log("Focus session refused: no lever at all was chosen, so the session would do nothing "
               + "but count down", cause);
@@ -340,10 +362,16 @@ internal sealed class FocusSessionEngine(
             return FocusArmOutcome.LeverRefused;
         }
 
+        if (blocksInput && input.Refusal() is { } inputRefusal)
+        {
+            log($"Focus session refused: {inputRefusal}", cause);
+            return FocusArmOutcome.LeverRefused;
+        }
+
         var started = now();
         var session = new FocusSessionRecord(
             started, started.AddMinutes(Math.Clamp(minutes, MinMinutes, MaxMinutes)),
-            blocksNetwork, dimsScreen, coversScreen);
+            blocksNetwork, dimsScreen, coversScreen, blocksInput);
 
         // The record reaches disk before a lever moves: a crash between the two has to leave a
         // session the next start can end, never a block nothing owns.
@@ -360,6 +388,7 @@ internal sealed class FocusSessionEngine(
         if (blocksNetwork && !network.Engage(cause)) return Rollback(session, cause);
         if (dimsScreen && !screen.Engage(cause)) return Rollback(session, cause);
         if (coversScreen && !cover.Engage(cause)) return Rollback(session, cause);
+        if (blocksInput && !input.Engage(cause)) return Rollback(session, cause);
 
         log($"Focus session started, running until "
           + $"{session.EndsAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}", cause);
@@ -372,6 +401,7 @@ internal sealed class FocusSessionEngine(
         if (session.BlocksNetwork) network.Lift(cause);
         if (session.DimsScreen) screen.Lift(cause);
         if (session.CoversScreen) cover.Lift(cause);
+        if (session.BlocksInput) input.Lift(cause);
         record.Clear();
         _session = null;
         _cancelRequestedAt = null;
@@ -389,6 +419,7 @@ internal sealed class FocusSessionEngine(
         if (session.BlocksNetwork) network.Resume(cause);
         if (session.DimsScreen) screen.Resume(cause);
         if (session.CoversScreen) cover.Resume(cause);
+        if (session.BlocksInput) input.Resume(cause);
         log($"Focus session resumed, running until "
           + $"{session.EndsAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}", "starting up");
     }
@@ -406,6 +437,8 @@ internal sealed class FocusSessionEngine(
             log("The screen brightness could not be put back — it is retried at the next start", cause);
         if (session.CoversScreen && !cover.Lift(cause))
             log("The screen cover could not be taken down — it goes with the next restart", cause);
+        if (session.BlocksInput && !input.Lift(cause))
+            log("The input block did not release, and lapses by itself within seconds", cause);
 
         record.Clear();
         _session = null;
@@ -415,7 +448,8 @@ internal sealed class FocusSessionEngine(
         // still holding them.
         history?.Invoke(new FocusHistoryEntry(
             session.StartedAt, session.EndsAt, now(),
-            session.BlocksNetwork, session.DimsScreen, session.CoversScreen, outcome));
+            session.BlocksNetwork, session.DimsScreen, session.CoversScreen, session.BlocksInput,
+            outcome));
 
         log("Focus session ended", cause);
     }
@@ -435,7 +469,8 @@ internal sealed class FocusSessionEngine(
         }
 
         return new FocusSnapshot(stage, session.StartedAt, session.EndsAt,
-                                 session.BlocksNetwork, session.DimsScreen, session.CoversScreen);
+                                 session.BlocksNetwork, session.DimsScreen, session.CoversScreen,
+                                 session.BlocksInput);
     }
 
     /// <summary>Brings the stage last reported into line with the stage now, and says whether it
@@ -456,14 +491,15 @@ internal sealed class SettingsFocusSessionRecord : IFocusSessionRecord
 {
     public FocusSessionRecord? Read()
     {
-        var (startedAt, endsAt, network, screen, cover) = SettingsService.Read(
+        var (startedAt, endsAt, network, screen, cover, input) = SettingsService.Read(
             s => (s.FocusSessionStartedAt, s.FocusSessionEndsAt, s.FocusSessionBlockedNetwork,
-                  s.FocusSessionDimmedScreen, s.FocusSessionCoveredScreen));
+                  s.FocusSessionDimmedScreen, s.FocusSessionCoveredScreen,
+                  s.FocusSessionBlockedInput));
         // A document written before the start time was recorded falls back to the end time, which
         // reads as a session with no length. Only the cover's ring uses it, and such a document
         // carries no cover lever, so nothing draws from the fallback.
         return endsAt is { } ends
-            ? new FocusSessionRecord(startedAt ?? ends, ends, network, screen, cover)
+            ? new FocusSessionRecord(startedAt ?? ends, ends, network, screen, cover, input)
             : null;
     }
 
@@ -474,6 +510,7 @@ internal sealed class SettingsFocusSessionRecord : IFocusSessionRecord
         s.FocusSessionBlockedNetwork = session.BlocksNetwork;
         s.FocusSessionDimmedScreen = session.DimsScreen;
         s.FocusSessionCoveredScreen = session.CoversScreen;
+        s.FocusSessionBlockedInput = session.BlocksInput;
     });
 
     public void Clear() => SettingsService.Update(s =>
@@ -483,5 +520,6 @@ internal sealed class SettingsFocusSessionRecord : IFocusSessionRecord
         s.FocusSessionBlockedNetwork = false;
         s.FocusSessionDimmedScreen = false;
         s.FocusSessionCoveredScreen = false;
+        s.FocusSessionBlockedInput = false;
     });
 }

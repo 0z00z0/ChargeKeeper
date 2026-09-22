@@ -9,7 +9,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The published surface as a declaration: the sixty-four entity ids, the component each is announced
+/// The published surface as a declaration: the sixty-five entity ids, the component each is announced
 /// under, and the discovery keys that decide how a receiver draws it.
 /// </summary>
 /// <remarks>
@@ -124,6 +124,8 @@ public class MqttEntityCatalogTests
             MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:brightness-2"),
         new(MqttEntityCatalog.FocusSessionCoversScreen, "switch", "Focus session covers screen",
             MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:monitor-off"),
+        new(MqttEntityCatalog.FocusSessionBlocksInput, "switch", "Focus session blocks input",
+            MqttPublishGroups.Focus, MqttEntityCategory.Config, Icon: "mdi:keyboard-off"),
         new(MqttEntityCatalog.FocusSessionState, "sensor", "Focus session state",
             MqttPublishGroups.Focus, MqttEntityCategory.Diagnostic,
             Icon: "mdi:progress-clock", DeviceClass: "enum"),
@@ -209,7 +211,7 @@ public class MqttEntityCatalogTests
             MqttTestBed.Declared().All.Select(e => e.EntityId).Order(StringComparer.Ordinal));
 
     [Fact]
-    public void TheEntityMix_IsTwentySixSensorsSeventeenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
+    public void TheEntityMix_IsTwentySixSensorsEighteenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -218,7 +220,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 26, ["switch"] = 17, ["number"] = 11,
+                ["sensor"] = 26, ["switch"] = 18, ["number"] = 11,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
@@ -358,7 +360,7 @@ public class MqttEntityCatalogTests
             MqttEntityCatalog.ScreenBrightness, MqttEntityCatalog.ScreenBrightnessRestore,
             MqttEntityCatalog.FocusSession, MqttEntityCatalog.FocusSessionMinutes,
             MqttEntityCatalog.FocusSessionBlocksNetwork, MqttEntityCatalog.FocusSessionDimsScreen,
-            MqttEntityCatalog.FocusSessionCoversScreen,
+            MqttEntityCatalog.FocusSessionCoversScreen, MqttEntityCatalog.FocusSessionBlocksInput,
             MqttEntityCatalog.LowBatteryWarning, MqttEntityCatalog.LowBatteryLevel,
             MqttEntityCatalog.HighBatteryWarning, MqttEntityCatalog.HighBatteryLevel,
             MqttEntityCatalog.DrainWarning, MqttEntityCatalog.DrainRate,
@@ -544,6 +546,7 @@ public class MqttEntityCatalogTests
                                                or MqttEntityCatalog.FocusSessionBlocksNetwork
                                                or MqttEntityCatalog.FocusSessionDimsScreen
                                                or MqttEntityCatalog.FocusSessionCoversScreen
+                                               or MqttEntityCatalog.FocusSessionBlocksInput
                                                or MqttEntityCatalog.FocusSessionState
                                                or MqttEntityCatalog.FocusSessionRemaining
                                                or MqttEntityCatalog.LastChange

@@ -66,6 +66,7 @@ internal interface ISettingsActions
     /// <summary>The default the next session's cover lever starts from. Refused while a session
     /// runs.</summary>
     void SetFocusCoversScreen(bool on);
+    void SetFocusBlocksInput(bool on);
 
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
@@ -266,6 +267,9 @@ internal sealed class SettingsActions : ISettingsActions
 
     public void SetFocusCoversScreen(bool on) => WriteUnlessSessionRunning(
         s => s.FocusCoversScreen = on, "which lever covers the screen");
+
+    public void SetFocusBlocksInput(bool on) => WriteUnlessSessionRunning(
+        s => s.FocusBlocksInput = on, "which lever blocks the mouse and keyboard");
 
     /// <summary>Puts one program on the allow-list, and says what became of the request. Refused
     /// while a session runs, on the same grounds as a lever switch: the rules were written when the

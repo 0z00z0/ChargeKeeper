@@ -33,7 +33,7 @@ public class FocusHistoryTests
     {
         var entry = new FocusHistoryEntry(
             Noon, Noon.AddMinutes(60), Noon.AddMinutes(60),
-            BlockedNetwork: true, DimmedScreen: false, CoveredScreen: true,
+            BlockedNetwork: true, DimmedScreen: false, CoveredScreen: true, BlockedInput: false,
             FocusSessionOutcome.RanToTime);
 
         Assert.True(FocusHistoryService.TryParse(FocusHistoryService.Format(entry), out var back));
@@ -50,9 +50,9 @@ public class FocusHistoryTests
     [Fact]
     public void TheLeversNeverCarryTheColumnSeparator()
     {
-        Assert.Equal("network+screen+cover", FocusHistoryService.Levers(true, true, true));
-        Assert.Equal("none", FocusHistoryService.Levers(false, false, false));
-        Assert.DoesNotContain(',', FocusHistoryService.Levers(true, true, true));
+        Assert.Equal("network+screen+cover+input", FocusHistoryService.Levers(true, true, true, true));
+        Assert.Equal("none", FocusHistoryService.Levers(false, false, false, false));
+        Assert.DoesNotContain(',', FocusHistoryService.Levers(true, true, true, true));
     }
 
     [Fact]
@@ -73,19 +73,20 @@ public class FocusHistoryTests
         public FakeFocusLever Network { get; } = new();
         public FakeFocusLever Screen { get; } = new();
         public FakeFocusLever Cover { get; } = new();
+        public FakeFocusLever Input { get; } = new();
         public FakeFocusSessionRecord Record { get; } = new();
         public List<FocusHistoryEntry> Written { get; } = [];
         public FocusSessionEngine Engine { get; }
 
         public Bed() => Engine = new FocusSessionEngine(
-            Network, Screen, Cover, Record, () => Now, (_, _) => { }, Written.Add);
+            Network, Screen, Cover, Input, Record, () => Now, (_, _) => { }, Written.Add);
     }
 
     [Fact]
     public void ASessionThatRanItsLength_IsWrittenDownAsHavingRunToTime()
     {
         var bed = new Bed();
-        bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: false, "a test");
+        bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: false, blocksInput: false, "a test");
 
         bed.Now = Noon.AddMinutes(60);
         bed.Engine.Tick();
@@ -103,7 +104,7 @@ public class FocusHistoryTests
     public void ASessionEndedFromHomeAssistant_KeepsTheEndTimeItNeverReached()
     {
         var bed = new Bed();
-        bed.Engine.Arm(120, blocksNetwork: true, dimsScreen: false, coversScreen: false, "a test");
+        bed.Engine.Arm(120, blocksNetwork: true, dimsScreen: false, coversScreen: false, blocksInput: false, "a test");
 
         bed.Engine.RequestCancel("a test");
         bed.Now = Noon + FocusSessionStages.CancelWait;
@@ -121,7 +122,7 @@ public class FocusHistoryTests
     {
         var bed = new Bed { Now = Noon };
         bed.Record.Held = new FocusSessionRecord(
-            Noon.AddMinutes(-150), Noon.AddMinutes(-90), true, true, true);
+            Noon.AddMinutes(-150), Noon.AddMinutes(-90), true, true, true, true);
 
         bed.Engine.Start();
 
@@ -137,7 +138,7 @@ public class FocusHistoryTests
         var bed = new Bed();
         bed.Screen.EngageSucceeds = false;
 
-        bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: false, "a test");
+        bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: false, blocksInput: false, "a test");
 
         Assert.Empty(bed.Written);
     }
@@ -155,7 +156,7 @@ public class FocusHistoryTests
             for (int i = 0; i < 8; i++)
                 FocusHistoryService.Record(new FocusHistoryEntry(
                     Noon.AddHours(i), Noon.AddHours(i + 1), Noon.AddHours(i + 1),
-                    true, false, false, FocusSessionOutcome.RanToTime));
+                    true, false, false, false, FocusSessionOutcome.RanToTime));
 
             var recent = FocusHistoryService.Recent(5);
 

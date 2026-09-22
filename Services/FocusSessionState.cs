@@ -54,10 +54,11 @@ internal static class FocusSessionStages
         if (!session.IsRunning) return "not running";
 
         int minutes = SurfaceReader.MinutesUntil(session.EndsAt, now) ?? 0;
-        var levers = new List<string>(3);
+        var levers = new List<string>(4);
         if (session.BlocksNetwork) levers.Add("network blocked");
         if (session.DimsScreen)    levers.Add("screen dimmed");
         if (session.CoversScreen)  levers.Add("screen covered");
+        if (session.BlocksInput)   levers.Add("input blocked");
 
         string stage = session.Stage switch
         {
@@ -78,10 +79,10 @@ internal static class FocusSessionStages
 /// countdown: the system clock keeps time whether or not the machine is awake to watch it.</param>
 internal readonly record struct FocusSnapshot(
     FocusSessionStage Stage, DateTimeOffset? StartedAt, DateTimeOffset? EndsAt,
-    bool BlocksNetwork, bool DimsScreen, bool CoversScreen)
+    bool BlocksNetwork, bool DimsScreen, bool CoversScreen, bool BlocksInput)
 {
     public static readonly FocusSnapshot None =
-        new(FocusSessionStage.Off, null, null, false, false, false);
+        new(FocusSessionStage.Off, null, null, false, false, false, false);
 
     public bool IsRunning => Stage != FocusSessionStage.Off;
 }
@@ -95,7 +96,7 @@ internal enum FocusArmOutcome
     /// <summary>A session is already running, so there is nothing to arm.</summary>
     AlreadyRunning,
 
-    /// <summary>Neither lever was chosen. A switch that counts down and does nothing is
+    /// <summary>No lever at all was chosen. A switch that counts down and does nothing is
     /// indistinguishable from a broken one, so nothing is armed.</summary>
     NoLeverChosen,
 

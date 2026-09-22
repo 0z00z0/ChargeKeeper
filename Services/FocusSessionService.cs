@@ -34,6 +34,7 @@ internal static class FocusSessionService
         new FocusCoverLever(() => ScreenCoverService.HasDisplay,
                             ScreenCoverService.Show,
                             ScreenCoverService.Hide),
+        new FocusInputLever(InputBlock.Refusal, InputBlock.Take, InputBlock.Release),
         new SettingsFocusSessionRecord(),
         () => DateTimeOffset.Now,
         (what, cause) => PowerLog.Event(what, cause),
@@ -74,16 +75,18 @@ internal static class FocusSessionService
         _timer = new Timer(_ => Tick(), null, TickInterval, TickInterval);
     }
 
-    /// <summary>Starts a session from the defaults the settings hold. The three lever choices are
+    /// <summary>Starts a session from the defaults the settings hold. The four lever choices are
     /// whatever was last left in them; the duration is <paramref name="minutes"/> where a surface
     /// asked for one, and the stored default otherwise.</summary>
     /// <param name="minutes">The duration chosen in the dashboard's start box. Null from Home
     /// Assistant, which sets the duration through its own number instead.</param>
     public static FocusArmOutcome Arm(string cause, int? minutes = null)
     {
-        var (stored, network, screen, cover) = SettingsService.Read(
-            s => (s.FocusSessionMinutes, s.FocusBlocksNetwork, s.FocusDimsScreen, s.FocusCoversScreen));
-        return _engine.Arm(FocusStartRequest.Minutes(minutes, stored), network, screen, cover, cause);
+        var (stored, network, screen, cover, input) = SettingsService.Read(
+            s => (s.FocusSessionMinutes, s.FocusBlocksNetwork, s.FocusDimsScreen, s.FocusCoversScreen,
+                  s.FocusBlocksInput));
+        return _engine.Arm(FocusStartRequest.Minutes(minutes, stored), network, screen, cover, input,
+                           cause);
     }
 
     public static void RequestCancel(string cause) => _engine.RequestCancel(cause);
@@ -101,11 +104,24 @@ internal static class FocusSessionService
         // shutdown ordered rather than relying on that. The session itself is untouched — its record
         // stays on disk and the next start resumes or ends it.
         ScreenCoverService.Hide("the application is closing");
+
+        // The input block is released here rather than left to the process ending, so a machine that
+        // answers is not waiting on what a kill does to a block nobody can measure from inside it.
+        InputBlock.Release("the application is closing");
     }
 
     private static void Tick()
     {
-        try { _engine.Tick(); }
+        try
+        {
+            _engine.Tick();
+
+            // The input block lapses unless this pushes its deadline forward, so the application
+            // hanging lifts it within seconds instead of leaving a machine nobody can type on.
+            var session = _engine.Snapshot();
+            if (session.IsRunning && session.BlocksInput && session.EndsAt is { } ends)
+                InputBlock.Renew(ends);
+        }
         catch (Exception ex) { AppLog.Error("FocusSessionService.Tick", ex); }
     }
 

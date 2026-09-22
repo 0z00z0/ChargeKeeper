@@ -534,6 +534,84 @@ internal static class NativeMethods
         catch (Exception ex) { AppLog.Error("NativeMethods.RaiseToTopmost", ex); }
     }
 
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr window);
+
+    /// <summary>Whether <paramref name="window"/> still exists. A cover destroyed under the service
+    /// leaves a handle that answers no, which is how a missing cover is noticed.</summary>
+    internal static bool WindowExists(IntPtr window)
+    {
+        try { return window != IntPtr.Zero && IsWindow(window); }
+        catch (Exception ex) { AppLog.Error("NativeMethods.WindowExists", ex); return true; }
+    }
+
+    // ── Refusing a close ────────────────────────────────────────────────────────────────────────
+
+    private const int GWLP_WNDPROC = -4;
+    private const uint WM_CLOSE = 0x0010;
+    private const uint WM_SYSCOMMAND = 0x0112;
+    private const uint SC_CLOSE = 0xF060;
+
+    private delegate IntPtr WindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    private static extern IntPtr CallWindowProc(IntPtr previous, IntPtr window, uint message,
+                                                IntPtr wParam, IntPtr lParam);
+
+    /// <summary>A window whose close requests are dropped until <see cref="Allow"/> is called.
+    /// Holds the replacement procedure alive: a delegate collected while Windows still holds its
+    /// address takes the process down at the next message.</summary>
+    internal sealed class ClosingRefusal
+    {
+        private readonly WindowProc _proc;
+        private readonly IntPtr _previous;
+
+        internal ClosingRefusal(IntPtr window)
+        {
+            _proc = Filter;
+            _previous = SetWindowLongPtr(window, GWLP_WNDPROC,
+                                         Marshal.GetFunctionPointerForDelegate(_proc));
+        }
+
+        /// <summary>True once the window may close — the session's own teardown, and nothing
+        /// else.</summary>
+        internal bool Allowed { get; private set; }
+
+        internal void Allow() => Allowed = true;
+
+        private IntPtr Filter(IntPtr window, uint message, IntPtr wParam, IntPtr lParam)
+        {
+            // Alt+F4, the switcher's close and an ordinary End task all arrive as one of these two.
+            bool closing = message == WM_CLOSE
+                        || (message == WM_SYSCOMMAND && ((long)wParam & 0xFFF0) == SC_CLOSE);
+            if (closing && !Allowed) return IntPtr.Zero;
+            return CallWindowProc(_previous, window, message, wParam, lParam);
+        }
+    }
+
+    /// <summary>Makes <paramref name="window"/> refuse every close request. Returns the refusal, so
+    /// the one teardown that is meant to work can lift it first.</summary>
+    internal static ClosingRefusal? RefuseClose(IntPtr window)
+    {
+        try { return new ClosingRefusal(window); }
+        catch (Exception ex) { AppLog.Error("NativeMethods.RefuseClose", ex); return null; }
+    }
+
+    // ── Blocking mouse and keyboard ─────────────────────────────────────────────────────────────
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool BlockInput(bool block);
+
+    /// <summary>Turns physical mouse and keyboard input off or back on for the whole machine.
+    /// Refused outright without administrator rights — measured as ERROR_ACCESS_DENIED on every
+    /// call, with nothing blocked and nothing left held. Only the thread that blocked input can
+    /// release it, so both calls belong on one thread.</summary>
+    internal static bool SetInputBlocked(bool blocked)
+    {
+        try { return BlockInput(blocked); }
+        catch (Exception ex) { AppLog.Error("NativeMethods.SetInputBlocked", ex); return false; }
+    }
+
     // ── This process's own resource use ─────────────────────────────────────────────────────────
 
     [StructLayout(LayoutKind.Sequential)]

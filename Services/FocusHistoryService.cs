@@ -25,7 +25,8 @@ internal enum FocusSessionOutcome
 /// <param name="EndedAt">When the session actually left the engine.</param>
 internal readonly record struct FocusHistoryEntry(
     DateTimeOffset StartedAt, DateTimeOffset DueAt, DateTimeOffset EndedAt,
-    bool BlockedNetwork, bool DimmedScreen, bool CoveredScreen, FocusSessionOutcome Outcome);
+    bool BlockedNetwork, bool DimmedScreen, bool CoveredScreen, bool BlockedInput,
+    FocusSessionOutcome Outcome);
 
 /// <summary>
 /// The record of finished focus sessions, one row per session, beside the three sampled histories in
@@ -155,18 +156,19 @@ internal static class FocusHistoryService
 
     /// <summary>The levers a session owned, joined with a plus because a comma separates the
     /// columns.</summary>
-    internal static string Levers(bool network, bool screen, bool cover)
+    internal static string Levers(bool network, bool screen, bool cover, bool input)
     {
-        var levers = new List<string>(3);
+        var levers = new List<string>(4);
         if (network) levers.Add("network");
         if (screen)  levers.Add("screen");
         if (cover)   levers.Add("cover");
+        if (input)   levers.Add("input");
         return levers.Count > 0 ? string.Join('+', levers) : "none";
     }
 
     internal static string Format(FocusHistoryEntry entry) => string.Join(',',
         Stamp(entry.StartedAt), Stamp(entry.DueAt), Stamp(entry.EndedAt),
-        Levers(entry.BlockedNetwork, entry.DimmedScreen, entry.CoveredScreen),
+        Levers(entry.BlockedNetwork, entry.DimmedScreen, entry.CoveredScreen, entry.BlockedInput),
         Word(entry.Outcome));
 
     private static string Stamp(DateTimeOffset at) =>
@@ -188,7 +190,7 @@ internal static class FocusHistoryService
         entry = new FocusHistoryEntry(
             started, due, ended,
             levers.Contains("network"), levers.Contains("screen"), levers.Contains("cover"),
-            outcome);
+            levers.Contains("input"), outcome);
         return true;
     }
 
@@ -197,8 +199,8 @@ internal static class FocusHistoryService
     public static string Describe(FocusHistoryEntry entry)
     {
         var ran = entry.EndedAt - entry.StartedAt;
-        string levers = Levers(entry.BlockedNetwork, entry.DimmedScreen, entry.CoveredScreen)
-            .Replace('+', ',');
+        string levers = Levers(entry.BlockedNetwork, entry.DimmedScreen, entry.CoveredScreen,
+                               entry.BlockedInput).Replace('+', ',');
         return string.Create(CultureInfo.CurrentCulture,
             $"{entry.StartedAt.ToLocalTime():d MMM HH:mm} — {Math.Max(0, (int)ran.TotalMinutes)} min, " +
             $"{levers}, {Ending(entry.Outcome)}");

@@ -36,7 +36,7 @@ public class MqttCapabilityGateTests
 
     [Fact]
     public void OnHardwareWithNumericThresholds_EveryEntityIsAnnounced() =>
-        Assert.Equal(64, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
+        Assert.Equal(65, WithCapabilities(PublishCapabilities.Full).Published(null).Count);
 
     [Fact]
     public void OnHardwareWithNoChargeLimitInterface_NoSmartChargeEntityIsAnnounced()
@@ -96,6 +96,8 @@ public class MqttCapabilityGateTests
         Assert.DoesNotContain(MqttEntityCatalog.ScreenBrightnessRestore, published);
         Assert.DoesNotContain(MqttEntityCatalog.FocusSessionDimsScreen, published);
         Assert.Contains(MqttEntityCatalog.FocusSessionCoversScreen, published);
+        // The input lever is gated on nothing: a machine always has a mouse and keyboard.
+        Assert.Contains(MqttEntityCatalog.FocusSessionBlocksInput, published);
         Assert.Contains(MqttEntityCatalog.FocusSession, published);
     }
 

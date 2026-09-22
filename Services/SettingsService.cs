@@ -305,6 +305,11 @@ internal sealed class AppSettings
     /// leaves enough glow to read by, which is what this lever answers.</summary>
     public bool FocusCoversScreen { get; set; } = true;
 
+    /// <summary>Whether a session blocks the mouse and keyboard. Off by default, and the only lever
+    /// that is: while it holds, nothing on the machine answers, so it is chosen deliberately or not
+    /// at all.</summary>
+    public bool FocusBlocksInput { get; set; }
+
     /// <summary>Whether the dashboard offers a control that starts a session. It never offers one
     /// that ends a session, whatever this holds: nothing on the machine ends one.</summary>
     public bool FocusStartFromDashboard { get; set; } = true;
@@ -328,6 +333,7 @@ internal sealed class AppSettings
     public bool FocusSessionBlockedNetwork { get; set; }
     public bool FocusSessionDimmedScreen { get; set; }
     public bool FocusSessionCoveredScreen { get; set; }
+    public bool FocusSessionBlockedInput { get; set; }
 
     /// <summary>The firewall profile settings displaced by a network block, saved before anything
     /// changes so a crash cannot lose them. Null means nothing is displaced.</summary>

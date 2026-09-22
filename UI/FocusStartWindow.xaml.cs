@@ -84,6 +84,7 @@ internal sealed partial class FocusStartWindow : Window
         LeverRow("Block the network", s.FocusBlocksNetwork);
         LeverRow("Dim the screen", s.FocusDimsScreen);
         LeverRow("Cover every screen", s.FocusCoversScreen);
+        LeverRow("Block the mouse and keyboard", s.FocusBlocksInput);
     }
 
     /// <summary>One lever, shown and not offered: a tick or a dash and the lever's name.</summary>

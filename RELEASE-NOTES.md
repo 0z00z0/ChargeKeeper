@@ -9,6 +9,15 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.4.1
+
+- The focus session's screen cover no longer closes. Alt+F4, the task view's close and an ordinary
+  End task all leave it standing, and a cover that does go is put back within a second. Exiting
+  ChargeKeeper from the tray still takes it down while the session keeps running (#251).
+- A focus session can now block the mouse and keyboard as well, as a fourth lever that is off unless
+  it is switched on. While it holds the machine answers nothing, and Ctrl+Alt+Delete is the way out;
+  the block lifts by itself if ChargeKeeper stops answering (#252).
+
 ## 2.4.0
 
 - Allowing a program through a focus session no longer means hunting through folders: the Focus

@@ -792,11 +792,13 @@ internal sealed partial class SettingsWindow : Window
             FocusBlocksNetworkToggle.IsOn = s.FocusBlocksNetwork;
             FocusDimsScreenToggle.IsOn    = s.FocusDimsScreen;
             FocusCoversScreenToggle.IsOn  = s.FocusCoversScreen;
+            FocusBlocksInputToggle.IsOn   = s.FocusBlocksInput;
         });
 
         FocusBlocksNetworkToggle.IsEnabled = !locked;
         FocusDimsScreenToggle.IsEnabled    = !locked;
         FocusCoversScreenToggle.IsEnabled  = !locked;
+        FocusBlocksInputToggle.IsEnabled   = !locked;
         FocusAllowProgramBtn.IsEnabled     = !locked;
 
         LoadFocusAllowedPrograms(locked);
@@ -899,6 +901,13 @@ internal sealed partial class SettingsWindow : Window
     {
         if (_updating) return;
         _focusLeverActions.SetFocusCoversScreen(FocusCoversScreenToggle.IsOn);
+        _mqtt?.Republish();
+    }
+
+    private void OnFocusBlocksInputToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        _focusLeverActions.SetFocusBlocksInput(FocusBlocksInputToggle.IsOn);
         _mqtt?.Republish();
     }
 

@@ -71,6 +71,7 @@ public class MqttEntityNamingTests
         "chargekeeper_office_x1_focus_session_blocks_network",
         "chargekeeper_office_x1_focus_session_dims_screen",
         "chargekeeper_office_x1_focus_session_covers_screen",
+        "chargekeeper_office_x1_focus_session_blocks_input",
         "chargekeeper_office_x1_focus_session_state",
         "chargekeeper_office_x1_focus_session_remaining",
         "chargekeeper_office_x1_low_battery_warning",
