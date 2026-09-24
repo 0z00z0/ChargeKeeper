@@ -91,10 +91,12 @@ forever.
   the parked thresholds are what the dashboard and the published entities show meanwhile  
 - **Settings…** — opens the Settings window  
 - **Icon style** — submenu: **Arc gauge**, **Numeric %** or **Battery fill**  
-- **Digit style** — submenu naming the percentage digit style; shown only while Icon style is
-  Numeric %  
-- **Check for updates**  
+- **Digit style** — submenu naming the percentage digit style; shown while something is drawing
+  digits: Icon style is Numeric %, or **Show percentage icon** below is on  
+- **Show percentage icon** — checkbox; adds the second, display-only tray icon carrying the charge
+  level as a number. Disabled while Icon style is Numeric %, which already shows it  
 - **Launch at startup** — add/remove the Task Scheduler auto-start entry  
+- **Check for updates**  
 - **About…**  
 - **Exit**
 

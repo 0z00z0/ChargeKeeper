@@ -9,6 +9,16 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.6.0
+
+- The tray menu's right-click groups are reordered, and a new "Show percentage icon" checkbox turns
+  the second, display-only tray icon on or off directly from the menu, without opening Settings.
+
+## 2.5.1
+
+- Keep Awake's own log now says when its expiry timer arms and when it fires, closing a blind spot
+  that could leave a hold outlasting its own length with no line explaining why.
+
 ## 2.5.0
 
 - Every line in the log that records something being changed now says what caused it, naming the

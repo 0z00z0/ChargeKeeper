@@ -307,12 +307,29 @@ public class PercentageTrayIconTests
     }
 
     [Fact]
-    public void TheTrayMenu_OffersTheDigitStyleOnlyWithTheNumericStyle()
+    public void TheTrayMenu_OffersTheDigitStyleWhereverSomethingDrawsDigits()
     {
         string body = SourceMethods.Body(
             Regex.Replace(File.ReadAllText(RepoFiles.Find("UI/TrayMenu.cs")), @"//[^\r\n]*", string.Empty),
             "void ApplyState");
 
-        Assert.Contains("ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric)", body, StringComparison.Ordinal);
+        // Not the main icon alone any more: the second icon draws digits too, once it is on.
+        Assert.Contains(
+            "ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric || state.ShowPercentageIcon)",
+            body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheTrayMenu_DisablesThePercentageIconToggleUnderNumericStyle()
+    {
+        // The same interlock Settings enforces on its own toggle: Numeric % already draws the
+        // reading, so turning the second icon on there would draw it twice.
+        string body = SourceMethods.Body(
+            Regex.Replace(File.ReadAllText(RepoFiles.Find("UI/TrayMenu.cs")), @"//[^\r\n]*", string.Empty),
+            "void ApplyState");
+
+        Assert.Contains(
+            "_percentageIconItem.IsEnabled = state.IconMode != TrayIconMode.Numeric",
+            body, StringComparison.Ordinal);
     }
 }

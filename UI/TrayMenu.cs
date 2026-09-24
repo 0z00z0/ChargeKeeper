@@ -15,6 +15,7 @@ namespace ChargeKeeper.UI;
 internal sealed class TrayMenu
 {
     private readonly ToggleMenuFlyoutItem _autoStartItem;
+    private readonly ToggleMenuFlyoutItem _percentageIconItem;
     private readonly List<(ToggleMenuFlyoutItem Item, TrayIconMode Mode)> _iconModeItems = [];
     private readonly List<(ToggleMenuFlyoutItem Item, TrayDigitStyle Style)> _digitStyleItems = [];
 
@@ -79,11 +80,17 @@ internal sealed class TrayMenu
         // Target state comes from the item the user just clicked, not a fresh OS read (TOCTOU).
         _autoStartItem.Command = new RelayCommand(() => ToggleAutoStart(!_autoStartItem.IsChecked));
 
+        _percentageIconItem = new ToggleMenuFlyoutItem { Text = "Show percentage icon" };
+        _percentageIconItem.Command = new RelayCommand(() => SetShowPercentageIcon(!_percentageIconItem.IsChecked));
+
         _settingsItem = new MenuFlyoutItem { Text = "Settings…", Command = new RelayCommand(_onOpenSettings) };
         Flyout.Items.Add(_settingsItem);
+
+        Flyout.Items.Add(new MenuFlyoutSeparator());
         _iconStyleSubmenu  = BuildIconStyleSubmenu();
         _digitStyleSubmenu = BuildDigitStyleSubmenu();
         Flyout.Items.Add(_iconStyleSubmenu);
+        Flyout.Items.Add(_percentageIconItem);
 
         // Its own submenu instance: one element cannot sit in two flyouts. Both sets of items are in
         // _digitStyleItems, so one refresh checks both menus.
@@ -91,17 +98,13 @@ internal sealed class TrayMenu
         PercentageIconFlyout.Items.Add(BuildDigitStyleSubmenu());
 
         Flyout.Items.Add(new MenuFlyoutSeparator());
+        Flyout.Items.Add(_autoStartItem);
         Flyout.Items.Add(new MenuFlyoutItem
         {
             Text    = "Check for updates",
             Command = new RelayCommand(CheckForUpdates),
         });
-        Flyout.Items.Add(_autoStartItem);
-
-        Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "About…", Command = new RelayCommand(() => ShowAbout()) });
-
-        Flyout.Items.Add(new MenuFlyoutSeparator());
         Flyout.Items.Add(new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(onExit) });
 
         // Never unsubscribed — the subscription lives for the whole process.
@@ -158,6 +161,25 @@ internal sealed class TrayMenu
         finally
         {
             QueueRefresh();   // updates the check marks, success or not
+        }
+    });
+
+    /// <summary>Applies the "Show percentage icon" checkbox from the tray menu — the same write
+    /// <c>OnPercentageIconToggled</c> makes from Settings. Disabled from the menu itself while Icon
+    /// style is Numeric %, since the second icon would then duplicate the main one.</summary>
+    private void SetShowPercentageIcon(bool on) => Task.Run(() =>
+    {
+        try
+        {
+            SettingsService.Update(s => s.ShowPercentageIcon = on);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("TrayMenu.SetShowPercentageIcon", ex);
+        }
+        finally
+        {
+            QueueRefresh();   // updates the check mark, success or not
         }
     });
 
@@ -257,17 +279,19 @@ internal sealed class TrayMenu
         bool AutoStartEnabled,
         TrayIconMode IconMode,          // aligned with _iconModeItems
         TrayDigitStyle DigitStyle,      // aligned with _digitStyleItems
+        bool ShowPercentageIcon,
         FocusSnapshot Focus,
         string? TravelOverrideLine);    // null when no charge-to-full lift is in force
 
     private MenuState ReadState()
     {
         bool autoStart = SafeCall(TaskSchedulerHelper.IsAutoStartEnabled, fallback: false);
-        var (mode, digits) = SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle));
+        var (mode, digits, showPercentage) =
+            SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle, s.ShowPercentageIcon));
         string? travelOverride = TravelOverrideService.IsActive
             ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
             : null;
-        return new MenuState(autoStart, mode, digits, FocusSessionService.Current, travelOverride);
+        return new MenuState(autoStart, mode, digits, showPercentage, FocusSessionService.Current, travelOverride);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -281,7 +305,13 @@ internal sealed class TrayMenu
             item.IsChecked = mode == state.IconMode;
         foreach (var (item, style) in _digitStyleItems)
             item.IsChecked = style == state.DigitStyle;
-        ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric);
+        _percentageIconItem.IsChecked = state.ShowPercentageIcon;
+        // Numeric % already draws the reading on the main icon — a second one would duplicate it,
+        // the same interlock Settings enforces on its own toggle.
+        _percentageIconItem.IsEnabled = state.IconMode != TrayIconMode.Numeric;
+        // Shown wherever something is actually drawing digits: the main icon in Numeric % style, or
+        // the second icon once it is on.
+        ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric || state.ShowPercentageIcon);
         ShowFocusSession(state.Focus);
         ShowTravelOverride(state.TravelOverrideLine);
     }
