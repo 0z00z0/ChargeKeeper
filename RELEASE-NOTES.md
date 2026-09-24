@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.6.1
+
+- The battery gauge no longer washes out to a dull khaki around 45-55 % on battery, or to a near-grey
+  around 80-85 % — both were the colour blend cutting through a low-saturation patch between two
+  anchor colours that sit far apart in hue. It now sweeps around the hue circle instead, so the
+  colour stays as rich as its neighbours the whole way across.
+
 ## 2.6.0
 
 - The tray menu's right-click groups are reordered, and a new "Show percentage icon" checkbox turns

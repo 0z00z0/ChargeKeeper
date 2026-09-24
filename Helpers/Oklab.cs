@@ -48,9 +48,17 @@ internal static class Oklab
         return ((uint)alpha << 24) | ((uint)Channel(r) << 16) | ((uint)Channel(g) << 8) | Channel(b);
     }
 
-    /// <summary>Blends <paramref name="from"/> towards <paramref name="to"/> in Oklab.
+    /// <summary>
+    /// Blends <paramref name="from"/> towards <paramref name="to"/> in Oklab, moving lightness and
+    /// chroma on a straight line each and hue around its own circle by the shorter way.
     /// <paramref name="t"/> is clamped to 0..1, so 0 returns the first colour exactly and 1 the
-    /// second. Alpha is blended on its own linear ramp.</summary>
+    /// second. Alpha is blended on its own linear ramp.
+    /// </summary>
+    /// <remarks>A straight line between the two <em>axes</em> — the earlier shape of this method —
+    /// cuts through the region nearer the neutral point than either endpoint whenever the two hues
+    /// are far apart, so a wide-hue pair (an orange anchor and a green one, say) dipped towards grey
+    /// exactly at its midpoint. Moving hue around the circle instead keeps chroma close to both
+    /// endpoints' the whole way across.</remarks>
     internal static uint Mix(uint from, uint to, double t)
     {
         t = Math.Clamp(t, 0.0, 1.0);
@@ -62,12 +70,30 @@ internal static class Oklab
 
         byte alpha = (byte)Math.Round(Lerp((from >> 24) & 0xFF, (to >> 24) & 0xFF, t));
 
+        double chromaFrom = Math.Sqrt(a.A * a.A + a.B * a.B);
+        double chromaTo   = Math.Sqrt(b.A * b.A + b.B * b.B);
+        double chroma     = Lerp(chromaFrom, chromaTo, t);
+
+        double hueFrom = Math.Atan2(a.B, a.A);
+        double hueTo   = Math.Atan2(b.B, b.A);
+        double hue     = hueFrom + ShortestHueStep(hueFrom, hueTo) * t;
+
         return ToArgb(
-            new(Lerp(a.L, b.L, t), Lerp(a.A, b.A, t), Lerp(a.B, b.B, t)),
+            new(Lerp(a.L, b.L, t), chroma * Math.Cos(hue), chroma * Math.Sin(hue)),
             alpha);
     }
 
     private static double Lerp(double from, double to, double t) => from + (to - from) * t;
+
+    // atan2 returns a value in (-π, π], so the raw difference already sits inside (-2π, 2π) — one
+    // fold either way is enough to land the shorter arc in (-π, π].
+    private static double ShortestHueStep(double from, double to)
+    {
+        double delta = to - from;
+        if (delta >  Math.PI) delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
+        return delta;
+    }
 
     // The sRGB transfer function and its inverse. The linear segment near black is part of the
     // standard, not an approximation of the exponent.

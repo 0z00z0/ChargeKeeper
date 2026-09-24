@@ -174,10 +174,13 @@ public class GaugePaletteTests
     // ── Midpoints ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void BetweenTwoAnchors_EveryChannelStaysInsideThatPair()
+    public void BetweenTwoAnchors_LightnessAndChromaStayInsideThatPair()
     {
-        // The failure this catches is an interpolation that overshoots — a midpoint outside the
-        // range its neighbours bracket is a different colour, not a blend of them.
+        // The failure this catches is an interpolation that overshoots — but Mix moves hue around
+        // its own circle rather than in a straight line between the two anchors' raw axes, so an sRGB
+        // byte is free to dip past either endpoint where the hue swing is wide (that overshoot is the
+        // whole point: it is what keeps the arc off the muddy chord through the middle). Lightness and
+        // chroma are what Mix actually promises to hold inside the pair, so those are what this checks.
         foreach (var state in EveryState())
         {
             var scale = GaugePalette.ScaleFor(state);
@@ -185,18 +188,18 @@ public class GaugePaletteTests
             for (int i = 0; i < scale.Count - 1; i++)
             {
                 var (from, to) = (scale[i], scale[i + 1]);
+                double lFrom = Lightness(from.Argb), lTo = Lightness(to.Argb);
+                double cFrom = Chroma(from.Argb),    cTo = Chroma(to.Argb);
+
                 for (int pct = from.Percent + 1; pct < to.Percent; pct++)
                 {
                     uint mid = GaugePalette.FillFor(pct, state);
-                    foreach (int shift in new[] { 0, 8, 16 })
-                    {
-                        int a = (int)((from.Argb >> shift) & 0xFF);
-                        int b = (int)((to.Argb   >> shift) & 0xFF);
-                        int m = (int)((mid       >> shift) & 0xFF);
-                        Assert.True(m >= Math.Min(a, b) && m <= Math.Max(a, b),
-                                    $"{state} at {pct} % is {mid:X8}, outside the pair "
-                                    + $"{from.Argb:X8}..{to.Argb:X8} on the byte at shift {shift}.");
-                    }
+                    double l = Lightness(mid), c = Chroma(mid);
+
+                    Assert.True(l >= Math.Min(lFrom, lTo) - 0.002 && l <= Math.Max(lFrom, lTo) + 0.002,
+                                $"{state} at {pct} % has lightness {l:N3}, outside {lFrom:N3}..{lTo:N3}.");
+                    Assert.True(c >= Math.Min(cFrom, cTo) - 0.002 && c <= Math.Max(cFrom, cTo) + 0.002,
+                                $"{state} at {pct} % has chroma {c:N3}, outside {cFrom:N3}..{cTo:N3}.");
                 }
             }
         }
@@ -310,6 +313,25 @@ public class GaugePaletteTests
         Assert.True(lastWarm < 55, $"the draining scale still reads warm at {lastWarm} %.");
     }
 
+    [Fact]
+    public void TheReportedDullBand_NoLongerDipsInChroma()
+    {
+        // The reported defect as a measurement: 40-60 % battery on the draining scale used to blend
+        // through a washed-out khaki, because Terracotta and SageGreen sit 98.5° apart in Oklab hue
+        // and a straight line between two far-apart hues cuts closer to grey than either end. An even
+        // wider, unreported gap sits at 75-92 % (SageGreen to Lavender, 142.8° apart) — checked here
+        // too, since it is the same defect and would otherwise stay hidden until someone noticed it.
+        double floor = Math.Min(Chroma(GaugePalette.Terracotta), Chroma(GaugePalette.SageGreen)) - 0.002;
+        for (int pct = 31; pct < 75; pct++)
+            Assert.True(Chroma(GaugePalette.FillFor(pct, PowerState.Discharging)) >= floor,
+                        $"{pct} % on the draining scale is duller than either anchor around it.");
+
+        floor = Math.Min(Chroma(GaugePalette.SageGreen), Chroma(GaugePalette.Lavender)) - 0.002;
+        for (int pct = 76; pct < 92; pct++)
+            Assert.True(Chroma(GaugePalette.FillFor(pct, PowerState.Discharging)) >= floor,
+                        $"{pct} % on the draining scale is duller than either anchor around it.");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static bool IsWarm(uint argb)
@@ -324,6 +346,8 @@ public class GaugePaletteTests
         var c = Oklab.FromArgb(argb);
         return Math.Sqrt(c.A * c.A + c.B * c.B);
     }
+
+    private static double Lightness(uint argb) => Oklab.FromArgb(argb).L;
 
     private static uint SrgbMidpoint(uint from, uint to)
     {
