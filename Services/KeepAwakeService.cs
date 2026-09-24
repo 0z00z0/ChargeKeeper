@@ -177,6 +177,11 @@ internal static class KeepAwakeService
     // Callers hold _sync.
     private static void ArmExpiry(KeepAwakeSession session, DateTimeOffset now)
     {
+        // Logged only on replacement: a timer disposed before it fired is the one path that leaves no
+        // other trace, so an unarmed session and a timer that silently never fires would otherwise
+        // read identically in the log.
+        if (_expiryTimer is not null)
+            AppLog.Info("Keep-awake expiry timer replaced before it fired");
         _expiryTimer?.Dispose();
         _expiryTimer = null;
         if (session.ExpiresAt is not { } expiry) return;   // no clock expiry to arm
@@ -186,21 +191,36 @@ internal static class KeepAwakeService
         // One timer armed to the instant, not a poll — an until-time is at most 24 h out, well inside
         // Timer's range.
         _expiryTimer = new System.Threading.Timer(_ => ExpireIfDue(), null, due, Timeout.InfiniteTimeSpan);
+        AppLog.Info($"Keep-awake expiry timer armed for {due:hh\\:mm\\:ss}, due {expiry:yyyy-MM-dd HH:mm:ss}");
     }
 
     private static void ExpireIfDue()
     {
-        lock (_sync)
+        // Guarded because nothing else would: an uncaught throw on this raw timer thread has no
+        // handler anywhere in the process, so it would either vanish silently or kill the process
+        // outright, with no line saying why the hold never lifted.
+        try
         {
-            // Re-check rather than trusting the callback: the session may have been replaced or ended
-            // between the timer firing and this taking the lock.
-            if (_current is not { } session || !KeepAwakePolicy.ShouldExpire(DateTimeOffset.Now, session.ExpiresAt))
-                return;
-            ClearLocked();
+            lock (_sync)
+            {
+                // Re-check rather than trusting the callback: the session may have been replaced or
+                // ended between the timer firing and this taking the lock.
+                if (_current is not { } session || !KeepAwakePolicy.ShouldExpire(DateTimeOffset.Now, session.ExpiresAt))
+                {
+                    AppLog.Info("Keep-awake expiry timer fired with nothing left to end");
+                    return;
+                }
+                ClearLocked();
+            }
+            AppLog.Info("Keep-awake expiry timer fired and ended the session");
+            PowerLog.Event("Keep-awake off", ActionCause.Timer("the session reached its own expiry time"));
+            AppChangeLog.Record(AppChange.KeepAwakeEnded);
+            RaiseStateChanged();
         }
-        PowerLog.Event("Keep-awake off", ActionCause.Timer("the session reached its own expiry time"));
-        AppChangeLog.Record(AppChange.KeepAwakeEnded);
-        RaiseStateChanged();
+        catch (Exception ex)
+        {
+            AppLog.Error("KeepAwakeService.ExpireIfDue", ex);
+        }
     }
 
     // Never let a subscriber's failure escape: two of these raise sites are timer callbacks, where an
