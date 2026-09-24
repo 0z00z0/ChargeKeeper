@@ -17,8 +17,8 @@ Two power features, without opening the slow Lenovo Vantage app:
   Lenovo only.
 
 Left-click the tray icon for a battery dashboard (arc gauge with live % and charge-rate, threshold
-tick markers, adjustable start/stop sliders); right-click for quick toggles, presets, and
-**Settings…** (opens the full configuration window). The tray icon itself shows a live
+tick markers, adjustable start/stop sliders, and one button per saved preset); right-click for
+quick toggles and **Settings…** (opens the full configuration window). The tray icon itself shows a live
 battery-level arc, coloured on a continuous scale that follows both the level and the power state —
 on battery, charging, or connected and holding — or, optionally, the battery percentage as a
 number. An exclamation mark in place of a reading means start-up failed: the battery is not being
@@ -28,8 +28,8 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
 ### Features
 
 - **Threshold presets** — named charging profiles (**Daily** 60–80%, **Travel** 80–100%), added/
-  renamed/deleted from the **Settings** window's Smart Charge section, quick-applied from the tray
-  right-click **Presets** submenu.
+  renamed/deleted from the **Settings** window's Smart Charge section, quick-applied from a button
+  on the battery dashboard or a row in that Settings section.
 - **Charge to 100% once (travel override)** — lifts the charge threshold for one charge and puts it
   back as soon as that charge is over, at full or when the charger is removed, whichever comes
   first. Started from the dashboard or from Home Assistant; while it is in force the dashboard and
