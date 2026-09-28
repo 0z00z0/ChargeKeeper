@@ -76,15 +76,25 @@ internal sealed class AppUpdates
     }
 
     /// <summary>
-    /// Installs a release already found with no question and no window, for the machine that has
-    /// been left alone — see <see cref="AutoInstallPolicy"/>. The same service, the same flow and
-    /// the same handover record as <see cref="InstallAsync"/>; only the answers differ.
+    /// The background update mechanism over the same service and the same handover record as
+    /// <see cref="InstallAsync"/>: the check on the chosen cadence, every tick reported, and the
+    /// install nobody is asked about. Built stopped; the caller starts it.
     /// </summary>
-    internal Task<UpdateFlowRun> InstallSilentlyAsync(ReleaseInfo release)
-    {
-        _launcher.TargetVersion = release.VersionText;
-        return new UpdateFlow(_service, new SilentUpdatePrompts(), FlowOptions()).InstallAsync(release);
-    }
+    /// <param name="mayInstallNow">The application's refusals — see
+    /// <see cref="UpdateSchedulePolicy.MayInstallNow"/>.</param>
+    internal UnattendedUpdatePolicy Unattended(
+        UpdateCheckCadence cadence, Func<ReleaseInfo, InstallMoment> mayInstallNow,
+        Action<UnattendedTick> tickReported) =>
+        new(_service, UpdateSchedulePolicy.Options(cadence, _shutdown,
+            release =>
+            {
+                var moment = mayInstallNow(release);
+                // The last call before the policy launches Setup, so an accepted moment is where the
+                // handover record learns which version is going in.
+                if (moment.Accepted) _launcher.TargetVersion = release.VersionText;
+                return moment;
+            },
+            tickReported, new AppLogSink()));
 
     /// <summary>The component's own window and wording for every outcome a caller chooses to report.
     /// Built per use: the window is a field of the prompts, so one instance would hand a second

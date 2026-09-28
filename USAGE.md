@@ -341,13 +341,15 @@ files the installer replaces. An update that does not complete is stated the nex
 starts, alongside the installer's own log at `%AppData%\ChargeKeeper\Logs\update-install.log`.
 
 **Install updates automatically** on the General page installs a newer version with no question
-asked. It waits for the computer to be free rather than interrupting: nobody may have touched it for
-ten minutes, no focus session may be running, and no lid-close wait may be running — a computer on
-its way to sleep is a bad moment to start Setup. The condition is re-tested every five minutes, so
-an update found while somebody is working goes in once they stop, whatever the check cadence is. An
-automatic install shows nothing at all on screen: no question, no progress, no report. What happened
-is in `app.log`, and the app starts again on the new version and shows what changed as usual. The
-switch is off unless it is switched on.
+asked. It waits for the computer to be free rather than interrupting: the screen is locked or nobody
+has touched it for ten minutes, no focus session is running, and no lid-close wait is running — a
+computer on its way to sleep is a bad moment to start Setup. The moment is tested again every ten
+minutes, so an update found while somebody is working goes in once they stop, whatever the check
+cadence is. Each reason an install is held back is written to `app.log` once, by name. An automatic
+install shows nothing at all on screen: no question, no progress, no report, and the app starts
+again on the new version and shows what changed as usual. The switch is off unless it is switched
+on. With it off, the background check still runs on its cadence and still puts **Update available**
+in the tray menu. Changing the cadence restarts the background check, which runs 30 seconds later.
 
 An installer carrying the older `ChargeKeeper AutoUpdate` logon task removes it on install: that task
 ran `winget upgrade`, and the package is not in a winget source.

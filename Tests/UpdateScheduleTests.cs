@@ -3,13 +3,15 @@ using System.Linq;
 using System.Text.Json;
 using ChargeKeeper.Services;
 using Xunit;
+using ZeroZero.Primitives;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.Tests;
 
 /// <summary>
 /// The two General-page update settings: what the document stores them as, what an installed
-/// document that predates them reads as, when a tick asks GitHub, and what holds an automatic
-/// install back.
+/// document that predates them reads as, what the shared policy runs on for each cadence, and what
+/// refuses an automatic install.
 /// </summary>
 public class UpdateScheduleTests
 {
@@ -66,90 +68,83 @@ public class UpdateScheduleTests
         Assert.All(new[] { nameof(AppSettings.UpdateCheckCadence), nameof(AppSettings.InstallUpdatesAutomatically) },
                    name => Assert.Contains(name, UnpublishedSettings.UnpublishedProperties));
 
-    // ── When a tick asks ────────────────────────────────────────────────────────────────────────
+    // ── What the policy runs on ─────────────────────────────────────────────────────────────────
 
-    private static readonly DateTimeOffset Start = new(2026, 1, 1, 9, 0, 0, TimeSpan.Zero);
+    private static UnattendedUpdateOptions Options(string cadence) =>
+        UpdateSchedulePolicy.Options(Enum.Parse<UpdateCheckCadence>(cadence), shutdown: () => { },
+                                     mayInstallNow: _ => InstallMoment.Now, tickReported: _ => { },
+                                     log: NullLogSink.Instance);
 
     // The cadence arrives by name: the enum is internal, so it cannot be a public parameter, and
     // naming it here doubles as a second reading of the stored spelling.
     [Theory]
+    [InlineData("EveryHour", CheckCadence.Periodic, 1)]
+    [InlineData("EveryDay", CheckCadence.Periodic, 24)]
+    public void ARepeatingCadenceChecksAtItsOwnGap(string cadence, CheckCadence expected, int hours)
+    {
+        var options = Options(cadence);
+        Assert.Equal(expected, options.Cadence);
+        Assert.Equal(TimeSpan.FromHours(hours), options.CheckInterval);
+    }
+
+    [Fact]
+    public void OnlyAtStartup_ChecksOnceAndNeverAgain() =>
+        // Once is the run after the first delay and nothing after it for the life of the process,
+        // which no periodic interval can express.
+        Assert.Equal(CheckCadence.Once, Options("AtStartupOnly").Cadence);
+
+    [Theory]
     [InlineData("EveryHour")]
     [InlineData("EveryDay")]
     [InlineData("AtStartupOnly")]
-    public void TheFirstCheckRunsUnderEveryCadence(string cadence) =>
-        // Including the one that never repeats: "only at startup" is a startup run, not no run.
-        Assert.True(UpdateSchedulePolicy.IsDue(Cadence(cadence), lastCheck: null, Start));
-
-    private static UpdateCheckCadence Cadence(string name) => Enum.Parse<UpdateCheckCadence>(name);
-
-    [Fact]
-    public void OnlyAtStartup_NeverAsksAgain()
+    public void EveryCadenceRunsThePolicy_ThirtySecondsAfterStart(string cadence)
     {
-        Assert.False(UpdateSchedulePolicy.IsDue(UpdateCheckCadence.AtStartupOnly, Start, Start.AddHours(1)));
-        Assert.False(UpdateSchedulePolicy.IsDue(UpdateCheckCadence.AtStartupOnly, Start, Start.AddDays(30)));
-        Assert.Null(UpdateSchedulePolicy.Every(UpdateCheckCadence.AtStartupOnly));
+        // Enabled whatever the Settings switch says: the policy's check is what keeps the tray line
+        // current, and an installation with installing switched off still has to learn of a release.
+        var options = Options(cadence);
+        Assert.True(options.Enabled);
+        Assert.Equal(TimeSpan.FromSeconds(30), options.InitialDelay);
     }
 
-    [Theory]
-    // The tick is five minutes, so the hour is reached one tick short of it and then on it.
-    [InlineData("EveryHour", 55, false)]
-    [InlineData("EveryHour", 60, true)]
-    [InlineData("EveryDay", 60, false)]
-    [InlineData("EveryDay", 23 * 60 + 55, false)]
-    [InlineData("EveryDay", 24 * 60, true)]
-    public void ACheckIsDueOnceTheChosenGapHasPassed(string cadence, int minutes, bool due) =>
-        Assert.Equal(due, UpdateSchedulePolicy.IsDue(Cadence(cadence), Start, Start.AddMinutes(minutes)));
+    // ── What refuses an automatic install ───────────────────────────────────────────────────────
 
     [Fact]
-    public void TheTickIsShorterThanTheShortestCadence() =>
-        // The same tick re-tests the automatic-install gate, so a tick as long as the cadence would
-        // make a machine that has just gone quiet wait an hour.
-        Assert.True(UpdateSchedulePolicy.TickInterval < UpdateSchedulePolicy.Every(UpdateCheckCadence.EveryHour));
-
-    // ── What holds an automatic install back ────────────────────────────────────────────────────
-
-    private static readonly TimeSpan LongIdle  = AutoInstallPolicy.IdleFor + TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan ShortIdle = AutoInstallPolicy.IdleFor - TimeSpan.FromMinutes(1);
-
-    // idle defaults to a long one. Not nullable: a nullable default cannot tell "left at the
-    // default" from "no reading at all", which is how the failing-reading case first passed against
-    // a long idle. That case calls the policy directly.
-    private static AutoInstallHold Decide(
-        bool enabled = true, bool hasRelease = true, TimeSpan idle = default,
-        bool focus = false, bool lidWait = false) =>
-        AutoInstallPolicy.Decide(enabled, hasRelease,
-                                 idle == default ? LongIdle : idle, focus, lidWait);
+    public void NothingInTheWay_Installs() =>
+        Assert.Equal(InstallMoment.Now, UpdateSchedulePolicy.MayInstallNow(true, false, false));
 
     [Fact]
-    public void AMachineLeftAlone_Installs() =>
-        Assert.Equal(AutoInstallHold.None, Decide());
-
-    [Fact]
-    public void SomebodyAtTheMachine_HoldsTheInstall() =>
-        Assert.Equal(AutoInstallHold.SomebodyIsAtTheMachine, Decide(idle: ShortIdle));
-
-    [Fact]
-    public void AnIdleReadingThatFailed_HoldsTheInstall() =>
-        // A reading that could not be taken is no evidence that the machine is free.
-        Assert.Equal(AutoInstallHold.SomebodyIsAtTheMachine,
-                     AutoInstallPolicy.Decide(enabled: true, hasRelease: true, sinceLastInput: null,
-                                              focusRunning: false, lidWaitRunning: false));
-
-    [Fact]
-    public void AFocusSession_HoldsTheInstall() =>
-        Assert.Equal(AutoInstallHold.FocusSessionRunning, Decide(focus: true));
-
-    [Fact]
-    public void ALidCloseWait_HoldsTheInstall() =>
-        // The lid is shut, so the idle reading says the machine is free exactly when it is on its
-        // way to sleep — which is why this hold is tested with a long idle.
-        Assert.Equal(AutoInstallHold.LidCloseWaitRunning, Decide(lidWait: true));
-
-    [Fact]
-    public void TheSwitchOffAndNoReleaseAreBothHolds()
+    public void TheSwitchOff_RefusesEvenWithEverythingElseClear()
     {
-        Assert.Equal(AutoInstallHold.SwitchedOff, Decide(enabled: false));
-        Assert.Equal(AutoInstallHold.NothingToInstall, Decide(hasRelease: false));
+        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false, false);
+        Assert.False(moment.Accepted);
+        Assert.Equal("installing automatically is switched off", moment.Reason);
+    }
+
+    [Fact]
+    public void AFocusSession_RefusesTheInstall()
+    {
+        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: true, lidWaitRunning: false);
+        Assert.False(moment.Accepted);
+        Assert.Equal("a focus session is running", moment.Reason);
+    }
+
+    [Fact]
+    public void ALidCloseWait_RefusesTheInstall()
+    {
+        // The lid is shut, so the machine reads as free exactly when it is on its way to sleep —
+        // the component's own idle rule would let the install through.
+        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: false, lidWaitRunning: true);
+        Assert.False(moment.Accepted);
+        Assert.Equal("a lid-close wait is running", moment.Reason);
+    }
+
+    [Fact]
+    public void TheSwitchIsAskedFirst()
+    {
+        // A standing refusal names the standing reason, so the once-per-reason log line says why
+        // nothing installs rather than naming whichever passing condition happened to hold.
+        Assert.Equal(UpdateSchedulePolicy.SwitchedOff, UpdateSchedulePolicy.MayInstallNow(false, true, true).Reason);
+        Assert.Equal(UpdateSchedulePolicy.FocusSessionRunning, UpdateSchedulePolicy.MayInstallNow(true, true, true).Reason);
     }
 
     [Theory]
@@ -165,34 +160,17 @@ public class UpdateScheduleTests
     // ── The install path ────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AnAutomaticInstallAnswersInstallAndDrawsNothing()
-    {
-        // The whole point of reusing the ordinary flow: the flow asks its prompts, and these
-        // answers start the install without a window.
-        var prompts = new SilentUpdatePrompts();
-        var release = new ZeroZero.Update.ReleaseInfo("v9.9.9", new Version(9, 9, 9), "9.9.9", "",
-                                                      "", new Uri("https://example.invalid"), null, []);
-
-        Assert.Equal(ZeroZero.Update.Win32.InstallChoice.Install,
-                     prompts.AskToInstallAsync(release, new Version(1, 0, 0)).GetAwaiter().GetResult());
-
-        var surface = prompts.BeginDownload(release);
-        Assert.NotNull(surface.Progress);
-        Assert.False(surface.Cancelled.CanBeCanceled);
-    }
-
-    [Fact]
     public void TheAutomaticInstallGoesThroughTheOneUpdatePath()
     {
-        // No second download or install path: one service, one handover launcher, and every flow —
-        // the check, the offered install and the silent one — composed over that same service.
+        // No second download or install path: one service, one handover launcher, the offered
+        // install's flow and the check's flow over that service, and the policy over it too.
         string source = File.ReadAllText(RepoFiles.Find(Path.Combine("Services", "AppUpdates.cs")));
         int Count(string pattern) => System.Text.RegularExpressions.Regex.Matches(source, pattern).Count;
 
-        Assert.Contains("InstallSilentlyAsync", source, StringComparison.Ordinal);
         Assert.Equal(1, Count(@"new UpdateService\("));
         Assert.Equal(1, Count(@"UpdateHandoverLauncher _launcher"));
-        Assert.Equal(3, Count(@"new UpdateFlow\(_service,"));
+        Assert.Equal(2, Count(@"new UpdateFlow\(_service,"));
+        Assert.Equal(1, Count(@"new\(_service, UpdateSchedulePolicy\.Options\("));
 
         // Both install paths stamp the handover record; the check must not.
         Assert.Equal(2, Count(@"_launcher\.TargetVersion"));

@@ -1,4 +1,7 @@
 using System.Text.Json.Serialization;
+using ZeroZero.Primitives;
+using ZeroZero.Update;
+using ZeroZero.Update.Win32;
 
 namespace ChargeKeeper.Services;
 
@@ -19,42 +22,53 @@ internal enum UpdateCheckCadence
 }
 
 /// <summary>
-/// Whether this tick of the background timer is one that asks GitHub. The timer runs at a fixed
-/// <see cref="TickInterval"/> whatever the cadence is, because the shared scheduler takes its
-/// interval once at construction and cannot be told to stop; the cadence is expressed here instead,
-/// so a choice made on the Settings page takes effect at the next tick without rebuilding anything.
+/// The options the shared unattended-update policy runs on, and the application's own reasons for
+/// refusing an install at the moment it would start. The policy is the whole background update
+/// mechanism: it checks on the chosen cadence, reports every tick for the tray line, and installs
+/// once the machine is free and nothing here refuses.
 /// </summary>
-/// <remarks>Pure, so every cadence is testable without waiting out a day.</remarks>
+/// <remarks>Pure, so every cadence and every refusal is testable without a policy running.</remarks>
 internal static class UpdateSchedulePolicy
 {
-    /// <summary>How often the timer ticks. Shorter than the shortest cadence because the same tick
-    /// re-tests whether an automatic install may now go ahead — see
-    /// <see cref="AutoInstallPolicy"/>.</summary>
-    internal static readonly TimeSpan TickInterval = TimeSpan.FromMinutes(5);
-
     /// <summary>Delayed so the first check does not slow the cold-start path.</summary>
-    internal static readonly TimeSpan FirstTickDelay = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan FirstCheckDelay = TimeSpan.FromSeconds(30);
 
-    /// <summary>Tolerance on the comparison below. A tick landing a moment before the cadence has
-    /// strictly elapsed would otherwise defer the check by a whole tick.</summary>
-    private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(1);
+    /// <summary>The refusal while the Settings switch is off. The policy always runs, because it is
+    /// also what keeps the tray line current, so the switch is a standing refusal.</summary>
+    internal const string SwitchedOff = "installing automatically is switched off";
 
-    /// <summary>The gap each cadence asks for, or null for the one that never repeats.</summary>
-    internal static TimeSpan? Every(UpdateCheckCadence cadence) => cadence switch
+    internal const string FocusSessionRunning = "a focus session is running";
+
+    /// <summary>The lid is shut, so the machine reads as free exactly when it is on its way to
+    /// sleep.</summary>
+    internal const string LidCloseWaitRunning = "a lid-close wait is running";
+
+    /// <summary>The policy's options for the chosen cadence. Enabled whatever the Settings switch
+    /// says: with it off the policy still checks and still reports, and <see cref="MayInstallNow"/>
+    /// refuses every install.</summary>
+    internal static UnattendedUpdateOptions Options(
+        UpdateCheckCadence cadence, Action shutdown, Func<ReleaseInfo, InstallMoment> mayInstallNow,
+        Action<UnattendedTick> tickReported, ILogSink log) => new()
     {
-        UpdateCheckCadence.EveryHour => TimeSpan.FromHours(1),
-        UpdateCheckCadence.EveryDay  => TimeSpan.FromHours(24),
-        _                            => null,
+        Enabled       = true,
+        InitialDelay  = FirstCheckDelay,
+        Cadence       = cadence == UpdateCheckCadence.AtStartupOnly ? CheckCadence.Once : CheckCadence.Periodic,
+        CheckInterval = cadence == UpdateCheckCadence.EveryHour ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24),
+        Shutdown      = shutdown,
+        MayInstallNow = mayInstallNow,
+        TickReported  = tickReported,
+        Log           = log,
     };
 
-    /// <summary>Whether this tick asks GitHub.</summary>
-    /// <param name="lastCheck">When the last check ran, or null where none has. The first check
-    /// runs under every cadence, including the one that never repeats.</param>
-    internal static bool IsDue(UpdateCheckCadence cadence, DateTimeOffset? lastCheck, DateTimeOffset now)
+    /// <summary>Whether an installer may start now, asked by the policy once the installer is
+    /// verified and the machine is free. Each reason is one fixed wording, because the policy logs a
+    /// refusal once per reason.</summary>
+    internal static InstallMoment MayInstallNow(bool installAutomatically, bool focusRunning, bool lidWaitRunning)
     {
-        if (lastCheck is not { } last) return true;
-        if (Every(cadence) is not { } gap) return false;
+        if (!installAutomatically) return InstallMoment.NotNow(SwitchedOff);
+        if (focusRunning)          return InstallMoment.NotNow(FocusSessionRunning);
+        if (lidWaitRunning)        return InstallMoment.NotNow(LidCloseWaitRunning);
 
-        return now - last >= gap - Tolerance;
+        return InstallMoment.Now;
     }
 }

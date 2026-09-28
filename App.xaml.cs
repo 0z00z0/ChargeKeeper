@@ -235,7 +235,7 @@ public partial class App : Application
         });
         StartHistorySampling();
         StartPerformanceSampling();
-        ScheduleUpdateCheck();
+        StartUpdatePolicy();
         // Before the "What's new" report: an update that landed is reported by that window, and one
         // that did not must not be followed by notes for a version this is not.
         ReportTheOutcomeOfAnUnattendedUpdate();
@@ -1456,99 +1456,66 @@ public partial class App : Application
         });
     }
 
-    // Held for the life of the process: this is the whole background update mechanism, so a machine
-    // left signed in has to keep checking.
-    private UpdateScheduler? _updateScheduler;
+    // The whole background update mechanism, held for the life of the process: the check on the
+    // chosen cadence, the tray line and the install nobody is asked about. Rebuilt when the cadence
+    // changes, because the policy takes its options once.
+    private UnattendedUpdatePolicy? _updatePolicy;
+    private UpdateCheckCadence _updatePolicyCadence;
+    private readonly object _updatePolicyLock = new();
 
-    // When the last check ran, so UpdateSchedulePolicy can decide whether this tick is one that
-    // asks. In memory rather than on disk: the scheduler lives and dies with the process, and a
-    // restart runs the first check anyway.
-    private DateTimeOffset? _lastUpdateCheckAt;
-
-    // The release a check found, held until an automatic install may go ahead. Null under every
-    // other condition, including once an install has been attempted.
-    private ReleaseInfo? _updateHeldForInstall;
-
-    // True while an automatic install runs, so a later tick cannot start a second one.
-    private bool _automaticInstallRunning;
-
-    private void ScheduleUpdateCheck()
+    private void StartUpdatePolicy()
     {
-        // The shared scheduler takes its interval once and cannot be told to stop, so the tick is
-        // fixed and the cadence is decided per tick — see UpdateSchedulePolicy.
-        _updateScheduler = new UpdateScheduler(
-            UpdateSchedulePolicy.FirstTickDelay, UpdateSchedulePolicy.TickInterval,
-            OnUpdateTick, new AppLogSink());
-        _updateScheduler.Start();
+        SettingsService.Changed  += ApplyUpdateCadence;
+        SettingsService.Reloaded += ApplyUpdateCadence;
+        ApplyUpdateCadence();
     }
 
-    /// <summary>One tick: a check where the chosen cadence says one is due, and then a test of
-    /// whether a release already in hand may install itself.</summary>
-    private async Task OnUpdateTick(CancellationToken cancellationToken)
+    /// <summary>Builds the policy for the cadence in settings, replacing one built for another. Every
+    /// settings write lands here, so an unchanged cadence changes nothing.</summary>
+    private void ApplyUpdateCadence()
     {
-        // The menu is built after this is scheduled, so the first tick can arrive before it exists.
-        if (_menu is not { } menu) return;
+        try
+        {
+            // The menu owns the update service; without it there is nothing to check through.
+            if (_menu is not { } menu) return;
 
-        var settings = SettingsService.Current;
+            var cadence = SettingsService.Current.UpdateCheckCadence;
+            lock (_updatePolicyLock)
+            {
+                if (_updatePolicy is not null && cadence == _updatePolicyCadence) return;
 
-        if (UpdateSchedulePolicy.IsDue(settings.UpdateCheckCadence, _lastUpdateCheckAt, DateTimeOffset.Now))
-            await CheckForUpdatesInBackground(menu).ConfigureAwait(false);
+                if (_updatePolicy is not null)
+                    AppLog.Info($"Update check cadence changed to {cadence}; the background check restarts.");
 
-        await InstallAutomaticallyIfTheMachineIsFree(menu, settings).ConfigureAwait(false);
+                _updatePolicy?.Dispose();
+                _updatePolicy        = menu.Updates.Unattended(cadence, MayInstallUpdateNow, OnUpdateTick);
+                _updatePolicyCadence = cadence;
+                _updatePolicy.Start();
+            }
+        }
+        catch (Exception ex) { AppLog.Error("App.ApplyUpdateCadence", ex); }
     }
 
-    /// <summary>One background check, joined with whatever a surface has running. Silent: the badge
-    /// and the tooltip are the only places its outcome appears.</summary>
-    private async Task CheckForUpdatesInBackground(TrayMenu menu)
-    {
-        // Stamped before the check rather than after, so a check that never returns cannot leave
-        // every following tick starting another one.
-        _lastUpdateCheckAt = DateTimeOffset.Now;
+    /// <summary>The application's refusals, asked once the installer is verified and the machine is
+    /// free. Read fresh each time, so the Settings switch takes effect at the next tick.</summary>
+    private static InstallMoment MayInstallUpdateNow(ReleaseInfo release) =>
+        UpdateSchedulePolicy.MayInstallNow(
+            SettingsService.Current.InstallUpdatesAutomatically,
+            FocusSessionService.IsRunning,
+            LidWaitStates.IsWaiting(LidDelayService.WaitNow().State));
 
-        var run = await menu.UpdateChecks.Run().ConfigureAwait(false);
-        if (run.Result != UpdateFlowResult.UpdateAvailable ||
-            run.Release?.VersionText is not { Length: > 0 } version)
+    /// <summary>Every tick that carries a release — found, refused, not prepared or started — puts
+    /// it on the tray line and in the tooltip. Only "nothing found" carries none.</summary>
+    private void OnUpdateTick(UnattendedTick tick)
+    {
+        if (tick.Release?.VersionText is not { Length: > 0 } version || version == _updateAvailableVersion)
             return;
 
         _updateAvailableVersion = version;
-        _updateHeldForInstall   = run.Release;
         // Pass the cached capacities: nulls here would drop the "remaining" line and latch the
         // shortened text into _lastTooltip.
         UpdateTooltip(_lastIconState.Pct < 0 ? 0 : _lastIconState.Pct, _lastRemainingMwh, _lastFullMwh);
         RunOnUi(() => _menu?.SetUpdateBadge(version));
-    }
-
-    /// <summary>
-    /// Installs the release in hand where the machine has been left alone, with no question and no
-    /// window. Re-tested every tick, so an update found while somebody is working goes in once they
-    /// stop rather than waiting for the next check.
-    /// </summary>
-    private async Task InstallAutomaticallyIfTheMachineIsFree(TrayMenu menu, AppSettings settings)
-    {
-        if (_automaticInstallRunning || _updateHeldForInstall is not { } release) return;
-
-        var hold = AutoInstallPolicy.Decide(
-            settings.InstallUpdatesAutomatically,
-            hasRelease:     true,
-            sinceLastInput: NativeMethods.SinceLastInput(),
-            focusRunning:   FocusSessionService.IsRunning,
-            lidWaitRunning: LidWaitStates.IsWaiting(LidDelayService.WaitNow().State));
-
-        if (hold != AutoInstallHold.None) return;
-
-        // Cleared before the attempt: a refused or failed install must not be retried every five
-        // minutes, and the next due check finds the release again.
-        _updateHeldForInstall   = null;
-        _automaticInstallRunning = true;
-        try
-        {
-            // Off the UI thread by design: SilentUpdatePrompts draws nothing, so unlike the window
-            // prompts this needs no marshalling. The flow's own shutdown already marshals itself.
-            var run = await menu.Updates.InstallSilentlyAsync(release).ConfigureAwait(false);
-            AppLog.Info($"Automatic update: {run.Result}.");
-        }
-        catch (Exception ex) { AppLog.Error("App.InstallAutomatically", ex); }
-        finally { _automaticInstallRunning = false; }
     }
 
     // A tray click that lands while the popup is open first deactivates it, so guard against
@@ -1756,6 +1723,9 @@ public partial class App : Application
         KeepAwakeService.StateChanged -= RefreshTooltip;
         SettingsService.Changed  -= ApplyPerformanceSettings;
         SettingsService.Reloaded -= ApplyPerformanceSettings;
+        SettingsService.Changed  -= ApplyUpdateCadence;
+        SettingsService.Reloaded -= ApplyUpdateCadence;
+        lock (_updatePolicyLock) _updatePolicy?.Dispose();
         // Stops both timers and writes out whatever the last second collected.
         _performanceSampler?.Dispose();
         PerformanceHistoryService.Flush();

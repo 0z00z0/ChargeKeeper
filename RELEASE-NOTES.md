@@ -9,6 +9,21 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.7.0
+
+- ChargeKeeper now decides for itself when an automatic update may go in, and says why when it
+  will not: never during a focus session, never while it is waiting to put the machine to sleep
+  after the lid closes, and never while "Install updates automatically" is off. Each refusal is one
+  line in the log naming the reason. A locked screen now counts as the computer being free, as well
+  as ten minutes with nobody touching it. The background check, the "Update available" line in the
+  tray menu and the automatic install now all come from the studio library's own update component
+  rather than a copy of it kept here (#224).
+- Changing how often ChargeKeeper checks for updates restarts the background check, which then
+  runs 30 seconds later (#224).
+- The About card on the Settings page draws its own rounded frame, and loses the grey fill behind
+  it. The studio library components were raised to their latest releases: the About card, tray,
+  Home Assistant and update components (#224).
+
 ## 2.6.1
 
 - The battery gauge no longer washes out to a dull khaki around 45-55 % on battery, or to a near-grey

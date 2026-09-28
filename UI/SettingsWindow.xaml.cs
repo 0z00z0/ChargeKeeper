@@ -11,6 +11,8 @@ using ZeroZero.Win32;
 using Microsoft.Windows.ApplicationModel.Resources;
 using ZeroZero.Controls.WinUI;
 using ZeroZero.Mqtt.WinUI;
+// ZeroZero.Win32 carries a WindowFit of its own; this window's placement is the application's.
+using WindowFit = ChargeKeeper.Helpers.WindowFit;
 
 namespace ChargeKeeper.UI;
 
@@ -131,7 +133,7 @@ internal sealed partial class SettingsWindow : Window
         if (_aboutLoaded) return;
         _aboutLoaded = true;   // before the call: a SetInfo that threw part-way has already appended
 
-        AboutCard.MaxWidth = AboutContent.ContentWidthDip;
+        AboutInline.MaxWidth = AboutContent.ContentWidthDip;
         // Fixed, not MaxWidth: the button is far narrower than the card on its own, so only a fixed
         // width forces this row to occupy the same span the card does, for the centring above to land
         // under the card rather than under the button's own small footprint.

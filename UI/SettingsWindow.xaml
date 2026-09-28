@@ -148,7 +148,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Install updates automatically"
-                                            Description="Installs a newer version without asking once the computer has been idle ten minutes. ChargeKeeper closes while Setup runs.">
+                                            Description="Installs a newer version without asking once the computer is locked or idle ten minutes. ChargeKeeper closes while Setup runs.">
                         <ToggleSwitch x:Name="AutomaticInstallToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnAutomaticInstallToggled"/>
                     </controls:SettingsCard>
@@ -658,9 +658,9 @@
                 </StackPanel>
 
                 <!-- The shared BrandAboutControl is hosted inline rather than behind a button that
-                     opens AboutWindow, which would be a dialog on top of a dialog. The Border gives
-                     it the same bordered look as the SettingsCards while keeping it distinct: the
-                     studio identity inside is not this app's settings UI. -->
+                     opens AboutWindow, which would be a dialog on top of a dialog. The control draws
+                     its own frame, so it reads as a card beside the SettingsCards while staying
+                     distinct: the studio identity inside is not this app's settings UI. -->
                 <StackPanel x:Name="AppearancePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}"/>
 
@@ -854,14 +854,9 @@
                     <!-- The width comes from the shared control's own layout measure, applied in
                          code-behind so the two About surfaces cannot be widened apart. Left, not
                          centred: a narrower card centred in the content column would not line up
-                         with its own heading or with any other section on the page. -->
-                    <Border x:Name="AboutCard" HorizontalAlignment="Left"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="{ThemeResource ControlCornerRadius}">
-                        <brand:BrandAboutControl x:Name="AboutInline"/>
-                    </Border>
+                         with its own heading or with any other section on the page. Unwrapped: the
+                         card draws its own frame, and a border here would frame it twice. -->
+                    <brand:BrandAboutControl x:Name="AboutInline" HorizontalAlignment="Left"/>
 
                     <!-- What's new is the card's own row button; under the card, on its own, the
                          same Check for updates button the About window carries. It sits on this page

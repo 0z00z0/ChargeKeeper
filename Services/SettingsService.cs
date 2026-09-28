@@ -178,8 +178,8 @@ internal sealed class AppSettings
     public UpdateCheckCadence UpdateCheckCadence { get; set; } = UpdateCheckCadence.EveryDay;
 
     /// <summary>Whether a release the check finds installs itself, with no question asked, once the
-    /// machine has been left alone — see <see cref="AutoInstallPolicy"/> for what "left alone"
-    /// means. Off by default: an installation that never asked for it keeps being asked.</summary>
+    /// machine is free and nothing refuses the moment — see <see cref="UpdateSchedulePolicy.MayInstallNow"/>.
+    /// Off by default: an installation that never asked for it keeps being asked.</summary>
     public bool InstallUpdatesAutomatically { get; set; }
 
     public TrayIconMode IconMode { get; set; } = TrayIconMode.Arc;
