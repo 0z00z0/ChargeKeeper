@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.9.1
+
+- The studio library's MQTT, brand, settings, diagnostics, tray and update components were raised
+  to their latest releases; a stalled MQTT connect is now bounded and the reconnect loop keeps
+  running through a settings change.
+
 ## 2.9.0
 
 - Pressing "Charge to 100 % once" again while a lift is already running changes nothing, instead of
