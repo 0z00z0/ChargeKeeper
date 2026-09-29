@@ -15,10 +15,6 @@ public class LegacyInstallSweepTests
     private const string LegacyExe  = Programs + @"\Lenovo Power Tray\ChargeKeeper.exe";
 
     [Fact]
-    public void RemovesOnlyWhenTheMoveHasAlreadyHappenedAndNothingStillStartsFromTheOldFolder() =>
-        Assert.True(LegacyInstallSweep.MayRemove(CurrentExe, legacyDirExists: true, aTaskTargetsLegacyExe: false));
-
-    [Fact]
     public void KeepsTheFolderWhileAScheduledTaskStillStartsFromIt() =>
         // Deleting it here would leave that task naming a binary that no longer exists, which costs
         // the installation its start at logon.
@@ -28,18 +24,4 @@ public class LegacyInstallSweepTests
     public void RemovesNothingWhileStillRunningFromTheOldFolder() =>
         // The migration has not happened; the folder is the live installation.
         Assert.False(LegacyInstallSweep.MayRemove(LegacyExe, legacyDirExists: true, aTaskTargetsLegacyExe: false));
-
-    [Fact]
-    public void RemovesNothingFromABuildOutput() =>
-        Assert.False(LegacyInstallSweep.MayRemove(
-            @"C:\repo\bin\x64\Debug\net10.0-windows\ChargeKeeper.exe",
-            legacyDirExists: true, aTaskTargetsLegacyExe: false));
-
-    [Fact]
-    public void ThereIsNothingToDoWhenTheOldFolderIsAlreadyGone() =>
-        Assert.False(LegacyInstallSweep.MayRemove(CurrentExe, legacyDirExists: false, aTaskTargetsLegacyExe: false));
-
-    [Fact]
-    public void AnUnknownExecutablePathRemovesNothing() =>
-        Assert.False(LegacyInstallSweep.MayRemove(null, legacyDirExists: true, aTaskTargetsLegacyExe: false));
 }

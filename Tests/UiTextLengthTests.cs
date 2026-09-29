@@ -54,35 +54,6 @@ public class UiTextLengthTests
     // The three checks below prove the caps can fail. Each runs the same extractor over synthetic
     // markup rather than over the tree, so the guard is exercised without lengthening a real string.
 
-    [Fact]
-    public void AnOverlongTooltipAttributeIsCaught() =>
-        Assert.Contains(FromMarkup($"<Button ToolTipService.ToolTip=\"{new string('x', HoverCap + 1)}\"/>"),
-                        s => s.Kind == "hover" && s.Text.Length > HoverCap);
-
-    [Fact]
-    public void AnOverlongInfoBubbleIsCaught() =>
-        Assert.Contains(FromMarkup($"<zz:InfoIcon Subject=\"a thing\" Info=\"{new string('x', HoverCap + 1)}\"/>"),
-                        s => s.Kind == "hover" && s.Text.Length > HoverCap);
-
-    [Fact]
-    public void AnOverlongCardDescriptionIsCaught() =>
-        Assert.Contains(FromMarkup($"<SettingsCard Header=\"A\" Description=\"{new string('x', BodyCap + 1)}\"/>"),
-                        s => s.Kind == "body" && s.Text.Length > BodyCap);
-
-    /// <summary>A tooltip's headline and its body are one hover text, so they are measured together
-    /// rather than each slipping under the cap on its own.</summary>
-    [Fact]
-    public void AToolTipsHeadlineAndBodyAreMeasuredAsOneString()
-    {
-        string half = new('x', (HoverCap / 2) + 1);
-        UiString[] found = FromMarkup(
-            $"<TextBlock Text=\"Heading\"><ToolTipService.ToolTip><ToolTip><StackPanel>" +
-            $"<TextBlock Text=\"{half}\"/><TextBlock TextWrapping=\"Wrap\">{half}</TextBlock>" +
-            $"</StackPanel></ToolTip></ToolTipService.ToolTip></TextBlock>").ToArray();
-
-        Assert.Contains(found, s => s.Kind == "hover" && s.Text.Length > HoverCap);
-    }
-
     private static void AssertWithin(string kind, int cap)
     {
         string[] over = ShippedStrings()

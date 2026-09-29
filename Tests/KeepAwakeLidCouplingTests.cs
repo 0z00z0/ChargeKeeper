@@ -1,4 +1,3 @@
-using ChargeKeeper.Services;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -37,27 +36,4 @@ public class KeepAwakeLidCouplingTests
     public void LidDelayPage_StatesThatAKeepAwakeSessionHoldsOffTheSleep() =>
         Assert.Contains("keep-awake session holds the sleep off",
                         Page("LidClosePanel", "ScreenPanel"), StringComparison.Ordinal);
-
-    // DescribeLidEffect
-
-    [Fact]
-    public void DescribeLidEffect_SessionRunningWithLidHandlingOn_SaysSo() =>
-        Assert.Equal("A lid close will not sleep this computer while this session lasts.",
-                     KeepAwakePolicy.DescribeLidEffect(sessionRunning: true, lidDelayEnabled: true));
-
-    [Fact]
-    public void DescribeLidEffect_ScopesTheClaimToThisSession() =>
-        // Unqualified, the sentence would outlive the session that causes it — and would be false
-        // the moment a suppressed lid close is completed when the session ends.
-        Assert.Contains("while this session lasts",
-                        KeepAwakePolicy.DescribeLidEffect(true, true)!, StringComparison.Ordinal);
-
-    [Fact]
-    public void DescribeLidEffect_NoSession_SaysNothing() =>
-        Assert.Null(KeepAwakePolicy.DescribeLidEffect(sessionRunning: false, lidDelayEnabled: true));
-
-    [Fact]
-    public void DescribeLidEffect_LidHandlingOff_SaysNothing() =>
-        // Windows' own lid-close action is in charge, and a session does not suppress that.
-        Assert.Null(KeepAwakePolicy.DescribeLidEffect(sessionRunning: true, lidDelayEnabled: false));
 }

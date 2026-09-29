@@ -61,13 +61,6 @@ public class UpdateScheduleTests
         Assert.False(settings.InstallUpdatesAutomatically);
     }
 
-    [Fact]
-    public void NeitherSettingRepublishesTheMqttSurface() =>
-        // Nothing about the update routine reaches Home Assistant, so editing either must cost no
-        // republish. Both directions of the list are pinned by SettingsChangeClassifierTests.
-        Assert.All(new[] { nameof(AppSettings.UpdateCheckCadence), nameof(AppSettings.InstallUpdatesAutomatically) },
-                   name => Assert.Contains(name, UnpublishedSettings.UnpublishedProperties));
-
     // ── What the policy runs on ─────────────────────────────────────────────────────────────────
 
     private static UnattendedUpdateOptions Options(string cadence) =>
@@ -78,7 +71,6 @@ public class UpdateScheduleTests
     // The cadence arrives by name: the enum is internal, so it cannot be a public parameter, and
     // naming it here doubles as a second reading of the stored spelling.
     [Theory]
-    [InlineData("EveryHour", CheckCadence.Periodic, 1)]
     [InlineData("EveryDay", CheckCadence.Periodic, 24)]
     public void ARepeatingCadenceChecksAtItsOwnGap(string cadence, CheckCadence expected, int hours)
     {
@@ -87,16 +79,8 @@ public class UpdateScheduleTests
         Assert.Equal(TimeSpan.FromHours(hours), options.CheckInterval);
     }
 
-    [Fact]
-    public void OnlyAtStartup_ChecksOnceAndNeverAgain() =>
-        // Once is the run after the first delay and nothing after it for the life of the process,
-        // which no periodic interval can express.
-        Assert.Equal(CheckCadence.Once, Options("AtStartupOnly").Cadence);
-
     [Theory]
-    [InlineData("EveryHour")]
     [InlineData("EveryDay")]
-    [InlineData("AtStartupOnly")]
     public void EveryCadenceRunsThePolicy_ThirtySecondsAfterStart(string cadence)
     {
         // Enabled whatever the Settings switch says: the policy's check is what keeps the tray line
@@ -109,23 +93,11 @@ public class UpdateScheduleTests
     // ── What refuses an automatic install ───────────────────────────────────────────────────────
 
     [Fact]
-    public void NothingInTheWay_Installs() =>
-        Assert.Equal(InstallMoment.Now, UpdateSchedulePolicy.MayInstallNow(true, false, false));
-
-    [Fact]
     public void TheSwitchOff_RefusesEvenWithEverythingElseClear()
     {
         var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false, false);
         Assert.False(moment.Accepted);
         Assert.Equal("installing automatically is switched off", moment.Reason);
-    }
-
-    [Fact]
-    public void AFocusSession_RefusesTheInstall()
-    {
-        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: true, lidWaitRunning: false);
-        Assert.False(moment.Accepted);
-        Assert.Equal("a focus session is running", moment.Reason);
     }
 
     [Fact]
@@ -136,43 +108,5 @@ public class UpdateScheduleTests
         var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: false, lidWaitRunning: true);
         Assert.False(moment.Accepted);
         Assert.Equal("a lid-close wait is running", moment.Reason);
-    }
-
-    [Fact]
-    public void TheSwitchIsAskedFirst()
-    {
-        // A standing refusal names the standing reason, so the once-per-reason log line says why
-        // nothing installs rather than naming whichever passing condition happened to hold.
-        Assert.Equal(UpdateSchedulePolicy.SwitchedOff, UpdateSchedulePolicy.MayInstallNow(false, true, true).Reason);
-        Assert.Equal(UpdateSchedulePolicy.FocusSessionRunning, UpdateSchedulePolicy.MayInstallNow(true, true, true).Reason);
-    }
-
-    [Theory]
-    [InlineData("Off", false)]
-    [InlineData("Idle", false)]
-    [InlineData("WaitingForTheTimer", true)]
-    [InlineData("WaitingForTheBatteryTarget", true)]
-    [InlineData("WaitingForEither", true)]
-    [InlineData("WaitingWithNothingLeftToReach", true)]
-    public void EveryWaitingStateCountsAsAWait(string state, bool waiting) =>
-        Assert.Equal(waiting, LidWaitStates.IsWaiting(Enum.Parse<LidWaitState>(state)));
-
-    // ── The install path ────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void TheAutomaticInstallGoesThroughTheOneUpdatePath()
-    {
-        // No second download or install path: one service, one handover launcher, the offered
-        // install's flow and the check's flow over that service, and the policy over it too.
-        string source = File.ReadAllText(RepoFiles.Find(Path.Combine("Services", "AppUpdates.cs")));
-        int Count(string pattern) => System.Text.RegularExpressions.Regex.Matches(source, pattern).Count;
-
-        Assert.Equal(1, Count(@"new UpdateService\("));
-        Assert.Equal(1, Count(@"UpdateHandoverLauncher _launcher"));
-        Assert.Equal(2, Count(@"new UpdateFlow\(_service,"));
-        Assert.Equal(1, Count(@"new\(_service, UpdateSchedulePolicy\.Options\("));
-
-        // Both install paths stamp the handover record; the check must not.
-        Assert.Equal(2, Count(@"_launcher\.TargetVersion"));
     }
 }

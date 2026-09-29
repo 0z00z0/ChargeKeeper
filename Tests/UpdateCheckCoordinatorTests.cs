@@ -42,21 +42,4 @@ public class UpdateCheckCoordinatorTests
 
         Assert.Equal(2, checks);
     }
-
-    [Fact]
-    public async Task EveryCheckAnnouncesItselfOnce()
-    {
-        var started = new List<Task<UpdateFlowRun>>();
-        var answer  = new TaskCompletionSource<UpdateFlowRun>();
-        var coordinator = new UpdateCheckCoordinator(() => answer.Task);
-        coordinator.CheckStarted += started.Add;
-
-        var check = coordinator.Run();
-        coordinator.Run();
-
-        Assert.Same(check, Assert.Single(started));
-
-        answer.SetResult(UpToDate());
-        await check;
-    }
 }

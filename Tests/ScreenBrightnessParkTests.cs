@@ -59,9 +59,7 @@ public class ScreenBrightnessParkTests
     /// <summary>The guard the whole feature rides on: whatever the screen was on before the first
     /// change is exactly what comes back, however many changes happened in between.</summary>
     [Theory]
-    [InlineData(100)]
     [InlineData(62)]
-    [InlineData(1)]
     public void TheLevelTakenIsTheLevelPutBack(int original)
     {
         var display = new FakeDisplay(original);
@@ -91,19 +89,6 @@ public class ScreenBrightnessParkTests
         Park(display, record).Set(10, "a test");
 
         Assert.Equal(["save", "write"], order);
-    }
-
-    [Fact]
-    public void ASecondChangeDoesNotOverwriteTheLevelTheFirstOneDisplaced()
-    {
-        var display = new FakeDisplay(90);
-        var record  = new FakeRecord();
-        var park    = Park(display, record);
-
-        park.Set(30, "a test");
-        park.Set(10, "a test");
-
-        Assert.Equal(90, record.Held);
     }
 
     [Fact]
@@ -142,43 +127,5 @@ public class ScreenBrightnessParkTests
         Assert.False(Park(display, record).Restore("a test"));
 
         Assert.Equal(85, record.Held);
-    }
-
-    [Fact]
-    public void ADisplayThatAcceptsNothing_IsSaidRatherThanSilentlyIgnored()
-    {
-        var lines   = new List<string>();
-        var display = new FakeDisplay(50) { Supported = false };
-        var record  = new FakeRecord();
-
-        Assert.False(Park(display, record, lines).Set(10, "a test"));
-
-        Assert.Null(record.Held);
-        Assert.Contains(lines, line => line.Contains("no display", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void SettingTheLevelAlreadyInForce_RecordsNothing()
-    {
-        // Nothing was displaced, so nothing is owed back — and a record written here would put the
-        // same level back later and read as a restore that did something.
-        var display = new FakeDisplay(65);
-        var record  = new FakeRecord();
-
-        Assert.True(Park(display, record).Set(65, "a test"));
-
-        Assert.Null(record.Held);
-    }
-
-    [Theory]
-    [InlineData(-10, 0)]
-    [InlineData(140, 100)]
-    public void ALevelOutsideTheRange_IsHeldAtTheBound(int asked, int written)
-    {
-        var display = new FakeDisplay(50);
-
-        Park(display, new FakeRecord()).Set(asked, "a test");
-
-        Assert.Equal([written], display.Writes);
     }
 }

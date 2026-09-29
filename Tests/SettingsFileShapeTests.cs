@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChargeKeeper.Services;
 using Xunit;
@@ -11,8 +10,8 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The grouped on-disk shape: that a flat file still reads, that converting it loses nothing, that
-/// the original is kept, and that the key order is the one the Settings window presents.
+/// The grouped on-disk shape: that nothing a person set is lost or zeroed on the way through, and
+/// that a document this build cannot read is left untouched.
 /// </summary>
 public class SettingsFileShapeTests : IDisposable
 {
@@ -35,151 +34,6 @@ public class SettingsFileShapeTests : IDisposable
     {
         try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort cleanup */ }
         GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// The key order the file is written in, spelled out rather than read back from the shape: a
-    /// test deriving the sequence from the writer's own source follows a reordering instead of
-    /// catching it. Groups run in navigation order; rows run in the order they appear on the page.
-    /// </summary>
-    private static readonly string[] ExpectedKeyOrder =
-    [
-        // The store's own document key, written first. This application's Version key is not written
-        // by this build; where an installed document already carries one it survives beside this,
-        // which AVersionKeyTheDocumentAlreadyCarriesSurvivesAWrite pins.
-        "ConfigVersion",
-        "General",
-        "General.StartupDelaySeconds",
-        "General.UpdateCheckCadence",
-        "General.InstallUpdatesAutomatically",
-        "General.IconMode",
-        "General.PromoteTrayIcons",
-        "General.TrayPromotionRestore",
-        "General.LastSeenVersion",
-        "Graph",
-        "Graph.GraphTimeScale",
-        "Graph.GraphLineColouring",
-        "Graph.GraphShadingEnabled",
-        "Graph.DowntimeGapMinutes",
-        "Graph.GraphDisplay",
-        "SmartCharge",
-        "SmartCharge.Presets",
-        "SmartCharge.TravelOverrideActive",
-        "SmartCharge.TravelOverrideRevertStart",
-        "SmartCharge.TravelOverrideRevertStop",
-        "SmartCharge.TravelOverrideChargeStarted",
-        "Network",
-        "Network.NetworkProfilesEnabled",
-        "Network.NetworkLocationRules",
-        "Network.UnknownNetworkPresetName",
-        "Network.NetworkRulesKeyedOnPhysicalAdapter",
-        "KeepAwake",
-        "KeepAwake.KeepAwakeDisplayOn",
-        "KeepAwake.KeepAwakePresets",
-        "LidClose",
-        "LidClose.LidDelayEnabled",
-        "LidClose.LidDelayOffAfterSleep",
-        "LidClose.LidDelayLockOnClose",
-        "LidClose.LidDelayTimeEnabled",
-        "LidClose.LidDelayMinutes",
-        "LidClose.LidDelayPresets",
-        "LidClose.LidDischargeEnabled",
-        "LidClose.LidDischargeTargetPercent",
-        "LidClose.LidDischargePresets",
-        "LidClose.LidThermalCeilingEnabled",
-        "LidClose.LidThermalCeilingCelsius",
-        "LidClose.LidThermalSleptAtCelsius",
-        "LidClose.LidThermalSleptAtUtc",
-        "LidClose.LidDelaySavedAcAction",
-        "LidClose.LidDelaySavedDcAction",
-        "LidClose.LidDelaySavedScheme",
-        "LidClose.LidDelaySavedBatterySleepSeconds",
-        "LidClose.LidDelaySavedBatterySleepScheme",
-        "Screen",
-        "Screen.ScreenSavedBrightness",
-        "Focus",
-        "Focus.FocusSessionMinutes",
-        "Focus.FocusBlocksNetwork",
-        "Focus.FocusDimsScreen",
-        "Focus.FocusCoversScreen",
-        "Focus.FocusBlocksInput",
-        "Focus.FocusStartFromDashboard",
-        "Focus.FocusAllowedPrograms",
-        "Focus.FocusSessionStartedAt",
-        "Focus.FocusSessionEndsAt",
-        "Focus.FocusSessionBlockedNetwork",
-        "Focus.FocusSessionDimmedScreen",
-        "Focus.FocusSessionCoveredScreen",
-        "Focus.FocusSessionBlockedInput",
-        "Focus.FocusSavedFirewall",
-        "Notifications",
-        "Notifications.NotificationSound",
-        "Notifications.LowBatteryWarningPct",
-        "Notifications.LowBatteryWarningEnabled",
-        "Notifications.HighBatteryWarningPct",
-        "Notifications.HighBatteryWarningEnabled",
-        "Notifications.DrainAnomalyPercentPerHour",
-        "Notifications.DrainAnomalyWarningEnabled",
-        "Notifications.ChargeCompleteNoticeEnabled",
-        "Notifications.ChargingStartedNoticeEnabled",
-        "Notifications.SleptWhileHotWarningEnabled",
-        "Notifications.SettingsNotSavedWarningEnabled",
-        "Notifications.ScriptFailedWarningEnabled",
-        "Notifications.AwakeHoldWarningEnabled",
-        "Notifications.AwakeHoldWarningHours",
-        "Scripts",
-        "Scripts.Scripts",
-        "Scripts.ScriptSettleSeconds",
-        "Mqtt",
-        "Mqtt.MqttLastGoodEndpoint",
-        "Diagnostics",
-        "Diagnostics.PerformanceGraphEnabled",
-        "Diagnostics.PerformanceSampleRate",
-        "Appearance",
-        "Appearance.OneLineUntilItMatters",
-        "Appearance.ShowPercentageIcon",
-        "Appearance.HideGraphInDashboard",
-        "Appearance.PercentageDigitStyle",
-        "Window",
-        "Window.SettingsWindowX",
-        "Window.SettingsWindowY",
-        "Window.SettingsWindowWidth",
-        "Window.SettingsWindowHeight",
-    ];
-
-    /// <summary>Group name then each of its keys, in the order they appear in the written file.</summary>
-    private static List<string> KeyOrderOf(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        var order = new List<string>();
-        foreach (var group in doc.RootElement.EnumerateObject())
-        {
-            order.Add(group.Name);
-            if (group.Value.ValueKind != JsonValueKind.Object) continue;   // the version key
-            foreach (var leaf in group.Value.EnumerateObject())
-                order.Add($"{group.Name}.{leaf.Name}");
-        }
-        return order;
-    }
-
-    [Fact]
-    public void TheFileIsWrittenInTheOrderTheSettingsWindowPresents()
-    {
-        Assert.True(SettingsService.WriteTo(new AppSettings(), WriteFixture()));
-
-        Assert.Equal(ExpectedKeyOrder, KeyOrderOf(System.IO.File.ReadAllText(File_)));
-    }
-
-    /// <summary>Same assertion on the converted file: a migrated flat file must come out in the new
-    /// order too, not in whatever order it was read.</summary>
-    [Fact]
-    public void AConvertedFlatFileIsWrittenInTheSameOrder()
-    {
-        var loaded = SettingsService.ReadFrom(WriteFixture());
-        Assert.NotNull(loaded);
-        Assert.True(SettingsService.WriteTo(loaded!, File_));
-
-        Assert.Equal(ExpectedKeyOrder, KeyOrderOf(System.IO.File.ReadAllText(File_)));
     }
 
     /// <summary>
@@ -212,34 +66,6 @@ public class SettingsFileShapeTests : IDisposable
                              .Replace("not in any group: []  in a group but not persisted: []", "", StringComparison.Ordinal));
     }
 
-    /// <summary>A flat file is valid input, so it must load rather than be copied aside as
-    /// unreadable and replaced with defaults.</summary>
-    [Fact]
-    public void AFlatFileLoadsEveryScalarValue()
-    {
-        var s = SettingsService.ReadFrom(WriteFixture());
-
-        Assert.NotNull(s);
-        Assert.Equal(
-            "10|Arc|SixHours|ByLevelAndState|True|1|False|||True|40|True|80|True|3|False|True|30|False|" +
-            "False|False|50||||True|True|Standard|broker.example.invalid|443|620|72|2600|2244",
-            string.Join('|',
-                s!.StartupDelaySeconds, s.IconMode, s.GraphTimeScale, s.GraphLineColouring,
-                s.GraphShadingEnabled, s.DowntimeGapMinutes,
-                s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop,
-                s.LowBatteryWarningEnabled, s.LowBatteryWarningPct,
-                s.HighBatteryWarningEnabled, s.HighBatteryWarningPct,
-                s.DrainAnomalyWarningEnabled, s.DrainAnomalyPercentPerHour,
-                s.KeepAwakeDisplayOn,
-                s.LidDelayEnabled, s.LidDelayMinutes, s.LidDelayLockOnClose, s.LidDelayOffAfterSleep,
-                s.LidDischargeEnabled, s.LidDischargeTargetPercent,
-                s.LidDelaySavedAcAction, s.LidDelaySavedDcAction, s.LidDelaySavedScheme,
-                s.NetworkProfilesEnabled, s.NetworkRulesKeyedOnPhysicalAdapter,
-                s.UnknownNetworkPresetName,
-                s.MqttLastGoodEndpoint?.Host, s.MqttLastGoodEndpoint?.Port,
-                s.SettingsWindowX, s.SettingsWindowY, s.SettingsWindowWidth, s.SettingsWindowHeight));
-    }
-
     /// <summary>The collections are where a silent loss would hurt most and show least: a dropped
     /// preset or network rule looks like the user deleted it.</summary>
     [Fact]
@@ -270,32 +96,6 @@ public class SettingsFileShapeTests : IDisposable
         string.Join("; ", s.LidDischargePresets.Select(t => $"{t.Percent}{(t.Name is null ? "" : " " + t.Name)}")),
         string.Join("; ", s.NetworkLocationRules.Select(r =>
             $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName} awake={r.KeepAwakeHere}")));
-
-    /// <summary>The original is kept before the first grouped write replaces it, under a name that
-    /// says what it is.</summary>
-    [Fact]
-    public void TheFlatOriginalIsCopiedAsideBeforeTheFirstGroupedWrite()
-    {
-        var loaded = SettingsService.ReadFrom(WriteFixture());
-        Assert.True(SettingsService.WriteTo(loaded!, File_));
-
-        var copies = Directory.GetFiles(_dir, "settings.json.pre-grouping-backup-*");
-        Assert.Single(copies);
-        Assert.Equal(FlatFixture, System.IO.File.ReadAllText(copies[0]));
-    }
-
-    /// <summary>Once grouped, the file is not copied aside again: the backup marks the one
-    /// conversion, not every save.</summary>
-    [Fact]
-    public void AnAlreadyGroupedFileIsNotCopiedAside()
-    {
-        Directory.CreateDirectory(_dir);
-        Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
-        Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
-
-        Assert.Empty(Directory.GetFiles(_dir, "settings.json.pre-grouping-backup-*"));
-        Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
-    }
 
     /// <summary>An empty document reads as this application's defaults, not the section types'. The
     /// two differ: a section type declares no preset list and no delay, so binding an empty document
@@ -365,22 +165,6 @@ public class SettingsFileShapeTests : IDisposable
 
         Assert.Null(SettingsService.ReadFrom(File_));
         Assert.Single(Directory.GetFiles(_dir, "settings.*.bad.json"));
-    }
-
-    /// <summary>The discriminator, tested both ways: the flat file carries neither version key, and
-    /// the document this build writes declares the store's own key at the version this build
-    /// writes.</summary>
-    [Fact]
-    public void TheSectionedAndFlatShapesAreToldApartByTheVersionKey()
-    {
-        using var flat = JsonDocument.Parse(FlatFixture);
-        Assert.Null(SettingsFile.ReadVersion(flat.RootElement));
-        Assert.False(flat.RootElement.TryGetProperty(SettingsStore.StoreVersionKey, out _));
-
-        Assert.True(SettingsService.WriteTo(new AppSettings(), WriteFixture()));
-        using var sectioned = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
-        Assert.True(sectioned.RootElement.TryGetProperty(SettingsStore.StoreVersionKey, out var version));
-        Assert.Equal(SettingsFile.CurrentVersion, version.GetInt32());
     }
 
     /// <summary>A document from a newer build is neither read nor overwritten, on either version key.

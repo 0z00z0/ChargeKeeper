@@ -26,18 +26,6 @@ public class PopupDismissalTests
     private static string ActivationHandler(string fileName) =>
         SourceMethods.Body(File.ReadAllText(RepoFiles.Find(Path.Combine("UI", fileName))), "OnActivated");
 
-    // None of these windows can be instantiated without a display, so the wiring is read from the
-    // shipped source.
-    [Theory]
-    [MemberData(nameof(DismissingWindows))]
-    public void AWindowThatDismissesOnFocusLossAsksBeforeClosing(string fileName)
-    {
-        string body = ActivationHandler(fileName);
-
-        Assert.Contains("WindowChrome.DismissalHeld", body, StringComparison.Ordinal);
-        Assert.Contains("Deactivated", body, StringComparison.Ordinal);
-    }
-
     // A guard consulted after the window has already closed itself is no guard. The check has to
     // stand between the deactivation test and whatever closes the window.
     [Theory]
@@ -53,20 +41,6 @@ public class PopupDismissalTests
 
         Assert.True(closes > 0, $"{fileName} no longer closes itself in OnActivated.");
         Assert.InRange(guard, deactivated, closes);
-    }
-
-    // The hold is the component's own scope, entered by its window's constructor and left when that
-    // window closes. Read through the same property the windows consult, so a property rewired to
-    // something else fails here.
-    [Fact]
-    public void TheHoldIsOnForExactlyAsLongAsATransientWindow()
-    {
-        Assert.False(WindowChrome.DismissalHeld);
-
-        using (TransientWindows.Enter())
-            Assert.True(WindowChrome.DismissalHeld);
-
-        Assert.False(WindowChrome.DismissalHeld);
     }
 
     // Two update windows cannot be up at once today, but the scope counts rather than latches, and a

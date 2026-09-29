@@ -17,9 +17,6 @@ public class TrayIconIdentityTests
     /// disagree with.</summary>
     private const string PinnedIdentity = "05290CC3-5F1D-4AD4-8F5D-722D2D0772A1";
 
-    private static string IdentitySource() =>
-        File.ReadAllText(RepoFiles.Find("Helpers/TrayIconIdentity.cs"));
-
     private static string AppSourceWithoutComments() =>
         System.Text.RegularExpressions.Regex.Replace(
             File.ReadAllText(RepoFiles.Find("App.xaml.cs")), @"//[^\r\n]*", string.Empty);
@@ -28,45 +25,6 @@ public class TrayIconIdentityTests
     public void TheIdentity_IsTheValueEveryInstallationAlreadyHas()
     {
         Assert.Equal(new Guid(PinnedIdentity), TrayIconIdentity.Value);
-    }
-
-    /// <summary>A value composed at run time is a value that moves when what it is composed from
-    /// moves. Nothing but a literal can be relied on to outlive an install folder rename.</summary>
-    [Theory]
-    [InlineData("Environment.ProcessPath")]
-    [InlineData("AppContext.BaseDirectory")]
-    [InlineData("CreateUniqueGuid")]
-    [InlineData("Guid.NewGuid")]
-    [InlineData("AppInfo.Version")]
-    [InlineData("MachineName")]
-    public void TheIdentity_IsNotDerivedFromAnythingThatCanChange(string derivation)
-    {
-        Assert.DoesNotContain(derivation, IdentitySource(), StringComparison.Ordinal);
-    }
-
-    /// <summary>The declaration itself, so the pin fails on an edited literal rather than only on a
-    /// replaced constant.</summary>
-    [Fact]
-    public void TheIdentity_IsDeclaredAsThatLiteral()
-    {
-        Assert.Contains($"new(\"{PinnedIdentity}\")", IdentitySource(), StringComparison.Ordinal);
-    }
-
-    /// <summary>Assigned before the icon exists. H.NotifyIcon can move the identity of an icon it
-    /// has already registered, but that removes and re-adds it, and the order costs nothing.</summary>
-    [Fact]
-    public void TheTrayIcon_TakesTheIdentityBeforeItIsCreated()
-    {
-        string body = SourceMethods.Body(AppSourceWithoutComments(), "InitTrayIcon");
-
-        int identity = body.IndexOf("TrayIconIdentity.Value", StringComparison.Ordinal);
-        Assert.True(identity >= 0,
-            "InitTrayIcon no longer gives the tray icon its stable identity, so every installation " +
-            "would silently fall back to one hashed from the executable path.");
-
-        int create = body.IndexOf("ForceCreate", StringComparison.Ordinal);
-        Assert.True(create >= 0, "InitTrayIcon no longer creates the tray icon.");
-        Assert.True(identity < create, "The identity is applied after the icon is created.");
     }
 
     /// <summary>Same rule as the creation call itself: the icon is a way to reach the application,

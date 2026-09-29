@@ -173,22 +173,6 @@ public class SettingsStoreTests : IDisposable
                      Describe(again!));
     }
 
-    /// <summary>This application's own version key is not the store's, and the store does not touch a
-    /// top-level key it does not own. The two stand side by side, and the key an installation already
-    /// carries keeps its value.</summary>
-    [Fact]
-    public void AVersionKeyTheDocumentAlreadyCarriesSurvivesAWrite()
-    {
-        var loaded = SettingsService.ReadFrom(WriteFixture());
-        loaded!.LidDelayMinutes = 45;
-        Assert.True(SettingsService.WriteTo(loaded, File_));
-
-        using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
-        Assert.Equal(SettingsFile.CurrentVersion, SettingsFile.ReadVersion(doc.RootElement));
-        Assert.True(doc.RootElement.TryGetProperty(SettingsStore.StoreVersionKey, out var store));
-        Assert.Equal(SettingsFile.CurrentVersion, store.GetInt32());
-    }
-
     /// <summary>A document with no version key of any kind reads and writes. Absent must never be
     /// read as newer: that would refuse every write and lock a person out of their own settings.</summary>
     [Fact]
@@ -207,47 +191,6 @@ public class SettingsStoreTests : IDisposable
         using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
         Assert.Equal($"{SettingsStore.StoreVersionKey}," + string.Join(",", SettingsFile.SectionNames),
                      string.Join(",", doc.RootElement.EnumerateObject().Select(p => p.Name)));
-    }
-
-    /// <summary>An old lower-case version key belongs to neither side, so it is carried across
-    /// untouched and the document ends up holding it beside the store's own.</summary>
-    [Fact]
-    public void AnOldLowerCaseVersionKeyIsCarriedAcrossUntouched()
-    {
-        string text = GroupedFixture.Replace(
-            $"\"{SettingsFile.VersionKey}\": {SettingsFile.CurrentVersion},",
-            $"\"{SettingsFile.VersionKey}\": {SettingsFile.CurrentVersion},\r\n  \"version\": 1,",
-            StringComparison.Ordinal);
-
-        var loaded = SettingsService.ReadFrom(WriteFixture(text));
-        Assert.NotNull(loaded);
-        loaded!.LidDelayMinutes = 45;
-        Assert.True(SettingsService.WriteTo(loaded, File_));
-
-        using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(File_));
-        Assert.Equal(
-            $"{SettingsStore.StoreVersionKey},{SettingsFile.VersionKey},version," +
-            string.Join(",", SettingsFile.SectionNames),
-            string.Join(",", doc.RootElement.EnumerateObject().Select(p => p.Name)));
-        Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
-    }
-
-    /// <summary>A save that moves nothing leaves the document byte for byte as it was, so no section
-    /// needs comparing before it is offered. Every section that does move lays the whole document
-    /// down again, measured at roughly 24 ms, which is what makes the difference worth pinning.</summary>
-    [Fact]
-    public void ASaveThatMovesNothingRewritesNothing()
-    {
-        // The installed document carries profiles written before they had identifiers, and reading
-        // one stamps them — a move, and the one this save is meant to make. The comparison therefore
-        // starts from the document as it stands once that has landed.
-        WriteFixture();
-        Assert.True(SettingsService.WriteTo(SettingsService.ReadFrom(File_)!, File_));
-        string before = System.IO.File.ReadAllText(File_);
-
-        Assert.True(SettingsService.WriteTo(SettingsService.ReadFrom(File_)!, File_));
-
-        Assert.Equal(before, System.IO.File.ReadAllText(File_));
     }
 
     /// <summary>

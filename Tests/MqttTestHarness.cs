@@ -217,15 +217,6 @@ internal static class MqttTestBed
     /// <summary>The whole table with both snapshots present, for a test about declarations only.</summary>
     public static MqttEntitySet Declared() => Build(Live(), Surface());
 
-    /// <summary>A group snapshot with every declared group in a given state, for the gating tests.</summary>
-    public static PublishGroupSnapshot Groups(params (string Key, bool On)[] states)
-    {
-        var store = new FakeMqttSettingsStore();
-        var set = new PublishGroupSet(store, MqttPublishGroups.Declared);
-        foreach (var (key, on) in states) set.Set(key, on);
-        return set.Snapshot();
-    }
-
     /// <summary>Runs an accepted verdict's work to completion, so a test can assert on what it did.</summary>
     public static void Run(MqttCommandVerdict verdict)
     {

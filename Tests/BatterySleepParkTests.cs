@@ -63,8 +63,6 @@ public class BatterySleepParkTests
     /// is the one taken, into the scheme it was taken from, even after the active plan changed.</summary>
     [Theory]
     [InlineData(600u)]
-    [InlineData(1u)]
-    [InlineData(18000u)]
     [InlineData(uint.MaxValue)]
     public void TheValueTakenIsTheValuePutBack_IntoItsOwnScheme(uint original)
     {

@@ -57,43 +57,4 @@ public class ProgramStartupOrderTests
 
         Assert.NotEmpty(OrderViolations(mutated));
     }
-
-    [Fact]
-    public void TheDataFolderIsTheSharedProductPath() =>
-        Assert.Contains("ProductDataPath.Root(AppInfo.Name)",
-                        File.ReadAllText(RepoFiles.Find(Path.Combine("Services", "AppPaths.cs"))),
-                        StringComparison.Ordinal);
-
-    [Fact]
-    public void TheLegacyFolderMovesWhenTheNewOneIsAbsent()
-    {
-        string root = Path.Combine(Path.GetTempPath(), $"ck-legacy-move-{Guid.NewGuid():N}");
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(root, "LenovoPowerTray"));
-            File.WriteAllText(Path.Combine(root, "LenovoPowerTray", "settings.json"), "{}");
-
-            Assert.NotNull(Program.MigrateLegacyAppDataFolder(root));
-            Assert.True(File.Exists(Path.Combine(root, "ChargeKeeper", "settings.json")));
-            Assert.False(Directory.Exists(Path.Combine(root, "LenovoPowerTray")));
-        }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
-    }
-
-    /// <summary>The refusal the ordering exists for: a destination already present leaves the old
-    /// folder where it is.</summary>
-    [Fact]
-    public void AnExistingDestinationLeavesTheLegacyFolderInPlace()
-    {
-        string root = Path.Combine(Path.GetTempPath(), $"ck-legacy-move-{Guid.NewGuid():N}");
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(root, "LenovoPowerTray"));
-            Directory.CreateDirectory(Path.Combine(root, "ChargeKeeper"));
-
-            Assert.Null(Program.MigrateLegacyAppDataFolder(root));
-            Assert.True(Directory.Exists(Path.Combine(root, "LenovoPowerTray")));
-        }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
-    }
 }

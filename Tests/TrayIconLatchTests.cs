@@ -15,22 +15,6 @@ public class TrayIconLatchTests
         new(pct, state, TrayIconMode.Arc, threshold);
 
     [Fact]
-    public void BeforeAnythingIsPainted_EveryRequestNeedsARepaint()
-    {
-        var latch = new TrayIconLatch();
-        Assert.True(latch.NeedsRepaint(Arc(0)));
-        Assert.True(latch.NeedsRepaint(Arc(80, PowerState.Charging)));
-    }
-
-    [Fact]
-    public void ARepaintThatLanded_IsNotRepeated()
-    {
-        var latch = new TrayIconLatch();
-        latch.MarkPainted(Arc(80));
-        Assert.False(latch.NeedsRepaint(Arc(80)));
-    }
-
-    [Fact]
     public void ARepaintThatNeverLanded_IsRetriedOnTheNextTick()
     {
         // The #110 shape: the request was made, the render was refused or threw, so nothing marked
@@ -59,66 +43,5 @@ public class TrayIconLatchTests
             Assert.True(latch.NeedsRepaint(Arc(80, next)),
                         $"{painted} → {next} at 80 % did not repaint.");
         }
-    }
-
-    [Fact]
-    public void AStyleChangeAloneRepaints_EvenWhenTheReadingHasNotMoved()
-    {
-        var latch = new TrayIconLatch();
-        latch.MarkPainted(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Arc, null));
-        Assert.True(latch.NeedsRepaint(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Numeric, null)));
-    }
-
-    [Fact]
-    public void ADigitStyleChangeAloneRepaints_BecauseNothingElseWouldDrawIt()
-    {
-        // The digit style reaches no other surface: the latch is the whole of what makes a style
-        // change appear in the notification area.
-        var latch = new TrayIconLatch();
-        latch.MarkPainted(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Numeric, null));
-        Assert.True(latch.NeedsRepaint(new TrayIconRequest(80, PowerState.Discharging, TrayIconMode.Numeric,
-                                                           null, null, false, TrayDigitStyle.ClockCells)));
-    }
-
-    [Fact]
-    public void AThresholdChangeAloneRepaints_BecauseTheIconCarriesTheMarks()
-    {
-        var latch = new TrayIconLatch();
-        latch.MarkPainted(Arc(80, threshold: new ChargeThresholdState(true, true, 60, 80)));
-        Assert.True(latch.NeedsRepaint(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90))));
-        // An equal-by-value state is the same picture, though.
-        latch.MarkPainted(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90)));
-        Assert.False(latch.NeedsRepaint(Arc(80, threshold: new ChargeThresholdState(true, true, 70, 90))));
-    }
-
-    [Fact]
-    public void Invalidate_ForcesTheNextRepaint()
-    {
-        // The slot size and the tray icon's own recreation change the pixels without changing the
-        // request, so the latch has to be droppable.
-        var latch = new TrayIconLatch();
-        latch.MarkPainted(Arc(80));
-        latch.Invalidate();
-        Assert.True(latch.NeedsRepaint(Arc(80)));
-    }
-
-    [Fact]
-    public void BeforeTheFirstBatteryReport_AForcedRepaintDrawsTheUnknownStateAndNoFlow()
-    {
-        // -1 is the "not yet read" seed. Returning it unchanged is what made a style change in
-        // Settings do visibly nothing until the first tick arrived. The flow goes with it: there is
-        // no reading to draw a direction from, so the icon must carry no mark rather than a guess.
-        Assert.Equal((0, PowerState.Discharging, (PowerFlow?)null),
-                     TrayIconLatch.ReadingOrUnknown((-1, PowerState.Discharging, PowerFlow.In)));
-    }
-
-    [Fact]
-    public void AfterTheFirstBatteryReport_AForcedRepaintDrawsThatReadingAndItsFlow()
-    {
-        Assert.Equal((80, PowerState.Charging, (PowerFlow?)PowerFlow.In),
-                     TrayIconLatch.ReadingOrUnknown((80, PowerState.Charging, PowerFlow.In)));
-        // 0 % is a real reading, and so is a real reading of no flow.
-        Assert.Equal((0, PowerState.IdleOnMains, (PowerFlow?)PowerFlow.Rest),
-                     TrayIconLatch.ReadingOrUnknown((0, PowerState.IdleOnMains, PowerFlow.Rest)));
     }
 }

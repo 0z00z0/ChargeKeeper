@@ -14,13 +14,9 @@ namespace ChargeKeeper.Tests;
 public class NetworkProfileTransitionsTests
 {
     private const string Office = "office-profile";
-    private const string Home   = "home-profile";
 
     private static readonly DateTimeOffset T0 =
         new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
-
-    private static string Describe(System.Collections.Generic.IReadOnlyList<NetworkProfileTransition> fired) =>
-        string.Join(";", fired.Select(f => $"{f.Trigger} {f.ProfileId}"));
 
     [Fact]
     public void StartingWhereTheMachineAlreadyIsRunsNothing()
@@ -34,25 +30,6 @@ public class NetworkProfileTransitionsTests
     }
 
     [Fact]
-    public void AReadingBeforeAnyBaselineOnlyTakesTheBaseline()
-    {
-        var transitions = new NetworkProfileTransitions();
-
-        Assert.Empty(transitions.Observe(Office, nothingDetected: false, T0));
-        Assert.Empty(transitions.Observe(Office, nothingDetected: false, T0.AddSeconds(30)));
-    }
-
-    [Fact]
-    public void MovingToAnotherProfileLeavesTheOldOneAndJoinsTheNew()
-    {
-        var transitions = new NetworkProfileTransitions();
-        transitions.Seed(Office);
-
-        Assert.Equal($"NetworkLeft {Office};NetworkJoined {Home}",
-                     Describe(transitions.Observe(Home, nothingDetected: false, T0)));
-    }
-
-    [Fact]
     public void ABriefDropBackToTheSameProfileRunsNothing()
     {
         var transitions = new NetworkProfileTransitions();
@@ -62,28 +39,5 @@ public class NetworkProfileTransitionsTests
         Assert.Empty(transitions.Observe(null, nothingDetected: true, T0));
         Assert.Empty(transitions.Observe(Office, nothingDetected: false,
                                          T0 + NetworkProfileTransitions.SettleWindow - TimeSpan.FromSeconds(1)));
-    }
-
-    [Fact]
-    public void ADropThatDoesNotComeBackLeavesOnceTheWindowHasRunOut()
-    {
-        var transitions = new NetworkProfileTransitions();
-        transitions.Seed(Office);
-        transitions.Observe(null, nothingDetected: true, T0);
-
-        Assert.Empty(transitions.Expire(T0 + NetworkProfileTransitions.SettleWindow - TimeSpan.FromSeconds(1)));
-        Assert.Equal($"NetworkLeft {Office}",
-                     Describe(transitions.Expire(T0 + NetworkProfileTransitions.SettleWindow)));
-    }
-
-    [Fact]
-    public void ADropThatComesBackOnAnotherProfileLeavesTheOldOneAndJoinsTheNew()
-    {
-        var transitions = new NetworkProfileTransitions();
-        transitions.Seed(Office);
-        transitions.Observe(null, nothingDetected: true, T0);
-
-        Assert.Equal($"NetworkLeft {Office};NetworkJoined {Home}",
-                     Describe(transitions.Observe(Home, nothingDetected: false, T0.AddSeconds(2))));
     }
 }

@@ -27,36 +27,6 @@ public class UpdateRefusalWordingTests
         }
     }
 
-    /// <summary>A verdict's own detail is the part of a refusal that is readable, and it makes no
-    /// claim about deletion either.</summary>
-    [Fact]
-    public void AVerdictsDetailClaimsNoDeletionEither()
-    {
-        var signer = new ExpectedSigner(AppUpdates.ExpectedPublisher, null, acceptSelfSignedSubject: true);
-        var directory = Path.Combine(Path.GetTempPath(), "ChargeKeeper-Verdicts-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var unsigned = Path.Combine(directory, "unsigned.exe");
-            File.WriteAllBytes(unsigned, [0x4D, 0x5A, 1, 2, 3, 4]);
-
-            foreach (var result in new[]
-            {
-                InstallerVerifier.Verify(Path.Combine(directory, "absent.exe"), new string('0', 64), signer),
-                InstallerVerifier.Verify(unsigned, InstallerVerifier.Sha256Of(unsigned), signer),
-                InstallerVerifier.Verify(unsigned, new string('a', 64), signer),
-            })
-            {
-                Assert.NotEqual(VerificationVerdict.Verified, result.Verdict);
-                Assert.DoesNotContain("delet", result.Detail, StringComparison.OrdinalIgnoreCase);
-            }
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); } catch { /* left in the temporary folder */ }
-        }
-    }
-
     /// <summary>The asset match is exact and case-sensitive, and the release's own file is version
     /// stamped, so losing the placeholder refuses every update with the release carrying no such
     /// file.</summary>

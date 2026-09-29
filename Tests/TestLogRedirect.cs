@@ -27,9 +27,6 @@ internal static class TestLogRedirect
     internal static string Directory { get; } = Path.Combine(
         Path.GetTempPath(), "ChargeKeeper.Tests", $"run-{Environment.ProcessId}");
 
-    /// <summary>The per-user directory a shipped ChargeKeeper writes to. Nothing here may touch it.</summary>
-    internal static string RealDataDirectory => AppPaths.DataDir;
-
     [ModuleInitializer]
     internal static void RedirectAwayFromTheUserLog()
     {
@@ -56,14 +53,5 @@ internal static class TestLogRedirect
             // A module initialiser that throws takes the whole run down with a
             // TypeInitializationException. TestLogRedirectTests fails loudly instead.
         }
-    }
-
-    /// <summary>Whether <paramref name="path"/> lands inside the real per-user data directory.</summary>
-    internal static bool IsUnderRealDataDirectory(string path)
-    {
-        string real = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RealDataDirectory));
-        string full = Path.GetFullPath(path);
-        return full.StartsWith(real + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(full, real, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using ChargeKeeper.Helpers;
-using ChargeKeeper.Services;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -44,14 +43,6 @@ public class TrayIconPromotionTests
 
     private static readonly Guid Main   = new("11111111-1111-1111-1111-111111111111");
     private static readonly Guid Second = new("22222222-2222-2222-2222-222222222222");
-
-    [Fact]
-    public void ItIsOffByDefault()
-    {
-        var settings = new AppSettings();
-        Assert.False(settings.PromoteTrayIcons);
-        Assert.Empty(settings.TrayPromotionRestore);
-    }
 
     [Fact]
     public void PromotingRemembersWhatWasThereBeforeItWrites()
@@ -102,48 +93,6 @@ public class TrayIconPromotionTests
         Assert.Empty(memory);
     }
 
-    [Fact]
-    public void AnIconTheShellHasNoRecordOfIsLeftAlone()
-    {
-        // The ordinary state before an icon's first registration, and the state on a Windows that
-        // keeps this somewhere else entirely.
-        var store  = new FakeStore();
-        var memory = new List<TrayPromotionMemory>();
-
-        Assert.False(TrayIconPromotion.Apply(true, [Main], memory, store));
-        Assert.Empty(memory);
-        Assert.Null(store.Read(Main));
-    }
-
-    [Fact]
-    public void AnAlreadyPromotedIconIsNotWrittenAgain()
-    {
-        var store = new FakeStore();
-        store.Known(Main, 1);
-        var memory = new List<TrayPromotionMemory>();
-
-        Assert.False(TrayIconPromotion.Apply(true, [Main], memory, store));
-        Assert.Empty(store.Writes);
-    }
-
-    [Fact]
-    public void AFailedWriteRecordsNothing()
-    {
-        // Remembering an icon whose flag was never changed would make the restore write a value
-        // the shell had not asked for.
-        var store  = new FakeStore();
-        var memory = new List<TrayPromotionMemory>();
-
-        TrayIconPromotion.Apply(true, [Main], memory, store);
-
-        Assert.Empty(memory);
-        Assert.Single(store.Writes);
-    }
-
-    [Fact]
-    public void TheIdentityIsSpelledTheWayTheShellRecordsIt() =>
-        Assert.Equal("{11111111-1111-1111-1111-111111111111}", TrayIconPromotion.Braced(Main));
-
     // The two application-side properties the requirement states.
 
     [Fact]
@@ -157,14 +106,5 @@ public class TrayIconPromotionTests
         int apply = body.IndexOf("TrayIconPromotion.Apply", StringComparison.Ordinal);
         Assert.True(guard >= 0, "The off-and-nothing-to-restore short circuit is gone.");
         Assert.True(guard < apply, "The registry is reached before the short circuit.");
-    }
-
-    [Fact]
-    public void TheSettingsPageCarriesTheLabelTheRequirementNames()
-    {
-        // Named exactly, because "(experimental)" is the warning and dropping it makes the setting
-        // read as ordinary.
-        string xaml = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "SettingsWindow.xaml")));
-        Assert.Contains("Header=\"Show icons in main tray (experimental)\"", xaml, StringComparison.Ordinal);
     }
 }

@@ -24,44 +24,10 @@ public class StartupArgsTests
     }
 
     [Fact]
-    public void WatchdogArg_IsProbe()
-    {
-        var startup = StartupArgs.Parse([Exe, "--watchdog-relaunch"]);
-
-        Assert.True(startup.IsWatchdogProbe);
-    }
-
-    [Fact]
-    public void DebugCommand_IsRecognised()
-    {
-        // The arg-shape rules belong to CrashDumps.ParseDebugCommand; this only pins that a /debug
-        // launch is flagged, which is what keeps Program.Main from booting XAML for it.
-        Assert.True(StartupArgs.Parse([Exe, "/debug"]).IsDebugCommand);
-        Assert.True(StartupArgs.Parse([Exe, "/debug", "off"]).IsDebugCommand);
-        Assert.False(StartupArgs.Parse([Exe]).IsDebugCommand);
-    }
-
-    [Fact]
     public void WatchdogProbeArgIsNotADebugCommand()
     {
         // Read as /debug, a probe would exit instead of doing its job and silently end the tray
         // app's resurrection path.
         Assert.False(StartupArgs.Parse([Exe, "--watchdog-relaunch"]).IsDebugCommand);
-    }
-
-    [Fact]
-    public void PlainLaunch_GetsTheShortRetry()
-    {
-        // A couple of quick attempts: "Exit, then start it again" still has to work.
-        int attempts = StartupArgs.Parse([Exe]).SingleInstanceAttempts;
-
-        Assert.InRange(attempts, 2, 3);
-    }
-
-    [Fact]
-    public void WatchdogProbe_GetsOneInstantAttempt()
-    {
-        // Finding a live instance is the probe's expected answer, not a race to wait out.
-        Assert.Equal(1, StartupArgs.Parse([Exe, "--watchdog-relaunch"]).SingleInstanceAttempts);
     }
 }

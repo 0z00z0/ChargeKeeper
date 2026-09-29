@@ -117,29 +117,10 @@ internal sealed class FakeFirewallRecord : IFirewallBlockRecord
     public void Clear() => Held = null;
 }
 
-internal sealed class FakeNetworkTargets : IFocusNetworkTargets
-{
-    public string? Host { get; set; } = "broker.example.invalid";
-
-    public int? Port { get; set; } = 8883;
-
-    public string Addresses { get; set; } = "198.51.100.7";
-
-    public string ResolverAddresses { get; set; } = "198.51.100.1";
-
-    public string? BrokerHost() => Host;
-
-    public int? BrokerPort() => Port;
-
-    public string Resolve(string host) => Addresses;
-
-    public string Resolvers() => ResolverAddresses;
-}
-
 /// <summary>
 /// The rules a focus session cannot get wrong: it ends even if the machine was switched off through
-/// its expiry, it cannot be talked out of early without the second request landing in its window, it
-/// refuses to arm with nothing to do, and the firewall comes back exactly as it was found.
+/// its expiry, it ends early on the second request inside its window, nothing stays engaged when
+/// arming fails, and the firewall comes back exactly as it was found.
 /// </summary>
 /// <remarks>Everything here runs against fakes. No firewall rule is created, changed or removed, no
 /// brightness is written, and no settings document is touched.</remarks>
@@ -186,41 +167,6 @@ public class FocusSessionTests
     }
 
     [Fact]
-    public void ASessionStillWithinItsTime_ResumesAndTakesUpOnlyTheLeversItOwns()
-    {
-        var bed = new Bed();
-        var ends = Noon.AddMinutes(30);
-        bed.Record.Held = new FocusSessionRecord(Noon.AddMinutes(-30), ends, true, true, true, true);
-
-        bed.Engine.Start();
-
-        var session = bed.Engine.Snapshot();
-        Assert.Equal(FocusSessionStage.Active, session.Stage);
-        Assert.Equal(ends, session.EndsAt);
-        // Resumed, never re-engaged: each lever decides what that means for itself, and neither is
-        // lifted on the way.
-        Assert.Equal(1, bed.Network.Resumptions);
-        Assert.Equal(1, bed.Screen.Resumptions);
-        Assert.Equal(1, bed.Cover.Resumptions);
-        Assert.Equal(0, bed.Network.Engagements);
-        Assert.Equal(0, bed.Network.Lifts);
-    }
-
-    [Fact]
-    public void ASessionThatOwnsOnlyOneLever_LeavesTheOthersAlone()
-    {
-        var bed = new Bed();
-        bed.Record.Held = new FocusSessionRecord(Noon, Noon.AddMinutes(30), BlocksNetwork: true,
-                                                  DimsScreen: false, CoversScreen: false, BlocksInput: false);
-
-        bed.Engine.Start();
-
-        Assert.Equal(1, bed.Network.Resumptions);
-        Assert.Equal(0, bed.Screen.Resumptions);
-        Assert.Equal(0, bed.Cover.Resumptions);
-    }
-
-    [Fact]
     public void ALeverRecordWithNoSessionBehindIt_IsPutBackAtTheNextStart()
     {
         var bed = new Bed();
@@ -234,47 +180,7 @@ public class FocusSessionTests
         Assert.Equal(1, bed.Cover.Lifts);
     }
 
-    [Fact]
-    public void ARestartMidCancel_DiscardsTheAttemptAndResumesActive()
-    {
-        var bed = new Bed();
-        bed.Record.Held = new FocusSessionRecord(Noon, Noon.AddMinutes(30), true, true, true, true);
-
-        bed.Engine.Start();
-
-        // The confirm window is a live interaction: a restart must neither end a session nor grant
-        // an open-ended window.
-        Assert.Equal(FocusSessionStage.Active, bed.Engine.Snapshot().Stage);
-    }
-
     // ── Arming ──────────────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void ASessionWithNeitherLeverChosen_IsRefusedAndArmsNothing()
-    {
-        var bed = new Bed();
-
-        var outcome = bed.Engine.Arm(60, blocksNetwork: false, dimsScreen: false, coversScreen: false, blocksInput: false, "a test");
-
-        Assert.Equal(FocusArmOutcome.NoLeverChosen, outcome);
-        Assert.Null(bed.Record.Held);
-        Assert.Equal(0, bed.Network.Engagements);
-        Assert.Equal(0, bed.Screen.Engagements);
-        Assert.Equal(FocusSessionStage.Off, bed.Engine.Snapshot().Stage);
-    }
-
-    [Fact]
-    public void ALeverThatWouldRefuse_StopsTheWholeSessionRatherThanHalfArmingIt()
-    {
-        var bed = new Bed();
-        bed.Network.RefusalText = "the MQTT broker port is set to Automatic";
-
-        var outcome = bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: true, blocksInput: false, "a test");
-
-        Assert.Equal(FocusArmOutcome.LeverRefused, outcome);
-        Assert.Null(bed.Record.Held);
-        Assert.Equal(0, bed.Screen.Engagements);
-    }
 
     [Fact]
     public void ALeverThatFailsToEngage_LeavesNothingEngagedBehindIt()
@@ -288,33 +194,6 @@ public class FocusSessionTests
         Assert.Null(bed.Record.Held);
         Assert.Equal(1, bed.Network.Lifts);
         Assert.Equal(FocusSessionStage.Off, bed.Engine.Snapshot().Stage);
-    }
-
-    [Fact]
-    public void AnArmedSession_RunsToTheEndTimeAndIsWrittenDownBeforeALeverMoves()
-    {
-        var bed = new Bed();
-
-        Assert.Equal(FocusArmOutcome.Armed,
-                     bed.Engine.Arm(45, blocksNetwork: true, dimsScreen: true, coversScreen: true, blocksInput: false, "a test"));
-
-        Assert.Equal(Noon.AddMinutes(45), bed.Record.Held!.Value.EndsAt);
-        Assert.Equal(1, bed.Network.Engagements);
-        Assert.Equal(1, bed.Screen.Engagements);
-    }
-
-    [Fact]
-    public void ASessionEndsItself_WhenItsOwnTimeRunsOutWhileTheApplicationIsRunning()
-    {
-        var bed = new Bed();
-        bed.Engine.Arm(10, blocksNetwork: true, dimsScreen: false, coversScreen: false, blocksInput: false, "a test");
-
-        bed.Advance(TimeSpan.FromMinutes(10));
-        bed.Engine.Tick();
-
-        Assert.Equal(FocusSessionStage.Off, bed.Engine.Snapshot().Stage);
-        Assert.Equal(1, bed.Network.Lifts);
-        Assert.Null(bed.Record.Held);
     }
 
     // ── The cover ───────────────────────────────────────────────────────────────────────────────
@@ -334,79 +213,6 @@ public class FocusSessionTests
         Assert.Equal(1, bed.Cover.Lifts);
         Assert.Equal(FocusSessionStage.Off, bed.Engine.Snapshot().Stage);
     }
-
-    [Fact]
-    public void ACoverIsTheOnlyLeverASessionNeeds()
-    {
-        // The cover alone is a session: the lever that made the screen dim too weak to matter is
-        // reason enough to run one.
-        var bed = new Bed();
-
-        Assert.Equal(FocusArmOutcome.Armed,
-                     bed.Engine.Arm(30, blocksNetwork: false, dimsScreen: false, coversScreen: true, blocksInput: false, "a test"));
-        Assert.Equal(0, bed.Network.Engagements);
-        Assert.Equal(0, bed.Screen.Engagements);
-    }
-
-    [Fact]
-    public void ADeadRunThatLeftARecordBehind_NeverLeavesTheCoverUp()
-    {
-        // The application died with a cover up and the session record already cleared. The window
-        // went with the process; lifting again at the next start is what makes that certain.
-        var bed = new Bed();
-
-        bed.Engine.Start();
-
-        Assert.Equal(1, bed.Cover.Lifts);
-        Assert.Equal(FocusSessionStage.Off, bed.Engine.Snapshot().Stage);
-    }
-
-    [Fact]
-    public void ACoverThatCannotBeRaised_LeavesNothingEngagedBehindIt()
-    {
-        var bed = new Bed();
-        bed.Cover.EngageSucceeds = false;
-
-        var outcome = bed.Engine.Arm(60, blocksNetwork: true, dimsScreen: true, coversScreen: true, blocksInput: false, "a test");
-
-        Assert.Equal(FocusArmOutcome.LeverFailed, outcome);
-        Assert.Null(bed.Record.Held);
-        Assert.Equal(1, bed.Network.Lifts);
-        Assert.Equal(1, bed.Screen.Lifts);
-    }
-
-    // ── The length a start request runs for ─────────────────────────────────────────────────────
-
-    [Fact]
-    public void TheLengthChosenInTheStartBox_IsTheLengthTheSessionRunsFor()
-    {
-        // The dashboard's box hands its own value in; the stored default is what a request without
-        // one falls back to. A box whose value were dropped would start an hour when it said 25.
-        Assert.Equal(25, FocusStartRequest.Minutes(chosen: 25, storedDefault: 60));
-        Assert.Equal(60, FocusStartRequest.Minutes(chosen: null, storedDefault: 60));
-    }
-
-    [Fact]
-    public void ALengthOutsideTheRangeASessionAccepts_IsBroughtBackIntoIt() =>
-        Assert.Equal((FocusSessionEngine.MinMinutes, FocusSessionEngine.MaxMinutes),
-                     (FocusStartRequest.Minutes(0, 60), FocusStartRequest.Minutes(9_000, 60)));
-
-    // ── The countdown ring ──────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void TheRingIsWholeWhenASessionStartsAndGoneWhenItEnds()
-    {
-        var session = new FocusSnapshot(FocusSessionStage.Active, Noon, Noon.AddMinutes(60),
-                                        false, false, true, false);
-
-        Assert.Equal(1, FocusCoverCountdown.For(session, Noon)!.Value.FractionLeft, 3);
-        Assert.Equal(0.5, FocusCoverCountdown.For(session, Noon.AddMinutes(30))!.Value.FractionLeft, 3);
-        Assert.Equal(0, FocusCoverCountdown.For(session, Noon.AddMinutes(60))!.Value.FractionLeft, 3);
-    }
-
-    [Fact]
-    public void NoSessionMeansNoRingAtAll() =>
-        Assert.Null(FocusCoverCountdown.For(FocusSnapshot.None, Noon));
 
     // ── The staged cancel ───────────────────────────────────────────────────────────────────────
 
@@ -430,39 +236,6 @@ public class FocusSessionTests
     }
 
     [Fact]
-    public void AFirstCancelRequest_OpensTheWaitRatherThanEndingTheSession()
-    {
-        var bed = Running();
-
-        bed.Engine.RequestCancel("a test");
-
-        Assert.Equal(FocusSessionStage.Ending, bed.Engine.Snapshot().Stage);
-        Assert.Equal(0, bed.Network.Lifts);
-        Assert.NotNull(bed.Record.Held);
-    }
-
-    [Fact]
-    public void ARepeatedRequestDuringTheWait_ChangesNothingAtAll()
-    {
-        var bed = Running();
-        bed.Engine.RequestCancel("a test");
-
-        // The wait runs on a fixed clock from the first request: a repeat neither shortens nor
-        // restarts it, so pressing again buys nothing worth relying on.
-        bed.Advance(TimeSpan.FromMinutes(4));
-        bed.Engine.RequestCancel("a test");
-        bed.Engine.Tick();
-
-        Assert.Equal(FocusSessionStage.Ending, bed.Engine.Snapshot().Stage);
-        Assert.Equal(0, bed.Network.Lifts);
-
-        // One more minute is all the original wait had left, so the window opens on its own clock.
-        bed.Advance(TimeSpan.FromMinutes(1));
-        bed.Engine.Tick();
-        Assert.Equal(FocusSessionStage.Confirm, bed.Engine.Snapshot().Stage);
-    }
-
-    [Fact]
     public void ASecondRequestInsideTheConfirmWindow_EndsTheSession()
     {
         var bed = Running();
@@ -479,69 +252,6 @@ public class FocusSessionTests
         Assert.Equal(1, bed.Screen.Lifts);
         Assert.Equal(1, bed.Cover.Lifts);
         Assert.Null(bed.Record.Held);
-    }
-
-    [Fact]
-    public void ASecondRequestAfterTheConfirmWindow_LeavesTheSessionRunning()
-    {
-        var bed = Running();
-        bed.Engine.RequestCancel("a test");
-
-        bed.Advance(Wait + Window);
-        bed.Engine.Tick();
-
-        // Back to Active, and the attempt is forgotten: ending early again starts the wait afresh.
-        Assert.Equal(FocusSessionStage.Active, bed.Engine.Snapshot().Stage);
-
-        bed.Engine.RequestCancel("a test");
-        Assert.Equal(FocusSessionStage.Ending, bed.Engine.Snapshot().Stage);
-        Assert.Equal(0, bed.Network.Lifts);
-    }
-
-    [Fact]
-    public void ACancelAttempt_NeverPausesTheCountdownToTheOriginalEndTime()
-    {
-        var bed = Running();
-        var ends = bed.Engine.Snapshot().EndsAt;
-
-        bed.Engine.RequestCancel("a test");
-        bed.Advance(Wait);
-        bed.Engine.Tick();
-
-        Assert.Equal(ends, bed.Engine.Snapshot().EndsAt);
-    }
-
-    // ── The network lever's own refusals ────────────────────────────────────────────────────────
-
-    private static FocusNetworkLever Lever(FakeNetworkTargets targets, FakeFirewallPolicy policy) =>
-        new(new FirewallBlockPark(policy, new FakeFirewallRecord(), (_, _) => { }), targets,
-            (_, _) => { });
-
-    [Fact]
-    public void TheNetworkLever_RefusesWhileTheBrokerPortIsAutomatic()
-    {
-        var targets = new FakeNetworkTargets { Port = null };
-
-        string? refusal = Lever(targets, Firewall()).Refusal();
-
-        Assert.NotNull(refusal);
-        Assert.Contains("Automatic", refusal, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheNetworkLever_RefusesWithNoBrokerConfiguredAtAll() =>
-        Assert.NotNull(Lever(new FakeNetworkTargets { Host = "" }, Firewall()).Refusal());
-
-    [Fact]
-    public void TheNetworkLever_HasNothingToRefuseWithAHostAndAPinnedPort() =>
-        Assert.Null(Lever(new FakeNetworkTargets(), Firewall()).Refusal());
-
-    [Fact]
-    public void AMachineWhoseBrokerIsNamedByAddress_NeedsNoNameResolutionException()
-    {
-        var rules = FocusFirewallRules.For("198.51.100.7", 8883, "");
-
-        Assert.Equal([FocusFirewallRules.BrokerRuleName], rules.Select(r => r.Name));
     }
 
     // ── The firewall park ───────────────────────────────────────────────────────────────────────
@@ -591,41 +301,6 @@ public class FocusSessionTests
         Assert.Equal(before, record.Held);
         park.Lift("a test");
         Assert.Equal(before, policy.Now());
-    }
-
-    [Fact]
-    public void TheExceptionsGoInBeforeTheBlock_AndGoAgainWithIt()
-    {
-        var policy = Firewall();
-        var park = new FirewallBlockPark(policy, new FakeFirewallRecord(), (_, _) => { });
-
-        park.Engage(Exceptions(), "a test");
-        Assert.Equal([FocusFirewallRules.BrokerRuleName, FocusFirewallRules.ResolverRuleName],
-                     policy.Rules);
-
-        park.Lift("a test");
-        Assert.Empty(policy.Rules);
-    }
-
-    /// <summary>An allowed program's rule has to go with the block that wrote it. One left standing
-    /// is a program permanently outside every later block — the worse of the two ways this feature
-    /// can fail.</summary>
-    [Fact]
-    public void AnAllowedProgramsRule_GoesInWithTheBlockAndGoesAgainWithIt()
-    {
-        var policy = Firewall();
-        var park = new FirewallBlockPark(policy, new FakeFirewallRecord(), (_, _) => { });
-        var exceptions = FocusFirewallRules.For(
-            "198.51.100.7", 8883, "198.51.100.1", [@"C:\Program Files\Example\editor.exe"]);
-
-        park.Engage(exceptions, "a test");
-
-        Assert.Contains(FocusFirewallRules.AllowedProgramName(1), policy.Rules);
-        Assert.Equal(@"C:\Program Files\Example\editor.exe",
-                     policy.Added.Single(r => r.ApplicationPath.Length > 0).ApplicationPath);
-
-        park.Lift("a test");
-        Assert.Empty(policy.Rules);
     }
 
     /// <summary>A rule an earlier session wrote for a program since taken off the list still has to

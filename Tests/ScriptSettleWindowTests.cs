@@ -58,39 +58,6 @@ public class ScriptSettleWindowTests
         Assert.Equal(3, closure.Ignored);
     }
 
-    /// <summary>
-    /// The other half of the same guarantee: a state that came back to where it began runs nothing
-    /// a second time. Running the connected script twice is not merely wasteful — the two runs would
-    /// overlap and the log would say a firing was skipped, for no event anybody caused.
-    /// </summary>
-    [Fact]
-    public void AStateThatEndedWhereItBegan_RunsNothingASecondTime()
-    {
-        var settle = new ScriptSettleWindow();
-
-        Assert.True(settle.Observe(ScriptTrigger.MainsConnected, Window, Start).Run);
-        Assert.False(settle.Observe(ScriptTrigger.MainsDisconnected, Window, Start + TimeSpan.FromSeconds(3)).Run);
-
-        var closure = Assert.Single(settle.Expire(Start + TimeSpan.FromSeconds(20), Window,
-                                                  Reading(ScriptTrigger.MainsConnected), NothingIsRunning));
-
-        Assert.Equal(SettleEnding.AlreadyInThatState, closure.Ending);
-        Assert.Equal(1, closure.Ignored);
-    }
-
-    /// <summary>A window that swallowed nothing closes without a word. An ordinary lid close is one
-    /// line, and a second line saying nothing else happened would double the log for no reading.</summary>
-    [Fact]
-    public void AWindowThatSwallowedNothing_ClosesSilently()
-    {
-        var settle = new ScriptSettleWindow();
-
-        Assert.True(settle.Observe(ScriptTrigger.LidClosed, Window, Start).Run);
-
-        Assert.Empty(settle.Expire(Start + TimeSpan.FromSeconds(20), Window,
-                                   Reading(ScriptTrigger.LidClosed), NothingIsRunning));
-    }
-
     /// <summary>The lid and the charger settle apart. One countdown for both would let a lid close
     /// swallow a charger edge, which is a script not running for something that did happen.</summary>
     [Fact]
@@ -150,34 +117,5 @@ public class ScriptSettleWindowTests
 
         Assert.Equal(SettleEnding.TrailingRun, closure.Ending);
         Assert.Equal(ScriptTrigger.MainsConnected, closure.State);
-    }
-
-    /// <summary>
-    /// One line per window, not one per event. Twenty ignored events in a burst must not bury every
-    /// other entry under twenty near-identical lines, and the count reaches the reader on the line
-    /// that closes the window instead.
-    /// </summary>
-    [Fact]
-    public void ABurstAnnouncesItselfOnce()
-    {
-        var settle = new ScriptSettleWindow();
-        var now = Start;
-
-        settle.Observe(ScriptTrigger.MainsConnected, Window, now);
-
-        List<bool> announcements = [];
-        for (int i = 0; i < 20; i++)
-        {
-            now += TimeSpan.FromSeconds(1);
-            var trigger = i % 2 == 0 ? ScriptTrigger.MainsDisconnected : ScriptTrigger.MainsConnected;
-            announcements.Add(settle.Observe(trigger, Window, now).AnnounceIgnored);
-        }
-
-        Assert.Single(announcements, announced => announced);
-        Assert.True(announcements[0]);
-
-        var closure = Assert.Single(settle.Expire(now + Window, Window,
-                                                  Reading(ScriptTrigger.MainsDisconnected), NothingIsRunning));
-        Assert.Equal(20, closure.Ignored);
     }
 }

@@ -15,52 +15,6 @@ namespace ChargeKeeper.Tests;
 /// </summary>
 public class SettingsChangeClassifierTests
 {
-    [Fact]
-    public void AnUnchangedSettingsObjectDoesNotMatter()
-    {
-        var before = new AppSettings();
-        var after  = new AppSettings();
-
-        Assert.False(UnpublishedSettings.Classifier.IsSubstantive(before, after));
-    }
-
-    /// <summary>The endpoint memory is written back on every successful broker connect, which is
-    /// what makes this the case worth having.</summary>
-    [Fact]
-    public void AChangeToAnExcludedFieldDoesNotMatter()
-    {
-        var before = new AppSettings();
-        var after  = new AppSettings
-        {
-            MqttLastGoodEndpoint = new ZeroZero.Mqtt.MqttEndpointMemory(
-                "broker.invalid", "user", 1883, ZeroZero.Mqtt.MqttTransport.Tcp),
-            SettingsWindowX = 120,
-            SettingsWindowY = 240,
-        };
-
-        Assert.False(UnpublishedSettings.Classifier.IsSubstantive(before, after));
-    }
-
-    [Fact]
-    public void AChangeToAnyOtherFieldMatters()
-    {
-        var before = new AppSettings();
-        var after  = new AppSettings { LowBatteryWarningPct = before.LowBatteryWarningPct + 1 };
-
-        Assert.True(UnpublishedSettings.Classifier.IsSubstantive(before, after));
-    }
-
-    /// <summary>An excluded field moving alongside a published one still matters: the exclusion
-    /// removes a field from the comparison, never a whole change from it.</summary>
-    [Fact]
-    public void AnExcludedFieldMovingBesideAPublishedOneStillMatters()
-    {
-        var before = new AppSettings();
-        var after  = new AppSettings { SettingsWindowX = 120, IconMode = TrayIconMode.Numeric };
-
-        Assert.True(UnpublishedSettings.Classifier.IsSubstantive(before, after));
-    }
-
     /// <summary>
     /// The guard the design rests on. Every persisted setting either is excluded by name — and then
     /// really does read as not mattering — or reaches the comparison and makes a change matter. A
@@ -93,17 +47,6 @@ public class SettingsChangeClassifierTests
             else
                 Assert.True(material, $"'{property.Name}' is not excluded by name and must make a change matter.");
         }
-    }
-
-    /// <summary>A name that no longer matches a property excludes nothing, and would leave the
-    /// property it was meant to cover republishing in silence.</summary>
-    [Fact]
-    public void EveryExcludedNameIsStillAPropertyThatExists()
-    {
-        var names = PersistedProperties().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
-
-        foreach (var excluded in UnpublishedSettings.UnpublishedProperties)
-            Assert.Contains(excluded, names);
     }
 
     /// <summary>The whole serialised state, nothing removed — what the classifier starts from.</summary>

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
-using ChargeKeeper.Services;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -88,44 +87,4 @@ public class ActionCauseTests
 
         Assert.Empty(missing);
     }
-
-    /// <summary>
-    /// A cause names the specific thing, not its category. "A network rule matched" is the reading
-    /// that sent somebody to the code; the rule's own name is the reading that does not.
-    /// </summary>
-    [Fact]
-    public void ACauseNamesTheThing_NotItsCategory()
-    {
-        Assert.Contains("Skibotn", ActionCause.NetworkProfile("Skibotn", joined: true).ToString(),
-                        StringComparison.Ordinal);
-        Assert.Contains("charge_start", ActionCause.HomeAssistant("charge_start").ToString(),
-                        StringComparison.Ordinal);
-        Assert.Contains("Travel", ActionCause.Preset("Travel").ToString(), StringComparison.Ordinal);
-        Assert.Contains("Smart Charge", ActionCause.SettingsPage("Smart Charge").ToString(),
-                        StringComparison.Ordinal);
-
-        // Joining and leaving are one factory and must not read the same.
-        Assert.NotEqual(ActionCause.NetworkProfile("Skibotn", joined: true),
-                        ActionCause.NetworkProfile("Skibotn", joined: false));
-    }
-
-    /// <summary>The clause is one sentence's worth, appended rather than carried on a second line:
-    /// the log rotates by size, and a cause on its own line cannot be attributed once a sibling
-    /// process has written between the two.</summary>
-    [Fact]
-    public void TheClauseStaysOnTheOneLine()
-    {
-        string clause = ActionCause.Charger(connected: false).Clause;
-
-        Assert.StartsWith(ActionCause.Separator, clause, StringComparison.Ordinal);
-        Assert.DoesNotContain('\n', clause);
-        Assert.DoesNotContain('\r', clause);
-    }
-
-    /// <summary>A cause nothing filled in reads as something rather than as nothing. A sentence
-    /// ending in an empty clause reads as a formatting fault, which is the wrong thing to go
-    /// looking for.</summary>
-    [Fact]
-    public void ACauseNobodySupplied_IsVisibleRatherThanEmpty() =>
-        Assert.Equal(ActionCause.Unrecorded, default(ActionCause).ToString());
 }

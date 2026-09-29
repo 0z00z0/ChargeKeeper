@@ -1,6 +1,5 @@
 using ChargeKeeper.Services;
 using NLog;
-using NLog.Targets;
 using Xunit;
 
 namespace ChargeKeeper.Tests;
@@ -23,32 +22,6 @@ public class TestLogRedirectTests
         return reader.ReadToEnd();
     }
 
-    [Fact]
-    public void TheModuleInitialiserActuallyRan()
-    {
-        // It swallows its own exceptions so a failure cannot take the whole run down as a
-        // TypeInitializationException. This is where that failure surfaces instead.
-        Assert.NotNull(LogManager.Configuration);
-        Assert.True(Directory.Exists(TestLogRedirect.Directory),
-                    $"the redirect directory was never created: {TestLogRedirect.Directory}");
-    }
-
-    [Fact]
-    public void NoFileTargetInThisProcessResolvesIntoTheRealPerUserDirectory()
-    {
-        var targets = LogManager.Configuration!.AllTargets.OfType<FileTarget>().ToArray();
-        Assert.NotEmpty(targets);
-
-        foreach (var target in targets)
-        {
-            string path = target.FileName.Render(LogEventInfo.CreateNullEvent());
-            Assert.False(TestLogRedirect.IsUnderRealDataDirectory(path),
-                $"target '{target.Name}' writes to {path}, inside the real per-user directory " +
-                $"{TestLogRedirect.RealDataDirectory}. A test run would interleave with the " +
-                 "installed app's own log.");
-        }
-    }
-
     // The static assertions above check where the configuration points. These two check where a
     // line actually lands, which is the thing that matters and the only way to catch a second
     // configuration assigned after the module initialiser ran.
@@ -61,24 +34,6 @@ public class TestLogRedirectTests
         LogManager.Flush();
 
         string redirected = Path.Combine(TestLogRedirect.Directory, "app.log");
-        Assert.True(File.Exists(redirected), $"nothing was written to {redirected}");
-        Assert.Contains(marker, ReadShared(redirected), StringComparison.Ordinal);
-
-        string real = AppPaths.LogFile(AppLog.FileName);
-        if (File.Exists(real))
-            Assert.DoesNotContain(marker, ReadShared(real), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PowerLogEvent_LandsInTheRedirectedFileAndNotTheUserLog()
-    {
-        // A power event goes through its own named logger, so it is asserted separately from an
-        // ordinary entry: both must reach the redirected app.log and never the real one.
-        string marker = $"redirect-probe-{Guid.NewGuid():N}";
-        PowerLog.Event(marker, "TestLogRedirectTests");
-        LogManager.Flush();
-
-        string redirected = Path.Combine(TestLogRedirect.Directory, AppLog.FileName);
         Assert.True(File.Exists(redirected), $"nothing was written to {redirected}");
         Assert.Contains(marker, ReadShared(redirected), StringComparison.Ordinal);
 

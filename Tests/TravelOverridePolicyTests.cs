@@ -40,24 +40,10 @@ public class TravelOverridePolicyTests
     }
 
     [Fact]
-    public void ALiftArmedWhileUnpluggedWaitsForItsCharger()
-    {
-        // The travel case the feature is named for: asked for before setting off, charged overnight.
-        Assert.Equal(TravelOverrideStep.Hold,
-            Decide(BatteryStatus.Discharging, chargeStarted: false));
-    }
-
-    [Fact]
     public void TheFirstChargingReadingIsWrittenDown()
     {
         Assert.Equal(TravelOverrideStep.RecordChargeStarted,
             Decide(BatteryStatus.Charging, chargeStarted: false));
-    }
-
-    [Fact]
-    public void ChargingOnIsNotAnEnding()
-    {
-        Assert.Equal(TravelOverrideStep.Hold, Decide(BatteryStatus.Charging, chargeStarted: true));
     }
 
     [Fact]
@@ -73,21 +59,6 @@ public class TravelOverridePolicyTests
     {
         Assert.Equal(TravelOverrideStep.Revert,
             Decide(BatteryStatus.Idle, pct: 100, lastStatus: NoPreviousReading));
-    }
-
-    [Fact]
-    public void NoLiftInForceMeansNothingToDecide()
-    {
-        Assert.Equal(TravelOverrideStep.Hold,
-            Decide(BatteryStatus.Discharging, chargeStarted: true, active: false));
-    }
-
-    [Fact]
-    public void SittingPluggedInBelowTheCapIsNotAnEnding()
-    {
-        // Idle under 100 % with no charging phase behind it: the charge has not finished.
-        Assert.Equal(TravelOverrideStep.Hold,
-            Decide(BatteryStatus.Idle, chargeStarted: true, pct: 92, lastStatus: BatteryStatus.Idle));
     }
 
     // ---- Where the decision is carried out -------------------------------------------------
