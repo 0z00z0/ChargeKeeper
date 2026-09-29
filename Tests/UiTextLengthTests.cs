@@ -24,12 +24,6 @@ public class UiTextLengthTests
     /// short lines at the narrowest window width the fit guarantees.</summary>
     private const int BodyCap = 140;
 
-    /// <summary>The one string that cannot be said shorter: the two firewall rule names are a
-    /// published interface a person types into Windows Defender Firewall to lift a focus session's
-    /// network block, so the line cannot carry less than the names themselves.</summary>
-    private static bool IsAllowed(UiString s) =>
-        s.Text.Contains("ChargeKeeper focus session: broker", StringComparison.Ordinal);
-
     internal readonly record struct UiString(string Kind, string File, string Text);
 
     [Fact]
@@ -47,7 +41,7 @@ public class UiTextLengthTests
 
         Assert.True(all.Count(s => s.Kind == "hover") >= 45,
                     $"only {all.Count(s => s.Kind == "hover")} hover texts found; the sweep has stopped reaching them.");
-        Assert.True(all.Count(s => s.Kind == "body") >= 120,
+        Assert.True(all.Count(s => s.Kind == "body") >= 110,
                     $"only {all.Count(s => s.Kind == "body")} descriptions found; the sweep has stopped reaching them.");
     }
 
@@ -86,7 +80,7 @@ public class UiTextLengthTests
     private static void AssertWithin(string kind, int cap)
     {
         string[] over = ShippedStrings()
-            .Where(s => s.Kind == kind && s.Text.Length > cap && !IsAllowed(s))
+            .Where(s => s.Kind == kind && s.Text.Length > cap)
             .Select(s => $"{s.File}: {s.Text.Length} characters, cap {cap} — {s.Text}")
             .ToArray();
 

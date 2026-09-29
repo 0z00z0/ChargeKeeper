@@ -53,27 +53,6 @@ internal interface ISettingsActions
     /// <summary>Puts back the brightness remembered before the first change.</summary>
     void RestoreScreenBrightness(string entityId);
 
-    /// <summary>Arms a focus session, or asks to cancel the one running — which opens the staged
-    /// wait rather than ending it.</summary>
-    void SetFocusSession(bool on, string entityId);
-
-    /// <summary>How long the next session runs. Changing it while one runs changes the next one
-    /// only: a session's length is fixed when it is armed.</summary>
-    void SetFocusSessionMinutes(int minutes);
-
-    /// <summary>The default the next session's network lever starts from. Refused while a session
-    /// runs.</summary>
-    void SetFocusBlocksNetwork(bool on);
-
-    /// <summary>The default the next session's screen lever starts from. Refused while a session
-    /// runs.</summary>
-    void SetFocusDimsScreen(bool on);
-
-    /// <summary>The default the next session's cover lever starts from. Refused while a session
-    /// runs.</summary>
-    void SetFocusCoversScreen(bool on);
-    void SetFocusBlocksInput(bool on);
-
     void SetLowBatteryWarning(bool on);
     void SetLowBatteryLevel(int percent);
     void SetHighBatteryWarning(bool on);
@@ -255,71 +234,6 @@ internal sealed class SettingsActions : ISettingsActions
     {
         ScreenBrightnessService.Restore(ActionCause.HomeAssistant(entityId));
         Raise();
-    }
-
-    // Through the service, like the two above: arming moves the firewall and the display, and the
-    // record of what to put back is written inside it. A plain settings write would reach neither.
-    public void SetFocusSession(bool on, string entityId)
-    {
-        if (on) FocusSessionService.Arm(ActionCause.HomeAssistant(entityId));
-        else FocusSessionService.RequestCancel(ActionCause.HomeAssistant(entityId));
-        Raise();
-    }
-
-    public void SetFocusSessionMinutes(int minutes) => Write(s => s.FocusSessionMinutes = minutes);
-
-    public void SetFocusBlocksNetwork(bool on) => WriteUnlessSessionRunning(
-        s => s.FocusBlocksNetwork = on, "which lever blocks the network");
-
-    public void SetFocusDimsScreen(bool on) => WriteUnlessSessionRunning(
-        s => s.FocusDimsScreen = on, "which lever dims the screen");
-
-    public void SetFocusCoversScreen(bool on) => WriteUnlessSessionRunning(
-        s => s.FocusCoversScreen = on, "which lever covers the screen");
-
-    public void SetFocusBlocksInput(bool on) => WriteUnlessSessionRunning(
-        s => s.FocusBlocksInput = on, "which lever blocks the mouse and keyboard");
-
-    /// <summary>Puts one program on the allow-list, and says what became of the request. Refused
-    /// while a session runs, on the same grounds as a lever switch: the rules were written when the
-    /// session armed, so a list that moved under them would describe a state the firewall is
-    /// not in.</summary>
-    public FocusAllowVerdict AllowProgram(string? path) => ChangeAllowedPrograms(
-        list => FocusAllowedPrograms.Add(list, path, FocusSessionService.LeversAreLocked));
-
-    public FocusAllowVerdict DisallowProgram(string? path) => ChangeAllowedPrograms(
-        list => FocusAllowedPrograms.Remove(list, path, FocusSessionService.LeversAreLocked));
-
-    /// <summary>Runs one change against a copy and writes the list back only where it moved, so a
-    /// refusal leaves the document untouched.</summary>
-    private FocusAllowVerdict ChangeAllowedPrograms(Func<IList<string>, FocusAllowVerdict> change)
-    {
-        var list = SettingsService.Read(s => s.FocusAllowedPrograms.ToList());
-        var verdict = change(list);
-
-        if (verdict is FocusAllowVerdict.Added or FocusAllowVerdict.Removed)
-            Write(s => s.FocusAllowedPrograms = list);
-        else if (verdict == FocusAllowVerdict.SessionRunning)
-            AppLog.Info("Focus: the allowed programs cannot change while a session is running.");
-
-        return verdict;
-    }
-
-    /// <summary>A lever choice, refused while a session runs. Turning one off part-way through would
-    /// either restore normal access while the session still claims to be running, or leave that
-    /// lever's record parked with nothing owning it.</summary>
-    /// <remarks>The refusal is a write that does not happen: the entity reflects its own value back
-    /// after the debounce, so the receiver's switch returns to what the session is actually
-    /// using.</remarks>
-    private void WriteUnlessSessionRunning(Action<AppSettings> mutate, string what)
-    {
-        if (FocusSessionService.LeversAreLocked)
-        {
-            AppLog.Info($"Focus: {what} cannot change while a session is running.");
-            Raise();
-            return;
-        }
-        Write(mutate);
     }
 
     public void SetLowBatteryWarning(bool on)   => Write(s => s.LowBatteryWarningEnabled = on);

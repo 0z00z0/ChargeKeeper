@@ -317,22 +317,6 @@ public partial class App : Application
         // an ignored event is exactly the one a receiver correlating a false close needs to see.
         LidEventLog.Recorded                += () => _mqtt?.PublishSurfaceNow();
         NetworkLocationService.LocationChanged += _ => _mqtt?.PublishSurfaceNow();
-        // The focus session moves its state reading and its countdown without touching a setting,
-        // and the tray badge appears and goes on the same signal.
-        FocusSessionService.Changed += () =>
-        {
-            _mqtt?.PublishSurfaceNow();
-            RepaintTrayIconFromLastReading();
-        };
-        // Before FocusSessionService.Start, which can ask for a cover at once when it resumes a
-        // session the machine was switched off during.
-        ScreenCoverService.Start(_dispatcher ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
-                                 () => FocusSessionService.Current);
-        // After the publisher, so the network lever reads the broker the publisher actually uses, and
-        // after ScreenBrightnessService.Start, which puts a dimmed display back before a resuming
-        // session dims it again and parks the level it finds.
-        FocusSessionService.Start(() =>
-            _mqtt?.Settings.Read() is { } broker ? (broker.Host, broker.Port) : null);
         // A script that fails says so once and not again until one of its runs succeeds — the same
         // shape as the settings latch above, and for the same reason: a script bound to the charger
         // would otherwise warn on every plug and unplug for as long as it stayed broken.
@@ -1062,7 +1046,7 @@ public partial class App : Application
         var settings = SettingsService.Current;
         var request  = new TrayIconRequest(pct, state, settings.IconMode, _lastThresholdState, flow,
                                            settings.PercentageIconWanted, settings.PercentageDigitStyle,
-                                           WholeHoursLeft(), FocusSessionService.IsRunning);
+                                           WholeHoursLeft());
         if (!_iconLatch.NeedsRepaint(request)) return;
 
         // UI thread only — ReportUpdated fires on an MTA thread, and mutating or disposing the icon
@@ -1082,7 +1066,7 @@ public partial class App : Application
         {
             var newIcon = IconGenerator.RenderBatteryIcon(request.Pct, request.State, request.Mode,
                                                           request.Threshold, request.Flow, request.DigitStyle,
-                                                          request.HoursLeft, request.FocusSession);
+                                                          request.HoursLeft);
             var oldIcon = _currentBatteryIcon;
             _trayIcon!.Icon     = newIcon;
             _currentBatteryIcon = newIcon;
@@ -1501,7 +1485,6 @@ public partial class App : Application
     private static InstallMoment MayInstallUpdateNow(ReleaseInfo release) =>
         UpdateSchedulePolicy.MayInstallNow(
             SettingsService.Current.InstallUpdatesAutomatically,
-            FocusSessionService.IsRunning,
             LidWaitStates.IsWaiting(LidDelayService.WaitNow().State));
 
     /// <summary>Every tick that carries a release — found, refused, not prepared or started — puts
@@ -1691,21 +1674,6 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Opens Settings on one named page. The dashboard's focus start box uses it so its
-    /// settings button lands on the focus page and not merely in Settings.</summary>
-    internal async void ShowSettingsWindowOnPage(string tag)
-    {
-        try
-        {
-            ShowSettingsWindow();
-            // ShowSettingsWindow is itself async void and yields before the window exists, so the
-            // same wait has to be made here before the page can be selected.
-            await WindowsReady.ConfigureAwait(true);
-            _settings?.ShowPage(tag);
-        }
-        catch (Exception ex) { LogCrash("ShowSettingsWindowOnPage", ex); }
-    }
-
     private void Shutdown()
     {
         _intentionalExit = true;          // tells OnProcessExit this teardown is legitimate
@@ -1732,9 +1700,6 @@ public partial class App : Application
         NetworkLocationService.Stop();
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
         ScriptLidTrigger.Stop();
-        // Stops the clock only. A running session is deliberately left standing: exiting the
-        // application is a local act, and no local act ends a session.
-        FocusSessionService.Stop();
         _mqtt?.Dispose();         // publishes offline, and leaves the document standing
         _currentBatteryIcon?.Dispose();
         _currentPercentageIcon?.Dispose();

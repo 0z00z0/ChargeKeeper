@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.8.0
+
+- The focus session has moved to its own application, FocusDesk, and is no longer part of
+  ChargeKeeper: its Settings page, its dashboard row, its tray menu line and its eight Home Assistant
+  entities are gone.
+
 ## 2.7.0
 
 - ChargeKeeper now decides for itself when an automatic update may go in, and says why when it

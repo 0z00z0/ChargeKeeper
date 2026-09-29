@@ -36,7 +36,7 @@ internal sealed record MqttEntitySources
 }
 
 /// <summary>
-/// ChargeKeeper's published surface: sixty-five entities, their groups, their capability gates and
+/// ChargeKeeper's published surface: fifty-seven entities, their groups, their capability gates and
 /// the domain seam each inbound command lands on. Pure — nothing here touches a broker or a settings
 /// singleton, so the same table composes in a test.
 /// </summary>
@@ -86,15 +86,6 @@ internal static class MqttEntityCatalog
 
     public const string ScreenBrightness        = "screen_brightness";
     public const string ScreenBrightnessRestore = "screen_brightness_restore";
-
-    public const string FocusSession             = "focus_session";
-    public const string FocusSessionMinutes      = "focus_session_minutes";
-    public const string FocusSessionBlocksNetwork = "focus_session_blocks_network";
-    public const string FocusSessionDimsScreen   = "focus_session_dims_screen";
-    public const string FocusSessionCoversScreen = "focus_session_covers_screen";
-    public const string FocusSessionBlocksInput  = "focus_session_blocks_input";
-    public const string FocusSessionState        = "focus_session_state";
-    public const string FocusSessionRemaining    = "focus_session_remaining";
 
     public const string LowBatteryWarning  = "low_battery_warning";
     public const string LowBatteryLevel    = "low_battery_level";
@@ -553,93 +544,6 @@ internal static class MqttEntityCatalog
                 Include = () => s.Capabilities().ScreenBrightness,
                 Press = () => MqttCommandVerdict.Accept(
                     () => set.RestoreScreenBrightness(ScreenBrightnessRestore)),
-            },
-
-            // ── Focus session ────────────────────────────────────────────────────────────────────
-            // The only way out. Nothing on the machine ends a session; the dashboard's start box
-            // can begin one, so these seven are the whole of the feature's remote surface and the
-            // only surface that ends one.
-            new MqttSwitch
-            {
-                // On arms a session; off asks to cancel one, which opens the staged wait rather than
-                // ending it. The switch therefore stays on through a cancel attempt, and the state
-                // reading below is what says how far that attempt has got.
-                EntityId = FocusSession, Name = "Focus session", Group = MqttPublishGroups.Focus,
-                Icon = "mdi:meditation", Debounce = MqttConnection.ReflectDebounce,
-                Read = () => surface() is { } v ? v.FocusStage != FocusSessionStage.Off : (bool?)null,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusSession(on, FocusSession)),
-            },
-            new MqttNumber
-            {
-                EntityId = FocusSessionMinutes, Name = "Focus session minutes",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Config, Unit = "min", Icon = "mdi:timer-outline",
-                Min = FocusSessionEngine.MinMinutes, Max = FocusSessionEngine.MaxMinutes,
-                Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
-                Read = () => surface()?.FocusSessionMinutes,
-                Apply = value => MqttCommandVerdict.Accept(() => set.SetFocusSessionMinutes(Whole(value))),
-            },
-            new MqttSwitch
-            {
-                // The value is the default the next session starts from. A write is refused while a
-                // session runs, and the refused value reflects back through the debounce.
-                EntityId = FocusSessionBlocksNetwork, Name = "Focus session blocks network",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Config, Icon = "mdi:lan-disconnect",
-                Debounce = MqttConnection.ReflectDebounce,
-                Read = () => surface()?.FocusBlocksNetwork,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusBlocksNetwork(on)),
-            },
-            new MqttSwitch
-            {
-                // Gated on the display, like the Screen page's own entities: announcing a lever a
-                // machine cannot honour leaves the receiver with a switch that does nothing.
-                EntityId = FocusSessionDimsScreen, Name = "Focus session dims screen",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Config, Icon = "mdi:brightness-2",
-                Debounce = MqttConnection.ReflectDebounce,
-                Include = () => s.Capabilities().ScreenBrightness,
-                Read = () => surface()?.FocusDimsScreen,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusDimsScreen(on)),
-            },
-            new MqttSwitch
-            {
-                // Not gated on the display: a window goes over any panel, whether or not that panel
-                // accepts a brightness. Dimming to the floor still leaves enough glow to read by,
-                // which is what this lever answers.
-                EntityId = FocusSessionCoversScreen, Name = "Focus session covers screen",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Config, Icon = "mdi:monitor-off",
-                Debounce = MqttConnection.ReflectDebounce,
-                Read = () => surface()?.FocusCoversScreen,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusCoversScreen(on)),
-            },
-            new MqttSwitch
-            {
-                // Not gated on anything: a machine always has a mouse and keyboard to block, and
-                // whether Windows accepts the block is a refusal at arming time, not a capability.
-                EntityId = FocusSessionBlocksInput, Name = "Focus session blocks input",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Config, Icon = "mdi:keyboard-off",
-                Debounce = MqttConnection.ReflectDebounce,
-                Read = () => surface()?.FocusBlocksInput,
-                Apply = on => MqttCommandVerdict.Accept(() => set.SetFocusBlocksInput(on)),
-            },
-            MqttEnumSensor.Of(
-                FocusSessionState, "Focus session state", MqttPublishGroups.Focus,
-                MqttEntityCategory.Diagnostic, "mdi:progress-clock",
-                FocusSessionStages.Words,
-                () => surface() is { } v ? FocusSessionStages.Label(v.FocusStage) : null),
-            new MqttSensor
-            {
-                // The countdown to the original end time, which a cancel attempt never pauses. A
-                // live value a receiver watches, so it sorts in Sensors beside the other two
-                // countdowns rather than in Diagnostic with the state above.
-                EntityId = FocusSessionRemaining, Name = "Focus session remaining",
-                Group = MqttPublishGroups.Focus,
-                Category = MqttEntityCategory.Primary, DeviceClass = "duration", Unit = "min",
-                Icon = "mdi:timer-sand",
-                Read = () => MqttPayload.Number((long?)surface()?.FocusRemainingMinutes),
             },
 
             // ── Notifications ────────────────────────────────────────────────────────────────────

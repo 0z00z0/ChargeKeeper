@@ -11,7 +11,7 @@ using Xunit;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// The seven readings drawn from a declared list of words, and the words themselves.
+/// The six readings drawn from a declared list of words, and the words themselves.
 /// </summary>
 /// <remarks>
 /// A receiver holds the state of one of these against the list announced with it and rejects
@@ -66,10 +66,6 @@ public class MqttEnumSensorTests
             LidEventLog.Words);
 
     [Fact]
-    public void TheFocusSessionWords_AreTheOnesAReceiverAlreadyMatchesOn() =>
-        Assert.Equal(["Off", "Active", "Ending", "Confirm"], FocusSessionStages.Words);
-
-    [Fact]
     public void ThePowerStateWords_AreTheOnesAReceiverAlreadyMatchesOn() =>
         Assert.Equal(["Discharging", "Charging", "Idle on mains"], PowerStates.Words);
 
@@ -103,7 +99,6 @@ public class MqttEnumSensorTests
         MqttEntityCatalog.PowerState    => PowerStates.Words,
         MqttEntityCatalog.BatteryHealth => LiveStateBuilder.HealthWords,
         MqttEntityCatalog.BatteryState  => LiveStateBuilder.BatteryStateWords,
-        MqttEntityCatalog.FocusSessionState => FocusSessionStages.Words,
         _ => throw new ArgumentOutOfRangeException(nameof(entityId), entityId, "Not a declared enum sensor."),
     };
 
@@ -114,7 +109,6 @@ public class MqttEnumSensorTests
     [InlineData(MqttEntityCatalog.BatteryHealth)]
     [InlineData(MqttEntityCatalog.BatteryState)]
     [InlineData(MqttEntityCatalog.LastLidEvent)]
-    [InlineData(MqttEntityCatalog.FocusSessionState)]
     public void EachEnumSensor_AnnouncesExactlyItsOwnWords(string entityId)
     {
         var entry = Component(entityId);
@@ -134,7 +128,6 @@ public class MqttEnumSensorTests
     [InlineData(MqttEntityCatalog.BatteryHealth)]
     [InlineData(MqttEntityCatalog.BatteryState)]
     [InlineData(MqttEntityCatalog.LastLidEvent)]
-    [InlineData(MqttEntityCatalog.FocusSessionState)]
     public void EachEnumSensor_PublishesAReadingFromItsDeclaredWords(string entityId)
     {
         var declared = Component(entityId).GetProperty("options")

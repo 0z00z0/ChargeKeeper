@@ -110,22 +110,14 @@ public class UpdateScheduleTests
 
     [Fact]
     public void NothingInTheWay_Installs() =>
-        Assert.Equal(InstallMoment.Now, UpdateSchedulePolicy.MayInstallNow(true, false, false));
+        Assert.Equal(InstallMoment.Now, UpdateSchedulePolicy.MayInstallNow(true, false));
 
     [Fact]
     public void TheSwitchOff_RefusesEvenWithEverythingElseClear()
     {
-        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false, false);
+        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false);
         Assert.False(moment.Accepted);
         Assert.Equal("installing automatically is switched off", moment.Reason);
-    }
-
-    [Fact]
-    public void AFocusSession_RefusesTheInstall()
-    {
-        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: true, lidWaitRunning: false);
-        Assert.False(moment.Accepted);
-        Assert.Equal("a focus session is running", moment.Reason);
     }
 
     [Fact]
@@ -133,7 +125,7 @@ public class UpdateScheduleTests
     {
         // The lid is shut, so the machine reads as free exactly when it is on its way to sleep —
         // the component's own idle rule would let the install through.
-        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: false, lidWaitRunning: true);
+        var moment = UpdateSchedulePolicy.MayInstallNow(true, lidWaitRunning: true);
         Assert.False(moment.Accepted);
         Assert.Equal("a lid-close wait is running", moment.Reason);
     }
@@ -143,8 +135,7 @@ public class UpdateScheduleTests
     {
         // A standing refusal names the standing reason, so the once-per-reason log line says why
         // nothing installs rather than naming whichever passing condition happened to hold.
-        Assert.Equal(UpdateSchedulePolicy.SwitchedOff, UpdateSchedulePolicy.MayInstallNow(false, true, true).Reason);
-        Assert.Equal(UpdateSchedulePolicy.FocusSessionRunning, UpdateSchedulePolicy.MayInstallNow(true, true, true).Reason);
+        Assert.Equal(UpdateSchedulePolicy.SwitchedOff, UpdateSchedulePolicy.MayInstallNow(false, true).Reason);
     }
 
     [Theory]

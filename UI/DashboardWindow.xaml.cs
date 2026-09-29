@@ -38,7 +38,6 @@ public sealed partial class DashboardWindow : Window
     private const double GaugeCy         = 50;
     // The largest radius that keeps the tick tips inside the canvas: they add 6 beyond it.
     private const double GaugeRadius     = 42;
-    // Shared with the focus session's countdown ring, so the two read as the same instrument.
     private const double GaugeStartAngle = RingGeometry.StartAngle;
     private const double GaugeSweep      = RingGeometry.Sweep;
 
@@ -381,49 +380,9 @@ public sealed partial class DashboardWindow : Window
         // Settings plus a cached capability — no vendor RPC, so it belongs on this thread too.
         ApplyLidBadge();
 
-        ApplyFocusBadge();
-
         ApplyPowerActivityBadge();
 
         BeginVendorRead();
-    }
-
-    /// <summary>
-    /// The focus session as this window shows it: what it is doing and how long it has left, with a
-    /// Start button only where Settings allows one.
-    /// </summary>
-    /// <remarks>There is no control here that ends a session, and adding one would defeat the
-    /// feature. Ending is Home Assistant's, after the five-minute wait and the second request.</remarks>
-    private void ApplyFocusBadge()
-    {
-        var session = FocusSessionService.Current;
-        bool running = session.IsRunning;
-
-        FocusDetailText.Text = running
-            ? FocusSessionStages.Detail(session, DateTimeOffset.Now)
-            : "Not running.";
-
-        FocusBadge.Background     = running ? AppColors.BadgeActiveBrush : AppColors.BadgeInactiveBrush;
-        FocusBadge.BorderBrush    = running ? null : AppColors.BadgeBorderBrush;
-        FocusBadge.BorderThickness = running ? NoBorder : BadgeBorder;
-
-        FocusStartButton.Visibility =
-            !running && SettingsService.Current.FocusStartFromDashboard
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-    }
-
-    /// <summary>Opens the start box. The dashboard closes behind it, as it does for every other
-    /// window opened from here.</summary>
-    private void OnFocusStartButton(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var box = new FocusStartWindow(_app, Refresh);
-            box.Activate();
-            HideWindow();
-        }
-        catch (Exception ex) { AppLog.Error("DashboardWindow.OnFocusStartButton", ex); }
     }
 
     private void OnAwakeHoldsUpdated() => RunOnUi(ApplyPowerActivityBadge);

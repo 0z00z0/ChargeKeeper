@@ -39,12 +39,6 @@ public class ActionCauseTests
         ("Services/BatterySleepPark.cs",       "Restore"),
         ("Services/ScreenBrightnessService.cs", "Set"),
         ("Services/ScreenBrightnessService.cs", "Restore"),
-        ("Services/FocusSessionService.cs",    "Arm"),
-        ("Services/FocusSessionService.cs",    "RequestCancel"),
-        ("Services/ScreenCoverService.cs",     "Show"),
-        ("Services/ScreenCoverService.cs",     "Hide"),
-        ("Services/InputBlock.cs",             "Take"),
-        ("Services/InputBlock.cs",             "Release"),
         ("Services/ScriptRunner.cs",           "Start"),
         ("Services/NetworkProfiles.cs",        "SetEnabled"),
     ];

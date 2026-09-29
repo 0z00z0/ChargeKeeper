@@ -16,7 +16,6 @@ public class DashboardBadgeLayoutTests
     private static readonly string[] DetailLines =
     [
         "SmartChargeDetailText", "SmartStandbyDetailText", "LidDelayDetailText", "KeepAwakeDetailText",
-        "FocusDetailText",
     ];
 
     /// <summary>The markup of one element, from its x:Name to the end of its tag.</summary>
@@ -36,7 +35,6 @@ public class DashboardBadgeLayoutTests
     [InlineData("SmartStandbyDetailText")]
     [InlineData("LidDelayDetailText")]
     [InlineData("KeepAwakeDetailText")]
-    [InlineData("FocusDetailText")]
     public void EveryBadgeDescriptionConstrainsItsOwnWidth(string name)
     {
         // Width alone never fixes this: a long enough string overflows whatever the window measures

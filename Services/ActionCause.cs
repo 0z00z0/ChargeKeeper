@@ -72,9 +72,6 @@ internal readonly record struct ActionCause
     /// <summary>A timer or a scheduled moment arriving, named for what it was counting.</summary>
     public static ActionCause Timer(string what) => new($"{what}");
 
-    /// <summary>A focus session starting, ending or moving one of its levers.</summary>
-    public static ActionCause FocusSession(string what) => new($"the focus session {what}");
-
     /// <summary>Something a run that ended without tidying up left behind, put back at startup.</summary>
     public static ActionCause StartupRestore(string what) =>
         new($"{what} left by a previous run, put back at startup");

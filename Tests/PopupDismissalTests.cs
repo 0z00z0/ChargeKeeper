@@ -5,7 +5,7 @@ using ZeroZero.Win32;
 namespace ChargeKeeper.Tests;
 
 /// <summary>
-/// Four windows close themselves when they lose focus. The update component's window takes focus as
+/// Three windows close themselves when they lose focus. The update component's window takes focus as
 /// it opens and owns none of them, so an unguarded popup closes the instant an update appears over
 /// it — and the About window, which owns the update it asked for, takes that update down with it.
 /// That is a defect a person meets, on the one path where losing the window loses the update.
@@ -19,7 +19,6 @@ public class PopupDismissalTests
         data.Add("AboutWindow.xaml.cs");
         data.Add("BatteryHistoryWindow.xaml.cs");
         data.Add("DashboardWindow.xaml.cs");
-        data.Add("FocusStartWindow.xaml.cs");
         return data;
     }
 

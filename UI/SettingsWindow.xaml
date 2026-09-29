@@ -65,9 +65,6 @@
             <NavigationViewItem Content="Screen"            Tag="Screen">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/screen.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Focus session"     Tag="Focus">
-                <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/focus.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
-            </NavigationViewItem>
             <NavigationViewItem Content="Notifications"    Tag="Notifications">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/notifications.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
@@ -414,94 +411,6 @@
                                             Header="Restore brightness"
                                             Description="Puts back the level the screen was on before the first change.">
                         <Button x:Name="ScreenRestoreBtn" Content="Restore" Click="OnScreenRestore"/>
-                    </controls:SettingsCard>
-                </StackPanel>
-
-                <StackPanel x:Name="FocusPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock Text="Focus session" Style="{StaticResource SectionHeaderStyle}"/>
-
-                    <!-- Status, and nothing to press. A person at the keyboard cannot end a session:
-                         that is the feature's central property, not an omission to be filled in. -->
-                    <controls:SettingsCard Header="Status"
-                                            Description="A session runs for the length it was given. Nothing on this computer ends one early.">
-                        <TextBlock x:Name="FocusStatusValue" VerticalAlignment="Center"
-                                    MaxWidth="320" TextTrimming="CharacterEllipsis"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Length"
-                                            Description="How long the next session runs. Changing this while one runs changes the next one only.">
-                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                            <ComboBox x:Name="FocusMinutesCombo" MinWidth="110"
-                                      SelectionChanged="OnFocusMinutesChanged"/>
-                        </StackPanel>
-                    </controls:SettingsCard>
-
-                    <!-- One switch per lever, settable here or from Home Assistant — both write
-                         through the same action, so the two stay one value. Locked for the length of
-                         a session once it starts: a lever turned off part-way through would leave its
-                         record parked with nothing owning it. -->
-                    <controls:SettingsCard Header="Blocks the network"
-                                            Description="Blocks outbound and unsolicited inbound traffic on every firewall profile while a session runs, aside from two Home Assistant exceptions.">
-                        <ToggleSwitch x:Name="FocusBlocksNetworkToggle" OnContent="" OffContent=""
-                                      MinWidth="0" Toggled="OnFocusBlocksNetworkToggled"/>
-                    </controls:SettingsCard>
-
-                    <!-- The allow-list on the network lever. Empty is the whole of what an
-                         installation that has chosen no program carries, so nothing changes for
-                         one that never opens this. -->
-                    <controls:SettingsCard Header="Programs that keep the network"
-                                            Description="These reach the network while a session runs. Everything else stays blocked.">
-                        <Button x:Name="FocusAllowProgramBtn" Content="Allow a program"
-                                Click="OnFocusAllowProgram"/>
-                    </controls:SettingsCard>
-                    <StackPanel x:Name="FocusAllowedProgramsPanel" Spacing="4"/>
-
-                    <controls:SettingsCard Header="Dims the screen"
-                                            Description="Lowers the built-in screen's brightness for the length of a session and puts it back afterwards.">
-                        <ToggleSwitch x:Name="FocusDimsScreenToggle" OnContent="" OffContent=""
-                                      MinWidth="0" Toggled="OnFocusDimsScreenToggled"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Covers the screen"
-                                            Description="Puts a black window over every display for the length of a session.">
-                        <ToggleSwitch x:Name="FocusCoversScreenToggle" OnContent="" OffContent=""
-                                      MinWidth="0" Toggled="OnFocusCoversScreenToggled"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Blocks the mouse and keyboard"
-                                            Description="Turns the mouse and keyboard off for the length of a session. The machine answers nothing, this application included.">
-                        <ToggleSwitch x:Name="FocusBlocksInputToggle" OnContent="" OffContent=""
-                                      MinWidth="0" Toggled="OnFocusBlocksInputToggled"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Start a session from the dashboard"
-                                            Description="Adds a Start button to the dashboard's focus row. It starts a session; ending one still needs Home Assistant.">
-                        <ToggleSwitch x:Name="FocusStartFromDashboardToggle" OnContent="" OffContent=""
-                                      MinWidth="0" Toggled="OnFocusStartFromDashboardToggled"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="Recent sessions"
-                                            Description="The last few sessions, with how long each ran and how it ended."
-                                            ContentAlignment="Vertical"
-                                            HorizontalContentAlignment="Stretch">
-                        <StackPanel x:Name="FocusRecentPanel" Spacing="4"/>
-                    </controls:SettingsCard>
-
-                    <controls:SettingsCard Header="If you are stuck"
-                                            ContentAlignment="Vertical"
-                                            HorizontalContentAlignment="Stretch">
-                        <StackPanel Spacing="6">
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="End it early from Home Assistant: send the request, wait five minutes, send it again within ten seconds."/>
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="Lift the network block: in Windows Defender Firewall with Advanced Security, delete the two rules named &quot;ChargeKeeper focus session: broker&quot; and &quot;ChargeKeeper focus session: name resolution&quot;."/>
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="Each allowed program has a numbered rule beside those two. Delete those as well."/>
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="Turn the screen brightness back up by hand."/>
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="Exit ChargeKeeper from the tray icon to take the black cover down. The session keeps running."/>
-                        </StackPanel>
                     </controls:SettingsCard>
                 </StackPanel>
 

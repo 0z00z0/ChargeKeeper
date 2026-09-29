@@ -23,13 +23,6 @@ internal readonly record struct SurfaceState(
     bool LidDelayOffAfterSleep,
     bool SmartStandbyRunning,
     int? ScreenBrightness,
-    FocusSessionStage FocusStage,
-    int? FocusRemainingMinutes,
-    int FocusSessionMinutes,
-    bool FocusBlocksNetwork,
-    bool FocusDimsScreen,
-    bool FocusCoversScreen,
-    bool FocusBlocksInput,
     bool LowBatteryWarning,
     int LowBatteryLevel,
     bool HighBatteryWarning,
@@ -90,13 +83,12 @@ internal static class SurfaceReader
 
         bool standby = IsStandbyRunning();
         var lidWait = LidDelayService.WaitNow();
-        var focus = FocusSessionService.Current;
         var lastChange = AppChangeLog.Last;
         var lidEvent = LidEventLog.Last;
         var lidEventAt = LidEventLog.LastAt;
         var now = DateTimeOffset.Now;
         return SettingsService.Read(s => From(s, session, location, adapter, standby, appVersion,
-                                              lidWait, focus, lastChange, lidEvent, lidEventAt, now));
+                                              lidWait, lastChange, lidEvent, lidEventAt, now));
     }
 
     /// <summary>Whole minutes from now to an instant, rounded up and never below zero, or null when
@@ -115,7 +107,7 @@ internal static class SurfaceReader
     /// </summary>
     internal static SurfaceState From(
         AppSettings s, KeepAwakeSession? session, NetworkLocation location, NetworkAdapterInfo adapter,
-        bool standbyRunning, string appVersion, LidWaitSnapshot lidWait, FocusSnapshot focus,
+        bool standbyRunning, string appVersion, LidWaitSnapshot lidWait,
         AppChangeRecord? lastChange, LidEventObservation? lidEvent, DateTimeOffset? lidEventAt,
         DateTimeOffset now) => new(
             TravelOverrideActive:   s.TravelOverrideActive,
@@ -135,17 +127,6 @@ internal static class SurfaceReader
             // Read off the display rather than out of settings: the level lives in the panel, and
             // Windows or a function key moves it without this application hearing anything.
             ScreenBrightness:       ScreenBrightnessService.Current,
-            FocusStage:             focus.Stage,
-            // Absent whenever no session is running, so a machine at rest reports nothing rather
-            // than a countdown of zero.
-            FocusRemainingMinutes:  MinutesUntil(focus.EndsAt, now),
-            FocusSessionMinutes:    s.FocusSessionMinutes,
-            // A running session reports the levers it actually owns; with none running the four
-            // read the defaults the next session would start from.
-            FocusBlocksNetwork:     focus.IsRunning ? focus.BlocksNetwork : s.FocusBlocksNetwork,
-            FocusDimsScreen:        focus.IsRunning ? focus.DimsScreen : s.FocusDimsScreen,
-            FocusCoversScreen:      focus.IsRunning ? focus.CoversScreen : s.FocusCoversScreen,
-            FocusBlocksInput:       focus.IsRunning ? focus.BlocksInput : s.FocusBlocksInput,
             LowBatteryWarning:      s.LowBatteryWarningEnabled,
             LowBatteryLevel:        s.LowBatteryWarningPct,
             HighBatteryWarning:     s.HighBatteryWarningEnabled,
