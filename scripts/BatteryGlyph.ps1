@@ -19,13 +19,13 @@
       3. Helpers\IconGenerator.cs      — the runtime tray icon (C#; cannot share this code).
       4. installer\wizard\*.svg        — design references for the wizard banners only.
 
-    Tests\BrandMarkGeometryTests.cs pins 1-3 together: it parses $BatteryGlyphGeometry below and
-    the SVG's attributes, and probes IconGenerator's own render. Representation 4 is a design
-    reference that nothing generates from, and no test covers it.
+    No test pins 1-3 together or covers representation 4: $BatteryGlyphGeometry below, the SVG's
+    attributes and IconGenerator's own render can drift from each other and from the design
+    reference with nothing catching it.
 
     Representation 3 carries a SECOND height set for the live tray icon (TraySlotHeights), taller
     than the brand's so a 16 px square slot is not half empty. That set is the tray's alone — this
-    file and the vector state the brand's own proportions, and the same test pins the two apart.
+    file and the vector state the brand's own proportions, and no test pins the two apart.
 
     Callers own their own surface (plates, backgrounds, banners, text). This file owns the glyph
     and the palettes, nothing else.
@@ -76,11 +76,10 @@ $BatteryGlyphPalettes = @{
 
 # ── Geometry ──────────────────────────────────────────────────────────────────
 # brand\chargekeeper-icon.svg on its 256-unit reference canvas, one figure per key. Declared as
-# data rather than inlined into the drawing calls because Tests\BrandMarkGeometryTests.cs parses
-# this block and compares every value with the SVG's attributes and with Helpers\IconGenerator.cs.
+# data rather than inlined into the drawing calls, in the shape "Name = <number>", one per line.
 #
-# Keep the shape of each line — "Name = <number>", one per line — or the test stops seeing the key
-# and fails loudly rather than silently passing.
+# No test parses this block or compares its values with the SVG's attributes or with
+# Helpers\IconGenerator.cs; a drift between the three would not be caught.
 #
 # Body, cap and guard share the centre line y = 128; the fill band is the body's inner rect inset
 # by ~14 units on every side. The ink spans y 66..190, i.e. 48 % of the canvas — the mark is

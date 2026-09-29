@@ -28,11 +28,10 @@
   height set — TraySlotHeights — with the vertical figures scaled 1.6x about y = 128. That set is
   the tray's alone; propagating it back here is what made the app, setup and wizard marks chubby.
 
-  Tests\BrandMarkGeometryTests.cs pins this file to IconGenerator's AppIconHeights and to
-  BatteryGlyph.ps1, and separately pins TraySlotHeights, so neither the three representations nor
-  the two height sets can drift or be re-merged silently. It parses the attributes below — keep
-  every figure a literal number on the element it belongs to rather than folding it into a transform
-  or a path.
+  No test pins this file to IconGenerator's AppIconHeights or to BatteryGlyph.ps1, or checks
+  TraySlotHeights against it, so the three representations can drift, and the two height sets can
+  be re-merged, with nothing failing. Every figure below is a literal number on the element it
+  belongs to, rather than folded into a transform or a path.
 
   The runtime renderer also lays a soft dark halo under the guard line, widening with the taskbar's
   light/dark setting so a 16 px frame keeps a readable edge. That is a small-size legibility device,

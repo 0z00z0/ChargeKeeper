@@ -630,7 +630,8 @@ internal static class IconGenerator
     /// theirs via scripts\BatteryGlyph.ps1, but this one runs in-process and cannot shell out to
     /// PowerShell on the tray-icon path. brand\chargekeeper-icon.svg is authoritative for
     /// <see cref="AppIconHeights"/> — change it, then BatteryGlyph.ps1, then here.
-    /// Tests\BrandMarkGeometryTests.cs pins the three together, and pins the two height sets apart.
+    /// No test pins the three together, or the two height sets apart, so a drift or a re-merge
+    /// would go uncaught.
     /// </remarks>
     private static Bitmap RenderMarkBitmap(int size, int percent, Color fill,
                                            ChargeThresholdState? threshold, MarkHeights heights)

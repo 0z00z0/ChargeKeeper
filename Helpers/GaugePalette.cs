@@ -23,7 +23,8 @@ internal static class GaugePalette
 
     // Packed 0xAARRGGBB. Three of these are studio palette colours and read their value from
     // ZeroZero.Brand.Core rather than restating it; the rest are ChargeKeeper's own and the shared
-    // palette does not carry them. PaletteAdoptionTests pins the three against the studio values.
+    // palette does not carry them. No test pins the three against the studio values; a literal
+    // that drifts from the shared constant changes a colour on screen with nothing saying so.
     internal const uint Ember     = 0xFFC2593F;   // deep flat below the draining scale
     internal const uint SageGreen = 0xFF7AB88F;   // comfortable on battery / brand-mark interior
     internal const uint Lavender  = 0xFF9C8FBD;   // near the top of both battery scales

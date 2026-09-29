@@ -6,8 +6,8 @@ namespace ChargeKeeper.Helpers;
 /// The About payload, shared by the standalone <see cref="UI.AboutWindow"/> and the About section
 /// embedded in the Settings window, so neither can drift on wording, version or credits.
 /// <para><see cref="Build"/>'s external-libraries list must match the README's "External libraries"
-/// table: <c>AboutCreditsTests</c> parses that table and asserts row-for-row equality, so editing
-/// one side alone fails the build.</para>
+/// table. No test parses the table and checks it against this list, so the two can drift with
+/// nothing failing.</para>
 /// </summary>
 internal static class AboutContent
 {

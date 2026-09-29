@@ -34,8 +34,8 @@ internal sealed record LidDelayPreset(int Minutes, string? Name = null);
 internal enum TrayIconMode { Arc, Numeric, BrandMark }
 
 /// <summary>The label shown for each <see cref="TrayIconMode"/>, in enum order — the table the tray
-/// menu's style submenu reads rather than restating the strings a third time alongside the Settings
-/// XAML and <c>Tests/TrayIconStyleTests.cs</c>.</summary>
+/// menu's style submenu reads rather than restating the strings a second time alongside the Settings
+/// XAML. No test compares the two.</summary>
 internal static class TrayIconModeLabels
 {
     // "Battery fill" (#132) names what the drawing looks like; the enum member behind it is still
@@ -70,8 +70,8 @@ internal enum TrayDigitStyle
 }
 
 /// <summary>The label shown for each <see cref="TrayDigitStyle"/>, in enum order — the table the tray
-/// menu's digit style submenu reads, matched against the Settings XAML by
-/// <c>Tests/PercentageTrayIconTests.cs</c>.</summary>
+/// menu's digit style submenu reads. <c>Tests/PercentageTrayIconTests.cs</c> pins the stored enum
+/// member names and their order; no test matches this label table against the Settings XAML.</summary>
 internal static class TrayDigitStyleLabels
 {
     private static readonly string[] _labels = ["Standard", "Cropped", "Staggered", "Hours left"];
