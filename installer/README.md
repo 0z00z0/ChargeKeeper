@@ -55,25 +55,6 @@ serves a local manifest test.
     elevated app would pop an unexpected UAC prompt. The new version starts at the next sign-in
     (if "Run at startup" is on) or the next manual launch.
 
-### Upgrading from Lenovo Power Tray (≤ 1.1.x)
-
-The Inno `AppId` was deliberately **kept** across the rename, so running the ChargeKeeper
-installer over an existing Lenovo Power Tray install upgrades it in place:
-
-- The old `LenovoTray.exe` process is killed together with the new one in the same elevated step.
-- The stale `LenovoTray.*` binaries and cached icon files are deleted from the install folder
-  (`[InstallDelete]`).
-- The old scheduled tasks (`LenovoTray AutoStart`, `LenovoTray AutoUpdate`) are removed; tick the
-  corresponding checkboxes to get their ChargeKeeper replacements.
-- Upgraded installs keep living in their old `%LocalAppData%\Programs\Lenovo Power Tray` folder
-  (Inno reuses the recorded install path); fresh installs go to `...\ChargeKeeper`. Cosmetic only.
-- The app migrates `%AppData%\LenovoPowerTray` → `%AppData%\ChargeKeeper` on first launch, so
-  settings and battery history carry over.
-- The **winget identity is new** (`0z00z0.ChargeKeeper`), and nothing upgrades through winget in
-  either direction: neither identity is carried by a winget source, so `winget install` and
-  `winget upgrade` find nothing for either one. The upgrade route is to run the ChargeKeeper
-  installer over the existing install.
-
 ## Installer visual design (wizard art & setup icon)
 
 The installer is a **"made by ZeroZero Software" surface**, so it carries the studio identity —

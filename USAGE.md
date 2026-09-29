@@ -1,8 +1,7 @@
 ﻿# ChargeKeeper
 
 Battery care from the system tray — charge limits, a live battery gauge, and smart standby
-control. Runs on ThinkPad laptops today (formerly published as **Lenovo Power Tray**); built to
-support more hardware over time.
+control. Runs on ThinkPad laptops today; built to support more hardware over time.
 
 ## Features
 
@@ -149,10 +148,6 @@ at the top beside `settings.json`. A version that finds any of the logs or histo
 where earlier versions wrote them, moves them into their subfolder as it starts; a file it cannot
 move, because another program holds it or a file of that name is already in the subfolder, stays
 where it is and the reason goes to `app.log`.
-
-> **Upgrading from Lenovo Power Tray?** On first launch the app automatically moves the old
-> `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper`, so settings and battery history
-> carry over.
 
 The dashboard's collapsible **Settings** expander exposes:
 
@@ -357,11 +352,6 @@ ran `winget upgrade`, and the package is not in a winget source.
 The app stays `requireAdministrator`, so it elevates only at runtime. The single place the installer
 elevates is when "Run at startup" is ticked, to register a `RunLevel=Highest` logon task
 (`ChargeKeeper AutoStart`) — the same task the in-app "Launch at startup" toggle manages.
-
-Upgrading over an existing **Lenovo Power Tray** install works in place: the installer closes the
-old `LenovoTray.exe`, deletes its stale binaries and scheduled tasks, and keeps the recorded
-install folder. Note that the winget package identity changed with the rename, so winget users
-run `winget install 0z00z0.ChargeKeeper` once; the old package ID will not upgrade across the rename.
 
 Building and releasing the installer (needs `winget install JRSoftware.InnoSetup`) is documented in
 **[installer/README.md](installer/README.md)**:

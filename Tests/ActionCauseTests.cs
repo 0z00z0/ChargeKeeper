@@ -45,6 +45,7 @@ public class ActionCauseTests
         ("Services/InputBlock.cs",             "Take"),
         ("Services/InputBlock.cs",             "Release"),
         ("Services/ScriptRunner.cs",           "Start"),
+        ("Services/ChargeControlService.cs",   "SetMode"),
         ("Services/NetworkProfiles.cs",        "SetEnabled"),
     ];
 

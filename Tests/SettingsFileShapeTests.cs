@@ -153,6 +153,24 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Equal(AwakeHoldPolicy.DefaultWarnAfterHours, loaded.AwakeHoldWarningHours);
     }
 
+    /// <summary>A section without the thermal ceiling or the sample rate reads the application's
+    /// defaults, not 0 °C and the fastest rate.</summary>
+    [Fact]
+    public void ThermalCeilingAndSampleRateAbsentFromTheirSectionsReadAsDefaults()
+    {
+        Directory.CreateDirectory(_dir);
+        Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
+
+        var root = System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(File_))!.AsObject();
+        Assert.True(root[SettingsFile.LidCloseKey]!.AsObject().Remove("LidThermalCeilingCelsius"));
+        Assert.True(root[SettingsFile.DiagnosticsKey]!.AsObject().Remove("PerformanceSampleRate"));
+        System.IO.File.WriteAllText(File_, root.ToJsonString());
+
+        var loaded = SettingsService.ReadFrom(File_)!;
+        Assert.Equal(new AppSettings().LidThermalCeilingCelsius, loaded.LidThermalCeilingCelsius);
+        Assert.Equal(PerformanceSampleRates.Default, loaded.PerformanceSampleRate);
+    }
+
     /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what
     /// counts as valid input, it does not remove the guard. Nothing is returned rather than the
     /// section types' own defaults, which are not this application's: handing those back would lower

@@ -14,21 +14,12 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        // Must run before ANYTHING touches %AppData%\ChargeKeeper — a log write, a marker, a settings
-        // read — because Directory.Move refuses an existing destination, and a half-created new
-        // folder would strand the user's settings and battery history in the old one forever.
-        // AppPaths.DataDir is the shared ProductDataPath, which CREATES the folder as it answers, so
-        // this is also the only code allowed to name that folder before AppPaths is first touched.
-        var reportLegacyMigration = MigrateLegacyAppDataFolder(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
-
-        // Also before the first log line: logging creates Logs\app.log, and an app.log still at the
-        // top level could then not be moved onto it.
+        // Before the first log line: logging creates Logs\app.log, and an app.log still at the top
+        // level could then not be moved onto it.
         var layoutMoves = DataFolderLayout.MoveIntoSubfolders(AppPaths.DataDir);
 
         var startup = StartupArgs.Parse(Environment.GetCommandLineArgs());
 
-        reportLegacyMigration?.Invoke();
         // A file left in place is found again at every start, and a watchdog probe starts every five
         // minutes, so a probe reports only what moved.
         DataFolderLayout.Report(layoutMoves, includeLeftInPlace: !startup.IsWatchdogProbe);
@@ -93,31 +84,5 @@ internal static class Program
                 await Task.Delay(200).ConfigureAwait(true);
         }
         return false;
-    }
-
-    /// <summary>
-    /// One-time migration for the Lenovo Power Tray → ChargeKeeper rename: moves
-    /// <c>%AppData%\LenovoPowerTray</c> to <c>%AppData%\ChargeKeeper</c>. Returns the log line to
-    /// write, or null when there is nothing to say.
-    /// </summary>
-    /// <remarks>Returned rather than logged: a log line creates the Logs folder and its app.log, which
-    /// has to wait until <see cref="DataFolderLayout"/> has moved the folder's older files. The
-    /// destination is composed here rather than asked of <see cref="AppPaths"/>, whose answer creates
-    /// the folder and would make the move refuse.</remarks>
-    internal static Action? MigrateLegacyAppDataFolder(string appDataRoot)
-    {
-        try
-        {
-            var oldDir  = Path.Combine(appDataRoot, "LenovoPowerTray");   // legacy name — kept as-is
-            var newDir  = Path.Combine(appDataRoot, AppInfo.Name);
-            if (!Directory.Exists(oldDir) || Directory.Exists(newDir)) return null;
-
-            Directory.Move(oldDir, newDir);
-            return () => AppLog.Info("Migrated legacy %AppData%\\LenovoPowerTray folder to %AppData%\\ChargeKeeper.");
-        }
-        catch (Exception ex)
-        {
-            return () => AppLog.Error("MigrateLegacyAppDataFolder", ex);
-        }
     }
 }

@@ -160,9 +160,6 @@ public partial class App : Application
             CrashDumps.TryDisarmSilentExitMonitor();
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();
-            // After the tasks, never before: the sweep declines while one still starts from the
-            // retired folder, so it has to read what TryEnsureTasks has just written.
-            LegacyInstallSweep.TryRun();
         });
 
         // Must run before any UI is created so the tray menu's native HWND inherits the setting.
@@ -201,9 +198,9 @@ public partial class App : Application
         _windowsReady.TrySetResult();
         PowerLog.Event("Startup gate opened", "windows may now be created");
 
-        // Everything that makes the application useful hangs off this call, and a throw inside it
-        // used to abandon start-up in silence behind a tray icon that looked normal. Whatever
-        // fails, the log and the icon now say the battery is not being watched.
+        // Everything that makes the application useful hangs off this call. Whatever fails, the log
+        // and the icon say the battery is not being watched, rather than start-up stopping in
+        // silence behind a tray icon that looks normal.
         try
         {
             StartMonitoring();
@@ -401,9 +398,8 @@ public partial class App : Application
         // so under load the menu arrives seconds late or not at all.
         //
         // Guarded: the shell refuses the Shell_NotifyIcon registration when it is still coming up
-        // after a boot, and that throw used to abandon the whole of startup. The icon is a way to
-        // reach the app, not what the app is for, so a refusal must not stop the battery being
-        // watched. H.NotifyIcon re-adds the icon itself on the shell's TaskbarCreated broadcast.
+        // after a boot. The icon is a way to reach the app, not what the app is for, so a refusal
+        // must not stop the battery being watched. H.NotifyIcon re-adds the icon itself on the shell's TaskbarCreated broadcast.
         try
         {
             _trayIcon.ForceCreate(enablesEfficiencyMode: false);
@@ -656,10 +652,16 @@ public partial class App : Application
         // while later is the only detector — and leaving _sessionEnding set would mislead a later
         // ProcessExit log line into blaming a shutdown that was cancelled long ago.
         _shutdownCancelledProbe?.Dispose();
+        // An exit from the tray menu in the meantime owns the lid-close action from then on.
         _shutdownCancelledProbe = new System.Threading.Timer(_ =>
         {
-            _sessionEnding = false;
-            LidDelayService.Start();
+            if (_intentionalExit) return;
+            try
+            {
+                _sessionEnding = false;
+                LidDelayService.Start();
+            }
+            catch (Exception ex) { AppLog.Error("ShutdownCancelledProbe", ex); }
         }, null, TimeSpan.FromSeconds(30), System.Threading.Timeout.InfiniteTimeSpan);
     }
 
@@ -705,8 +707,8 @@ public partial class App : Application
                 return;
             }
 
-            // No suspend to pair with, which used to leave the resume with no duration at all. The
-            // clock still holds one: the machine's awake counter stopped while it was away.
+            // No suspend to pair with, so the events give the resume no duration. The clock still
+            // holds one: the machine's awake counter stopped while it was away.
             if (measured is { MachineSlept: true } gap)
                 PowerLog.Say($"{SleepWatch.WakeSentence(gap.Slept, null, levelNow)} Windows sent no " +
                              "matching suspend, so the time away was measured against the clock.");
@@ -1098,8 +1100,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            // Non-fatal, but no longer silent — a swallowed failure used to leave the stale icon in
-            // place with nothing anywhere to say why.
+            // Non-fatal, but logged: a swallowed failure would leave the stale icon in place with
+            // nothing anywhere to say why.
             AppLog.Error("UpdateTrayIcon", ex);
         }
     }
@@ -1730,6 +1732,7 @@ public partial class App : Application
         _performanceSampler?.Dispose();
         PerformanceHistoryService.Flush();
         NetworkLocationService.Stop();
+        _shutdownCancelledProbe?.Dispose();
         LidDelayService.Stop();   // hands the Windows lid-close action back before we go
         ScriptLidTrigger.Stop();
         // Stops the clock only. A running session is deliberately left standing: exiting the

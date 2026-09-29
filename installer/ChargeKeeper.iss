@@ -13,19 +13,8 @@
 #define AppUrl        "https://github.com/0z00z0/ChargeKeeper"
 #define TaskName      "ChargeKeeper AutoStart"
 
-; Legacy names from this app's previous identity ("Lenovo Power Tray", v1.1.x and older).
-; Kept ONLY so an in-place upgrade can kill the old process and clean up its leftovers —
-; see [InstallDelete] and the legacy cleanup in [Code].
-#define LegacyExe          "LenovoTray.exe"
-#define LegacyTaskName     "LenovoTray AutoStart"
-#define LegacyUpdateTask   "LenovoTray AutoUpdate"
-#define LegacyWatchdogTask "LenovoTray Watchdog"
-
-; The install folder an upgrade across the rename is still sitting in. The FINAL COMPONENT of a
-; path, never a whole path. It must stay equal to InstallLocations.LegacyFolderName in Helpers\,
-; as AppName above must stay equal to InstallLocations.ProductFolderName; the test
-; EveryFolderLiteral_AgreesWithTheApplication reads this script and fails if either drifts.
-#define LegacyDirName      "Lenovo Power Tray"
+; AppName is also the install folder's name and must stay equal to
+; InstallLocations.ProductFolderName in Helpers\.
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -35,22 +24,17 @@
 #endif
 
 [Setup]
-; AppId uniquely identifies this app for upgrades/uninstall — do not change it.
-; Deliberately UNCHANGED across the Lenovo Power Tray -> ChargeKeeper rename so existing
-; 1.1.x installs upgrade in place. A new value would orphan every existing install: the old one
-; would never uninstall and both would sit in Apps & features.
+; AppId uniquely identifies this app for upgrades/uninstall — do not change it. A new value would
+; orphan every existing install: the old one would never uninstall and both would sit in Apps &
+; features.
 AppId={{B1F8E4B2-3D7A-4C56-9E2F-7A1C9D5E6F40}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}
-; UsePreviousAppDir=no is what lets an install move OUT of the retired "{#LegacyDirName}" folder.
-; With it left at the default, Inno reads {app} straight from the AppId-recorded uninstall key and
-; a changed DefaultDirName is ignored on every upgrade — which is why such installs never moved.
-; Turning it off hands the choice to ResolveInstallDir in [Code], which returns the recorded
-; directory UNCHANGED unless its final component is the retired name. So a directory the user chose
-; for themselves is still honoured; only the retired one is replaced.
+; UsePreviousAppDir=no hands the choice of {app} to ResolveInstallDir in [Code], which returns the
+; directory the previous install recorded, or the default on a fresh install.
 ; Consequence handled in [Code]: DisableDirPage's automatic hiding of the directory page on an
 ; upgrade keys off UsePreviousAppDir, so ShouldSkipPage restores it.
 UsePreviousAppDir=no
@@ -143,27 +127,6 @@ BeveledLabel=ZeroZero Software - Small tools. Zero bloat.
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-[InstallDelete]
-; Upgrades from Lenovo Power Tray (<= 1.1.x): the assembly was renamed LenovoTray ->
-; ChargeKeeper, so the old binaries would otherwise linger next to the new ones inside
-; the old install folder (same AppId -> same {app}). Also drop the old cached tray icon.
-Type: files; Name: "{app}\{#LegacyExe}"
-Type: files; Name: "{app}\LenovoTray.dll"
-Type: files; Name: "{app}\LenovoTray.pri"
-Type: files; Name: "{app}\LenovoTray.deps.json"
-Type: files; Name: "{app}\LenovoTray.runtimeconfig.json"
-Type: files; Name: "{app}\LenovoTray.pdb"
-; The old tray icon was generated into {app} under two names across its life: plain
-; "LenovoRed.ico" (1.0.0) and version-suffixed "LenovoRed-v2/-v4.ico" (1.0.10 - 1.1.x). The
-; suffixed pattern alone left the plain file behind on the earliest installs, so match both.
-Type: files; Name: "{app}\LenovoRed*.ico"
-; Start-menu leftovers from the old name, both pointing at the deleted LenovoTray.exe: the
-; loose shortcut an "All apps" install left, and the one inside the program group older
-; versions created. The group folder goes only if nothing else is left in it.
-Type: files; Name: "{autoprograms}\Lenovo Power Tray.lnk"
-Type: files; Name: "{autoprograms}\Lenovo Power Tray\Lenovo Power Tray.lnk"
-Type: dirifempty; Name: "{autoprograms}\Lenovo Power Tray"
-
 [Icons]
 ; Per-user "All apps" Start-menu entry. IconFilename points at the exe itself (which embeds
 ; the icon via <ApplicationIcon> in the csproj) — same pattern as the desktop shortcut below
@@ -199,8 +162,7 @@ const
   WatchdogTaskName = 'ChargeKeeper Watchdog';
 
   // Where Inno records this install's own directory. The GUID is AppId's, repeated because AppId
-  // is the one line in this file that must never be restructured; the test
-  // TheUninstallKey_NamesTheSameGuidAsAppId reads both and fails if they disagree.
+  // is the one line in this file that must never be restructured; the two must agree.
   UninstallKey =
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B1F8E4B2-3D7A-4C56-9E2F-7A1C9D5E6F40}_is1';
 
@@ -213,22 +175,6 @@ var
   // The directory the previous install recorded, read before Setup overwrites the uninstall key.
   // Empty on a fresh install.
   PreviousAppDir: string;
-
-  // True when this run moves an installation out of the retired product folder.
-  MigratingFromLegacy: Boolean;
-
-  // Both task definitions as they stood before this run, exported in PrepareToInstall. Empty when
-  // the task did not exist or could not be read.
-  AutoStartXmlFile, WatchdogXmlFile: string;
-
-// True when the FINAL COMPONENT of Dir is the retired product folder. Matches
-// InstallLocations.IsLegacyInstallDir in the app: the name, never a whole path, so an install
-// under a non-default parent is still recognised.
-function IsLegacyDir(const Dir: string): Boolean;
-begin
-  Result := (Dir <> '')
-        and (CompareText(ExtractFileName(RemoveBackslashUnlessRoot(Dir)), '{#LegacyDirName}') = 0);
-end;
 
 // True when the application started this run for its own update. That run is silent like a winget
 // or scheduled one and cannot be told from them by WizardSilent, yet it differs in every way that
@@ -244,21 +190,13 @@ function InitializeSetup(): Boolean;
 begin
   PreviousAppDir := '';
   RegQueryStringValue(HKCU, UninstallKey, 'Inno Setup: App Path', PreviousAppDir);
-
-  // Interactive runs, and the application's own update. Re-pointing an RL HIGHEST task needs
-  // elevation, and an unattended run has nobody to answer the consent prompt — the same stance this
-  // file already takes for the Lenovo-era task cleanup. A silent upgrade installs where it already
-  // is and leaves the move to the next interactive run. The application's own route is silent too,
-  // but it is started from the elevated application and raises no prompt at all, so it migrates.
-  MigratingFromLegacy := IsLegacyDir(PreviousAppDir)
-                     and ((not WizardSilent()) or StartedByTheApplication());
   Result := True;
 end;
 
 // Where this run installs. Called by DefaultDirName, so it runs after InitializeSetup.
 function ResolveInstallDir(Param: string): string;
 begin
-  if (PreviousAppDir = '') or MigratingFromLegacy then
+  if PreviousAppDir = '' then
     Result := ExpandConstant('{autopf}\{#AppName}')
   else
     // A directory the user chose for themselves. UsePreviousAppDir=no would otherwise discard it.
@@ -351,7 +289,7 @@ end;
 // Retry block. Self-contained on purpose: a presence poll, an elevated termination attempt and the
 // loop around them, every one of them named by executable, so another requireAdministrator
 // single-instance installer can lift the three routines whole. Nothing beyond {#AppName} and
-// {#AppExe} is baked in; the legacy executable and the legacy tasks stay outside it.
+// {#AppExe} is baked in.
 // ---------------------------------------------------------------------------
 
 // True once ExeName is gone. taskkill returns as soon as termination is REQUESTED, and the consent
@@ -455,42 +393,18 @@ begin
                      False);
 end;
 
-function LegacyTaskExists(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  // The old "Lenovo Power Tray" install registered an elevated logon task pointing at the
-  // now-renamed exe; querying it needs no elevation.
-  Result := Exec('schtasks.exe', '/Query /TN "{#LegacyTaskName}"', '',
-                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-end;
-
-function LegacyWatchdogExists(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  // Old-name watchdog task (<= 1.1.x). Left behind, it would probe for the deleted
-  // LenovoTray.exe every 5 minutes forever; querying it needs no elevation.
-  Result := Exec('schtasks.exe', '/Query /TN "{#LegacyWatchdogTask}"', '',
-                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-end;
-
 procedure StopAppAndRemoveStartupTask();
 var
   ResultCode: Integer;
 begin
   // Stopping the running (elevated) app and deleting its RL HIGHEST logon + watchdog tasks all
   // need admin, so do them together in one elevated cmd -> at most ONE UAC prompt on uninstall.
-  // Watchdog tasks go FIRST: they relaunch a missing app exe, so they must be gone before the
-  // taskkill or they could resurrect the app mid-uninstall. The legacy Lenovo Power Tray
-  // exe/tasks are included as free extra cleanup for installs that were upgraded across the
-  // rename; all are no-ops on fresh ChargeKeeper installs.
+  // The watchdog task goes FIRST: it relaunches a missing app exe, so it must be gone before the
+  // taskkill or it could resurrect the app mid-uninstall.
   ShellExec('runas', ExpandConstant('{cmd}'),
             '/C schtasks /Delete /TN "' + WatchdogTaskName + '" /F'
-            + ' & schtasks /Delete /TN "{#LegacyWatchdogTask}" /F'
-            + ' & taskkill /IM "{#AppExe}" /F & taskkill /IM "{#LegacyExe}" /F'
-            + ' & schtasks /Delete /TN "' + TaskName + '" /F'
-            + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F',
+            + ' & taskkill /IM "{#AppExe}" /F'
+            + ' & schtasks /Delete /TN "' + TaskName + '" /F',
             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -512,8 +426,7 @@ begin
     // The elevated logon task exists -> run it on demand to start the app elevated with NO extra
     // UAC prompt (scheduled tasks bypass the consent prompt).
     Exec('schtasks.exe', '/Run /TN "' + TaskName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    // BUT: a task created by an older installer (or the legacy-migration branch in ssInstall) via
-    // plain `schtasks /Create` carries the schtasks default DisallowStartIfOnBatteries=true until
+    // BUT: a task created by RegisterStartupTask via plain `schtasks /Create` carries the schtasks default DisallowStartIfOnBatteries=true until
     // the app rewrites it power-safe on first run. On battery the scheduler ACCEPTS the /Run but
     // silently declines to launch the action — the exact "app didn't start after install" report.
     // /Run's own exit code is 0 either way, so verify the app actually came up instead: poll
@@ -531,40 +444,11 @@ begin
   ShellExec('runas', ExpandConstant('{app}\{#AppExe}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
-// Exports one task's whole definition to a file under {tmp}, and returns that path whether or not
-// anything was written: a task that does not exist leaves the file EMPTY (schtasks reports the
-// miss on stderr), and the re-point script reads empty as "no such task". Redirected through cmd
-// rather than captured, because schtasks writes /XML output as UTF-16 and only a file keeps it
-// that way — which is also the only form schtasks /Create /XML reads back. Querying needs no
-// elevation.
-function ExportTaskXml(const TaskTitle, FileTitle: string): string;
-var
-  ResultCode: Integer;
-begin
-  Result := ExpandConstant('{tmp}\') + FileTitle + '.xml';
-  Exec(ExpandConstant('{cmd}'),
-       '/C schtasks /Query /TN "' + TaskTitle + '" /XML ONE > "' + Result + '"',
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-end;
-
-// Captures BOTH definitions as the app left them, before this run touches either. ssPostInstall
-// puts the same definitions back with only their path changed, so everything the app configured —
-// the power-safe settings above all — survives the move.
-procedure ExportTaskDefinitions();
-begin
-  AutoStartXmlFile := ExportTaskXml(TaskName, 'autostart-task');
-  WatchdogXmlFile  := ExportTaskXml(WatchdogTaskName, 'watchdog-task');
-end;
-
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ResultCode: Integer;
-  LegacyWasRunning, LegacyAutoStart: Boolean;
-  Cmd: string;
 begin
   // Kill any running instance BEFORE files are replaced so nothing is locked.
   // ChargeKeeper.exe is requireAdministrator (elevated), so a non-elevated taskkill is
-  // refused with "Access is denied". Elevate via runas — one UAC prompt, then the kill
+  // refused with "Access is denied". Elevate via runas -- one UAC prompt, then the kill
   // succeeds and the install continues without locked-file errors.
   //
   // This runs from PrepareToInstall, not ssInstall. Order measured from a Setup log:
@@ -573,202 +457,24 @@ begin
   // elevated app and takes Setup down with it before anything installs (issue #119); it is also
   // the only step that can stop Setup with a readable message, as the return below does.
   //
-  // Upgrades from Lenovo Power Tray (<= 1.1.x): the old LenovoTray.exe would also hold
-  // file locks in the shared {app} folder, so it is killed in the SAME elevated cmd, and
-  // — since we are elevated anyway — the old elevated tasks are cleaned up for free.
-  // The legacy Watchdog goes FIRST (it would otherwise try to resurrect the old exe), and
-  // if the user had opted into autostart (legacy AutoStart task exists), that choice is
-  // MIGRATED: a "{#TaskName}" task pointing at the new exe is created in the same cmd
-  // (the app re-registers it with power-safe XML at first startup). An interactive install
-  // also elevates when only stale legacy tasks exist; a silent one never adds a prompt.
-  // {app} is already resolved here — the directory page runs well before this step.
-  //
   // The application's own update comes through here with its exit already requested, so that exit
-  // is waited for FIRST — before anything reads the process or elevates to end it. Everything below
+  // is waited for FIRST -- before anything reads the process or elevates to end it. Everything below
   // then sees the ordinary case of an application that is simply not running.
   WaitForTheStartingApplicationToExit();
-  Result           := '';
-  WasRunning       := AppIsRunning();
-  LegacyWasRunning := ProcessIsRunning('{#LegacyExe}');
-  LegacyAutoStart  := LegacyTaskExists();
-  if MigratingFromLegacy then ExportTaskDefinitions();
-  if WasRunning or LegacyWasRunning or MigratingFromLegacy
-     or ((LegacyAutoStart or LegacyWatchdogExists()) and not WizardSilent()) then
-  begin
-    Cmd := '/C schtasks /Delete /TN "{#LegacyWatchdogTask}" /F';
-    if MigratingFromLegacy then
-      // The Watchdog must be gone for the whole of this run. A probe firing between the taskkill
-      // above and the re-point in ssPostInstall would start the OLD exe, which then holds the old
-      // folder open and re-points both tasks back at itself. Deleting is recoverable — the app
-      // re-registers a missing Watchdog on its next start — whereas DISABLING would not be: a
-      // disabled task still matches the app's own definition, so the app would leave it disabled
-      // for good. ssPostInstall puts the exported definition back, re-pointed.
-      Cmd := Cmd + ' & schtasks /Delete /TN "' + WatchdogTaskName + '" /F';
-    Cmd := Cmd
-         + ' & taskkill /F /IM "{#AppExe}" & taskkill /F /IM "{#LegacyExe}"'
-         + ' & schtasks /Delete /TN "{#LegacyTaskName}" /F';
-    if LegacyAutoStart then
-      Cmd := Cmd + ' & schtasks /Create /TN "' + TaskName + '" /TR "\"'
-           + ExpandConstant('{app}\{#AppExe}') + '\"" /SC ONLOGON /RL HIGHEST /F';
-    ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
-  // Either exe having been running qualifies the silent-upgrade restart in ssPostInstall.
-  WasRunning := WasRunning or LegacyWasRunning;
-
-  // The legacy "LenovoTray AutoUpdate" logon task is non-elevated, so it can always be
-  // removed without a prompt; harmless when it doesn't exist.
-  Exec('schtasks.exe', '/Delete /TN "{#LegacyUpdateTask}" /F', '',
-       SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  WasRunning := AppIsRunning();
+  if WasRunning then StopProcessElevated('{#AppExe}');
 
   // taskkill returns once termination is requested, and the UAC prompt above can be declined
   // outright. Confirm the process is actually gone: with nothing left to unlock the install can
   // proceed, otherwise offer a retry, so the application can be exited from its own icon and the
   // installation carried on in the same run rather than started over. Only when that is declined
   // does the terminal message stop Setup, rather than failing mid-copy on a locked exe.
-  //
-  // The legacy executable is confirmed separately, after the current one: it is a migration
-  // concern, and keeping it out of the loop keeps the block above liftable as it stands.
   Result := ConfirmProcessHasExited('{#AppExe}');
-  if Result = '' then
-    Result := ConfirmProcessHasExited('{#LegacyExe}');
 
   // Setup stops here on a non-empty result, and in an unattended run it stops showing nothing at
   // all. Leave the reason on disk where the next start reads it, so the one failure this flow can
   // have is stated to somebody rather than only counted in an exit code nothing is left to read.
   if (Result <> '') and StartedByTheApplication() then RecordTheRefusal();
-end;
-
-// The re-point script. It rewrites each exported definition so that ONLY the directory changes —
-// every setting the app configured, above all the power-safe ones, is carried across untouched —
-// and then VERIFIES the outcome by reading the live tasks back, because the folder deletion that
-// follows depends on it. Exit code 0 means neither task starts from the old directory any more.
-//
-// Written to a file and run through PowerShell because rewriting one element of a task definition
-// is beyond schtasks alone. If a machine policy refuses to run the script, the non-zero exit keeps
-// the old directory, which is the safe outcome.
-//
-// ASCII only, and every path arrives as an ARGUMENT rather than embedded text: the file is written
-// in the system's ANSI code page, so a path outside it would be mangled in the script but survives
-// intact on the command line.
-function BuildRepointScript(): string;
-begin
-  Result :=
-    'param([string]$OldDir,[string]$NewDir,[string]$AutoXml,[string]$WatchXml)' + #13#10 +
-    '$ErrorActionPreference = ''Stop''' + #13#10 +
-    '$auto = ''' + TaskName + '''' + #13#10 +
-    '$wdog = ''' + WatchdogTaskName + '''' + #13#10 +
-    '$newExe = Join-Path $NewDir ''{#AppExe}''' + #13#10 +
-    '' + #13#10 +
-    '# Only the leading directory changes, and it appears once. No regular expression, so a path' + #13#10 +
-    '# holding characters that are special to one cannot corrupt the result.' + #13#10 +
-    'function Swap([string]$s) {' + #13#10 +
-    '  if (-not $s) { return $s }' + #13#10 +
-    '  $i = $s.IndexOf($OldDir, [StringComparison]::OrdinalIgnoreCase)' + #13#10 +
-    '  if ($i -lt 0) { return $s }' + #13#10 +
-    '  return $s.Substring(0, $i) + $NewDir + $s.Substring($i + $OldDir.Length)' + #13#10 +
-    '}' + #13#10 +
-    '' + #13#10 +
-    '# A task that did not exist left an EMPTY export, which must not be mistaken for one that did.' + #13#10 +
-    'function HasContent([string]$f) { return ($f -and (Test-Path $f) -and ((Get-Item $f).Length -gt 0)) }' + #13#10 +
-    '' + #13#10 +
-    'function Repoint([string]$name, [string]$file) {' + #13#10 +
-    '  if (-not (HasContent $file)) { return $false }' + #13#10 +
-    '  $doc = New-Object System.Xml.XmlDocument' + #13#10 +
-    '  $doc.PreserveWhitespace = $true' + #13#10 +
-    '  $doc.LoadXml((Get-Content -Raw -Path $file))' + #13#10 +
-    '  $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)' + #13#10 +
-    '  $ns.AddNamespace(''t'', ''http://schemas.microsoft.com/windows/2004/02/mit/task'')' + #13#10 +
-    '  foreach ($n in $doc.SelectNodes(''//t:Exec/t:Command'', $ns)) { $n.InnerText = Swap $n.InnerText }' + #13#10 +
-    '  foreach ($n in $doc.SelectNodes(''//t:Exec/t:WorkingDirectory'', $ns)) { $n.InnerText = Swap $n.InnerText }' + #13#10 +
-    '  $out = Join-Path $env:TEMP (''ck-'' + [guid]::NewGuid().ToString(''N'') + ''.xml'')' + #13#10 +
-    '  $doc.Save($out)' + #13#10 +
-    '  & schtasks.exe /Create /TN $name /XML $out /F | Out-Null' + #13#10 +
-    '  $ok = ($LASTEXITCODE -eq 0)' + #13#10 +
-    '  Remove-Item $out -Force -ErrorAction SilentlyContinue' + #13#10 +
-    '  return $ok' + #13#10 +
-    '}' + #13#10 +
-    '' + #13#10 +
-    '$ok = $false' + #13#10 +
-    'try { $ok = Repoint $auto $AutoXml } catch { $ok = $false }' + #13#10 +
-    '# Fallback, and only where a startup task really existed: a plain task at the correct path.' + #13#10 +
-    '# It loses the power-safe settings until the app repairs them, which happens seconds later —' + #13#10 +
-    '# the installer launches the app at the end of this same run.' + #13#10 +
-    'if (-not $ok -and (HasContent $AutoXml)) {' + #13#10 +
-    '  $tr = [char]34 + $newExe + [char]34' + #13#10 +
-    '  & schtasks.exe /Create /TN $auto /TR $tr /SC ONLOGON /RL HIGHEST /F | Out-Null' + #13#10 +
-    '}' + #13#10 +
-    '# Best effort: a Watchdog that cannot be restored is re-registered by the app on its next' + #13#10 +
-    '# start, and its absence resurrects nothing in the meantime.' + #13#10 +
-    'try { [void](Repoint $wdog $WatchXml) } catch { }' + #13#10 +
-    '' + #13#10 +
-    '# The post-condition, read back off the live tasks rather than inferred from exit codes.' + #13#10 +
-    '# The separator matters: without it a NEIGHBOURING folder whose name merely starts the same' + #13#10 +
-    '# way would read as the old one.' + #13#10 +
-    '$bad = 0' + #13#10 +
-    '$oldPrefix = $OldDir.ToLowerInvariant() + [char]92' + #13#10 +
-    'foreach ($n in @($auto, $wdog)) {' + #13#10 +
-    '  $t = Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue' + #13#10 +
-    '  if ($t) { foreach ($a in @($t.Actions)) {' + #13#10 +
-    '    $p = "$($a.Execute)".Trim([char]34)' + #13#10 +
-    '    if ($p -and $p.ToLowerInvariant().StartsWith($oldPrefix)) { $bad = 1 }' + #13#10 +
-    '  } }' + #13#10 +
-    '}' + #13#10 +
-    'exit $bad' + #13#10;
-end;
-
-// Points both tasks at the new directory. Elevated, because the startup task runs RL HIGHEST — one
-// UAC prompt, or none at all when Setup was started by the already-elevated app.
-function RepointTasks(): Boolean;
-var
-  ScriptFile, Params: string;
-  ResultCode: Integer;
-begin
-  Result := False;
-  ScriptFile := ExpandConstant('{tmp}\repoint-tasks.ps1');
-  if not SaveStringToFile(ScriptFile, BuildRepointScript(), False) then exit;
-
-  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"'
-          + ' "' + RemoveBackslashUnlessRoot(PreviousAppDir) + '"'
-          + ' "' + RemoveBackslashUnlessRoot(ExpandConstant('{app}')) + '"'
-          + ' "' + AutoStartXmlFile + '" "' + WatchdogXmlFile + '"';
-  Result := ShellExec('runas', 'powershell.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-        and (ResultCode = 0);
-end;
-
-procedure RemoveLegacyInstallDir();
-var
-  Dir, Exe: string;
-begin
-  Dir := RemoveBackslashUnlessRoot(PreviousAppDir);
-  if DelTree(Dir, True, True, True) then
-  begin
-    Log('Migration: old install directory removed.');
-    exit;
-  end;
-
-  // Something in there is still open. The binary must not survive in a startable state: a running
-  // image cannot be deleted, but it CAN be renamed, and a renamed path starts nothing.
-  Exe := Dir + '\{#AppExe}';
-  if FileExists(Exe) and not DeleteFile(Exe) then
-    RenameFile(Exe, Exe + '.migrated');
-
-  if DelTree(Dir, True, True, True) then
-    Log('Migration: old install directory removed on the second pass.')
-  else
-    Log('Migration: old install directory could not be fully removed; its executable is gone or renamed.');
-end;
-
-// Every one of these must hold before anything is removed: this run is a migration, the recorded
-// directory really carries the retired name, it is NOT the directory just installed into, and the
-// new executable is on disk. The third guard is the one that matters most — without it a
-// mis-resolved directory would delete the installation that was just written.
-function LegacyMigrationCanProceed(): Boolean;
-begin
-  Result := MigratingFromLegacy
-        and IsLegacyDir(PreviousAppDir)
-        and (CompareText(RemoveBackslashUnlessRoot(PreviousAppDir),
-                         RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0)
-        and FileExists(ExpandConstant('{app}\{#AppExe}'));
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -777,19 +483,6 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    // Before everything else in this step: RegisterStartupTask and LaunchApp below both act on the
-    // startup task, and must see it already naming the new directory.
-    if LegacyMigrationCanProceed() then
-    begin
-      if RepointTasks() then
-        RemoveLegacyInstallDir()
-      else
-        // Neither the definition-preserving route nor the plain fallback left the startup task
-        // pointing at the new directory. The old one stays: an installation whose startup task
-        // names a binary that still exists keeps working, one that names a deleted binary does not.
-        Log('Migration: the scheduled tasks could not be re-pointed — old install directory kept.');
-    end;
-
     if WizardIsTaskSelected('runstartup') then RegisterStartupTask();
     // Clears the winget logon task earlier versions created. The app checks GitHub itself.
     RemoveAutoUpdateTask();

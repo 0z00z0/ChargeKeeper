@@ -9,6 +9,16 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.9.0
+
+- Pressing "Charge to 100 % once" again while a lift is already running changes nothing, instead of
+  losing the charge limits the lift was due to put back.
+- A script's body is written where only an elevated process can change it before it runs, and a
+  script that starts a program which keeps running no longer holds its own run open.
+- Several timing edge cases in script triggers, keep-awake, network detection, the Smart Charge
+  mode buttons and the preset sliders were fixed, and code kept only for upgrading from the product's
+  pre-rename version was removed.
+
 ## 2.8.0
 
 - When the MQTT connection fails after the broker's certificate was accepted, for example because a

@@ -109,18 +109,14 @@ internal static class CrashDumps
         else              TryDisarmLocalDumps();
     }
 
-    /// <summary>This app's pre-rename exe name. Its LocalDumps registration is still armed on every
-    /// upgraded machine, and must go before the shared LocalDumps root can be seen as empty.</summary>
-    private const string LegacyExeName = "LenovoTray.exe";
-
     /// <summary>How many minidumps WER keeps, and how many the start-up sweep leaves.</summary>
     private const int RetainedDumps = 5;
 
     private static readonly AppLogSink Log = new();
 
-    /// <summary>The shared LocalDumps registration: it arms and disarms this exe's key, sweeps the
-    /// legacy one, and drops the shared root once empty — its mere existence turns WER dump
-    /// collection on machine-wide, for every application.</summary>
+    /// <summary>The shared LocalDumps registration: it arms and disarms this exe's key and drops the
+    /// shared root once empty — its mere existence turns WER dump collection on machine-wide, for
+    /// every application.</summary>
     private static DumpRegistration Registration => new(Registry.LocalMachine, Log);
 
     private const string IfeoKey =
@@ -145,16 +141,14 @@ internal static class CrashDumps
         }
     }
 
-    /// <summary>Removes this exe's WER LocalDumps registration, the legacy one, and the shared parent
-    /// when that is left empty — never while another app's registration still lives there. Never
-    /// throws; idempotent.</summary>
+    /// <summary>Removes this exe's WER LocalDumps registration, and the shared parent when that is
+    /// left empty — never while another app's registration still lives there. Never throws;
+    /// idempotent.</summary>
     internal static void TryDisarmLocalDumps()
     {
         try
         {
-            var registration = Registration;
-            registration.Disarm(ExeName);
-            registration.RemoveResidue(LegacyExeName);
+            Registration.Disarm(ExeName);
         }
         catch (Exception ex)
         {
@@ -162,7 +156,7 @@ internal static class CrashDumps
         }
     }
 
-    /// <summary>Removes the SilentProcessExit monitor left behind by earlier versions, clearing its
+    /// <summary>Removes any SilentProcessExit monitor registered for this exe, clearing its
     /// GlobalFlag bit and dropping the IFEO subkey when that leaves it empty. The monitor writes a
     /// minidump on every exit of the exe, watchdog probes included. Never throws; idempotent.</summary>
     internal static void TryDisarmSilentExitMonitor()
@@ -222,7 +216,6 @@ internal static class CrashDumps
 
             // A dump still held open by WER is logged and left for next time.
             DumpRetention.Prune(dumpDir, ExeName, keepNewest, Log);
-            DumpRetention.Prune(dumpDir, LegacyExeName, keepNewest, Log);
         }
         catch (Exception ex)
         {

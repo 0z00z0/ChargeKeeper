@@ -78,9 +78,22 @@ internal sealed class NetworkScriptWatcher
 
     private void OnSettleElapsed()
     {
-        IReadOnlyList<NetworkProfileTransition> fired;
-        lock (_gate) fired = _transitions.Expire(DateTimeOffset.Now);
-        Run(fired);
+        // Guarded: an exception escaping this raw timer thread ends the process.
+        try
+        {
+            IReadOnlyList<NetworkProfileTransition> fired;
+            lock (_gate)
+            {
+                fired = _transitions.Expire(DateTimeOffset.Now);
+                // A timer that fired ahead of the clock leaves the leave held; arm for what remains.
+                ArmSettleTimer();
+            }
+            Run(fired);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("NetworkScriptWatcher.OnSettleElapsed", ex);
+        }
     }
 
     private static string? ProfileIdAt(NetworkLocation location) =>

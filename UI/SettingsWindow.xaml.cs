@@ -46,9 +46,9 @@ internal sealed partial class SettingsWindow : Window
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
     private bool _updating;
 
-    // Every preset row's commit-debounce timer, tracked so one left running after its row is
-    // discarded can be stopped before it fires against a detached row or a closed window.
-    private readonly List<DispatcherTimer> _presetDebounceTimers = [];
+    // Every preset row's commit-debounce timer with the commit it holds back, tracked so a pending
+    // edit is committed before its row is discarded or the window closes.
+    private readonly List<(DispatcherTimer Timer, Action Commit)> _presetDebounceTimers = [];
 
     // The six saved-value lists, all on the one shared mechanism. Two of them are the same network
     // profiles rendered on both pages. Assigned in the constructor, before anything loads a page.
@@ -346,7 +346,7 @@ internal sealed partial class SettingsWindow : Window
         FlushScriptEdits();
         // Same reason: the slider's last position is not yet on the display while the debounce runs.
         if (_screenBrightnessDebounce.IsEnabled) ApplyScreenBrightness();
-        StopAllPresetDebounceTimers();
+        FlushPresetEdits();
 
         // Static events, instance handlers: without these the closed window stays reachable from
         // the services for the process's life and keeps touching a torn-down UI tree.
@@ -392,10 +392,19 @@ internal sealed partial class SettingsWindow : Window
         finally { _updating = false; }
     }
 
-    private void StopAllPresetDebounceTimers()
+    /// <summary>Commits every preset edit still waiting on its debounce and stops the timers, before a
+    /// close or a rebuild discards the rows. The list is emptied first: a commit that renames a preset
+    /// rebuilds the rows, and the new rows' timers must survive that.</summary>
+    private void FlushPresetEdits()
     {
-        foreach (var t in _presetDebounceTimers) t.Stop();
+        var pending = _presetDebounceTimers.ToList();
         _presetDebounceTimers.Clear();
+        foreach (var (timer, commit) in pending)
+        {
+            if (!timer.IsEnabled) continue;
+            timer.Stop();
+            commit();
+        }
     }
 
     private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -565,17 +574,9 @@ internal sealed partial class SettingsWindow : Window
         if (_suppressChargeModeEvent) return;
         if (ChargeModeRadios.SelectedItem is not RadioButton { Tag: string id }) return;
 
-        if (!ChargeThresholdService.SetMode(id))
-        {
-            // Write refused. Snap the UI back to what the device reports rather than leaving a
-            // selection that lies.
-            AppLog.Info($"Charge mode write refused by firmware: {id}");
-            BuildChargeModeRadios();
-            return;
-        }
-
-        // Re-read rather than trusting the write: a successful write can still be overridden by the
-        // firmware's own adaptive logic.
+        // Re-read whatever the outcome: a refused write must not leave a selection that lies, and a
+        // successful one can still be overridden by the firmware's own adaptive logic.
+        ChargeControlService.SetMode(id, ActionCause.SettingsPage("Smart Charge"));
         BuildChargeModeRadios();
     }
 
@@ -1297,9 +1298,9 @@ internal sealed partial class SettingsWindow : Window
 
     private void RebuildPresetRows()
     {
-        // Every existing row is about to be discarded — stop its debounce timer first, or a drag
-        // still settling can fire afterwards and commit a stale value against a detached row.
-        StopAllPresetDebounceTimers();
+        // Every existing row is about to be discarded: a drag still settling is committed now rather
+        // than lost, and no timer is left to fire against a detached row.
+        FlushPresetEdits();
 
         // Read once here rather than per row: the vendor read blocks.
         _thresholdState = ChargeThresholdService.Read();
@@ -1405,8 +1406,8 @@ internal sealed partial class SettingsWindow : Window
         // ValueChanged would flash an error for each intermediate sub-gap position during a drag.
         var debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         // Stays tracked for the row's whole life: un-tracking here would let the next ValueChanged
-        // re-start a timer StopAllPresetDebounceTimers can no longer reach.
-        _presetDebounceTimers.Add(debounce);
+        // re-start a timer FlushPresetEdits can no longer reach.
+        _presetDebounceTimers.Add((debounce, () => CommitPresetRow(presetName, nameBox, range, row)));
         debounce.Tick += (_, _) =>
         {
             debounce.Stop();

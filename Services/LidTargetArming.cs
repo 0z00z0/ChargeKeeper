@@ -28,10 +28,10 @@ internal enum LidTargetArm
 /// seeing is testable without closing a lid.
 /// </summary>
 /// <remarks>
-/// A target that is configured but never armed used to produce no entry at all, which is
-/// indistinguishable in the trail from one that armed and is quietly holding. The two have opposite
-/// answers to "did the battery target do anything", so every outcome is recorded, including the
-/// ones where nothing was armed.
+/// Every outcome is recorded, including the ones where nothing was armed. A target configured but
+/// never armed would otherwise leave no entry, indistinguishable in the trail from one that armed
+/// and is quietly holding, and the two have opposite answers to "did the battery target do
+/// anything".
 /// </remarks>
 internal static class LidTargetArming
 {

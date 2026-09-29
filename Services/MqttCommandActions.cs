@@ -118,20 +118,10 @@ internal static class ChargeThresholdCommands
 /// callback — which is where the module runs the work a verdict carries.</summary>
 internal sealed class ChargeControlActions : IChargeControlActions
 {
-    // A fresh device read: the app's cached snapshot only refreshes on a battery tick, so two queued
-    // commands would both see the pre-write pair. Null in tests, which fall back to a live read.
-    private readonly Func<(int Start, int Stop)?>? _currentThresholds;
-
-    public ChargeControlActions(Func<(int Start, int Stop)?>? currentThresholds = null)
-        => _currentThresholds = currentThresholds;
-
+    // A fresh device read: a cached snapshot refreshes only on a battery tick, so two queued commands
+    // would both see the pre-write pair.
     public (int Start, int Stop) CurrentThresholds()
     {
-        if (_currentThresholds is { } provider)
-            return provider.Invoke() is { } cached && IsValidPair(cached.Start, cached.Stop)
-                ? cached
-                : DefaultThresholds();
-
         var s = ChargeThresholdService.Read();
         if (s is not null && IsValidPair(s.Start, s.Stop))
             return (s.Start, s.Stop);

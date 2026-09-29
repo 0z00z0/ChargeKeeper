@@ -166,7 +166,8 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(8)] public int                       LidDischargeTargetPercent { get; set; }
         [JsonPropertyOrder(9)] public List<LidDischargeTarget>  LidDischargePresets       { get; set; } = [];
         [JsonPropertyOrder(10)] public bool  LidThermalCeilingEnabled { get; set; }
-        [JsonPropertyOrder(11)] public int   LidThermalCeilingCelsius { get; set; }
+        // Nullable: a document without the key would otherwise read 0 °C, clamped to the lowest ceiling.
+        [JsonPropertyOrder(11)] public int?  LidThermalCeilingCelsius { get; set; }
         // The early sleep waiting to be reported at the next wake. State rather than a setting, so
         // it trails the visible rows with the saved power-scheme values.
         [JsonPropertyOrder(12)] public double?         LidThermalSleptAtCelsius { get; set; }
@@ -256,7 +257,8 @@ internal sealed class SettingsFile
     internal sealed class DiagnosticsGroup
     {
         [JsonPropertyOrder(1)] public bool                  PerformanceGraphEnabled { get; set; }
-        [JsonPropertyOrder(2)] public PerformanceSampleRate PerformanceSampleRate   { get; set; }
+        // Nullable: a document without the key would otherwise read the first member, the fastest rate.
+        [JsonPropertyOrder(2)] public PerformanceSampleRate? PerformanceSampleRate  { get; set; }
     }
 
     internal sealed class AppearanceGroup
@@ -438,7 +440,7 @@ internal sealed class SettingsFile
         LidDischargeTargetPercent = LidClose.LidDischargeTargetPercent,
         LidDischargePresets       = LidClose.LidDischargePresets,
         LidThermalCeilingEnabled  = LidClose.LidThermalCeilingEnabled,
-        LidThermalCeilingCelsius  = LidClose.LidThermalCeilingCelsius,
+        LidThermalCeilingCelsius  = LidClose.LidThermalCeilingCelsius ?? new AppSettings().LidThermalCeilingCelsius,
         LidThermalSleptAtCelsius  = LidClose.LidThermalSleptAtCelsius,
         LidThermalSleptAtUtc      = LidClose.LidThermalSleptAtUtc,
         LidDelaySavedAcAction     = LidClose.LidDelaySavedAcAction,
@@ -485,7 +487,7 @@ internal sealed class SettingsFile
         MqttLastGoodEndpoint = Mqtt.MqttLastGoodEndpoint,
 
         PerformanceGraphEnabled = Diagnostics.PerformanceGraphEnabled,
-        PerformanceSampleRate   = Diagnostics.PerformanceSampleRate,
+        PerformanceSampleRate   = Diagnostics.PerformanceSampleRate ?? PerformanceSampleRates.Default,
 
         OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
         ShowPercentageIcon    = Appearance.ShowPercentageIcon,

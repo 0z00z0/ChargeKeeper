@@ -205,9 +205,18 @@ internal static class KeepAwakeService
             {
                 // Re-check rather than trusting the callback: the session may have been replaced or
                 // ended between the timer firing and this taking the lock.
-                if (_current is not { } session || !KeepAwakePolicy.ShouldExpire(DateTimeOffset.Now, session.ExpiresAt))
+                if (_current is not { } session || session.ExpiresAt is null)
                 {
                     AppLog.Info("Keep-awake expiry timer fired with nothing left to end");
+                    return;
+                }
+                var now = DateTimeOffset.Now;
+                if (!KeepAwakePolicy.ShouldExpire(now, session.ExpiresAt))
+                {
+                    // Fired ahead of the wall clock: arm again for what remains.
+                    _expiryTimer?.Dispose();
+                    _expiryTimer = null;
+                    ArmExpiry(session, now);
                     return;
                 }
                 ClearLocked();

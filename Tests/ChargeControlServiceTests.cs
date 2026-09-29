@@ -44,6 +44,7 @@ public class ChargeControlServiceTests
             if (ApplyThresholdsResult) DeviceRange = (start, stop);
             return ApplyThresholdsResult;
         }
+        public bool ApplyMode(string id) => true;
         public ThresholdPreset? FindPreset(string name) => Presets.GetValueOrDefault(name);
     }
 

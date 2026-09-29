@@ -14,8 +14,8 @@ internal static class TrayIconIdentity
     /// shell treats a different value as a different icon, and every installation silently loses
     /// its chosen tray position with no way to recover it. A test pins this exact literal so a
     /// regenerated value fails the build rather than shipping.
-    /// <para>Left unset, H.NotifyIcon hashes the executable's full path into a GUID, which is why
-    /// moving the install folder used to cost every installation its position.</para>
+    /// <para>Left unset, H.NotifyIcon hashes the executable's full path into a GUID, so moving the
+    /// install folder would cost every installation its position.</para>
     /// </summary>
     internal static readonly Guid Value = new("05290CC3-5F1D-4AD4-8F5D-722D2D0772A1");
 

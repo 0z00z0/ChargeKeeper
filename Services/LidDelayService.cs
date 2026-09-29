@@ -283,10 +283,9 @@ internal static class LidDelayService
     /// configured wait is knowable from the power trail at any point without toggling the feature.
     /// </summary>
     /// <remarks>
-    /// The trail used to name the length in two places — at switch-on and at the lid close — with
-    /// nothing recorded in between, so a length changed mid-life read as the arming code arming
-    /// something other than what was configured. The two are indistinguishable in a record that
-    /// carries only the endpoints, which is what this closes.
+    /// Every change is named, not only switch-on and the lid close: in a record carrying only those
+    /// two endpoints, a length changed in between reads as the arming code arming something other
+    /// than what was configured.
     /// <para>Both the stored value and the span it arms are named, because they differ wherever the
     /// stored one falls outside <see cref="LidDelayPolicy.MinMinutes"/>…<see cref="LidDelayPolicy.MaxMinutes"/>.</para>
     /// </remarks>
@@ -574,8 +573,8 @@ internal static class LidDelayService
 
     /// <summary>
     /// Lid-switch callback — arrives on an OS thread, so it must not block. Takes the byte Windows
-    /// delivered rather than a reading of it: the trail used to record the conclusion, which is
-    /// indistinguishable from a correct one whatever produced it.
+    /// delivered rather than a reading of it: a recorded conclusion is indistinguishable from a
+    /// correct one whatever produced it.
     /// </summary>
     /// <remarks>The idle reading is taken first and before anything else, because
     /// <see cref="LockIfConfigured"/> stops the session tick advancing and the reading would then

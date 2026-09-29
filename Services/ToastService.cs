@@ -23,8 +23,8 @@ internal static class ToastService
         }
         catch (Exception ex)
         {
-            // Not swallowed: a refused registration used to make every later warning vanish with
-            // nothing anywhere to say why. The readable line first, the detail behind it.
+            // Not swallowed: a refused registration makes every later warning vanish, and nothing
+            // else would say why. The readable line first, the detail behind it.
             AppLog.Info(NotificationMessages.Unavailable);
             AppLog.Error("ToastService.Register", ex);
         }

@@ -47,7 +47,9 @@ internal static class TravelOverrideService
     // pct≥100 fallback still reverts.
     private static BatteryStatus _lastStatus = BatteryStatus.NotPresent;
 
-    /// <summary>Saves the current thresholds, then disables Smart Charge so the battery reaches 100 %.</summary>
+    /// <summary>Saves the current thresholds, then disables Smart Charge so the battery reaches 100 %.
+    /// Changes nothing while a lift is already in force: reading the device then would park the lifted
+    /// state and lose the pair owed back.</summary>
     public static void Activate(ActionCause cause)
     {
         Task.Run(() =>
@@ -55,8 +57,12 @@ internal static class TravelOverrideService
             var state = ChargeThresholdService.Read();
 
             // Update() so a Reload() during this Task's async gap cannot orphan the mutation.
+            bool started = false;
             SettingsService.Update(s =>
             {
+                if (s.TravelOverrideActive) return;
+                started = true;
+
                 // IsLimiting, not Start > 0: HP and Surface report Start as 0 by contract, and
                 // testing it would leave nothing to restore on those machines.
                 if (state is { IsLimiting: true })
@@ -73,6 +79,15 @@ internal static class TravelOverrideService
                 s.TravelOverrideActive        = true;
                 s.TravelOverrideChargeStarted = false;   // armed; the charger may not be in yet
             });
+
+            if (!started)
+            {
+                AppLog.Info("TravelOverride: the cap is already lifted, so the request changes nothing" + cause.Clause);
+                return;
+            }
+
+            // The latch belongs to this lift alone.
+            Interlocked.Exchange(ref _revertDispatched, 0);
 
             // A rejected write leaves the override armed over an unchanged device — log it, or it
             // looks identical to a success.
@@ -99,7 +114,14 @@ internal static class TravelOverrideService
     /// <summary>The single primitive every "apply a Start/Stop" caller funnels through.
     /// <see cref="Deactivate"/> must run FIRST: an armed auto-revert would otherwise clobber the new
     /// thresholds at the next full charge.</summary>
-    public static bool ApplyExplicitThresholds(int start, int stop, ActionCause cause)
+    public static bool ApplyExplicitThresholds(int start, int stop, ActionCause cause) =>
+        // Valid non-zero thresholds enable Smart Charge by themselves, so no SetEnabled first.
+        Supersede(() => ChargeThresholdService.SetThresholds(start, stop, cause));
+
+    /// <summary>The same for a firmware charge mode, on a vendor that offers modes.</summary>
+    public static bool ApplyMode(string id) => Supersede(() => ChargeThresholdService.SetMode(id));
+
+    private static bool Supersede(Func<bool> write)
     {
         // Snapshot before Deactivate clears it. The saved pair is the only record of the user's real
         // thresholds, so a rejected write has to put it back.
@@ -110,8 +132,7 @@ internal static class TravelOverrideService
 
         Deactivate();
 
-        // Valid non-zero thresholds enable Smart Charge by themselves, so no SetEnabled first.
-        if (ChargeThresholdService.SetThresholds(start, stop, cause)) return true;
+        if (write()) return true;
 
         if (wasActive)
             SettingsService.Update(x =>

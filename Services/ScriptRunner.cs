@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 
 namespace ChargeKeeper.Services;
@@ -215,14 +217,27 @@ internal sealed class ScriptRunner
     /// its own clock rather than waiting on one.</summary>
     internal void OnSettleElapsed()
     {
-        IReadOnlyList<SettleClosure> closed;
-        var window = SettleWindow;
-        lock (_settleGate)
-            closed = _settle.Expire(Now(), window, ReadState, RunInProgressFor);
+        // Guarded: an exception escaping this raw timer thread ends the process.
+        try
+        {
+            try
+            {
+                IReadOnlyList<SettleClosure> closed;
+                var window = SettleWindow;
+                lock (_settleGate)
+                    closed = _settle.Expire(Now(), window, ReadState, RunInProgressFor);
 
-        foreach (var closure in closed) Carry(closure);
-
-        ArmSettleTimer();
+                foreach (var closure in closed) Carry(closure);
+            }
+            finally
+            {
+                ArmSettleTimer();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("ScriptRunner.OnSettleElapsed", ex);
+        }
     }
 
     /// <summary>Whether a script the trailing run would start is still going. The one-run-at-a-time
@@ -390,6 +405,8 @@ internal sealed class ScriptRunner
         private readonly CappedText     _output = new();
         private readonly CappedText     _errors = new();
 
+        private static readonly TimeSpan DrainLimit = TimeSpan.FromSeconds(2);
+
         public static IScriptProcess Start(ScriptDefinition script) => new WindowsPowerShell(script);
 
         private WindowsPowerShell(ScriptDefinition script)
@@ -425,9 +442,12 @@ internal sealed class ScriptRunner
             if (!_process.WaitForExit((int)Math.Clamp(limit.TotalMilliseconds, 0, int.MaxValue)))
                 return false;
 
-            // The timed wait returns as soon as the process ends, before the asynchronous readers
-            // have drained; the parameterless wait is what flushes them.
-            _process.WaitForExit();
+            // The timed wait returns before the asynchronous readers have drained. The drain is
+            // bounded: a program the script started inherits the output pipe and holds it open for
+            // as long as it runs, and the run must end without waiting for that program.
+            using var drain = new CancellationTokenSource(DrainLimit);
+            try { _process.WaitForExitAsync(drain.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { AppLog.Info("ScriptRunner: output still open after the run ended; logged as far as it arrived"); }
             return true;
         }
 
@@ -445,18 +465,47 @@ internal sealed class ScriptRunner
 
         public string ErrorOutput => _errors.Text;
 
-        /// <summary>Writes the body to a file of its own beside the machine's other temporary files.
+        /// <summary>
+        /// Writes the body to a new file that only an elevated process can change, since an elevated
+        /// PowerShell runs it. The Windows temporary folder rather than the person's own: there, a
+        /// process without elevation can neither rename the file nor the folder it sits in. The name
+        /// is random and the file must not already exist, so nothing can be placed there first.
         /// UTF-8 with a byte order mark: Windows PowerShell reads a file without one as the machine's
         /// ANSI code page, which turns every accented character in a path or a message into
-        /// something else.</summary>
+        /// something else.
+        /// </summary>
         private static string WriteScriptFile(ScriptDefinition script)
         {
-            string dir = Path.Combine(Path.GetTempPath(), "ChargeKeeper");
-            Directory.CreateDirectory(dir);
+            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp",
+                                       $"ChargeKeeper-script-{Guid.NewGuid():N}.ps1");
 
-            string path = Path.Combine(dir, $"script-{script.Id}.ps1");
-            File.WriteAllText(path, script.Body, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            using var stream = new FileInfo(path).Create(FileMode.CreateNew,
+                                                         FileSystemRights.Write | FileSystemRights.Synchronize,
+                                                         FileShare.None, 4096, FileOptions.None,
+                                                         ScriptFileSecurity());
+            using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            writer.Write(script.Body);
             return path;
+        }
+
+        /// <summary>Full control for SYSTEM and for whoever the run executes as — Administrators when
+        /// elevated, the person alone when not — and nothing inherited. The owner-rights entry takes
+        /// away the owner's implicit right to rewrite the list.</summary>
+        private static FileSecurity ScriptFileSecurity()
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var reader = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)
+                ? new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null)
+                : identity.User!;
+
+            var security = new FileSecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.AddAccessRule(new FileSystemAccessRule(reader, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                                                            FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier("S-1-3-4"),
+                                                            FileSystemRights.ReadPermissions, AccessControlType.Allow));
+            return security;
         }
 
         public void Dispose()

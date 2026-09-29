@@ -74,7 +74,7 @@ internal sealed class MqttPublisher : IDisposable
             Live = () => _live.Read(),
             Surface = () => _surface.Read(),
             Capabilities = () => _capabilities.Read(),
-            Charge = charge ?? new ChargeControlActions(CachedThresholds),
+            Charge = charge ?? new ChargeControlActions(),
             Settings = settings,
             // Already memoised and gated inside ThermalStatusService itself — no per-window cache
             // needed here, unlike Live/Surface/Capabilities, which reach an EC or vendor RPC.
@@ -254,11 +254,6 @@ internal sealed class MqttPublisher : IDisposable
     private void OnCommandRefused(MqttCommandRefusal refusal) =>
         AppLog.Info($"MQTT: {Entities.NameOf(refusal.EntityId)} refused ({refusal.Outcome})"
                   + (refusal.Detail is { Length: > 0 } detail ? $": {detail}" : "."));
-
-    /// <summary>The charge thresholds the last battery tick saw, for a single-bound number-set to
-    /// combine against. Null when there is no reading yet, which falls back to a live device read.</summary>
-    private (int Start, int Stop)? CachedThresholds() =>
-        _live.Read() is { ChargeStart: { } start, ChargeStop: { } stop } ? (start, stop) : null;
 
     /// <summary>
     /// One value, read at most once per window however many entities ask for it.

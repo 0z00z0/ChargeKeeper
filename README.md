@@ -5,9 +5,6 @@ control. ChargeKeeper runs on Lenovo ThinkPads (via the Lenovo Power Management 
 HP's commercial laptops (via HP's BIOS WMI interface), and is built to support more hardware
 over time.
 
-> Formerly published as **Lenovo Power Tray**. See
-> [Upgrading from Lenovo Power Tray](#upgrading-from-lenovo-power-tray).
-
 Two power features, without opening the slow Lenovo Vantage app:
 
 - **Smart Charge** — battery charge threshold. On Lenovo, via the Lenovo Power Manager local-RPC
@@ -139,22 +136,6 @@ winget install --manifest <folder>
 
 The manifests name the release's own installer asset and carry its SHA256, so winget verifies what
 it downloads.
-
-## Upgrading from Lenovo Power Tray
-
-ChargeKeeper is the same app under a new name. Upgrading is safe and mostly automatic:
-
-- **Settings and battery history migrate automatically.** On first launch, ChargeKeeper moves your
-  old `%AppData%\LenovoPowerTray` folder to `%AppData%\ChargeKeeper` — settings, presets, and the
-  battery history graph all carry over.
-- **The installer cleans up after the old version.** Running the ChargeKeeper installer over an
-  existing Lenovo Power Tray install closes the old app, removes its old binaries and scheduled
-  tasks, and upgrades in place.
-- **winget is not an upgrade route.** The package identity changed with the rename, and the new
-  identity is not in `microsoft/winget-pkgs`, so `winget upgrade` has nothing to find. Take the
-  direct download from the [latest release](https://github.com/0z00z0/ChargeKeeper/releases/latest)
-  instead, or use the release's winget manifests as described under
-  [Installing from the winget manifests](#installing-from-the-winget-manifests).
 
 ## Requirements
 

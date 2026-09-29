@@ -6,9 +6,8 @@
 .DESCRIPTION
     There is no SVG rasteriser on the build machine, so every shipped bitmap is redrawn natively
     with System.Drawing (GDI+) from the geometry that brand\chargekeeper-icon.svg describes. That
-    geometry used to be copy-pasted into each generator, which meant moving (say) the guard line
-    was four coordinated edits with nothing to catch a miss. It now lives here once, and the two
-    generators dot-source it:
+    geometry lives here once, so moving (say) the guard line is one edit, and the two generators
+    dot-source it:
 
         scripts\make-appicon.ps1        -> Assets\AppIcon.ico / .png, Assets\SetupIcon.ico
         installer\make-wizard-images.ps1 -> installer\wizard\wiz*.bmp
@@ -148,9 +147,9 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]
     Optional outline pass, drawn before the glyph itself: the body stroke, the cap and the guard
     line each get a wider halo-coloured copy underneath, in target pixels on every side (not scaled
     by $s — a fixed edge width holds at any frame size, the same reasoning as the pen floors above).
-    Left at the defaults (Empty / 0), nothing is drawn and the glyph is unchanged from before this
-    parameter existed. Used only where a fill colour will not itself hold against an unknown
-    background — see make-appicon.ps1's -HighContrast frames, which no longer use a plate.
+    Left at the defaults (Empty / 0), nothing is drawn. Used only where a fill colour will not
+    itself hold against an unknown background — see make-appicon.ps1's -HighContrast frames, which
+    use no plate.
 #>
 function Draw-BatteryGlyph {
     param(

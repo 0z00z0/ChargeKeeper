@@ -43,6 +43,19 @@ internal static class ChargeControlService
         return ok;
     }
 
+    /// <summary>Writes a firmware charge mode, on a vendor that offers modes rather than numbers. Like
+    /// a threshold write it supersedes a "charge to 100 % once" lift, whose revert would otherwise put
+    /// the parked pair back over the chosen mode.</summary>
+    public static bool SetMode(string id, ActionCause cause)
+    {
+        bool ok = Primitives.ApplyMode(id);
+        AppLog.Info((ok
+            ? $"ChargeControl: charge mode set to {id}"
+            : $"ChargeControl: charge mode {id} was not accepted") + cause.Clause);
+        StateChanged?.Invoke();
+        return ok;
+    }
+
     /// <summary>Writes a named preset's thresholds. Returns false — no state change, no event — when
     /// the name is blank, matches no preset, or the preset is out of policy.</summary>
     public static bool ApplyPresetByName(string name, ActionCause cause)
@@ -85,6 +98,9 @@ internal interface IChargeControlPrimitives
     /// <summary>Supersedes any override; returns the write's success flag.</summary>
     bool ApplyExplicitThresholds(int start, int stop, ActionCause cause);
 
+    /// <summary>Supersedes any override; returns the write's success flag.</summary>
+    bool ApplyMode(string id);
+
     ThresholdPreset? FindPreset(string name);
 }
 
@@ -96,5 +112,6 @@ internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
     public void SetEnabled(bool enable) => ChargeThresholdService.SetEnabled(enable);
     public bool ApplyExplicitThresholds(int start, int stop, ActionCause cause) =>
         TravelOverrideService.ApplyExplicitThresholds(start, stop, cause);
+    public bool ApplyMode(string id) => TravelOverrideService.ApplyMode(id);
     public ThresholdPreset? FindPreset(string name) => SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
 }

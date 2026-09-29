@@ -229,11 +229,18 @@ internal static class NetworkLocationService
         }
     }
 
+    // One evaluation at a time. The timer can fire again while a slow read is still running, and the
+    // older reading finishing last would overwrite the newer one. A waiting evaluation reads afresh.
+    private static readonly System.Threading.Lock _evaluateGate = new();
+
     private static void Evaluate()
     {
+        using var _ = _evaluateGate.EnterScope();
         try
         {
-            var (current, adapter) = DetectCurrentDetailed();
+            // A read that throws publishes nothing: a failed reading is no evidence that the machine
+            // left its network.
+            var (current, adapter) = DetectLive();
             bool changed;
             bool seeding;
             lock (_sync)
@@ -252,7 +259,7 @@ internal static class NetworkLocationService
         }
         catch (Exception ex)
         {
-            AppLog.Error("NetworkLocationService.Evaluate", ex);
+            AppLog.Error("NetworkLocationService.Evaluate: the reading failed, so no change is published", ex);
         }
     }
 
@@ -313,18 +320,20 @@ internal static class NetworkLocationService
     {
         try
         {
-            // The enumerations must stay INSIDE the try: they touch adapter properties, which throw
-            // during the dock/undock race this catch exists for, and the synchronous UI caller has no
-            // guard of its own.
-            return DetectDetailed(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(),
-                                  TryGetWifiSsid, HyperVUplinkBindings.Read);
+            return DetectLive();
         }
         catch
         {
-            // The adapter, or its enumeration, can vanish mid-read during a dock/undock transition.
+            // The adapter, or its enumeration, can vanish mid-read during a dock/undock transition,
+            // and the synchronous UI caller has no guard of its own.
             return (default, default);
         }
     }
+
+    // Throws when an adapter vanishes mid-read: the enumerations touch adapter properties.
+    private static (NetworkLocation Location, NetworkAdapterInfo Adapter) DetectLive() =>
+        DetectDetailed(EnumerateCandidates(), EnumerateAdapters(), GetBestInterfaceIndex(),
+                       TryGetWifiSsid, HyperVUplinkBindings.Read);
 
     /// <summary>
     /// The whole detection over supplied adapter state, so it is testable without live adapters: the
