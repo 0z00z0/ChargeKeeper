@@ -249,6 +249,9 @@ public partial class App : Application
         // Before the first evaluation, so a script bound to a profile is bound to the identifier the
         // document keeps rather than one this run invented.
         SettingsService.PersistNewNetworkProfileIds();
+        // First of every location-change subscriber, so the line naming the profile and what it
+        // carries is written before any reaction logs its own.
+        NetworkArrivalLog.Start();
         NetworkScriptWatcher.Instance.Start();
         NetworkLocationService.Start();
         // Once, at startup. Nothing branches on it — every later entry in the power trail simply
