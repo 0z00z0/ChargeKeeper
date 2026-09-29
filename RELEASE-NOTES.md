@@ -9,6 +9,15 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.8.0
+
+- When the MQTT connection fails after the broker's certificate was accepted, for example because a
+  proxy refused the connection, the log now names that failure instead of reporting an untrusted
+  certificate.
+- An update found in the background no longer stops later checks: a newer release that appears
+  before the first is installed takes its place in the tray menu. The studio library's Home
+  Assistant and update components were raised to their latest releases.
+
 ## 2.7.0
 
 - ChargeKeeper now decides for itself when an automatic update may go in, and says why when it
