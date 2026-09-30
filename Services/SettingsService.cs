@@ -287,58 +287,6 @@ internal sealed class AppSettings
     /// nothing is owed back. Written by <see cref="SettingsScreenBrightnessRecord"/> alone.</summary>
     public int? ScreenSavedBrightness { get; set; }
 
-    /// <summary>The duration the next focus session runs for, in minutes. A session carries one
-    /// duration and there is no indefinite one: with no local way out, the duration is the whole
-    /// backstop against a session that never ends.</summary>
-    public int FocusSessionMinutes { get; set; } = FocusSessionEngine.DefaultMinutes;
-
-    /// <summary>Whether the next focus session blocks the network. A default the session starts
-    /// from, not a standing state: the choice is made per session from Home Assistant.</summary>
-    public bool FocusBlocksNetwork { get; set; } = true;
-
-    /// <summary>Whether the next focus session dims the screen. The same default-only rule as
-    /// <see cref="FocusBlocksNetwork"/>.</summary>
-    public bool FocusDimsScreen { get; set; } = true;
-
-    /// <summary>Whether the next focus session covers every display with a black window. The same
-    /// default-only rule as <see cref="FocusBlocksNetwork"/>. Dimming to the panel's floor still
-    /// leaves enough glow to read by, which is what this lever answers.</summary>
-    public bool FocusCoversScreen { get; set; } = true;
-
-    /// <summary>Whether a session blocks the mouse and keyboard. Off by default, and the only lever
-    /// that is: while it holds, nothing on the machine answers, so it is chosen deliberately or not
-    /// at all.</summary>
-    public bool FocusBlocksInput { get; set; }
-
-    /// <summary>Whether the dashboard offers a control that starts a session. It never offers one
-    /// that ends a session, whatever this holds: nothing on the machine ends one.</summary>
-    public bool FocusStartFromDashboard { get; set; } = true;
-
-    /// <summary>The programs that keep the network while a session's network lever blocks everything
-    /// else, each by its executable's full path. Empty blocks everything but the broker, which is
-    /// what an installation that has chosen none carries.</summary>
-    public List<string> FocusAllowedPrograms { get; set; } = [];
-
-    /// <summary>When the running focus session was armed. Only the cover's countdown ring reads it,
-    /// to know what a full ring means; nothing about ending a session depends on it.</summary>
-    public DateTimeOffset? FocusSessionStartedAt { get; set; }
-
-    /// <summary>When the running focus session ends, or null when none is running. The session is
-    /// defined by this instant rather than by a countdown, so a machine switched off mid-session
-    /// still ends it — at the next start if the instant has already passed.</summary>
-    public DateTimeOffset? FocusSessionEndsAt { get; set; }
-
-    /// <summary>Which levers the running session owns, so only what it displaced is put back.
-    /// Meaningless without <see cref="FocusSessionEndsAt"/>.</summary>
-    public bool FocusSessionBlockedNetwork { get; set; }
-    public bool FocusSessionDimmedScreen { get; set; }
-    public bool FocusSessionCoveredScreen { get; set; }
-    public bool FocusSessionBlockedInput { get; set; }
-
-    /// <summary>The firewall profile settings displaced by a network block, saved before anything
-    /// changes so a crash cannot lose them. Null means nothing is displaced.</summary>
-    public List<FirewallProfileSetting>? FocusSavedFirewall { get; set; }
-
     /// <summary>Never defaulted on: it parks a Windows power setting outside the app for as long as it runs.</summary>
     public bool LidDelayEnabled { get; set; } = false;
 

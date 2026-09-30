@@ -37,11 +37,6 @@ internal sealed partial class SettingsWindow : Window
     // discovery document.
     private readonly Services.MqttPublisher? _mqtt;
 
-    // The three focus-lever switches write through the same actions an inbound MQTT command uses,
-    // so a lever set here and one set over MQTT are one write path rather than two: both get the
-    // refusal while a session runs, and neither can leave the other's record out of step.
-    private readonly SettingsActions _focusLeverActions = new();
-
     // Suppresses the change handlers while LoadXxx() writes controls, so a programmatic assignment
     // can't queue a bogus commit. One shared flag is safe: each LoadXxx() runs synchronously.
     private bool _updating;
@@ -166,7 +161,6 @@ internal sealed partial class SettingsWindow : Window
         LoadKeepAwake();
         LoadScripts();
         LoadScreen();
-        LoadFocus();
         LoadAppearance();
         LoadAppDiagnostics();
         // Keeps whatever is being typed in the broker block: a re-activation is not a reason to
@@ -275,8 +269,7 @@ internal sealed partial class SettingsWindow : Window
     {
         FrameworkElement[] panels =
             [GeneralPanel, AppearancePanel, SmartChargePanel, KeepAwakePanel, LidClosePanel, ScreenPanel,
-             FocusPanel, NotificationsPanel, ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel,
-             AboutPanel];
+             NotificationsPanel, ScriptsPanel, HomeAssistantPanel, AppDiagnosticsPanel, AboutPanel];
 
         var saved = new Visibility[panels.Length];
         for (int i = 0; i < panels.Length; i++)
@@ -413,22 +406,6 @@ internal sealed partial class SettingsWindow : Window
             ShowSection(tag);
     }
 
-    /// <summary>Selects the page whose navigation item carries <paramref name="tag"/>. The
-    /// dashboard's start box uses it so its settings button lands on the focus page rather than on
-    /// whichever page the window was last left on.</summary>
-    internal void ShowPage(string tag)
-    {
-        foreach (object item in Nav.MenuItems)
-            if (item is NavigationViewItem { Tag: string itemTag } nav && itemTag == tag)
-            {
-                // Selection raises OnNavSelectionChanged, which is what shows the panel.
-                Nav.SelectedItem = nav;
-                return;
-            }
-
-        AppLog.Info($"SettingsWindow.ShowPage: no page is tagged {tag}.");
-    }
-
     private void ShowSection(string tag)
     {
         GeneralPanel.Visibility       = tag == "General"       ? Visibility.Visible : Visibility.Collapsed;
@@ -436,7 +413,6 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakePanel.Visibility     = tag == "KeepAwake"      ? Visibility.Visible : Visibility.Collapsed;
         LidClosePanel.Visibility      = tag == "LidClose"       ? Visibility.Visible : Visibility.Collapsed;
         ScreenPanel.Visibility        = tag == "Screen"         ? Visibility.Visible : Visibility.Collapsed;
-        FocusPanel.Visibility         = tag == "Focus"          ? Visibility.Visible : Visibility.Collapsed;
         NotificationsPanel.Visibility = tag == "Notifications"  ? Visibility.Visible : Visibility.Collapsed;
         ScriptsPanel.Visibility       = tag == "Scripts"        ? Visibility.Visible : Visibility.Collapsed;
         HomeAssistantPanel.Visibility = tag == "HomeAssistant"  ? Visibility.Visible : Visibility.Collapsed;
@@ -447,9 +423,6 @@ internal sealed partial class SettingsWindow : Window
         // Read afresh: the level moves outside this application, so a page opened later would
         // otherwise show whatever was on the display when the window was built.
         if (tag == "Screen") LoadScreen();
-        // Same reason: a session is also armed and ended from Home Assistant, so the line is only
-        // ever current at the moment the page is shown.
-        if (tag == "Focus") LoadFocus();
 
         // The graph only paints while its page is on screen. Its own Visibility follows the page
         // because that is what stops its repaint: a collapsed parent panel does not reach it.
@@ -761,156 +734,6 @@ internal sealed partial class SettingsWindow : Window
         _screenBrightnessDebounce.Stop();
         ScreenBrightnessService.Set(_screenBrightnessWanted, ActionCause.SettingsPage("Screen"));
         ScreenRestoreBtn.IsEnabled = ScreenBrightnessService.Holding;
-        _mqtt?.Republish();
-    }
-
-    // ── Focus session ───────────────────────────────────────────────────────────────────────────
-
-    /// <summary>The lengths offered, from a short stretch to the longest a session may run.</summary>
-    private static readonly (string Label, int Value)[] FocusMinutesPresets =
-    [
-        ("15 min", 15), ("25 min", 25), ("45 min", 45), ("1 hour", 60),
-        ("90 min", 90), ("2 hours", 120), ("3 hours", 180), ("4 hours", 240),
-    ];
-
-    /// <summary>Shows what the session is doing and sets up the three things that can be decided
-    /// here: the length, whether the dashboard offers a start button, and the three levers — each
-    /// locked while a session is running, decided at the point the page is shown rather than kept
-    /// live while it stays open, the same way the other cards on this window decide their state.
-    /// </summary>
-    private void LoadFocus()
-    {
-        var session = FocusSessionService.Current;
-        var s = SettingsService.Current;
-        bool locked = FocusSessionService.LeversAreLocked;
-
-        FocusStatusValue.Text = FocusSessionStages.Describe(session, DateTimeOffset.Now);
-
-        WithUpdatingSuppressed(() =>
-        {
-            LoadPresetCombo(FocusMinutesCombo, FocusMinutesPresets, s.FocusSessionMinutes,
-                            v => $"{v} min");
-            FocusStartFromDashboardToggle.IsOn = s.FocusStartFromDashboard;
-
-            FocusBlocksNetworkToggle.IsOn = s.FocusBlocksNetwork;
-            FocusDimsScreenToggle.IsOn    = s.FocusDimsScreen;
-            FocusCoversScreenToggle.IsOn  = s.FocusCoversScreen;
-            FocusBlocksInputToggle.IsOn   = s.FocusBlocksInput;
-        });
-
-        FocusBlocksNetworkToggle.IsEnabled = !locked;
-        FocusDimsScreenToggle.IsEnabled    = !locked;
-        FocusCoversScreenToggle.IsEnabled  = !locked;
-        FocusBlocksInputToggle.IsEnabled   = !locked;
-        FocusAllowProgramBtn.IsEnabled     = !locked;
-
-        LoadFocusAllowedPrograms(locked);
-        LoadFocusRecentSessions();
-    }
-
-    /// <summary>How many finished sessions the page shows. A few recent ones answer "what have I
-    /// been doing"; the file behind them holds the rest.</summary>
-    private const int FocusRecentShown = 5;
-
-    /// <summary>One row per allowed program: the program's own name, its path beneath, and a way to
-    /// take it off. Locked for the length of a session, like the lever switches above.</summary>
-    private void LoadFocusAllowedPrograms(bool locked)
-    {
-        FocusAllowedProgramsPanel.Children.Clear();
-
-        foreach (string path in SettingsService.Current.FocusAllowedPrograms)
-        {
-            var remove = new Button { Content = "Remove", IsEnabled = !locked };
-            string program = path;
-            remove.Click += (_, _) => RemoveFocusAllowedProgram(program);
-
-            FocusAllowedProgramsPanel.Children.Add(new SettingsCard
-            {
-                Header      = FocusAllowedPrograms.DisplayName(path),
-                Description = path,
-                Content     = remove,
-            });
-        }
-    }
-
-    private void LoadFocusRecentSessions()
-    {
-        FocusRecentPanel.Children.Clear();
-
-        var recent = FocusHistoryService.Recent(FocusRecentShown);
-        if (recent.Count == 0)
-        {
-            FocusRecentPanel.Children.Add(
-                new TextBlock { Text = "No session has finished yet.", FontSize = 12, TextWrapping = TextWrapping.Wrap });
-            return;
-        }
-
-        foreach (var entry in recent)
-            FocusRecentPanel.Children.Add(new TextBlock
-            {
-                Text         = FocusHistoryService.Describe(entry),
-                FontSize     = 12,
-                TextWrapping = TextWrapping.Wrap,
-            });
-    }
-
-    /// <summary>Opens the picker and puts what comes back on the list. The picker offers what is
-    /// open now and what the Start menu holds, and keeps the file dialog as a second route for a
-    /// program in neither.</summary>
-    private void OnFocusAllowProgram(object sender, RoutedEventArgs e)
-    {
-        var picker = new ProgramPickerWindow(chosen =>
-        {
-            _focusLeverActions.AllowProgram(chosen);
-            LoadFocus();
-        });
-
-        picker.Activate();
-    }
-
-    private void RemoveFocusAllowedProgram(string path)
-    {
-        _focusLeverActions.DisallowProgram(path);
-        LoadFocus();
-    }
-
-    private void OnFocusMinutesChanged(object sender, SelectionChangedEventArgs e)
-    {
-        CommitPresetCombo(FocusMinutesCombo, (s, v) => s.FocusSessionMinutes = v);
-        _mqtt?.Republish();
-    }
-
-    private void OnFocusStartFromDashboardToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        SettingsService.Update(s => s.FocusStartFromDashboard = FocusStartFromDashboardToggle.IsOn);
-    }
-
-    private void OnFocusBlocksNetworkToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        _focusLeverActions.SetFocusBlocksNetwork(FocusBlocksNetworkToggle.IsOn);
-        _mqtt?.Republish();
-    }
-
-    private void OnFocusDimsScreenToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        _focusLeverActions.SetFocusDimsScreen(FocusDimsScreenToggle.IsOn);
-        _mqtt?.Republish();
-    }
-
-    private void OnFocusCoversScreenToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        _focusLeverActions.SetFocusCoversScreen(FocusCoversScreenToggle.IsOn);
-        _mqtt?.Republish();
-    }
-
-    private void OnFocusBlocksInputToggled(object sender, RoutedEventArgs e)
-    {
-        if (_updating) return;
-        _focusLeverActions.SetFocusBlocksInput(FocusBlocksInputToggle.IsOn);
         _mqtt?.Republish();
     }
 

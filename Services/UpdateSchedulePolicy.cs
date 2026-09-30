@@ -37,8 +37,6 @@ internal static class UpdateSchedulePolicy
     /// also what keeps the tray line current, so the switch is a standing refusal.</summary>
     internal const string SwitchedOff = "installing automatically is switched off";
 
-    internal const string FocusSessionRunning = "a focus session is running";
-
     /// <summary>The lid is shut, so the machine reads as free exactly when it is on its way to
     /// sleep.</summary>
     internal const string LidCloseWaitRunning = "a lid-close wait is running";
@@ -63,10 +61,9 @@ internal static class UpdateSchedulePolicy
     /// <summary>Whether an installer may start now, asked by the policy once the installer is
     /// verified and the machine is free. Each reason is one fixed wording, because the policy logs a
     /// refusal once per reason.</summary>
-    internal static InstallMoment MayInstallNow(bool installAutomatically, bool focusRunning, bool lidWaitRunning)
+    internal static InstallMoment MayInstallNow(bool installAutomatically, bool lidWaitRunning)
     {
         if (!installAutomatically) return InstallMoment.NotNow(SwitchedOff);
-        if (focusRunning)          return InstallMoment.NotNow(FocusSessionRunning);
         if (lidWaitRunning)        return InstallMoment.NotNow(LidCloseWaitRunning);
 
         return InstallMoment.Now;

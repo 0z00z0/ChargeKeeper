@@ -78,7 +78,6 @@ forever.
 ### Context menu items
 - **Update available**, naming the version — shown only while a newer version is out; selecting it
   starts a check and opens the update window  
-- **Focus session** — text line naming the running session's stage; shown only while one runs  
 - **Charge to 100 % once** — travel override, started from the dashboard button or from Home
   Assistant. It parks the current thresholds, lifts the cap so the battery charges fully, and puts
   the parked pair back as soon as that charge is over: at full, or the moment the charger is taken
@@ -170,116 +169,6 @@ It also offers:
 The file is portable by copy across machines. Automatic cloud sync is not yet implemented (a planned
 future option).
 
-### Focus session
-
-A focus session is a machine-wide pause on distraction. It runs for however many minutes it was
-given, and it is **ended from Home Assistant alone** — nothing on the computer itself ends one, which
-is the point of the feature and not an omission. Starting one is easier: Home Assistant arms a
-session, and so does the dashboard, where a Start button opens a box that sets the length.
-
-A session uses up to four levers, each chosen before it starts — one switch per lever on the
-Settings **Focus session** page, or the matching switch in Home Assistant:
-
-- **Block the network.** Every firewall profile's default outbound action goes to Block and every
-  one refuses unsolicited inbound, with two narrow exceptions left open: the MQTT broker, and the
-  name resolution that finds it. The broker's address is resolved once, before the block lands. A
-  session cannot be armed on the network lever while the broker port is set to Automatic, because
-  Automatic sweeps several candidate ports and an exception covering all of them is not a narrow one.
-  **Named programs can be left reachable.** The Settings **Focus session** page carries a list under
-  **Programs that keep the network**; **Allow a program** opens a picker, and each program on the
-  list gets its own outbound exception for the length of a session. Everything not on it is still
-  blocked. An empty list is the behaviour described above and is what an installation that has
-  chosen none carries. A program is held by its executable's full path, so moving or renaming the
-  file breaks the exception, and the list cannot be changed while a session runs.
-  The picker holds everything open right now and everything the Start menu holds, as one list
-  narrowed by typing; a program that is open is marked as such and sorts to the top. Pressing Enter
-  takes the top row. The list is read afresh every time the picker opens, so a program started since
-  the last time is on it. **Choose a file…** is there for a program in neither source.
-  **Store apps are absent from the picker, deliberately.** Windows Firewall keys such a rule on an
-  application container identifier rather than on a file, and the rule this application writes names
-  a file — so a Store app offered there would be chosen and then blocked anyway.
-- **Dim the screen.** The same brightness mechanism the Screen page and the `Screen brightness`
-  entity use, so the level in force before the dim is remembered and put back at the end.
-- **Cover the screen.** A black window over every attached display, above everything else on the
-  desktop, including a full-screen program. It cannot be clicked, keyed or switched away from, and
-  it follows a display being plugged in, unplugged or moved while a session runs. The keyboard and
-  the mouse go on working, so a program already running carries on — the cover takes the screen and
-  nothing else. Touching the machine brings up, for a few seconds, a line saying a session is
-  running and a ring counting down the time left; then it goes black again. The panel is white on
-  black so it stays readable when the screen has also been dimmed, and nothing about the cover
-  changes the brightness. **The cover refuses to close.** Alt+F4, the task view's close and an
-  ordinary End task all leave it standing, and a cover taken down by anything else is put back
-  within a second. Exiting ChargeKeeper from its tray icon still takes it down — the session keeps
-  running, and the next start puts the cover back if the end time has not passed.
-- **Block the mouse and keyboard.** Physical input is turned off for the whole machine for the
-  length of the session. Nothing responds: not another program, not the tray icon, not this
-  application. It is off unless it is switched on, and it is the only lever that is.
-  **Ctrl+Alt+Delete is the way out.** That screen is not part of the desktop, so the block does not
-  reach it; from there the machine can be signed out of or restarted. Returning to the desktop
-  instead puts the block back within a second, for as long as the session has left to run.
-  The block is given up rather than held: it lifts by itself within about three seconds if
-  ChargeKeeper stops answering, at the session's end time whatever else happens, and when
-  ChargeKeeper exits. A session that was running when the machine was switched off blocks input
-  again at the next start, until its end time passes.
-
-A session with no lever chosen is refused rather than armed, and no lever can be changed while a
-session is running.
-
-**Starting one from the dashboard.** The dashboard's **Focus session** row says what a session is
-doing and how long it has left. While none is running — and while **Start a session from the
-dashboard** is on, on the Settings **Focus session** page — it also carries a Start button. The box
-that opens sets the length and shows the four levers as they stand; the levers themselves are set
-from Home Assistant or from the Settings focus page, which the button beside the heading opens.
-There is no matching control for ending a session, on the dashboard or anywhere else on the
-computer.
-
-**Ending one early is staged.** Switching the session off in Home Assistant opens a five-minute
-wait; a second request in the ten seconds after that wait ends the session. Missing that window
-leaves the session running to its original end time, and asking again starts the wait afresh.
-Repeating the request during the wait changes nothing. The `Focus session state` reading moves Off →
-Active → Ending → Confirm so a dashboard can show which stage it is in.
-
-**What a session survives.** The end time is written to `settings.json` before any lever moves, so a
-crash, a restart, an update that replaces the program, and the computer being switched off all leave
-the session intact. A session whose end time has already passed when the application next starts is
-lifted there and then — every lever goes back and the block comes off. The cover is a window, so it
-dies with the program and is put back up only if the session it belonged to is still running.
-
-**What it looks like on the computer.** The tray icon carries a small corner badge, the tray menu
-names the session in a line of text, and the dashboard's focus row and the Settings window's **Focus
-session** page show the same. None of them offers anything that ends a session.
-
-**What is kept afterwards.** Every finished session is written to `focus-history.csv` in the data
-folder's `History` subfolder — when it started, when it was due to end, when it actually ended,
-which levers it used, and whether it ran to time, was ended early, or was found finished at a later
-start. Rows are kept for a year, at most five hundred of them. The Settings **Focus session** page
-shows the last five under **Recent sessions**.
-
-#### If you are stuck
-
-The block is ordinary Windows Firewall settings, so it can always be removed by hand.
-
-1. Open **Windows Defender Firewall with Advanced Security** as an administrator.
-2. Under **Outbound Rules**, delete the two rules named
-   **ChargeKeeper focus session: broker** and
-   **ChargeKeeper focus session: name resolution**. Where programs were allowed through, delete
-   their rules too — **ChargeKeeper focus session: allowed program 1** and so on, one per program.
-   All of them sit in the **ChargeKeeper focus session** group, so sorting by group brings them
-   together.
-3. Open **Windows Defender Firewall Properties** and, on each of the Domain, Private and Public
-   profile tabs, set **Outbound connections** back to **Allow** and **Inbound connections** to
-   whatever it was before (**Block** is the Windows default, and **Block all connections** is what a
-   session sets).
-4. Turn the screen back up from the Windows brightness slider, or from ChargeKeeper's **Screen** page.
-5. The black cover cannot be removed by hand while ChargeKeeper runs. Exiting ChargeKeeper from its
-   tray icon takes it down, and starting ChargeKeeper again puts it back only while the session it
-   belongs to is still inside its end time.
-
-Doing this by hand does not end the session's own timer: the session still reports as running until
-its end time passes. Nothing puts the block back — a session that resumes after a restart leaves the
-firewall exactly as it finds it — and when the end time passes ChargeKeeper writes the settings it
-recorded before the block back into the profiles, which is a no-op once they are already there.
-
 ### App diagnostics
 
 The **App diagnostics** page in the Settings window carries the self-measurement graph: what
@@ -337,7 +226,7 @@ starts, alongside the installer's own log at `%AppData%\ChargeKeeper\Logs\update
 
 **Install updates automatically** on the General page installs a newer version with no question
 asked. It waits for the computer to be free rather than interrupting: the screen is locked or nobody
-has touched it for ten minutes, no focus session is running, and no lid-close wait is running — a
+has touched it for ten minutes, and no lid-close wait is running — a
 computer on its way to sleep is a bad moment to start Setup. The moment is tested again every ten
 minutes, so an update found while somebody is working goes in once they stop, whatever the check
 cadence is. Each reason an install is held back is written to `app.log` once, by name. An automatic

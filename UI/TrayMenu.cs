@@ -25,11 +25,6 @@ internal sealed class TrayMenu
     // popup is rebuilt from on every right-click.
     private readonly MenuFlyoutSubItem _digitStyleSubmenu;
 
-    // A line of text, never a control. A person at the keyboard cannot end a focus session, and
-    // nothing should put a way to back here because the line looked incomplete without one.
-    private readonly MenuFlyoutItem _focusSessionItem =
-        new() { IsEnabled = false, Text = "Focus session" };
-
     // A line of text, never a control: the dashboard already carries the way to end the lift early,
     // and a second one here would be a third place to keep in step.
     private readonly MenuFlyoutItem _travelOverrideItem =
@@ -280,7 +275,6 @@ internal sealed class TrayMenu
         TrayIconMode IconMode,          // aligned with _iconModeItems
         TrayDigitStyle DigitStyle,      // aligned with _digitStyleItems
         bool ShowPercentageIcon,
-        FocusSnapshot Focus,
         string? TravelOverrideLine);    // null when no charge-to-full lift is in force
 
     private MenuState ReadState()
@@ -291,7 +285,7 @@ internal sealed class TrayMenu
         string? travelOverride = TravelOverrideService.IsActive
             ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
             : null;
-        return new MenuState(autoStart, mode, digits, showPercentage, FocusSessionService.Current, travelOverride);
+        return new MenuState(autoStart, mode, digits, showPercentage, travelOverride);
     }
 
     // The most recent snapshot, re-applied by RefreshState. UI thread only, so no synchronisation.
@@ -312,12 +306,12 @@ internal sealed class TrayMenu
         // Shown wherever something is actually drawing digits: the main icon in Numeric % style, or
         // the second icon once it is on.
         ShowDigitStyleSubmenu(state.IconMode == TrayIconMode.Numeric || state.ShowPercentageIcon);
-        ShowFocusSession(state.Focus);
         ShowTravelOverride(state.TravelOverrideLine);
     }
 
     /// <summary>Puts the charge-to-full line into the menu while the lift is in force, and takes it
-    /// out when it is over. Removed rather than collapsed, like the focus line above.</summary>
+    /// out when it is over. Removed rather than collapsed: the item list is what the native popup is
+    /// rebuilt from on every right-click.</summary>
     private void ShowTravelOverride(string? line)
     {
         int index = Flyout.Items.IndexOf(_travelOverrideItem);
@@ -330,24 +324,6 @@ internal sealed class TrayMenu
 
         _travelOverrideItem.Text = line;
         if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _travelOverrideItem);
-    }
-
-    /// <summary>Puts the focus session line at the top of the menu while one runs, and takes it out
-    /// when none does.</summary>
-    private void ShowFocusSession(FocusSnapshot session)
-    {
-        int index = Flyout.Items.IndexOf(_focusSessionItem);
-
-        if (!session.IsRunning)
-        {
-            if (index >= 0) Flyout.Items.RemoveAt(index);
-            return;
-        }
-
-        _focusSessionItem.Text = FocusSessionStages.Describe(session, DateTimeOffset.Now);
-        // Above Settings…, so it reads before anything actionable and never displaces the update
-        // badge that inserts itself at the very top.
-        if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _focusSessionItem);
     }
 
     private void ApplyPreset(ThresholdPreset preset, ActionCause cause) => RunApplyPreset(preset.Name, cause);

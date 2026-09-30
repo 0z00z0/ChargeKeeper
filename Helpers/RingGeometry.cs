@@ -4,8 +4,7 @@ using Windows.Foundation;
 namespace ChargeKeeper.Helpers;
 
 /// <summary>
-/// The one arc the application draws rings from: the dashboard's battery gauge and the focus
-/// session cover's countdown are the same shape at different sizes, so neither builds its own.
+/// The one arc the application draws rings from, the dashboard's battery gauge among them.
 /// </summary>
 /// <remarks>Angles follow the clock face — 0° is 12 o'clock and a positive sweep runs
 /// clockwise.</remarks>

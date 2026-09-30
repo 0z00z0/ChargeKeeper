@@ -61,10 +61,6 @@ public class MqttEnumSensorTests
             LidEventLog.Words);
 
     [Fact]
-    public void TheFocusSessionWords_AreTheOnesAReceiverAlreadyMatchesOn() =>
-        Assert.Equal(["Off", "Active", "Ending", "Confirm"], FocusSessionStages.Words);
-
-    [Fact]
     public void ThePowerStateWords_AreTheOnesAReceiverAlreadyMatchesOn() =>
         Assert.Equal(["Discharging", "Charging", "Idle on mains"], PowerStates.Words);
 

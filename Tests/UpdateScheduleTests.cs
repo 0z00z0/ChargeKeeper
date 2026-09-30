@@ -95,7 +95,7 @@ public class UpdateScheduleTests
     [Fact]
     public void TheSwitchOff_RefusesEvenWithEverythingElseClear()
     {
-        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false, false);
+        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false);
         Assert.False(moment.Accepted);
         Assert.Equal("installing automatically is switched off", moment.Reason);
     }
@@ -105,7 +105,7 @@ public class UpdateScheduleTests
     {
         // The lid is shut, so the machine reads as free exactly when it is on its way to sleep —
         // the component's own idle rule would let the install through.
-        var moment = UpdateSchedulePolicy.MayInstallNow(true, focusRunning: false, lidWaitRunning: true);
+        var moment = UpdateSchedulePolicy.MayInstallNow(true, lidWaitRunning: true);
         Assert.False(moment.Accepted);
         Assert.Equal("a lid-close wait is running", moment.Reason);
     }
