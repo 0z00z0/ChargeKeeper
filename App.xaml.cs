@@ -1739,8 +1739,13 @@ public partial class App : Application
         _currentPercentageIcon?.Dispose();
         ToastService.Cleanup();
         _trayIcon?.Dispose();
+        _trayIcon = null;
         // Both icons go, or the one left behind is a ghost in the tray until the shell is poked.
         _percentageIcon?.Dispose();
+        _percentageIcon = null;
+        // Nulled, not only disposed: every null-check guard elsewhere in this file assumes a null
+        // field means "not available", and a disposed-but-non-null field left a late callback free
+        // to touch it and throw ObjectDisposedException instead of being turned away.
         Application.Current.Exit();
     }
 }

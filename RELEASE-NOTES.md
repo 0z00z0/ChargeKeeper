@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.9.3
+
+- A harmless error that could appear in the log on exit is fixed.
+
 ## 2.9.2
 
 - Upgrade code kept only for versions from before mid-September 2026 was removed (#216).
