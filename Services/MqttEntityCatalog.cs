@@ -127,88 +127,9 @@ internal static class MqttEntityCatalog
     public static readonly string[] IconModeOptions =
         [nameof(TrayIconMode.Arc), nameof(TrayIconMode.Numeric), nameof(TrayIconMode.BrandMark)];
 
-    /// <summary>Entities an earlier version published under a different component or id. Their
-    /// retained per-component configs sit at paths nothing composes any more, so each is emptied once
-    /// and written down. Declared in source and kept indefinitely: an installation upgrading from
-    /// before an entry was added still carries the ghost it evicts.</summary>
-    public static IReadOnlyList<RetiredEntity> Retired { get; } =
-    [
-        new("sensor",        "soc"),          // → sensor/battery_level
-        new("sensor",        "power"),        // → sensor/battery_power
-        new("binary_sensor", "smart_charge"), // → switch/smart_charge
-        new("sensor",        "charge_start"), // → number/charge_start
-        new("sensor",        "charge_stop"),  // → number/charge_stop
-    ];
-
-    /// <summary>The two value topics an earlier version published its shared JSON payloads on. One
-    /// bare topic per entity replaced them, so nothing composes these any more and the retained
-    /// payloads would stand on the broker indefinitely. The module empties each once per identity and
-    /// records the composed topic in the ledger.</summary>
-    /// <remarks>Declared in source and kept indefinitely, as <see cref="Retired"/> is: an installation
-    /// upgrading from before an entry was added still carries the payload it empties.</remarks>
-    public static IReadOnlyList<RetiredChannel> RetiredChannels { get; } =
-    [
-        new("state"),
-        new("status"),
-    ];
-
-    /// <summary>
-    /// The forty entities as they stood on the broker before the device document existed: one
-    /// retained single-component config each. The handover keeps every one of them — name, entity id,
-    /// icon, area, labels and registry id — and empties the old topic afterwards.
-    /// </summary>
-    /// <remarks><b>Frozen. This list must never grow.</b> It describes what an upgrading installation
-    /// already has, not what ChargeKeeper publishes: an entity added after the document was adopted
-    /// never had a single-component config, so declaring it here would hand over a topic nothing ever
-    /// wrote and then empty it, once, for nothing.</remarks>
-    public static IReadOnlyList<MigratingEntity> Migrating { get; } =
-    [
-        new("sensor",        BatteryLevel),
-        new("sensor",        BatteryState),
-        new("sensor",        BatteryPower),
-        new("binary_sensor", IsCharging),
-        new("binary_sensor", OnAc),
-        new("sensor",        BatteryHealth),
-        new("sensor",        RemainingChargeTime),
-        new("sensor",        AdapterWatts),
-        new("sensor",        CapacityFull),
-        new("sensor",        CapacityDesign),
-        new("switch",        SmartCharge),
-        new("number",        ChargeStart),
-        new("number",        ChargeStop),
-        new("button",        ChargeToFull),
-        new("select",        Preset),
-        new("binary_sensor", TravelOverride),
-        new("switch",        KeepAwake),
-        new("text",          KeepAwakeFor),
-        new("sensor",        KeepAwakeExpires),
-        new("switch",        KeepAwakeDisplayOn),
-        new("switch",        LidDelay),
-        new("number",        LidDelayMinutes),
-        new("switch",        LidDelayLock),
-        new("switch",        SmartStandby),
-        new("switch",        LowBatteryWarning),
-        new("number",        LowBatteryLevel),
-        new("switch",        HighBatteryWarning),
-        new("number",        HighBatteryLevel),
-        new("switch",        DrainWarning),
-        new("number",        DrainRate),
-        new("switch",        NetworkProfiles),
-        new("select",        UnknownNetworkPreset),
-        new("sensor",        NetworkAdapterAlias),
-        new("sensor",        NetworkIpAddress),
-        new("sensor",        NetworkAdapterName),
-        new("sensor",        NetworkProfileMatched),
-        new("sensor",        AppVersion),
-        new("number",        StartupDelay),
-        new("select",        IconMode),
-        new("number",        DowntimeGap),
-    ];
-
     // Deliberately absent, because the value means nothing outside this process: the Settings window's
     // saved placement, the last-selected graph scale, the travel override's revert pair (the override
-    // itself is published), the lid-action values captured for crash recovery, and the once-only
-    // network-rule migration flag. The broker block is absent for a different reason — it describes
+    // itself is published) and the lid-action values captured for crash recovery. The broker block is absent for a different reason — it describes
     // the transport rather than the machine, and its credentials are a secret. The saved lists —
     // presets, keep-awake presets, network rules — reach the surface as the two selects' options and
     // the matched-profile sensor rather than as entities of their own.
@@ -307,8 +228,7 @@ internal static class MqttEntityCatalog
             new MqttBinarySensor
             {
                 // Windows Energy Saver, read-only: the OS owns the switch. No device class fits it,
-                // so the icon carries the meaning. Not in Migrating — an earlier version carried this
-                // as a json_attributes key on battery_state, never as a config topic of its own.
+                // so the icon carries the meaning.
                 EntityId = LowPowerMode, Name = "Low power mode", Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:leaf",
                 Read = () => live()?.LowPowerMode,

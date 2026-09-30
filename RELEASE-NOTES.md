@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.9.2
+
+- Upgrade code kept only for versions from before mid-September 2026 was removed (#216).
+
 ## 2.9.1
 
 - The studio library's MQTT, brand, settings, diagnostics, tray and update components were raised

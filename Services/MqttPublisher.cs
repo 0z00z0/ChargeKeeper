@@ -50,9 +50,6 @@ internal sealed class MqttPublisher : IDisposable
 
         Directory.CreateDirectory(AppPaths.DataDir);
         _settings = MqttSettingsFile.In(AppPaths.DataDir);
-        // Opening the store does not write the file, so "the file exists" is still a sound test for
-        // "already migrated" at this point — and it has to run before anything reads the settings.
-        MqttSettingsMigration.Run(SettingsService.FilePath, AppPaths.DataDir, _settings);
         _groups = new PublishGroupSet(_settings, MqttPublishGroups.Declared);
 
         _live = new Memo<LiveState?>(live);
@@ -94,9 +91,6 @@ internal sealed class MqttPublisher : IDisposable
             Entities          = Entities,
             Ledger            = DiscoveryLedgerFile.In(AppPaths.DataDir),
             Groups            = _groups,
-            Retired           = MqttEntityCatalog.Retired,
-            Migrating         = MqttEntityCatalog.Migrating,
-            RetiredChannels   = MqttEntityCatalog.RetiredChannels,
             SetChannelsAsync  = (channels, ct) => connection!.SetChannelsAsync(channels, ct),
             SetCommandTargets = targets => connection!.SetCommandTargets(targets),
             Log               = log,

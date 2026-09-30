@@ -157,7 +157,6 @@ public partial class App : Application
         {
             string dumpDir = CrashDumps.DumpDir;
             CrashDumps.ApplyPolicy(dumpDir);
-            CrashDumps.TryDisarmSilentExitMonitor();
             CrashDumps.TryCleanupOldDumps(dumpDir);
             WatchdogTask.TryEnsureTasks();
         });
@@ -240,9 +239,6 @@ public partial class App : Application
         // Also here, not only on resume: a machine slept from a bag may be restarted rather than
         // resumed, and the resume notification then never arrives.
         ReportAnEarlySleepIfOneIsOwed();
-        // Before the first evaluation: a rule keyed on the routed adapter can match the wrong place,
-        // and applying its preset is exactly what this drops the rule to avoid.
-        SettingsService.ClearRulesKeyedOnTheRoutedAdapter();
         // Before the first evaluation, so a script bound to a profile is bound to the identifier the
         // document keeps rather than one this run invented.
         SettingsService.PersistNewNetworkProfileIds();

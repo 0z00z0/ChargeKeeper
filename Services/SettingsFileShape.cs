@@ -140,7 +140,6 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(1)] public bool                      NetworkProfilesEnabled   { get; set; }
         [JsonPropertyOrder(2)] public List<NetworkLocationRule> NetworkLocationRules     { get; set; } = [];
         [JsonPropertyOrder(3)] public string?                   UnknownNetworkPresetName { get; set; }
-        [JsonPropertyOrder(4)] public bool? NetworkRulesKeyedOnPhysicalAdapter { get; set; }
     }
 
     internal sealed class KeepAwakeGroup
@@ -311,10 +310,9 @@ internal sealed class SettingsFile
         },
         Network = new NetworkGroup
         {
-            NetworkProfilesEnabled             = s.NetworkProfilesEnabled,
-            NetworkLocationRules               = s.NetworkLocationRules,
-            UnknownNetworkPresetName           = s.UnknownNetworkPresetName,
-            NetworkRulesKeyedOnPhysicalAdapter = s.NetworkRulesKeyedOnPhysicalAdapter,
+            NetworkProfilesEnabled   = s.NetworkProfilesEnabled,
+            NetworkLocationRules     = s.NetworkLocationRules,
+            UnknownNetworkPresetName = s.UnknownNetworkPresetName,
         },
         KeepAwake = new KeepAwakeGroup
         {
@@ -422,10 +420,9 @@ internal sealed class SettingsFile
         TravelOverrideRevertStop    = SmartCharge.TravelOverrideRevertStop,
         TravelOverrideChargeStarted = SmartCharge.TravelOverrideChargeStarted,
 
-        NetworkProfilesEnabled             = Network.NetworkProfilesEnabled,
-        NetworkLocationRules               = Network.NetworkLocationRules,
-        UnknownNetworkPresetName           = Network.UnknownNetworkPresetName,
-        NetworkRulesKeyedOnPhysicalAdapter = Network.NetworkRulesKeyedOnPhysicalAdapter,
+        NetworkProfilesEnabled   = Network.NetworkProfilesEnabled,
+        NetworkLocationRules     = Network.NetworkLocationRules,
+        UnknownNetworkPresetName = Network.UnknownNetworkPresetName,
 
         KeepAwakeDisplayOn = KeepAwake.KeepAwakeDisplayOn,
         KeepAwakePresets   = KeepAwake.KeepAwakePresets,

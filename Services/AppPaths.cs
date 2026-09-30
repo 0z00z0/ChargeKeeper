@@ -9,8 +9,7 @@ namespace ChargeKeeper.Services;
 /// <para>The shared path creates the folder the first time <see cref="DataDir"/> is read.</para>
 /// <para>Settings, the MQTT files and the small state files sit at the top level; logs and crash
 /// dumps sit in <see cref="LogsFolderName"/>, and the sampled histories in
-/// <see cref="HistoryFolderName"/>. <see cref="DataFolderLayout"/> moves what older versions left at
-/// the top level.</para>
+/// <see cref="HistoryFolderName"/>.</para>
 /// </remarks>
 internal static class AppPaths
 {

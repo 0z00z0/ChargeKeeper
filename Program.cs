@@ -14,15 +14,7 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        // Before the first log line: logging creates Logs\app.log, and an app.log still at the top
-        // level could then not be moved onto it.
-        var layoutMoves = DataFolderLayout.MoveIntoSubfolders(AppPaths.DataDir);
-
         var startup = StartupArgs.Parse(Environment.GetCommandLineArgs());
-
-        // A file left in place is found again at every start, and a watchdog probe starts every five
-        // minutes, so a probe reports only what moved.
-        DataFolderLayout.Report(layoutMoves, includeLeftInPlace: !startup.IsWatchdogProbe);
 
         // "/debug [on|off]" is a command, not a launch, and must be handled ahead of the
         // single-instance guard: the tray app is normally already running and would win the mutex.

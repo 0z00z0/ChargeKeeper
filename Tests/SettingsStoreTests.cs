@@ -51,7 +51,7 @@ public class SettingsStoreTests : IDisposable
         s.NetworkProfilesEnabled,
         string.Join(";", s.NetworkLocationRules.Select(r =>
             $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName} awake={r.KeepAwakeHere}")),
-        s.UnknownNetworkPresetName, s.NetworkRulesKeyedOnPhysicalAdapter,
+        s.UnknownNetworkPresetName,
         s.KeepAwakeDisplayOn,
         // TimeOnly renders per culture; the TimeSpan it maps to does not.
         string.Join(";", s.KeepAwakePresets.Select(k => $"{k.Kind}/{k.Duration}/{k.Until?.ToTimeSpan()}/{k.Name}")),
@@ -80,7 +80,7 @@ public class SettingsStoreTests : IDisposable
         "TwelveHours|ByLevelAndState|True|5|System|" +
         "Daily 60-80;Travel 80-100;Docking 45-55|False|||False|" +
         "True|Office [Docking]@00:00:5E:00:53:01/192.0.2.0/23>Docking awake=False;" +
-        "Second home [Wireless]@00:00:5E:00:53:02/198.51.100.0/24>Daily awake=False|Daily|True|" +
+        "Second home [Wireless]@00:00:5E:00:53:02/198.51.100.0/24>Daily awake=False|Daily|" +
         "False|Duration/00:30:00//;Duration/01:00:00//;Duration/03:00:00//;" +
         "UntilTime//17:00:00/;UntilTime//06:00:00/|" +
         "True|True|True|False|120|10/;30/;120/|True|10|30/;10/|True|85|||1|1|" +

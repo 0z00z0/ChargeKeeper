@@ -119,14 +119,6 @@ internal static class CrashDumps
     /// every application.</summary>
     private static DumpRegistration Registration => new(Registry.LocalMachine, Log);
 
-    private const string IfeoKey =
-        @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\" + ExeName;
-    private const string SilentExitKey =
-        @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\" + ExeName;
-
-    // FLG_MONITOR_SILENT_PROCESS_EXIT — the GlobalFlag bit that enables the SilentProcessExit monitor.
-    private const int FlgMonitorSilentProcessExit = 0x200;
-
     /// <summary>Registers a minidump-on-crash for this exe into <paramref name="dumpDir"/>. Never throws.</summary>
     internal static void TryRegisterLocalDumps(string dumpDir)
     {
@@ -156,63 +148,13 @@ internal static class CrashDumps
         }
     }
 
-    /// <summary>Removes any SilentProcessExit monitor registered for this exe, clearing its
-    /// GlobalFlag bit and dropping the IFEO subkey when that leaves it empty. The monitor writes a
-    /// minidump on every exit of the exe, watchdog probes included. Never throws; idempotent.</summary>
-    internal static void TryDisarmSilentExitMonitor()
-    {
-        bool changed = false;
-        try
-        {
-            using (var sub = Registry.LocalMachine.OpenSubKey(SilentExitKey))
-            {
-                if (sub is not null) { Registry.LocalMachine.DeleteSubKeyTree(SilentExitKey); changed = true; }
-            }
-
-            using (var ifeo = Registry.LocalMachine.OpenSubKey(IfeoKey, writable: true))
-            {
-                if (ifeo is not null && ifeo.GetValue("GlobalFlag") is int flags &&
-                    (flags & FlgMonitorSilentProcessExit) != 0)
-                {
-                    int cleared = flags & ~FlgMonitorSilentProcessExit;
-                    if (cleared == 0) ifeo.DeleteValue("GlobalFlag", throwOnMissingValue: false);
-                    else ifeo.SetValue("GlobalFlag", cleared, RegistryValueKind.DWord);
-                    changed = true;
-                }
-            }
-
-            // Emptiness is read under a handle CLOSED before the delete — deleting a key while still
-            // holding a handle to it is fragile.
-            bool ifeoEmpty;
-            using (var ifeo = Registry.LocalMachine.OpenSubKey(IfeoKey))
-                ifeoEmpty = ifeo is not null && ifeo.ValueCount == 0 && ifeo.SubKeyCount == 0;
-            if (ifeoEmpty)
-                Registry.LocalMachine.DeleteSubKey(IfeoKey, throwOnMissingSubKey: false);
-
-            if (changed)
-                AppLog.Info("CrashDumps: SilentProcessExit monitor disarmed (was dumping on every watchdog probe exit).");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error("CrashDumps.TryDisarmSilentExitMonitor", ex);
-        }
-    }
-
-    /// <summary>Clears out the dump directory. Every subfolder goes — those are per-exit
-    /// SilentProcessExit noise — while the flat .dmp files WER writes on genuine faults are kept,
-    /// newest <paramref name="keepNewest"/>. Never throws.</summary>
+    /// <summary>Prunes the dump directory to the newest <paramref name="keepNewest"/> minidumps WER
+    /// wrote on genuine faults. Never throws.</summary>
     internal static void TryCleanupOldDumps(string dumpDir, int keepNewest = RetainedDumps)
     {
         try
         {
-            var dir = new DirectoryInfo(dumpDir);
-            if (!dir.Exists) return;
-
-            foreach (var sub in dir.GetDirectories())
-            {
-                try { sub.Delete(recursive: true); }
-                catch { /* best-effort */ }
-            }
+            if (!Directory.Exists(dumpDir)) return;
 
             // A dump still held open by WER is logged and left for next time.
             DumpRetention.Prune(dumpDir, ExeName, keepNewest, Log);
