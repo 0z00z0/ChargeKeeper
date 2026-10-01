@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.10.1
+
+- Corrects two test counts the focus-session removal left stale; no behaviour change.
+
 ## 2.10.0
 
 - The focus session has moved to its own application, FocusDesk, and is no longer part of

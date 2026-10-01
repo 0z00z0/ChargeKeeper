@@ -47,7 +47,7 @@ public class UiTextLengthTests
 
         Assert.True(all.Count(s => s.Kind == "hover") >= 45,
                     $"only {all.Count(s => s.Kind == "hover")} hover texts found; the sweep has stopped reaching them.");
-        Assert.True(all.Count(s => s.Kind == "body") >= 120,
+        Assert.True(all.Count(s => s.Kind == "body") >= 114,
                     $"only {all.Count(s => s.Kind == "body")} descriptions found; the sweep has stopped reaching them.");
     }
 

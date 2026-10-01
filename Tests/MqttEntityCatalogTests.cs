@@ -20,7 +20,7 @@ namespace ChargeKeeper.Tests;
 public class MqttEntityCatalogTests
 {
     [Fact]
-    public void TheEntityMix_IsTwentySixSensorsEighteenSwitchesElevenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
+    public void TheEntityMix_IsTwentyFourSensorsThirteenSwitchesTenNumbersFourBinaryThreeSelectsTwoButtonsAndAText()
     {
         var byPlatform = MqttTestBed.Declared().All
             .GroupBy(e => e.Platform)
@@ -29,7 +29,7 @@ public class MqttEntityCatalogTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["sensor"] = 26, ["switch"] = 18, ["number"] = 11,
+                ["sensor"] = 24, ["switch"] = 13, ["number"] = 10,
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
