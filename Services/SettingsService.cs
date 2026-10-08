@@ -265,16 +265,15 @@ internal sealed class AppSettings
     /// exactly as before until this is turned on.</summary>
     public bool OneLineUntilItMatters { get; set; } = false;
 
-    /// <summary>Whether the dashboard popup leaves out the history graph — range buttons, plot and
-    /// legend — and offers a single button onto the pop-out graph window in its place. Off by
-    /// default, so an existing installation's dashboard looks exactly as before until this is
-    /// turned on.</summary>
-    public bool HideGraphInDashboard { get; set; } = false;
+    /// <summary>Whether the dashboard popup shows its history graph — range buttons, plot and
+    /// legend. Shown by default; off, a single button onto the pop-out graph window takes its
+    /// place.</summary>
+    public bool ShowGraphInDashboard { get; set; } = true;
 
-    /// <summary>Whether the dashboard popup shows its Power activity section. Shown by default, so
-    /// an existing installation's dashboard looks exactly as before. Only the section is governed:
-    /// the awake-hold warning and the wake line in the log run regardless.</summary>
-    public bool ShowPowerActivityInDashboard { get; set; } = true;
+    /// <summary>Whether the dashboard popup shows its Power activity section. Hidden by default.
+    /// Only the section is governed: the awake-hold warning and the wake line in the log run
+    /// regardless.</summary>
+    public bool ShowPowerActivityInDashboard { get; set; } = false;
 
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =

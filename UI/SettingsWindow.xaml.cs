@@ -760,7 +760,7 @@ internal sealed partial class SettingsWindow : Window
             PromoteIconsToggle.IsOn          = s.PromoteTrayIcons;
             OneLineUntilItMattersToggle.IsOn = s.OneLineUntilItMatters;
             PercentageIconToggle.IsOn        = s.ShowPercentageIcon;
-            HideGraphInDashboardToggle.IsOn  = s.HideGraphInDashboard;
+            ShowGraphInDashboardToggle.IsOn  = s.ShowGraphInDashboard;
             ShowPowerActivityToggle.IsOn     = s.ShowPowerActivityInDashboard;
             DigitStyleCombo.SelectedIndex    = (int)s.PercentageDigitStyle;
             ApplyPercentageIconAvailability(s.IconMode);
@@ -779,11 +779,11 @@ internal sealed partial class SettingsWindow : Window
         SettingsService.Update(s => s.OneLineUntilItMatters = on);
     }
 
-    private void OnHideGraphInDashboardToggled(object sender, RoutedEventArgs e)
+    private void OnShowGraphInDashboardToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
-        bool on = HideGraphInDashboardToggle.IsOn;
-        SettingsService.Update(s => s.HideGraphInDashboard = on);
+        bool on = ShowGraphInDashboardToggle.IsOn;
+        SettingsService.Update(s => s.ShowGraphInDashboard = on);
     }
 
     private void OnShowPowerActivityToggled(object sender, RoutedEventArgs e)

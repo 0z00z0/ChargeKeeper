@@ -474,7 +474,7 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void ApplyGraphVisibility()
     {
-        bool hidden = SettingsService.Current.HideGraphInDashboard;
+        bool hidden = !SettingsService.Current.ShowGraphInDashboard;
         var graph = hidden ? _historyGraph : EnsureHistoryGraph();
         if (graph is not null) graph.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
         ShowGraphButton.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;

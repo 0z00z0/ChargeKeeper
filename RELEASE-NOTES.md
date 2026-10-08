@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.13.0
+
+- The dashboard graph switch now reads "Show graph in dashboard"; a graph hidden before shows again
+  until the switch is turned off once.
+- The Power activity section is hidden until it is switched on in Settings, under Appearance.
+
 ## 2.12.0
 
 - The dashboard's Power activity section can be hidden from Settings, under Appearance.

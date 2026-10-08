@@ -233,12 +233,12 @@ internal sealed class SettingsFile
         // Moved from GeneralGroup: the control sits on the Appearance page and is not MQTT-published,
         // so the move carries no unique_id risk.
         [JsonPropertyOrder(2)] public bool ShowPercentageIcon    { get; set; }
-        [JsonPropertyOrder(3)] public bool HideGraphInDashboard  { get; set; }
+        // Nullable: a document without the key would otherwise read false and hide the graph.
+        [JsonPropertyOrder(3)] public bool? ShowGraphInDashboard { get; set; }
         // Beside the second icon's switch: it is the other tray setting the Appearance page carries,
         // and this one governs the digits both it and the Numeric % style draw.
         [JsonPropertyOrder(4)] public TrayDigitStyle PercentageDigitStyle { get; set; }
-        // Nullable: a document without the key would otherwise read false and hide the section.
-        [JsonPropertyOrder(5)] public bool? ShowPowerActivityInDashboard { get; set; }
+        [JsonPropertyOrder(5)] public bool ShowPowerActivityInDashboard { get; set; }
     }
 
     internal sealed class WindowGroup
@@ -338,7 +338,7 @@ internal sealed class SettingsFile
         {
             OneLineUntilItMatters = s.OneLineUntilItMatters,
             ShowPercentageIcon    = s.ShowPercentageIcon,
-            HideGraphInDashboard  = s.HideGraphInDashboard,
+            ShowGraphInDashboard  = s.ShowGraphInDashboard,
             PercentageDigitStyle  = s.PercentageDigitStyle,
             ShowPowerActivityInDashboard = s.ShowPowerActivityInDashboard,
         },
@@ -426,9 +426,9 @@ internal sealed class SettingsFile
 
         OneLineUntilItMatters = Appearance.OneLineUntilItMatters,
         ShowPercentageIcon    = Appearance.ShowPercentageIcon,
-        HideGraphInDashboard  = Appearance.HideGraphInDashboard,
+        ShowGraphInDashboard  = Appearance.ShowGraphInDashboard ?? true,
         PercentageDigitStyle  = Appearance.PercentageDigitStyle,
-        ShowPowerActivityInDashboard = Appearance.ShowPowerActivityInDashboard ?? true,
+        ShowPowerActivityInDashboard = Appearance.ShowPowerActivityInDashboard,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

@@ -153,10 +153,11 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Equal(AwakeHoldPolicy.DefaultWarnAfterHours, loaded.AwakeHoldWarningHours);
     }
 
-    /// <summary>A section without the thermal ceiling, the sample rate or the Power activity switch
-    /// reads the application's defaults, not 0 °C, the fastest rate and a hidden section.</summary>
+    /// <summary>A section without the thermal ceiling, the sample rate or the graph switch reads the
+    /// application's defaults, not 0 °C, the fastest rate and a hidden graph. Without the Power
+    /// activity switch the section reads hidden.</summary>
     [Fact]
-    public void ThermalCeilingSampleRateAndPowerActivityAbsentFromTheirSectionsReadAsDefaults()
+    public void ThermalCeilingSampleRateAndGraphAbsentReadAsDefaultsAndPowerActivityAbsentReadsHidden()
     {
         Directory.CreateDirectory(_dir);
         Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
@@ -165,12 +166,14 @@ public class SettingsFileShapeTests : IDisposable
         Assert.True(root[SettingsFile.LidCloseKey]!.AsObject().Remove("LidThermalCeilingCelsius"));
         Assert.True(root[SettingsFile.DiagnosticsKey]!.AsObject().Remove("PerformanceSampleRate"));
         Assert.True(root[SettingsFile.AppearanceKey]!.AsObject().Remove("ShowPowerActivityInDashboard"));
+        Assert.True(root[SettingsFile.AppearanceKey]!.AsObject().Remove("ShowGraphInDashboard"));
         System.IO.File.WriteAllText(File_, root.ToJsonString());
 
         var loaded = SettingsService.ReadFrom(File_)!;
         Assert.Equal(new AppSettings().LidThermalCeilingCelsius, loaded.LidThermalCeilingCelsius);
         Assert.Equal(PerformanceSampleRates.Default, loaded.PerformanceSampleRate);
-        Assert.True(loaded.ShowPowerActivityInDashboard);
+        Assert.False(loaded.ShowPowerActivityInDashboard);
+        Assert.True(loaded.ShowGraphInDashboard);
     }
 
     /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what

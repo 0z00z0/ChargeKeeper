@@ -152,10 +152,10 @@
         </Grid>
 
         <!-- Row 2 holds the history graph, which is built in code (EnsureHistoryGraph) the first
-             time it is shown rather than declared here: with "Hide graph in dashboard" on it is never
+             time it is shown rather than declared here: with "Show graph in dashboard" off it is never
              built or drawn. -->
 
-        <!-- Stands in for the graph while "Hide graph in dashboard" is on. In the same row and with
+        <!-- Stands in for the graph while "Show graph in dashboard" is off. In the same row and with
              the same margin, so the rows below keep their spacing and the badges are not stretched
              into the height the graph gave up — every row of this grid is Auto. It opens the
              pop-out through the same method the graph's expand request does. -->

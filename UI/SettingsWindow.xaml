@@ -642,14 +642,14 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard x:Name="HideGraphInDashboardCard"
-                                            Header="Hide graph in dashboard"
-                                            Description="Replaces the dashboard's history graph with a button that opens it.">
+                    <controls:SettingsCard x:Name="ShowGraphInDashboardCard"
+                                            Header="Show graph in dashboard"
+                                            Description="Shows the history graph in the dashboard. Off replaces it with a button that opens it.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="Hide graph in dashboard"
-                                            Info="Leaves out the range buttons, plot and legend. The button opens the same larger graph window."/>
-                            <ToggleSwitch x:Name="HideGraphInDashboardToggle" OnContent="On" OffContent="Off"
-                                          Toggled="OnHideGraphInDashboardToggled"/>
+                            <zz:InfoIcon Subject="Show graph in dashboard"
+                                            Info="Off leaves out the range buttons, plot and legend. The button opens the same larger graph window."/>
+                            <ToggleSwitch x:Name="ShowGraphInDashboardToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnShowGraphInDashboardToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 

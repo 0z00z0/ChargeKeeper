@@ -48,7 +48,7 @@ internal static class UnpublishedSettings
 
         // Whether the dashboard popup draws its history graph at all. Decides how one window draws,
         // like the graph settings above — deliberately absent from the MQTT surface.
-        nameof(AppSettings.HideGraphInDashboard),
+        nameof(AppSettings.ShowGraphInDashboard),
 
         // Whether the dashboard popup shows its Power activity section. Decides how one window
         // draws — deliberately absent from the MQTT surface.
