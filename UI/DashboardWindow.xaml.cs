@@ -293,6 +293,7 @@ public sealed partial class DashboardWindow : Window
         // Before anything is drawn or measured: the window must open at the size it keeps, with the
         // graph neither built nor drawn while the setting hides it.
         ApplyGraphVisibility();
+        ApplyPowerActivityVisibility();
 
         // Draw and reveal the window at once, from sources that never leave the process (battery,
         // Keep Awake, Lid) plus whatever the last successful vendor read produced for Smart
@@ -394,6 +395,9 @@ public sealed partial class DashboardWindow : Window
     /// </summary>
     private void ApplyPowerActivityBadge()
     {
+        // Hidden: no event-log query and no text to feed.
+        if (!ApplyPowerActivityVisibility()) return;
+
         var (holds, at) = AwakeHoldWatch.Current;
 
         AwakeHoldsText.Text =
@@ -405,6 +409,14 @@ public sealed partial class DashboardWindow : Window
         LastWakeText.Text = WakeSourceReader.LastWake() is { } wake
             ? $"Last wake: {WakeSourceReader.Describe(wake)}, {wake.At.ToLocalTime():yyyy-MM-dd HH:mm}."
             : "Last wake: Windows has recorded nothing.";
+    }
+
+    /// <summary>Collapsed, the section takes no space. Returns whether it is shown.</summary>
+    private bool ApplyPowerActivityVisibility()
+    {
+        bool shown = SettingsService.Current.ShowPowerActivityInDashboard;
+        PowerActivityBadge.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        return shown;
     }
 
     private static string DescribeHolds(IReadOnlyList<PowerRequestEntry> holds, DateTimeOffset at)

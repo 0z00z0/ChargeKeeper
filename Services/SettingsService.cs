@@ -271,6 +271,11 @@ internal sealed class AppSettings
     /// turned on.</summary>
     public bool HideGraphInDashboard { get; set; } = false;
 
+    /// <summary>Whether the dashboard popup shows its Power activity section. Shown by default, so
+    /// an existing installation's dashboard looks exactly as before. Only the section is governed:
+    /// the awake-hold warning and the wake line in the log run regardless.</summary>
+    public bool ShowPowerActivityInDashboard { get; set; } = true;
+
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>
     public List<KeepAwakeRequest> KeepAwakePresets { get; set; } =
     [

@@ -50,6 +50,10 @@ internal static class UnpublishedSettings
         // like the graph settings above — deliberately absent from the MQTT surface.
         nameof(AppSettings.HideGraphInDashboard),
 
+        // Whether the dashboard popup shows its Power activity section. Decides how one window
+        // draws — deliberately absent from the MQTT surface.
+        nameof(AppSettings.ShowPowerActivityInDashboard),
+
         // How the tray draws the percentage digits. It moves an icon on this machine and nothing
         // outside the process: the tray repaint is driven by the icon request rather than by this
         // classifier, so the style reaches the icon without a republish behind it.

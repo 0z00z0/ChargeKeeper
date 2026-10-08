@@ -653,6 +653,16 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
+                    <controls:SettingsCard Header="Show power activity in dashboard"
+                                            Description="Shows what holds the machine awake and why it last woke. The awake-hold warning is unaffected.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <zz:InfoIcon Subject="Show power activity in dashboard"
+                                            Info="Turning it off removes the section from the dashboard popup only."/>
+                            <ToggleSwitch x:Name="ShowPowerActivityToggle" OnContent="On" OffContent="Off"
+                                          Toggled="OnShowPowerActivityToggled"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+
                     <zz:SettingsSectionHeader Heading="Graph"/>
 
                     <controls:SettingsCard Header="History graph range"

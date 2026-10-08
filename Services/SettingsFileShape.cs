@@ -237,6 +237,8 @@ internal sealed class SettingsFile
         // Beside the second icon's switch: it is the other tray setting the Appearance page carries,
         // and this one governs the digits both it and the Numeric % style draw.
         [JsonPropertyOrder(4)] public TrayDigitStyle PercentageDigitStyle { get; set; }
+        // Nullable: a document without the key would otherwise read false and hide the section.
+        [JsonPropertyOrder(5)] public bool? ShowPowerActivityInDashboard { get; set; }
     }
 
     internal sealed class WindowGroup
@@ -338,6 +340,7 @@ internal sealed class SettingsFile
             ShowPercentageIcon    = s.ShowPercentageIcon,
             HideGraphInDashboard  = s.HideGraphInDashboard,
             PercentageDigitStyle  = s.PercentageDigitStyle,
+            ShowPowerActivityInDashboard = s.ShowPowerActivityInDashboard,
         },
         Window = new WindowGroup
         {
@@ -425,6 +428,7 @@ internal sealed class SettingsFile
         ShowPercentageIcon    = Appearance.ShowPercentageIcon,
         HideGraphInDashboard  = Appearance.HideGraphInDashboard,
         PercentageDigitStyle  = Appearance.PercentageDigitStyle,
+        ShowPowerActivityInDashboard = Appearance.ShowPowerActivityInDashboard ?? true,
 
         SettingsWindowX      = Window.SettingsWindowX,
         SettingsWindowY      = Window.SettingsWindowY,

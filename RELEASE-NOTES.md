@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.12.0
+
+- The dashboard's Power activity section can be hidden from Settings, under Appearance.
+
 ## 2.11.0
 
 - Arriving at a network one of the network profiles matches now writes one line to the log, above
