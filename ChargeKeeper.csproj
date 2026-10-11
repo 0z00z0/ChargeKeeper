@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <RootNamespace>ChargeKeeper</RootNamespace>
-    <Version>2.13.0</Version>
+    <Version>2.13.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Suppresses the XAML-generated Program.Main in favour of Program.cs. The generated one goes
@@ -258,7 +258,7 @@
        assembly that sees it — no client-library type reaches a public signature, so this
        application references MQTTnet nowhere. ZeroZero.Diagnostics brings
        ZeroZero.Diagnostics.Dumps; ZeroZero.Config.Sections and ZeroZero.Config.Watch bring
-       ZeroZero.Config. Declaring any package that arrives transitively would resolve the same
+       ZeroZero.Config; ZeroZero.Tray.WinUI brings ZeroZero.Tray. Declaring any package that arrives transitively would resolve the same
        assembly twice. Lifecycle is taken for its single-instance lock and data path only: its
        relaunch is armed by constructing ProcessLifecycle, which nothing here does. -->
   <ItemGroup>
@@ -268,7 +268,7 @@
     <PackageReference Include="ZeroZero.Diagnostics" />
     <PackageReference Include="ZeroZero.Lifecycle" />
     <PackageReference Include="ZeroZero.Mqtt.WinUI" />
-    <PackageReference Include="ZeroZero.Tray" />
+    <PackageReference Include="ZeroZero.Tray.WinUI" />
     <PackageReference Include="ZeroZero.Update" />
     <PackageReference Include="ZeroZero.Update.WinUI" />
   </ItemGroup>

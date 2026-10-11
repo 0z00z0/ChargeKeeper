@@ -1,5 +1,7 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using ChargeKeeper.Services;
+using ZeroZero.Controls.WinUI;
 
 namespace ChargeKeeper;
 
@@ -13,7 +15,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        AppWindow.IsShownInSwitchers = false;
+        SwitcherVisibility.TrySet(AppWindow, false, new AppLogSink());
 
         // Remove chrome so nothing is visible even if the window flickers on-screen.
         var presenter = OverlappedPresenter.Create();

@@ -1,4 +1,6 @@
 using Microsoft.UI.Windowing;
+using ChargeKeeper.Services;
+using ZeroZero.Controls.WinUI;
 using ZeroZero.Win32;
 
 namespace ChargeKeeper.Helpers;
@@ -10,7 +12,7 @@ internal static class WindowChrome
 {
     internal static void ApplyPopup(Microsoft.UI.Xaml.Window window, bool resizable, bool alwaysOnTop)
     {
-        window.AppWindow.IsShownInSwitchers = false;
+        SwitcherVisibility.TrySet(window.AppWindow, false, new AppLogSink());
 
         var presenter = OverlappedPresenter.Create();
         presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);

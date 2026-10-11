@@ -81,11 +81,11 @@ internal static class HealthMessages
         "Battery monitoring stopped. No battery warnings will be given until the application " +
         "runs again.";
 
-    /// <summary>The tray icon could not be placed in the notification area. Monitoring is unaffected,
-    /// and saying so is the point: the missing icon otherwise reads as the application being gone.</summary>
+    /// <summary>The tray icon could not be placed in the notification area, so this start ends and
+    /// the watchdog task starts the application again.</summary>
     public const string TrayIconMissing =
-        "The tray icon could not be placed in the notification area. The battery is still being " +
-        "watched and warnings will still be given, but the application cannot be reached from the tray.";
+        "The tray icon could not be placed in the notification area. This start is ending, and the " +
+        "watchdog task will start the application again.";
 
     private static string WarningLevels(bool lowEnabled, int lowPercent, bool highEnabled, int highPercent)
         => (lowEnabled, highEnabled) switch

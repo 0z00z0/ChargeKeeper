@@ -94,7 +94,13 @@ public partial class App : Application
         // GUI crashes surface only as an opaque 0xC000027B stowed exception in Event Viewer, so log
         // the managed exception before the process dies. The shared handlers take the AppDomain and
         // unobserved-task arms; the WinUI arm is the application's and reports through them.
-        _crashHandlers = CrashHandlers.Register(new CrashHandlerOptions { Sink = new AppLogSink() });
+        // Until MarkStartupComplete, a report ends the process with no hold marker, so the watchdog
+        // task starts a fresh one. Empty: whatever this process parks, the next start restores.
+        _crashHandlers = CrashHandlers.Register(new CrashHandlerOptions
+        {
+            Sink = new AppLogSink(),
+            OnStartupFailure = () => { },
+        });
         UnhandledException += (_, e) =>
         {
             _crashHandlers.Report("Application.UnhandledException", e.Exception);
@@ -175,9 +181,16 @@ public partial class App : Application
         // one for the other.
         Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
 
-        // A tray icon is a message-only HWND plus a Shell_NotifyIcon registration, not a window, and
-        // its menu is a native Win32 PopupMenu, so it needs no wait of its own.
-        InitTrayIcon();
+        // The icon is the only way to reach the application, so no window opens until the shell has
+        // accepted it. A start without it ends here rather than hold the lock unreachable.
+        var tray = await InitTrayIcon().ConfigureAwait(true);
+        AppLog.Info($"Tray icon: {tray.Outcome}, {tray.Attempts} attempt(s), {tray.Elapsed.TotalSeconds:0.0} s.");
+        if (!tray.IsCreated)
+        {
+            PowerLog.Say(HealthMessages.TrayIconMissing);
+            _crashHandlers.Report("tray", tray.LastError);
+            return;
+        }
 
         // Keeps the app off the critical sign-in path; clamped because settings.json is hand-editable.
         int delay = Math.Clamp(SettingsService.Current.StartupDelaySeconds, 0, MaxStartupDelaySeconds);
@@ -209,6 +222,9 @@ public partial class App : Application
             AppLog.Error("OnLaunched.StartMonitoring", ex);
             ReportStartupFailed();
         }
+
+        // From here a failure is shown on the icon rather than ending the process.
+        _crashHandlers.MarkStartupComplete();
     }
 
     /// <summary>
@@ -321,9 +337,10 @@ public partial class App : Application
 
     private MqttPublisher? _mqtt;
 
-    private void InitTrayIcon()
+    private async Task<ZeroZero.Tray.WinUI.TrayStartupResult> InitTrayIcon()
     {
-        _trayIcon = (TaskbarIcon)Resources["TrayIcon"];
+        var trayIcon = (TaskbarIcon)Resources["TrayIcon"];
+        _trayIcon = trayIcon;
 
         // The identity the shell files this icon's settings under, including whether it sits in the
         // visible area or behind the overflow chevron. Left unset it is a hash of the executable's
@@ -380,22 +397,16 @@ public partial class App : Application
         // nothing reverses it. The tray icon's own left-click path hops through a threading timer,
         // so under load the menu arrives seconds late or not at all.
         //
-        // Guarded: the shell refuses the Shell_NotifyIcon registration when it is still coming up
-        // after a boot. The icon is a way to reach the app, not what the app is for, so a refusal
-        // must not stop the battery being watched. H.NotifyIcon re-adds the icon itself on the shell's TaskbarCreated broadcast.
-        try
-        {
-            _trayIcon.ForceCreate(enablesEfficiencyMode: false);
-        }
-        catch (Exception ex)
-        {
-            PowerLog.Say(HealthMessages.TrayIconMissing);
-            AppLog.Error("InitTrayIcon.ForceCreate", ex);
-        }
+        // After a sign-in the shell refuses the icon until the taskbar exists; the shared start
+        // waits for the taskbar and retries a few times.
+        var result = await ZeroZero.Tray.WinUI.TrayStartup.StartAsync(
+            () => trayIcon.ForceCreate(enablesEfficiencyMode: false),
+            trayIcon.Dispose).ConfigureAwait(true);
 
         // After creation: the shell has no record of an icon it has never seen, so there is nothing
         // to write until now. Does nothing at all unless the experimental setting is on.
-        ApplyTrayPromotion();
+        if (result.IsCreated) ApplyTrayPromotion();
+        return result;
     }
 
     /// <summary>

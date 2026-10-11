@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.13.1
+
+- Started at sign-in before the taskbar is ready, the application now waits for it and places its
+  tray icon; a start that still cannot place the icon ends, and the watchdog task starts it again,
+  rather than running on with no icon and no battery watch.
+
 ## 2.13.0
 
 - The dashboard graph switch now reads "Show graph in dashboard"; a graph hidden before shows again

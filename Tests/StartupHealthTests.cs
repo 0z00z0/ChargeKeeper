@@ -37,19 +37,28 @@ public class StartupHealthTests
         }
     }
 
-    /// <summary>The tray-icon creation must not be able to abandon start-up. This is the exact
-    /// 2026-09-02 failure: ForceCreate threw, the launch handler unwound, and nothing was watched.</summary>
+    /// <summary>A start whose tray icon never appears is unreachable and holds the single-instance
+    /// lock, so it ends before any window is built, through the crash handlers' report. That exit
+    /// must not read as deliberate: the hold marker would keep the watchdog task from retrying.</summary>
     [Fact]
-    public void PlacingTheTrayIcon_CannotAbandonStartup()
+    public void AFailedTrayStart_EndsBeforeAnyWindowWithoutMarkingTheExitDeliberate()
     {
-        string body = SourceMethods.Body(AppSource(), "InitTrayIcon");
+        string source = AppSource();
+        int cleanup = source.IndexOf("OnStartupFailure =", StringComparison.Ordinal);
+        Assert.True(cleanup >= 0, "Without OnStartupFailure a report does not end a failed start.");
 
-        int create = body.IndexOf("ForceCreate", StringComparison.Ordinal);
-        Assert.True(create >= 0, "InitTrayIcon no longer creates the tray icon.");
+        string body    = SourceMethods.Body(source, "OnLaunched");
+        int    tray    = body.IndexOf("InitTrayIcon()", StringComparison.Ordinal);
+        int    report  = body.IndexOf("_crashHandlers.Report(\"tray\"", StringComparison.Ordinal);
+        int    windows = body.IndexOf("StartMonitoring()", StringComparison.Ordinal);
+        int    done    = body.IndexOf("MarkStartupComplete()", StringComparison.Ordinal);
+        Assert.True(tray >= 0 && tray < report && report < windows && windows < done,
+            "OnLaunched must place the icon, report a failure, build windows, then mark start-up complete.");
 
-        string tail = body[create..];
-        Assert.Contains("catch", tail, StringComparison.Ordinal);
-        Assert.Contains("InitTrayIcon.ForceCreate", tail, StringComparison.Ordinal);
+        string failedStart = body[tray..body.IndexOf("return;", report, StringComparison.Ordinal)] +
+                             source[cleanup..source.IndexOf("});", cleanup, StringComparison.Ordinal)];
+        foreach (var deliberate in new[] { "WriteHoldMarker", "_intentionalExit = true", "Shutdown(" })
+            Assert.DoesNotContain(deliberate, failedStart, StringComparison.Ordinal);
     }
 
     /// <summary>The rest of start-up runs under one guard, so no throw inside it can leave a tray
