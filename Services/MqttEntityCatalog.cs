@@ -146,17 +146,21 @@ internal static class MqttEntityCatalog
             new MqttSensor
             {
                 EntityId = BatteryLevel, Name = "Battery level", Group = MqttPublishGroups.BatteryStatus,
+                Description = "Charge left in the battery, as a percentage of its full capacity.",
                 DeviceClass = "battery", Unit = "%", StateClass = MqttStateClass.Measurement,
                 Read = () => MqttPayload.Number((long?)live()?.Soc),
             },
             MqttEnumSensor.Of(
-                BatteryState, "Battery state", MqttPublishGroups.BatteryStatus,
+                BatteryState, "Battery state",
+                "Whether the battery is charging, not charging or full.",
+                MqttPublishGroups.BatteryStatus,
                 MqttEntityCategory.Primary, "mdi:battery-charging",
                 LiveStateBuilder.BatteryStateWords,
                 () => live()?.BatteryState),
             new MqttSensor
             {
                 EntityId = BatteryPower, Name = "Battery power", Group = MqttPublishGroups.BatteryStatus,
+                Description = "Power into or out of the battery: above zero while charging, below zero while draining.",
                 DeviceClass = "power", Unit = "W", StateClass = MqttStateClass.Measurement,
                 // Positive = charging/input, negative = draining, as the firmware reports it.
                 Read = () => MqttPayload.Number(LiveStateBuilder.Watts(live()?.PowerMw)),
@@ -166,12 +170,14 @@ internal static class MqttEntityCatalog
                 // Carries the group word: Sensors now also holds the two App countdowns, so a
                 // Battery reading needs the prefix to cluster with its own group there.
                 EntityId = IsCharging, Name = "Battery is charging", Group = MqttPublishGroups.BatteryStatus,
+                Description = "On while the battery takes charge; off on battery and while held at the charge limit on mains.",
                 DeviceClass = "battery_charging",
                 Read = () => live()?.IsCharging,
             },
             new MqttBinarySensor
             {
                 EntityId = OnAc, Name = "Battery on AC", Group = MqttPublishGroups.BatteryStatus,
+                Description = "On while the charger is connected, whether or not the battery is taking charge.",
                 DeviceClass = "plug",
                 Read = () => live()?.OnAc,
             },
@@ -180,20 +186,25 @@ internal static class MqttEntityCatalog
             // firmware is doing, and no command changes it. Derived like health is, so it is a
             // diagnostic rather than a sixth uncategorised reading.
             MqttEnumSensor.Of(
-                PowerState, "Battery power state", MqttPublishGroups.BatteryStatus,
+                PowerState, "Battery power state",
+                "Discharging, charging, or idle on mains while the charger is connected but the battery takes no charge.",
+                MqttPublishGroups.BatteryStatus,
                 MqttEntityCategory.Diagnostic, "mdi:power-plug-battery",
                 Helpers.PowerStates.Words,
                 () => live() is { } v
                     ? Helpers.PowerStates.Label(Helpers.PowerStates.From(v.IsCharging, v.OnAc))
                     : null),
             MqttEnumSensor.Of(
-                BatteryHealth, "Battery health", MqttPublishGroups.BatteryStatus,
+                BatteryHealth, "Battery health",
+                "Full-charge capacity against design capacity: good at 80 % or more, degraded from 60 %, poor below that.",
+                MqttPublishGroups.BatteryStatus,
                 MqttEntityCategory.Diagnostic, "mdi:heart-pulse",
                 LiveStateBuilder.HealthWords,
                 () => live()?.Health),
             new MqttSensor
             {
                 EntityId = RemainingChargeTime, Name = "Battery remaining charge time",
+                Description = "Estimated time until the battery is full at the current rate, with no value while it is not charging.",
                 Group = MqttPublishGroups.BatteryStatus, Category = MqttEntityCategory.Diagnostic,
                 DeviceClass = "duration", Unit = "min", Icon = "mdi:timer-sand",
                 Read = () => MqttPayload.Number((long?)live()?.RemainingMinutes),
@@ -201,18 +212,21 @@ internal static class MqttEntityCatalog
             new MqttSensor
             {
                 EntityId = AdapterWatts, Name = "Adapter rating", Group = MqttPublishGroups.BatteryStatus,
+                Description = "The power the connected charger is rated to supply.",
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "power", Unit = "W",
                 Read = () => MqttPayload.Number((long?)live()?.AdapterWatts),
             },
             new MqttSensor
             {
                 EntityId = CapacityFull, Name = "Battery full-charge capacity", Group = MqttPublishGroups.BatteryStatus,
+                Description = "Energy the battery holds when full today, which falls as the battery wears.",
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "energy_storage", Unit = "Wh",
                 Read = () => MqttPayload.Number(LiveStateBuilder.WattHours(live()?.FullMwh)),
             },
             new MqttSensor
             {
                 EntityId = CapacityDesign, Name = "Battery design capacity", Group = MqttPublishGroups.BatteryStatus,
+                Description = "Energy the battery was built to hold when new, which battery health measures the full charge against.",
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "energy_storage", Unit = "Wh",
                 Read = () => MqttPayload.Number(LiveStateBuilder.WattHours(live()?.DesignMwh)),
             },
@@ -221,6 +235,7 @@ internal static class MqttEntityCatalog
                 // Windows Energy Saver, read-only: the OS owns the switch. No device class fits it,
                 // so the icon carries the meaning.
                 EntityId = LowPowerMode, Name = "Low power mode", Group = MqttPublishGroups.BatteryStatus,
+                Description = "On while Windows Energy Saver is active, which only Windows itself switches.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:leaf",
                 Read = () => live()?.LowPowerMode,
             },
@@ -231,6 +246,7 @@ internal static class MqttEntityCatalog
                 // possibly-null value: a machine with no thermal zone, an implausible one, or one
                 // that has not yet been shown to vary gets no entity at all, not one reading unknown.
                 EntityId = SystemTemperature, Name = "System temperature", Group = MqttPublishGroups.BatteryStatus,
+                Description = "Temperature from the machine's own thermal sensor, published only while it lies between -10 and 125 °C.",
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "temperature", Unit = "°C",
                 StateClass = MqttStateClass.Measurement, Icon = "mdi:thermometer",
                 Include = () => temperature() is not null,
@@ -243,6 +259,7 @@ internal static class MqttEntityCatalog
                 // point (unelevated, or the class absent) must never withhold the temperature, so
                 // this entity alone goes missing rather than one of them publishing a null.
                 EntityId = SystemTemperatureMaximum, Name = "System temperature maximum",
+                Description = "The highest temperature the firmware recommends for this machine, read once when the application starts.",
                 Group = MqttPublishGroups.BatteryStatus,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "temperature", Unit = "°C",
                 Icon = "mdi:thermometer-alert",
@@ -254,6 +271,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = SmartCharge, Name = "Smart Charge", Group = MqttPublishGroups.SmartCharge,
+                Description = "Stops charging below full to slow battery wear; on a machine with fixed charge modes it is the only charge control.",
                 Icon = "mdi:battery-heart-variant", Debounce = MqttConnection.ReflectDebounce,
                 Include = () => SmartChargeGate(s, SmartCharge),
                 Read = () => live()?.SmartChargeEnabled,
@@ -262,6 +280,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = ChargeStart, Name = "Charge threshold start", Group = MqttPublishGroups.SmartCharge,
+                Description = "Charging resumes once the battery falls to this level.",
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-arrow-up",
                 Min = PresetEditValidator.MinThreshold, Max = PresetEditValidator.MaxThreshold,
                 Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
@@ -277,6 +296,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = ChargeStop, Name = "Charge threshold end", Group = MqttPublishGroups.SmartCharge,
+                Description = "Charging stops once the battery reaches this level.",
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-arrow-down",
                 Min = PresetEditValidator.MinThreshold, Max = PresetEditValidator.MaxThreshold,
                 Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
@@ -292,6 +312,7 @@ internal static class MqttEntityCatalog
             new MqttButton
             {
                 EntityId = ChargeToFull, Name = "Charge to 100 % once", Group = MqttPublishGroups.SmartCharge,
+                Description = "Lifts the charge limit for one charge, and puts it back once the battery is full or the charger is removed.",
                 Icon = "mdi:battery-charging-100",
                 Include = () => SmartChargeGate(s, ChargeToFull),
                 Press = () => MqttCommandVerdict.Accept(() => charge.ChargeToFullOnce(ChargeToFull)),
@@ -299,6 +320,7 @@ internal static class MqttEntityCatalog
             new MqttSelect
             {
                 EntityId = Preset, Name = "Charge preset", Group = MqttPublishGroups.SmartCharge,
+                Description = "Applies one of the saved presets, each a named pair of start and end thresholds.",
                 Icon = "mdi:playlist-check", Debounce = MqttConnection.ReflectDebounce,
                 // Withheld rather than announced empty when nothing is configured: an empty option
                 // list is not a schema the receiver accepts, and the state is reversible the moment a
@@ -311,6 +333,7 @@ internal static class MqttEntityCatalog
             new MqttBinarySensor
             {
                 EntityId = TravelOverride, Name = "Charge to full in progress", Group = MqttPublishGroups.SmartCharge,
+                Description = "On while the charge limit is lifted for a single charge; the thresholds shown meanwhile are the ones owed back.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:airplane",
                 Include = () => SmartChargeGate(s, TravelOverride),
                 Read = () => surface()?.TravelOverrideActive,
@@ -322,6 +345,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = KeepAwake, Name = "Keep awake", Group = MqttPublishGroups.KeepAwake,
+                Description = "Stops Windows sleeping while a session runs, and holds off any lid-close sleep until it ends.",
                 Icon = "mdi:coffee", Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.KeepAwakeActive,
                 Apply = on => MqttCommandVerdict.Accept(() => set.SetKeepAwake(on, KeepAwake)),
@@ -329,6 +353,7 @@ internal static class MqttEntityCatalog
             new MqttText
             {
                 EntityId = KeepAwakeFor, Name = "Keep awake for", Group = MqttPublishGroups.KeepAwake,
+                Description = "Starts a session for a duration such as 3h, 90m or 1h30, or until a clock time such as 17:00.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:timer-cog-outline", MaxLength = 16,
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.KeepAwakeFor,
@@ -341,6 +366,7 @@ internal static class MqttEntityCatalog
             new MqttSensor
             {
                 EntityId = KeepAwakeExpires, Name = "Keep awake until", Group = MqttPublishGroups.KeepAwake,
+                Description = "When the running keep-awake session ends, with no value while none runs or it has no end time.",
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "timestamp",
                 // A timestamp sensor wants a full ISO 8601 instant with an offset; no session with a
                 // clock expiry means no value at all.
@@ -351,6 +377,7 @@ internal static class MqttEntityCatalog
                 // Named to sort as one block under the other Keep entries. The entity id stays put:
                 // moving it discards an installation's entity ids, areas, labels and automations.
                 EntityId = KeepAwakeDisplayOn, Name = "Keep awake with the screen on", Group = MqttPublishGroups.KeepAwake,
+                Description = "Also holds the display on while a keep-awake session runs.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:monitor-shimmer",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.KeepAwakeDisplayOn,
@@ -364,6 +391,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = LidDelay, Name = "Lid-delay active", Group = MqttPublishGroups.LidClose,
+                Description = "ChargeKeeper decides when the computer sleeps after the lid closes, instead of Windows.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:laptop",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -375,6 +403,7 @@ internal static class MqttEntityCatalog
                 // Disambiguated from the master switch's own "Lid-delay active": this is the time
                 // condition specifically, one of the two the master switch can wait on.
                 EntityId = LidDelayTime, Name = "Lid-delay timer", Group = MqttPublishGroups.LidClose,
+                Description = "Sleeps once the timer length has passed with the lid shut, unless the battery target is reached first.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:timer-outline",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -384,6 +413,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = LidDelayMinutes, Name = "Lid-delay timer length", Group = MqttPublishGroups.LidClose,
+                Description = "Minutes to wait after the lid closes before the computer sleeps.",
                 Category = MqttEntityCategory.Config, Unit = "min", Icon = "mdi:timer-outline",
                 Min = LidDelayPolicy.MinMinutes, Max = LidDelayPolicy.MaxMinutes,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -395,6 +425,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = LidDischarge, Name = "Lid-delay battery target", Group = MqttPublishGroups.LidClose,
+                Description = "Sleeps once the battery drains to the target level, unless the timer runs out first; charging pauses the wait.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-arrow-down",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -404,6 +435,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = LidDischargePercent, Name = "Lid-delay battery target level",
+                Description = "The charge level at which a wait with the lid shut ends in sleep.",
                 Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-arrow-down",
                 Min = LidDischargeWatch.MinPercent, Max = LidDischargeWatch.MaxPercent,
@@ -415,6 +447,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = LidDelayLock, Name = "Lid-delay lock", Group = MqttPublishGroups.LidClose,
+                Description = "Locks the computer as soon as the lid closes.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:lock",
                 Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().LidClose,
@@ -424,6 +457,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = LidDelayOffAfterSleep, Name = "Lid-delay off after sleeping",
+                Description = "Turns lid handling off again after one lid close ends in sleep.",
                 Group = MqttPublishGroups.LidClose,
                 Category = MqttEntityCategory.Config, Icon = "mdi:numeric-1-box-outline",
                 Debounce = MqttConnection.ReflectDebounce,
@@ -434,6 +468,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = SmartStandby, Name = "Smart Standby", Group = MqttPublishGroups.LidClose,
+                Description = "Puts the computer into a deeper sleep after a period of inactivity; a manual sleep is unaffected.",
                 Icon = "mdi:sleep", Debounce = MqttConnection.ReflectDebounce,
                 Include = () => s.Capabilities().SmartStandby,
                 Read = () => surface()?.SmartStandbyRunning,
@@ -449,6 +484,7 @@ internal static class MqttEntityCatalog
                 // The state is the level the display reports now, which a function key or Windows
                 // itself can move without this application being told.
                 EntityId = ScreenBrightness, Name = "Screen brightness", Group = MqttPublishGroups.Screen,
+                Description = "Level of the built-in screen, which a function key or Windows can also move; external monitors are not reached.",
                 Unit = "%", Icon = "mdi:brightness-6",
                 Min = ScreenBrightnessPark.Minimum, Max = ScreenBrightnessPark.Maximum,
                 Mode = MqttNumberMode.Slider, Debounce = MqttConnection.ReflectDebounce,
@@ -460,6 +496,7 @@ internal static class MqttEntityCatalog
             new MqttButton
             {
                 EntityId = ScreenBrightnessRestore, Name = "Screen brightness restore",
+                Description = "Puts back the level the screen was on before the first change.",
                 Group = MqttPublishGroups.Screen, Icon = "mdi:brightness-auto",
                 Include = () => s.Capabilities().ScreenBrightness,
                 Press = () => MqttCommandVerdict.Accept(
@@ -470,6 +507,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = LowBatteryWarning, Name = "Notify low battery", Group = MqttPublishGroups.Notifications,
+                Description = "Shows a notification on the computer when the battery drops to the low battery level while discharging.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-alert",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.LowBatteryWarning,
@@ -478,6 +516,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = LowBatteryLevel, Name = "Notify low battery level", Group = MqttPublishGroups.Notifications,
+                Description = "The charge level that triggers the low battery notification.",
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-low",
                 Min = SettingRanges.LowBatteryMin, Max = SettingRanges.LowBatteryMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -487,6 +526,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = HighBatteryWarning, Name = "Notify high battery", Group = MqttPublishGroups.Notifications,
+                Description = "Shows a notification once when the battery rises to the high battery level, and again only after it drops back below.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-alert-variant",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.HighBatteryWarning,
@@ -495,6 +535,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = HighBatteryLevel, Name = "Notify high battery level", Group = MqttPublishGroups.Notifications,
+                Description = "The charge level that triggers the high battery notification.",
                 Category = MqttEntityCategory.Config, Unit = "%", Icon = "mdi:battery-high",
                 Min = SettingRanges.HighBatteryMin, Max = SettingRanges.HighBatteryMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -504,6 +545,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = DrainWarning, Name = "Notify standby drain", Group = MqttPublishGroups.Notifications,
+                Description = "Shows a notification when the battery drains faster than the set rate while the computer is off.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:battery-clock",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.DrainWarning,
@@ -512,6 +554,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = DrainRate, Name = "Notify standby drain rate", Group = MqttPublishGroups.Notifications,
+                Description = "Percentage points of charge lost per hour while the computer is off that trigger the drain notification.",
                 Category = MqttEntityCategory.Config, Unit = "%/h", Icon = "mdi:speedometer-slow",
                 Min = SettingRanges.DrainRateMin, Max = SettingRanges.DrainRateMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -525,6 +568,7 @@ internal static class MqttEntityCatalog
             new MqttSwitch
             {
                 EntityId = NetworkProfiles, Name = "Network profiles", Group = MqttPublishGroups.Network,
+                Description = "Applies a preset automatically when the detected network location changes.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:map-marker-radius",
                 Debounce = MqttConnection.ReflectDebounce,
                 Read = () => surface()?.NetworkProfilesEnabled,
@@ -533,6 +577,7 @@ internal static class MqttEntityCatalog
             new MqttSelect
             {
                 EntityId = UnknownNetworkPreset, Name = "Network fallback preset",
+                Description = "Preset applied when the current network matches no profile; Do nothing leaves the thresholds as they are.",
                 Group = MqttPublishGroups.Network, Category = MqttEntityCategory.Config,
                 Icon = "mdi:map-marker-question", Debounce = MqttConnection.ReflectDebounce,
                 // The sentinel leads, so the picker always has at least one option and "stay put"
@@ -547,24 +592,28 @@ internal static class MqttEntityCatalog
             new MqttSensor
             {
                 EntityId = NetworkAdapterAlias, Name = "Network adapter alias", Group = MqttPublishGroups.Network,
+                Description = "Windows' own name for the adapter the network location was detected on, such as Ethernet or Wi-Fi.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:lan-connect",
                 Read = () => Known(surface()?.NetworkAlias),
             },
             new MqttSensor
             {
                 EntityId = NetworkIpAddress, Name = "Network IP address", Group = MqttPublishGroups.Network,
+                Description = "The address the computer holds on the adapter the network location was detected on.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:ip-network",
                 Read = () => Known(surface()?.NetworkIpAddress),
             },
             new MqttSensor
             {
                 EntityId = NetworkAdapterName, Name = "Network adapter", Group = MqttPublishGroups.Network,
+                Description = "Hardware name of the physical adapter the network location was detected on, never a tunnel or virtual switch above it.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:expansion-card",
                 Read = () => Known(surface()?.NetworkAdapterName),
             },
             new MqttSensor
             {
                 EntityId = NetworkProfileMatched, Name = "Network profile", Group = MqttPublishGroups.Network,
+                Description = "The profile the current network matches, or No profile matched when it matches none.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:map-marker-check",
                 // Matched nothing is a reading, not an absence, so it publishes the literal rather
                 // than falling through to the reset one.
@@ -578,12 +627,14 @@ internal static class MqttEntityCatalog
             new MqttSensor
             {
                 EntityId = AppVersion, Name = "App version", Group = MqttPublishGroups.AppDiagnostics,
+                Description = "The ChargeKeeper version running on this computer.",
                 Category = MqttEntityCategory.Diagnostic, Icon = "mdi:tag-outline",
                 Read = () => surface()?.AppVersion,
             },
             new MqttNumber
             {
                 EntityId = StartupDelay, Name = "App startup delay", Group = MqttPublishGroups.AppDiagnostics,
+                Description = "Seconds to wait after sign-in before ChargeKeeper initialises; 0 means no delay.",
                 Category = MqttEntityCategory.Config, Unit = "s", Icon = "mdi:clock-start",
                 Min = SettingRanges.StartupDelayMin, Max = SettingRanges.StartupDelayMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -593,6 +644,7 @@ internal static class MqttEntityCatalog
             new MqttSelect
             {
                 EntityId = IconMode, Name = "App tray icon style", Group = MqttPublishGroups.AppDiagnostics,
+                Description = "How the battery level is drawn in the system tray: a ring, a number or the brand mark.",
                 Category = MqttEntityCategory.Config, Icon = "mdi:image-outline",
                 Debounce = MqttConnection.ReflectDebounce,
                 Options = () => IconModeOptions,
@@ -607,6 +659,7 @@ internal static class MqttEntityCatalog
             new MqttNumber
             {
                 EntityId = DowntimeGap, Name = "App downtime gap threshold", Group = MqttPublishGroups.AppDiagnostics,
+                Description = "How long a gap in the samples must be before the history graph shows it as a break; 0 means none.",
                 Category = MqttEntityCategory.Config, Unit = "min", Icon = "mdi:chart-timeline-variant",
                 Min = SettingRanges.DowntimeGapMin, Max = SettingRanges.DowntimeGapMax,
                 Mode = MqttNumberMode.Box, Debounce = MqttConnection.ReflectDebounce,
@@ -617,7 +670,9 @@ internal static class MqttEntityCatalog
             // What the application itself is doing, and what the platform told it. Seven readings,
             // no commands: a receiver watches them, and every one of them moves on its own.
             MqttEnumSensor.Of(
-                LastChange, "App last change", MqttPublishGroups.AppDiagnostics,
+                LastChange, "App last change",
+                "The latest lid or keep-awake change ChargeKeeper recorded, such as a wait ending on the battery target.",
+                MqttPublishGroups.AppDiagnostics,
                 MqttEntityCategory.Diagnostic, "mdi:history",
                 AppChangeLog.Words,
                 () => surface()?.LastChange is { } change ? AppChangeLog.Label(change) : null),
@@ -625,6 +680,7 @@ internal static class MqttEntityCatalog
             {
                 // Sorts immediately below the change it timestamps, whose name it extends.
                 EntityId = LastChangeTime, Name = "App last change time",
+                Description = "When the latest lid or keep-awake change was recorded, with no value until one happens after start.",
                 Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "timestamp",
                 // A timestamp sensor wants a full ISO 8601 instant with an offset; nothing recorded
@@ -637,7 +693,9 @@ internal static class MqttEntityCatalog
             // dock, a monitor or a person at a keyboard on its own. Only what the switch reported
             // reaches the broker; the idle reading beside it is a per-event fact, not a live state.
             MqttEnumSensor.Of(
-                LastLidEvent, "App last lid event", MqttPublishGroups.AppDiagnostics,
+                LastLidEvent, "App last lid event",
+                "What the lid switch last reported, including repeats and the state Windows delivers when ChargeKeeper starts listening.",
+                MqttPublishGroups.AppDiagnostics,
                 MqttEntityCategory.Diagnostic, "mdi:laptop-off",
                 LidEventLog.Words,
                 () => surface()?.LastLidEvent is { } kind ? LidEventLog.Label(kind) : null,
@@ -646,13 +704,16 @@ internal static class MqttEntityCatalog
             {
                 // Sorts immediately below the event it timestamps, whose name it extends.
                 EntityId = LastLidEventTime, Name = "App last lid event time",
+                Description = "When the lid switch last reported anything.",
                 Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Diagnostic, DeviceClass = "timestamp",
                 Include = () => s.Capabilities().LidClose,
                 Read = () => surface()?.LastLidEventAt?.ToString("o", CultureInfo.InvariantCulture),
             },
             MqttEnumSensor.Of(
-                LidWait, "App lid-close wait", MqttPublishGroups.AppDiagnostics,
+                LidWait, "App lid-close wait",
+                "What a wait with the lid shut is waiting for: idle while the lid is open, off while lid handling is switched off.",
+                MqttPublishGroups.AppDiagnostics,
                 MqttEntityCategory.Diagnostic, "mdi:laptop",
                 LidWaitStates.Words,
                 () => surface() is { } v ? LidWaitStates.Label(v.LidWait) : null,
@@ -665,6 +726,7 @@ internal static class MqttEntityCatalog
                 // Diagnostic "App lid-close wait" above, so its name carries "lid-close wait" in
                 // full rather than trailing off with a bare "remaining".
                 EntityId = LidWaitRemaining, Name = "App lid-close wait countdown",
+                Description = "Minutes left before the computer sleeps with the lid shut, with no value while no timer is running.",
                 Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Primary, DeviceClass = "duration", Unit = "min",
                 Icon = "mdi:timer-sand",
@@ -678,6 +740,7 @@ internal static class MqttEntityCatalog
                 // nothing at all. Sorts in Sensors rather than Diagnostic, so the name spells out
                 // "keep-awake hold" itself instead of relying on a neighbouring entity for context.
                 EntityId = KeepAwakeHoldRemaining, Name = "App keep-awake hold countdown",
+                Description = "Minutes left in the running keep-awake session, with no value while none runs or it has no end time.",
                 Group = MqttPublishGroups.AppDiagnostics,
                 Category = MqttEntityCategory.Primary, DeviceClass = "duration", Unit = "min",
                 Icon = "mdi:coffee-outline",

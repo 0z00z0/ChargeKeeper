@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ChargeKeeper.Services;
 using ZeroZero.Mqtt;
 using ZeroZero.Mqtt.Discovery;
@@ -33,6 +34,21 @@ public class MqttEntityCatalogTests
                 ["binary_sensor"] = 4, ["select"] = 3, ["button"] = 2, ["text"] = 1,
             },
             byPlatform);
+    }
+
+    [Fact]
+    public void EveryEntity_CarriesAHelpTextOfAtMostTwoSentences()
+    {
+        // The description attribute is the only explanation a Home Assistant user gets; an entity
+        // added without one publishes nothing, and every text rides in the one retained document.
+        var faults = MqttTestBed.Declared().All
+            .Where(e => string.IsNullOrWhiteSpace(e.Description)
+                        || e.Description.Length > 220
+                        || Regex.Matches(e.Description, @"[.!?](\s|$)").Count > 2)
+            .Select(e => e.EntityId)
+            .ToList();
+
+        Assert.Empty(faults);
     }
 
     [Fact]

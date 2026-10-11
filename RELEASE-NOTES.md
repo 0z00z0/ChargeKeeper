@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.14.0
+
+- Every entity published to Home Assistant carries a one-sentence help text, readable as its
+  description attribute in the entity's detail dialog; the discovery document is republished once
+  with the texts.
+
 ## 2.13.1
 
 - Started at sign-in before the taskbar is ready, the application now waits for it and places its

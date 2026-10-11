@@ -19,7 +19,7 @@
     <PackageVersion Include="ZeroZero.Config.Watch" Version="0.8.1" />
     <PackageVersion Include="ZeroZero.Diagnostics" Version="0.8.0" />
     <PackageVersion Include="ZeroZero.Lifecycle" Version="0.7.1" />
-    <PackageVersion Include="ZeroZero.Mqtt.WinUI" Version="0.11.0" />
+    <PackageVersion Include="ZeroZero.Mqtt.WinUI" Version="0.12.0" />
     <PackageVersion Include="ZeroZero.Tray.WinUI" Version="0.11.0" />
     <PackageVersion Include="ZeroZero.Update" Version="0.14.0" />
     <PackageVersion Include="ZeroZero.Update.WinUI" Version="0.14.0" />

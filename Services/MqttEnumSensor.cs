@@ -20,15 +20,17 @@ internal static class MqttEnumSensor
 
     /// <summary>One entity over a fixed list of words, in the category the caller already publishes
     /// it under.</summary>
+    /// <param name="description">The help text published as the entity's description attribute.</param>
     /// <param name="read">The word in force, or null when there is none.</param>
     /// <param name="include">Capability gating, or null for an entity that is always published.</param>
     public static MqttSensor Of(
-        string entityId, string name, string group, MqttEntityCategory category, string icon,
-        IReadOnlyList<string> words, Func<string?> read, Func<bool>? include = null) =>
+        string entityId, string name, string description, string group, MqttEntityCategory category,
+        string icon, IReadOnlyList<string> words, Func<string?> read, Func<bool>? include = null) =>
         new()
         {
             EntityId = entityId,
             Name = name,
+            Description = description,
             Group = group,
             Category = category,
             Icon = icon,
