@@ -124,6 +124,11 @@ FinishedLabel={#AppName} is installed. Look for its icon in the notification are
 ; Quiet studio sign-off, bottom-left of every wizard page.
 BeveledLabel=ZeroZero Software - Small tools. Zero bloat.
 
+[InstallDelete]
+; Shared-library resource indexes from builds that shipped them. A leftover one overrides the
+; library's own texts with old patterns, and the MQTT settings panel throws on them.
+Type: files; Name: "{app}\ZeroZero.*.pri"
+
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
