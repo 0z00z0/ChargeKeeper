@@ -277,6 +277,7 @@ packages). The only **non-Microsoft** dependencies are:
 | [CommunityToolkit.WinUI.Controls.SettingsControls](https://github.com/CommunityToolkit/Windows) | .NET Foundation | SettingsCard/SettingsExpander rows (Settings window) | MIT |
 | [WinUIEx](https://github.com/dotMorten/WinUIEx) | Morten Nielsen | WinUI 3 window helper extensions (Settings window placement) | MIT |
 | [MQTTnet](https://github.com/dotnet/MQTTnet) | The MQTTnet Project | MQTT client for the broker integration | MIT |
+| [MessageFormat](https://github.com/jeffijoe/messageformat.net) | Copyright © 2014 Jeff Hansen | Counted texts in the MQTT settings panel | MIT |
 | [NLog](https://github.com/NLog/NLog) | Jarek Kowalski, Kim Christensen, Julian Verdurmen | Event log, rolled daily with a size cap (app.log) | BSD-3-Clause |
 
 ## MQTT

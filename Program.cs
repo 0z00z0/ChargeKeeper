@@ -14,6 +14,12 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // The shared components pick their words by the UI culture and carry Norwegian; this
+        // application is English only. Regional formats follow CurrentCulture, left untouched.
+        var english = System.Globalization.CultureInfo.GetCultureInfo("en-GB");
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = english;
+        System.Globalization.CultureInfo.CurrentUICulture = english;
+
         var startup = StartupArgs.Parse(Environment.GetCommandLineArgs());
 
         // "/debug [on|off]" is a command, not a launch, and must be handled ahead of the

@@ -358,6 +358,7 @@ internal sealed partial class SettingsWindow : Window
         // An in-flight probe outlives the window by up to its budget; cancelling makes the
         // continuation bail before it touches a torn-down control.
         if (_mqtt is not null) MqttPanel.Cancel();
+        if (_mqtt is not null && _mqttStateRelay is not null) _mqtt.StateChanged -= _mqttStateRelay;
     }
 
     // Set in OnClosed. Background callbacks started before the close still marshal back, and
@@ -2472,7 +2473,7 @@ internal sealed partial class SettingsWindow : Window
             return;
         }
 
-        MqttPanel.Initialise(new MqttPanelSetup
+        var setup = new MqttPanelSetup
         {
             Settings          = mqtt.Settings,
             Groups            = mqtt.Groups,
@@ -2497,8 +2498,15 @@ internal sealed partial class SettingsWindow : Window
                 + "entities has to be repointed by hand.",
             CommandLabel      = mqtt.Entities.NameOf,
             Log               = new AppLogSink(),
-        });
+        };
+        // A setup built by hand learns of state changes only from here; without it the Broker line
+        // stays on Automatic while connected. Removed in OnClosed so the publisher drops the setup.
+        _mqttStateRelay = _ => setup.NotifyConnectionStateChanged();
+        mqtt.StateChanged += _mqttStateRelay;
+        MqttPanel.Initialise(setup);
     }
+
+    private Action<ZeroZero.Mqtt.MqttConnectionState>? _mqttStateRelay;
 
     // The About section hosts BrandAboutControl inline, populated in the ctor, so it needs no
     // handler of its own.

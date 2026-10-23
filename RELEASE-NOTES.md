@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.15.1
+
+- While connected, the Broker line on the MQTT settings page shows the port, transport and
+  encryption in use rather than Automatic, with a small magnifier behind each value that was
+  detected rather than set.
+
 ## 2.15.0
 
 - An update no longer installs while a Keep Awake session or a lid-close wait is running, whether it

@@ -137,6 +137,13 @@ internal sealed class MqttPublisher : IDisposable
 
     public bool IsConnected => _connection.IsConnected;
 
+    /// <summary>Raised on the connection's own thread at every state change.</summary>
+    public event Action<MqttConnectionState>? StateChanged
+    {
+        add    => _connection.StateChanged += value;
+        remove => _connection.StateChanged -= value;
+    }
+
     /// <summary>The entity table in force, for the panel's entity-id-to-name lookup and for tests.</summary>
     public MqttEntitySet Entities { get; }
 
