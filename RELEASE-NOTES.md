@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.15.3
+
+- The MQTT settings page no longer closes the application when one of its texts cannot be filled in.
+
 ## 2.15.2
 
 - Opening Settings no longer closes the application on a machine that once ran 1.47 or earlier:
