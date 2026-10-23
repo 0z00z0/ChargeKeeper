@@ -9,6 +9,15 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.15.0
+
+- An update no longer installs while a Keep Awake session or a lid-close wait is running, whether it
+  installs by itself or from the update window, which then says which of the two is in the way.
+- With installing automatically switched off, a new release is announced in the tray menu without
+  being downloaded in the background.
+- The Presets list on the Smart Charge page marks the preset a network profile has just applied,
+  rather than the one in use before it.
+
 ## 2.14.0
 
 - Every entity published to Home Assistant carries a one-sentence help text, readable as its

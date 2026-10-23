@@ -65,8 +65,8 @@ public class UpdateScheduleTests
 
     private static UnattendedUpdateOptions Options(string cadence) =>
         UpdateSchedulePolicy.Options(Enum.Parse<UpdateCheckCadence>(cadence), shutdown: () => { },
-                                     mayInstallNow: _ => InstallMoment.Now, tickReported: _ => { },
-                                     log: NullLogSink.Instance);
+                                     installAutomatically: () => false, holds: new InstallHolds(),
+                                     tickReported: _ => { }, log: NullLogSink.Instance);
 
     // The cadence arrives by name: the enum is internal, so it cannot be a public parameter, and
     // naming it here doubles as a second reading of the stored spelling.
@@ -90,23 +90,11 @@ public class UpdateScheduleTests
         Assert.Equal(TimeSpan.FromSeconds(30), options.InitialDelay);
     }
 
-    // ── What refuses an automatic install ───────────────────────────────────────────────────────
-
+    // The handover record is keyed on this, so the next start can say whether the update landed.
     [Fact]
-    public void TheSwitchOff_RefusesEvenWithEverythingElseClear()
+    public void TheHandoverReadsTheReleaseOffTheDownloadedInstaller()
     {
-        var moment = UpdateSchedulePolicy.MayInstallNow(installAutomatically: false, false);
-        Assert.False(moment.Accepted);
-        Assert.Equal("installing automatically is switched off", moment.Reason);
-    }
-
-    [Fact]
-    public void ALidCloseWait_RefusesTheInstall()
-    {
-        // The lid is shut, so the machine reads as free exactly when it is on its way to sleep —
-        // the component's own idle rule would let the install through.
-        var moment = UpdateSchedulePolicy.MayInstallNow(true, lidWaitRunning: true);
-        Assert.False(moment.Accepted);
-        Assert.Equal("a lid-close wait is running", moment.Reason);
+        Assert.Equal("2.15.0", UpdateHandoverLauncher.VersionOf(@"C:\Temp\ChargeKeeper-Update-1f\ChargeKeeper-Setup-2.15.0.exe"));
+        Assert.Null(UpdateHandoverLauncher.VersionOf(@"C:\Temp\Setup.exe"));
     }
 }

@@ -178,7 +178,7 @@ internal sealed class AppSettings
     public UpdateCheckCadence UpdateCheckCadence { get; set; } = UpdateCheckCadence.EveryDay;
 
     /// <summary>Whether a release the check finds installs itself, with no question asked, once the
-    /// machine is free and nothing refuses the moment — see <see cref="UpdateSchedulePolicy.MayInstallNow"/>.
+    /// machine is free and no install hold stands — see <see cref="AppUpdates.Holds"/>.
     /// Off by default: an installation that never asked for it keeps being asked.</summary>
     public bool InstallUpdatesAutomatically { get; set; }
 

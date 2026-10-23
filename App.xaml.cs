@@ -1461,6 +1461,16 @@ public partial class App : Application
 
     private void StartUpdatePolicy()
     {
+        if (_menu is { } menu)
+        {
+            // Held for the process's life. The lid is shut, so the machine reads as free exactly when
+            // it is on its way to sleep.
+            menu.Updates.Holds.Hold(() => LidWaitStates.IsWaiting(LidDelayService.WaitNow().State)
+                                              ? UpdateSchedulePolicy.LidCloseWaitRunning : null);
+            KeepAwakeService.StateChanged += FollowKeepAwakeSession;
+            FollowKeepAwakeSession();
+        }
+
         SettingsService.Changed  += ApplyUpdateCadence;
         SettingsService.Reloaded += ApplyUpdateCadence;
         ApplyUpdateCadence();
@@ -1484,7 +1494,8 @@ public partial class App : Application
                     AppLog.Info($"Update check cadence changed to {cadence}; the background check restarts.");
 
                 _updatePolicy?.Dispose();
-                _updatePolicy        = menu.Updates.Unattended(cadence, MayInstallUpdateNow, OnUpdateTick);
+                _updatePolicy        = menu.Updates.Unattended(
+                    cadence, () => SettingsService.Current.InstallUpdatesAutomatically, OnUpdateTick);
                 _updatePolicyCadence = cadence;
                 _updatePolicy.Start();
             }
@@ -1492,12 +1503,24 @@ public partial class App : Application
         catch (Exception ex) { AppLog.Error("App.ApplyUpdateCadence", ex); }
     }
 
-    /// <summary>The application's refusals, asked once the installer is verified and the machine is
-    /// free. Read fresh each time, so the Settings switch takes effect at the next tick.</summary>
-    private static InstallMoment MayInstallUpdateNow(ReleaseInfo release) =>
-        UpdateSchedulePolicy.MayInstallNow(
-            SettingsService.Current.InstallUpdatesAutomatically,
-            LidWaitStates.IsWaiting(LidDelayService.WaitNow().State));
+    // A Keep Awake session lives in memory only, and the installer's restart would end it.
+    private IDisposable? _keepAwakeInstallHold;
+
+    private void FollowKeepAwakeSession()
+    {
+        if (_menu is not { } menu) return;
+        lock (_updatePolicyLock)
+        {
+            bool running = KeepAwakeService.Current is not null;
+            if (running && _keepAwakeInstallHold is null)
+                _keepAwakeInstallHold = menu.Updates.Holds.Hold(UpdateSchedulePolicy.KeepAwakeRunning);
+            else if (!running && _keepAwakeInstallHold is not null)
+            {
+                _keepAwakeInstallHold.Dispose();
+                _keepAwakeInstallHold = null;
+            }
+        }
+    }
 
     /// <summary>Every tick that carries a release — found, refused, not prepared or started — puts
     /// it on the tray line and in the tooltip. Only "nothing found" carries none.</summary>

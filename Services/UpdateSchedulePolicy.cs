@@ -21,51 +21,33 @@ internal enum UpdateCheckCadence
     AtStartupOnly,
 }
 
-/// <summary>
-/// The options the shared unattended-update policy runs on, and the application's own reasons for
-/// refusing an install at the moment it would start. The policy is the whole background update
-/// mechanism: it checks on the chosen cadence, reports every tick for the tray line, and installs
-/// once the machine is free and nothing here refuses.
-/// </summary>
-/// <remarks>Pure, so every cadence and every refusal is testable without a policy running.</remarks>
+/// <summary>The shared unattended-update policy's options, and one fixed wording per reason not to
+/// install: the component logs a refusal once per reason and ends "did not start because …" with it.</summary>
 internal static class UpdateSchedulePolicy
 {
     /// <summary>Delayed so the first check does not slow the cold-start path.</summary>
     internal static readonly TimeSpan FirstCheckDelay = TimeSpan.FromSeconds(30);
 
-    /// <summary>The refusal while the Settings switch is off. The policy always runs, because it is
-    /// also what keeps the tray line current, so the switch is a standing refusal.</summary>
     internal const string SwitchedOff = "installing automatically is switched off";
 
-    /// <summary>The lid is shut, so the machine reads as free exactly when it is on its way to
-    /// sleep.</summary>
     internal const string LidCloseWaitRunning = "a lid-close wait is running";
 
-    /// <summary>The policy's options for the chosen cadence. Enabled whatever the Settings switch
-    /// says: with it off the policy still checks and still reports, and <see cref="MayInstallNow"/>
-    /// refuses every install.</summary>
+    internal const string KeepAwakeRunning = "a Keep Awake session is running";
+
+    /// <summary>Enabled whatever the Settings switch says: the check also keeps the tray line current.</summary>
     internal static UnattendedUpdateOptions Options(
-        UpdateCheckCadence cadence, Action shutdown, Func<ReleaseInfo, InstallMoment> mayInstallNow,
+        UpdateCheckCadence cadence, Action shutdown, Func<bool> installAutomatically, InstallHolds holds,
         Action<UnattendedTick> tickReported, ILogSink log) => new()
     {
-        Enabled       = true,
-        InitialDelay  = FirstCheckDelay,
-        Cadence       = cadence == UpdateCheckCadence.AtStartupOnly ? CheckCadence.Once : CheckCadence.Periodic,
-        CheckInterval = cadence == UpdateCheckCadence.EveryHour ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24),
-        Shutdown      = shutdown,
-        MayInstallNow = mayInstallNow,
-        TickReported  = tickReported,
-        Log           = log,
+        Enabled        = true,
+        InitialDelay   = FirstCheckDelay,
+        Cadence        = cadence == UpdateCheckCadence.AtStartupOnly ? CheckCadence.Once : CheckCadence.Periodic,
+        CheckInterval  = cadence == UpdateCheckCadence.EveryHour ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24),
+        Shutdown       = shutdown,
+        // Not an install hold: the holds also gate an install a person asked for.
+        MayDownloadNow = _ => installAutomatically() ? InstallMoment.Now : InstallMoment.NotNow(SwitchedOff),
+        Holds          = holds,
+        TickReported   = tickReported,
+        Log            = log,
     };
-
-    /// <summary>Whether an installer may start now, asked by the policy once the installer is
-    /// verified and the machine is free. Each reason is one fixed wording, because the policy logs a
-    /// refusal once per reason.</summary>
-    internal static InstallMoment MayInstallNow(bool installAutomatically, bool lidWaitRunning)
-    {
-        if (!installAutomatically) return InstallMoment.NotNow(SwitchedOff);
-        if (lidWaitRunning)        return InstallMoment.NotNow(LidCloseWaitRunning);
-
-        return InstallMoment.Now;
-    }
 }

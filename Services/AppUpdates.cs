@@ -56,6 +56,10 @@ internal sealed class AppUpdates
     /// <summary>The version the check compares a release against.</summary>
     internal Version RunningVersion => _service.RunningVersion;
 
+    /// <summary>Every reason no installer may start now, asked on the offered install and the
+    /// unattended one alike.</summary>
+    internal InstallHolds Holds { get; } = new();
+
     /// <summary>
     /// One check, reported by nobody: the caller reads the run and decides what to show. Silent, so
     /// the component puts nothing on screen for any outcome and a check that finds nothing is
@@ -68,33 +72,18 @@ internal sealed class AppUpdates
     /// Offers and installs a release already found, with no second check. The question, the download
     /// and every refusal are the component's own window, which it opens and closes itself.
     /// </summary>
-    internal Task<UpdateFlowRun> InstallAsync(ReleaseInfo release)
-    {
-        // Read as Setup is launched, so a declined offer leaves no handover record behind.
-        _launcher.TargetVersion = release.VersionText;
-        return new UpdateFlow(_service, Prompts(), FlowOptions()).InstallAsync(release);
-    }
+    internal Task<UpdateFlowRun> InstallAsync(ReleaseInfo release) =>
+        new UpdateFlow(_service, Prompts(), FlowOptions()).InstallAsync(release);
 
     /// <summary>
-    /// The background update mechanism over the same service and the same handover record as
+    /// The background update mechanism over the same service, holds and handover record as
     /// <see cref="InstallAsync"/>: the check on the chosen cadence, every tick reported, and the
     /// install nobody is asked about. Built stopped; the caller starts it.
     /// </summary>
-    /// <param name="mayInstallNow">The application's refusals — see
-    /// <see cref="UpdateSchedulePolicy.MayInstallNow"/>.</param>
     internal UnattendedUpdatePolicy Unattended(
-        UpdateCheckCadence cadence, Func<ReleaseInfo, InstallMoment> mayInstallNow,
-        Action<UnattendedTick> tickReported) =>
-        new(_service, UpdateSchedulePolicy.Options(cadence, _shutdown,
-            release =>
-            {
-                var moment = mayInstallNow(release);
-                // The last call before the policy launches Setup, so an accepted moment is where the
-                // handover record learns which version is going in.
-                if (moment.Accepted) _launcher.TargetVersion = release.VersionText;
-                return moment;
-            },
-            tickReported, new AppLogSink()));
+        UpdateCheckCadence cadence, Func<bool> installAutomatically, Action<UnattendedTick> tickReported) =>
+        new(_service, UpdateSchedulePolicy.Options(cadence, _shutdown, installAutomatically, Holds,
+                                                   tickReported, new AppLogSink()));
 
     /// <summary>The component's own window and wording for every outcome a caller chooses to report.
     /// Built per use: the window is a field of the prompts, so one instance would hand a second
@@ -132,6 +121,7 @@ internal sealed class AppUpdates
     {
         Shutdown        = _shutdown,
         OpenReleasePage = OpenInBrowser,
+        Holds           = Holds,
         Log             = new AppLogSink(),
     };
 

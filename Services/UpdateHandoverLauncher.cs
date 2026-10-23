@@ -13,14 +13,23 @@ internal sealed class UpdateHandoverLauncher : IInstallerLauncher
 {
     private readonly IInstallerLauncher _inner = new ShellInstallerLauncher();
 
-    /// <summary>The release an install is running for, set before the flow is started.</summary>
-    internal string? TargetVersion { get; set; }
-
     public void Start(string path, string arguments)
     {
-        if (TargetVersion is { Length: > 0 } version) UnattendedUpdate.Record(version);
+        if (VersionOf(path) is { } version) UnattendedUpdate.Record(version);
         else AppLog.Info("Update: starting Setup with no target version recorded.");
 
         _inner.Start(path, arguments);
+    }
+
+    /// <summary>The component names the download after <see cref="AppUpdates.InstallerAssetName"/>.</summary>
+    internal static string? VersionOf(string installerPath)
+    {
+        string[] around = AppUpdates.InstallerAssetName.Split("{version}");
+        string name = Path.GetFileName(installerPath);
+        return name.Length > around[0].Length + around[1].Length
+               && name.StartsWith(around[0], StringComparison.Ordinal)
+               && name.EndsWith(around[1], StringComparison.Ordinal)
+            ? name[around[0].Length..^around[1].Length]
+            : null;
     }
 }
