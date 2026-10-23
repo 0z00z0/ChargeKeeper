@@ -43,6 +43,11 @@ internal readonly record struct ActionCause
     public static ActionCause NetworkProfile(string name, bool joined) =>
         new($"the network profile '{name}' being {(joined ? "joined" : "left")}");
 
+    /// <summary>A network profile being added or given a preset while it matches the network this
+    /// computer is on, which no join will follow.</summary>
+    public static ActionCause NetworkProfileSaved(string name) =>
+        new($"the network profile '{name}' being saved for the network this computer is on");
+
     /// <summary>A command from Home Assistant, naming the entity it arrived on.</summary>
     public static ActionCause HomeAssistant(string entityId) =>
         new($"Home Assistant, on the '{entityId}' entity");

@@ -38,7 +38,9 @@ internal static class NetworkProfiles
 
     /// <summary>Applies whatever profile wins at <paramref name="location"/>. Nothing happens while
     /// the feature is off, or where the winning name is no longer a preset.</summary>
-    public static void ApplyWinner(NetworkLocation location)
+    /// <param name="savedProfileId">The profile just saved on the Settings window, if any, so the
+    /// line names the save rather than a join that did not happen.</param>
+    public static void ApplyWinner(NetworkLocation location, string? savedProfileId)
     {
         var settings = SettingsService.Current;
         if (!settings.NetworkProfilesEnabled) return;
@@ -49,7 +51,9 @@ internal static class NetworkProfiles
         // because no layer below this point can tell a network-driven apply from any other.
         ActionCause cause = "a network matching no profile, so the fallback preset applies";
         if (settings.FindNetworkRule(location) is { } rule)
-            cause = ActionCause.NetworkProfile(NameOf(rule), joined: true);
+            cause = savedProfileId is { Length: > 0 } && rule.Id == savedProfileId
+                ? ActionCause.NetworkProfileSaved(NameOf(rule))
+                : ActionCause.NetworkProfile(NameOf(rule), joined: true);
         ApplyPreset?.Invoke(presetName, cause);
     }
 
@@ -65,7 +69,7 @@ internal static class NetworkProfiles
         SettingsService.Update(s => s.NetworkProfilesEnabled = on);
 
         var location = CurrentLocation();
-        if (on) ApplyWinner(location);
+        if (on) ApplyWinner(location, savedProfileId: null);
         KeepAwakeService.ReconcileNetworkHold(location, cause);
     }
 

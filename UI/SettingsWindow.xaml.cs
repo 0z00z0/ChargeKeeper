@@ -106,7 +106,13 @@ internal sealed partial class SettingsWindow : Window
         // refresh on open, on a section switch and on a rule edit, so a dock, an undock or a carrier
         // change leaves a network on screen that the service moved off long ago.
         NetworkLocationService.LocationChanged += OnNetworkLocationChanged;
+        ChargeControlService.StateChanged      += OnChargeControlStateChanged;
     }
+
+    // A preset applied from anywhere else — a network profile, the tray, Home Assistant — moves the
+    // Presets list's in-use mark, which only a read after the write can place.
+    private void OnChargeControlStateChanged() =>
+        RunOnUi(() => RefreshPresetActivationStates(ChargeThresholdService.Read()));
 
     // Raised off the UI thread by NetworkLocationService — marshal before touching anything.
     private void OnNetworkLocationChanged(NetworkLocation location) => RunOnUi(() =>
@@ -346,6 +352,7 @@ internal sealed partial class SettingsWindow : Window
         KeepAwakeService.StateChanged           -= OnKeepAwakeStateChanged;
         LidDelayService.StateChanged            -= OnLidDelayStateChanged;
         NetworkLocationService.LocationChanged  -= OnNetworkLocationChanged;
+        ChargeControlService.StateChanged       -= OnChargeControlStateChanged;
         _keepAwakeTicker.Stop();
 
         // An in-flight probe outlives the window by up to its budget; cancelling makes the
@@ -1579,7 +1586,7 @@ internal sealed partial class SettingsWindow : Window
 
         // Apply whatever profile now wins for the network we are on, so an edit to the active
         // network's rule takes effect immediately.
-        NetworkProfiles.ApplyWinner(NetworkProfiles.CurrentLocation());
+        NetworkProfiles.ApplyWinner(NetworkProfiles.CurrentLocation(), rules[index].Id);
     }
 
     private void DeleteNetworkRule(int index, string page)
@@ -1597,14 +1604,15 @@ internal sealed partial class SettingsWindow : Window
         // whatever wins now, so the device stops running the deleted rule's preset and any hold the
         // rule was keeping is released.
         var location = NetworkProfiles.CurrentLocation();
-        NetworkProfiles.ApplyWinner(location);
+        NetworkProfiles.ApplyWinner(location, savedProfileId: null);
         KeepAwakeService.ReconcileNetworkHold(location, ActionCause.SettingsPage(page));
     }
 
     /// <summary>Fingerprints the current network, asks for a name and appends a rule for it.
-    /// Returns the detected location, or null when nothing was detected or the user cancelled.
+    /// Returns the detected location and the new profile's identifier, or null when nothing was
+    /// detected or the user cancelled.
     /// Shared by both pages' "Add … for this network…" buttons, which differ only in their tail.</summary>
-    private async Task<NetworkLocation?> AddNetworkRuleAsync(bool keepAwakeHere)
+    private async Task<(NetworkLocation Location, string ProfileId)?> AddNetworkRuleAsync(bool keepAwakeHere)
     {
         var location = NetworkLocationService.DetectCurrent();
         if (location.IsEmpty)
@@ -1638,12 +1646,13 @@ internal sealed partial class SettingsWindow : Window
         var s0 = SettingsService.Current;
         // The preset in use is the obvious default for a new rule; the first one when none is.
         string defaultPreset = ActivePresetInUse() ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+        string id = StableId.New();
 
         SettingsService.Update(s =>
         {
             s.NetworkLocationRules.Add(new NetworkLocationRule
             {
-                Id            = StableId.New(),
+                Id            = id,
                 Name          = name,
                 AdapterMac    = location.AdapterMac,
                 IpCidr        = location.IpCidr,
@@ -1660,7 +1669,7 @@ internal sealed partial class SettingsWindow : Window
             KeepAwakeNetworkEnabledToggle.IsOn = true;
         });
         RebuildNetworkRuleRows();   // rebuilds both pages' renderings of the rule list
-        return location;
+        return (location, id);
     }
 
     private async void OnAddNetworkRule(object sender, RoutedEventArgs e)
@@ -1669,12 +1678,12 @@ internal sealed partial class SettingsWindow : Window
         // opening the name prompt does monitor work that can fault on multi-monitor.
         try
         {
-            if (await AddNetworkRuleAsync(keepAwakeHere: false) is not { } location) return;
+            if (await AddNetworkRuleAsync(keepAwakeHere: false) is not { } added) return;
             RefreshCurrentNetworkText();
 
             // Usually the rule just added, unless an earlier one shadows it. Same first-match
             // resolution the tray uses, so this write agrees with the next reconcile.
-            NetworkProfiles.ApplyWinner(location);
+            NetworkProfiles.ApplyWinner(added.Location, added.ProfileId);
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.OnAddNetworkRule", ex); }
     }
