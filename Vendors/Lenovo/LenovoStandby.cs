@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using Microsoft.Win32;
 
@@ -36,10 +38,10 @@ internal sealed class LenovoStandby : IStandbyProvider
     {
         try
         {
-            // Startup type first, so a reboot mid-operation still lands in the intended state.
-            PersistStartupType(enable ? ServiceStartMode.Automatic : ServiceStartMode.Disabled);
-
             using var svc = new ServiceController(ServiceName);
+
+            // Startup type first, so a reboot mid-operation still lands in the intended state.
+            SetStartupType(enable ? ServiceStartMode.Automatic : ServiceStartMode.Disabled);
 
             if (enable && svc.Status != ServiceControllerStatus.Running)
             {
@@ -57,16 +59,44 @@ internal sealed class LenovoStandby : IStandbyProvider
         catch { return false; }
     }
 
-    /// <summary>
-    /// Writes the service start type straight to the registry, because
-    /// <see cref="ServiceController"/> has no managed API for changing it.
-    /// </summary>
-    private static void PersistStartupType(ServiceStartMode mode)
+    /// <summary>Through the service control manager: a registry write is not seen until the next boot.</summary>
+    private static void SetStartupType(ServiceStartMode mode)
     {
-        using var key = Registry.LocalMachine.OpenSubKey(RegistryPath, writable: true);
-        // Key is absent only when the Lenovo driver is not installed — skip silently.
-        key?.SetValue("Start", (int)mode, RegistryValueKind.DWord);
+        // ServiceController.ServiceHandle carries query rights only, so the handle is opened here.
+        IntPtr manager = OpenSCManager(null, null, ScManagerConnect);
+        if (manager == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try
+        {
+            IntPtr service = OpenService(manager, ServiceName, ServiceChangeConfig);
+            if (service == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try
+            {
+                if (!ChangeServiceConfig(service, ServiceNoChange, (uint)mode, ServiceNoChange,
+                        null, null, IntPtr.Zero, null, null, null, null))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            finally { CloseServiceHandle(service); }
+        }
+        finally { CloseServiceHandle(manager); }
     }
+
+    private const uint ScManagerConnect    = 0x0001;
+    private const uint ServiceChangeConfig = 0x0002;
+    private const uint ServiceNoChange     = 0xFFFFFFFF;
+
+    [DllImport("advapi32.dll", EntryPoint = "OpenSCManagerW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenSCManager(string? machineName, string? databaseName, uint access);
+
+    [DllImport("advapi32.dll", EntryPoint = "OpenServiceW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenService(IntPtr manager, string serviceName, uint access);
+
+    [DllImport("advapi32.dll", EntryPoint = "ChangeServiceConfigW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ChangeServiceConfig(IntPtr service, uint serviceType, uint startType,
+        uint errorControl, string? binaryPathName, string? loadOrderGroup, IntPtr tagId,
+        string? dependencies, string? serviceStartName, string? password, string? displayName);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CloseServiceHandle(IntPtr handle);
 
     /// <summary>The service's own registry key exists only where the Lenovo driver is installed.</summary>
     private static bool ServiceIsInstalled()

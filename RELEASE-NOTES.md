@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.2
+
+- Smart Standby on a Lenovo machine can be switched on again when it was off at the last restart,
+  instead of being refused until the next one.
+
 ## 2.16.1
 
 - With "One line until it matters" on, a dashboard row whose feature is off now takes a single line
