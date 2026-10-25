@@ -23,7 +23,7 @@ internal sealed class MqttLinkWatch
             case MqttConnectionState.Connected:
                 if (!_down) return null;
                 _down = false;
-                return "MQTT: connected to the broker again after " +
+                return "MQTT: connected to the server again after " +
                        Span(System.Diagnostics.Stopwatch.GetElapsedTime(_downSince, timestamp)) +
                        " — publishing resumes, and the current state is sent again.";
 
@@ -31,7 +31,7 @@ internal sealed class MqttLinkWatch
                 if (_down) return null;
                 _down = true;
                 _downSince = timestamp;
-                return "MQTT: not connected to the broker — publishing is paused until the connection returns.";
+                return "MQTT: not connected to the server — publishing is paused until the connection returns.";
 
             case MqttConnectionState.Disabled:
                 // Switched off on purpose: nothing is owed a "connected again" line.

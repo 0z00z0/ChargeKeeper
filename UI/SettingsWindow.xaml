@@ -73,7 +73,7 @@
             <NavigationViewItem Content="Scripts"          Tag="Scripts">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/scripts.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="MQTT"             Tag="HomeAssistant">
+            <NavigationViewItem Content="Remote control"   Tag="HomeAssistant">
                 <NavigationViewItem.Icon><ImageIcon Source="ms-appx:///Assets/nav/mqtt.svg" Width="{StaticResource NavIconSize}" Height="{StaticResource NavIconSize}"/></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="App diagnostics" Tag="AppDiagnostics">
@@ -554,8 +554,8 @@
                          Home Assistant is named once, under Discovery prefix inside the panel,
                          because that is the published name of the convention and not the name of a
                          dependency. -->
-                    <TextBlock Text="MQTT" Style="{StaticResource SectionHeaderStyle}"/>
-                    <TextBlock Text="Publishes ChargeKeeper's battery, charge and settings surface to an MQTT broker, announced as one device with its entities."
+                    <TextBlock Text="Remote control (MQTT)" Style="{StaticResource SectionHeaderStyle}"/>
+                    <TextBlock Text="Publishes ChargeKeeper's battery, charge and settings surface to a remote control server, announced as one device with its entities."
                                FontSize="11"
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

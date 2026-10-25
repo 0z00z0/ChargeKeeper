@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.1
+
+- With "One line until it matters" on, a dashboard row whose feature is off now takes a single line
+  with no frame, instead of keeping its full height.
+- The MQTT settings page is now called Remote control and, like the panel it holds, says server
+  rather than broker.
+
 ## 2.16.0
 
 - Renaming a Smart Charge preset no longer touches the network profiles and the network fallback that

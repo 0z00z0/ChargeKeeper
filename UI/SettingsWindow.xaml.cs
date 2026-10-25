@@ -2475,8 +2475,8 @@ internal sealed partial class SettingsWindow : Window
             PublishSetChanged = mqtt.Republish,
             RecallEndpoint    = mqtt.RecallEndpoint,
             DefaultDeviceName = mqtt.DefaultDeviceName,
-            PublishTitle      = "Publish to MQTT",
-            PublishDescription = "Publishes battery and charge state to an MQTT broker.",
+            PublishTitle      = "Publish to the server",
+            PublishDescription = "Publishes battery and charge state to a remote control server.",
             PublishGroupsInfo =
                 "Each group covers the entities from the Settings page it is named after. Switching "
                 + "one off marks its entities unavailable; switching it back on restores them.",

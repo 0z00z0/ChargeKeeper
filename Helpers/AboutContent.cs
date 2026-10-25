@@ -36,8 +36,8 @@ internal static class AboutContent
             new ExternalLibrary("CommunityToolkit.WinUI.Controls.RangeSelector", ".NET Foundation", "Dual-handle range slider (Smart Charge start/stop threshold)", "MIT", "https://github.com/CommunityToolkit/Windows"),
             new ExternalLibrary("CommunityToolkit.WinUI.Controls.SettingsControls", ".NET Foundation", "SettingsCard/SettingsExpander rows (Settings window)", "MIT", "https://github.com/CommunityToolkit/Windows"),
             new ExternalLibrary("WinUIEx", "Morten Nielsen", "WinUI 3 window helper extensions (Settings window placement)", "MIT", "https://github.com/dotMorten/WinUIEx"),
-            new ExternalLibrary("MQTTnet", "The MQTTnet Project", "MQTT client for the broker integration", "MIT", "https://github.com/dotnet/MQTTnet"),
-            new ExternalLibrary("MessageFormat", "Copyright © 2014 Jeff Hansen", "Counted texts in the MQTT settings panel", "MIT", "https://github.com/jeffijoe/messageformat.net"),
+            new ExternalLibrary("MQTTnet", "The MQTTnet Project", "Connection to the remote control server", "MIT", "https://github.com/dotnet/MQTTnet"),
+            new ExternalLibrary("MessageFormat", "Copyright © 2014 Jeff Hansen", "Counted texts in the remote control settings", "MIT", "https://github.com/jeffijoe/messageformat.net"),
             new ExternalLibrary("NLog", "Jarek Kowalski, Kim Christensen, Julian Verdurmen", "Event log, rolled daily with a size cap (app.log)", "BSD-3-Clause", "https://github.com/NLog/NLog"),
         ],
     };
