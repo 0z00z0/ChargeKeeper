@@ -46,6 +46,12 @@ public sealed partial class DashboardWindow : Window
     private static readonly Thickness NoBorder    = new(0);
     private static readonly Thickness BadgeBorder = new(1);
 
+    // The badge padding in the markup, and the one-line row's: no frame and no vertical padding, and
+    // the switch gives up the 10 px its template reserves above and below its 20 px track.
+    private static readonly Thickness BadgePadding        = new(10, 5, 10, 5);
+    private static readonly Thickness OneLineBadgePadding = new(10, 0, 10, 0);
+    private static readonly Thickness OneLineToggleMargin = new(0, -10, 0, -10);
+
     // Preset-chip "shrink and dim": the shrunk, dimmed off-state metrics only. The on state carries
     // none of its own — it clears back to TimeScaleButtonStyle, so a chip at rest reads exactly as
     // the graph's range buttons do.
@@ -918,12 +924,17 @@ public sealed partial class DashboardWindow : Window
     /// on each pass, or that content stays collapsed for the life of the window once the setting has
     /// put the badge into the dense row even once — including after the setting is turned back off.
     /// </summary>
-    private static void ApplyOneLineCollapse(bool on, bool expanded, bool oneLineSetting,
+    private static void ApplyOneLineCollapse(Border badge, ToggleSwitch toggle, bool expanded, bool oneLineSetting,
         StackPanel expandedHeader, StackPanel collapsedHeader, Border chevronHost, FontIcon chevronGlyph,
         params UIElement[] extraContent)
     {
+        bool on        = toggle.IsOn;
         bool eligible  = oneLineSetting && !on;
         bool collapsed = eligible && !expanded;
+
+        badge.Padding             = collapsed ? OneLineBadgePadding : BadgePadding;
+        badge.BorderThickness      = collapsed || on ? NoBorder : BadgeBorder;
+        toggle.Margin              = collapsed ? OneLineToggleMargin : default;
 
         expandedHeader.Visibility  = collapsed ? Visibility.Collapsed : Visibility.Visible;
         collapsedHeader.Visibility = collapsed ? Visibility.Visible   : Visibility.Collapsed;
@@ -942,7 +953,7 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ApplySmartChargeCollapse() => ApplyOneLineCollapse(
-        SmartChargeToggle.IsOn, _smartChargeExpanded, SettingsService.Current.OneLineUntilItMatters,
+        SmartChargeBadge, SmartChargeToggle, _smartChargeExpanded, SettingsService.Current.OneLineUntilItMatters,
         SmartChargeExpandedHeader, SmartChargeCollapsedHeader, SmartChargeChevronHost, SmartChargeChevronGlyph,
         ThresholdSliders, ThresholdFixedNote, PresetButtonPanel, TravelOverrideButton);
 
@@ -953,7 +964,7 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ApplySmartStandbyCollapse() => ApplyOneLineCollapse(
-        SmartStandbyToggle.IsOn, _smartStandbyExpanded, SettingsService.Current.OneLineUntilItMatters,
+        SmartStandbyBadge, SmartStandbyToggle, _smartStandbyExpanded, SettingsService.Current.OneLineUntilItMatters,
         SmartStandbyExpandedHeader, SmartStandbyCollapsedHeader, SmartStandbyChevronHost, SmartStandbyChevronGlyph);
 
     private void OnLidDelayCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
@@ -963,7 +974,7 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ApplyLidDelayCollapse() => ApplyOneLineCollapse(
-        LidDelayToggle.IsOn, _lidDelayExpanded, SettingsService.Current.OneLineUntilItMatters,
+        LidDelayBadge, LidDelayToggle, _lidDelayExpanded, SettingsService.Current.OneLineUntilItMatters,
         LidDelayExpandedHeader, LidDelayCollapsedHeader, LidDelayChevronHost, LidDelayChevronGlyph,
         LidPresetGroups);
 
@@ -974,7 +985,7 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ApplyKeepAwakeCollapse() => ApplyOneLineCollapse(
-        KeepAwakeToggle.IsOn, _keepAwakeExpanded, SettingsService.Current.OneLineUntilItMatters,
+        KeepAwakeBadge, KeepAwakeToggle, _keepAwakeExpanded, SettingsService.Current.OneLineUntilItMatters,
         KeepAwakeExpandedHeader, KeepAwakeCollapsedHeader, KeepAwakeChevronHost, KeepAwakeChevronGlyph,
         KeepAwakePresetPanel);
 
