@@ -1,7 +1,7 @@
 namespace ChargeKeeper.Services;
 
 /// <summary>Pure "reject-on-save" validation for a preset's name and thresholds, used by the Settings
-/// editor and by <see cref="ChargeControlService.ApplyPresetByName"/> for presets that never pass through
+/// editor and by <see cref="ChargeControlService.ApplyPreset"/> for presets that never pass through
 /// it. Rejects outright rather than silently correcting, unlike the dashboard slider's live nudge.</summary>
 internal static class PresetEditValidator
 {
@@ -20,11 +20,9 @@ internal static class PresetEditValidator
     private static readonly string[] ReservedNames = [UnknownNetworkSentinel];
 
     /// <summary>Null when valid, else a user-facing reason the caller shows inline without saving.</summary>
-    /// <param name="existingNames">Other presets' names, compared case-insensitively.</param>
-    /// <param name="originalName">This preset's name before the edit, or null when adding. Excluded from
-    /// the duplicate check so a caller passing the FULL name list doesn't trip on a no-op rename.</param>
-    internal static string? Validate(string name, int start, int stop,
-        IEnumerable<string> existingNames, string? originalName)
+    /// <param name="otherNames">The other presets' names, compared case-insensitively. Names are not
+    /// keys; a duplicate is refused because the MQTT select and the dashboard tell presets apart by name.</param>
+    internal static string? Validate(string name, int start, int stop, IEnumerable<string> otherNames)
     {
         if (string.IsNullOrWhiteSpace(name))
             return "Enter a name for this preset.";
@@ -34,10 +32,7 @@ internal static class PresetEditValidator
         if (ReservedNames.Any(r => string.Equals(r, trimmed, StringComparison.OrdinalIgnoreCase)))
             return $"\"{trimmed}\" is reserved — pick a different name.";
 
-        bool duplicate = existingNames.Any(n =>
-            !string.Equals(n, originalName, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(n, trimmed, StringComparison.OrdinalIgnoreCase));
-        if (duplicate)
+        if (otherNames.Any(n => string.Equals(n, trimmed, StringComparison.OrdinalIgnoreCase)))
             return $"A preset named \"{trimmed}\" already exists.";
 
         if (start < MinThreshold || start > MaxThreshold || stop < MinThreshold || stop > MaxThreshold)

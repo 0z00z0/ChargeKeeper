@@ -113,16 +113,9 @@ internal sealed class ChargeControlActions : IChargeControlActions
         stop  <= PresetEditValidator.MaxThreshold &&
         stop - start >= PresetEditValidator.MinGap;
 
-    // Default pair when Smart Charge is off or unset (firmware may read back 0/0). Taken from the
-    // built-in "Daily" preset so it can't drift; the literal covers a user who deleted that preset.
-    private static (int Start, int Stop) DefaultThresholds()
-    {
-        var daily = SettingsService.Read(s => s.Presets.FirstOrDefault(p => p.Name == "Daily"));
-        return daily is { Start: >= PresetEditValidator.MinThreshold, Stop: <= PresetEditValidator.MaxThreshold }
-               && daily.Stop - daily.Start >= PresetEditValidator.MinGap
-            ? (daily.Start, daily.Stop)
-            : (60, 80);
-    }
+    // Default pair when Smart Charge is off or unset (firmware may read back 0/0): the built-in
+    // Daily preset's.
+    private static (int Start, int Stop) DefaultThresholds() => (60, 80);
 
     public void ApplyThresholds(int start, int stop, string entityId) =>
         ChargeControlService.SetExplicitThresholds(start, stop, ActionCause.HomeAssistant(entityId));
@@ -134,8 +127,10 @@ internal sealed class ChargeControlActions : IChargeControlActions
     public void ChargeToFullOnce(string entityId) =>
         TravelOverrideService.Activate(ActionCause.HomeAssistant(entityId));
 
+    // The select publishes names, so a command arrives as one and resolves to the first preset carrying it.
     public void ApplyPreset(string name, string entityId) =>
-        ChargeControlService.ApplyPresetByName(name, ActionCause.HomeAssistant(entityId));
+        ChargeControlService.ApplyPreset(SettingsService.Read(s => s.Presets.FirstOrDefault(p => p.Name == name)?.Id) ?? "",
+                                         ActionCause.HomeAssistant(entityId));
 }
 
 /// <summary>The live <see cref="ISettingsActions"/>. Each write goes through the same service the
@@ -242,7 +237,8 @@ internal sealed class SettingsActions : ISettingsActions
         Raise();
     }
 
-    public void SetUnknownNetworkPreset(string? name) => Write(s => s.UnknownNetworkPresetName = name);
+    public void SetUnknownNetworkPreset(string? name) =>
+        Write(s => s.UnknownNetworkPresetId = s.Presets.FirstOrDefault(p => p.Name == name)?.Id);
     public void SetStartupDelay(int seconds)    => Write(s => s.StartupDelaySeconds = seconds);
     public void SetIconMode(TrayIconMode mode)  => Write(s => s.IconMode = mode);
     public void SetDowntimeGap(int minutes)     => Write(s => s.DowntimeGapMinutes = minutes);

@@ -56,21 +56,21 @@ internal static class ChargeControlService
         return ok;
     }
 
-    /// <summary>Writes a named preset's thresholds. Returns false — no state change, no event — when
-    /// the name is blank, matches no preset, or the preset is out of policy.</summary>
-    public static bool ApplyPresetByName(string name, ActionCause cause)
+    /// <summary>Writes a preset's thresholds. Anything but <see cref="PresetActivation.Applied"/> or
+    /// <see cref="PresetActivation.DeviceRefused"/> leaves the state alone and raises no event.</summary>
+    public static PresetActivation ApplyPreset(string id, ActionCause cause)
     {
-        if (string.IsNullOrWhiteSpace(name)) return false;
-        var preset = Primitives.FindPreset(name);
-        if (preset is null) return false;
+        if (string.IsNullOrWhiteSpace(id)) return PresetActivation.NoneChosen;
+        var preset = Primitives.FindPreset(id);
+        if (preset is null) return PresetActivation.Missing;
 
         // Presets also arrive from settings.json, the MQTT select and a network rule, none of which
         // pass the Settings editor. A hand-edited file yields 0/0, which reaches the device as a
         // failing write after the travel override's saved thresholds have already been cleared.
-        if (PresetEditValidator.Validate(preset.Name, preset.Start, preset.Stop, [], preset.Name) is { } reason)
+        if (PresetEditValidator.Validate(preset.Name, preset.Start, preset.Stop, []) is { } reason)
         {
             AppLog.Info($"ChargeControl: preset \"{preset.Name}\" not applied, {reason}" + cause.Clause);
-            return false;
+            return PresetActivation.Invalid;
         }
 
         bool ok = Primitives.ApplyExplicitThresholds(preset.Start, preset.Stop, cause);
@@ -79,8 +79,24 @@ internal static class ChargeControlService
             : $"ChargeControl: preset \"{preset.Name}\" write rejected by the device ({preset.Start}/{preset.Stop})")
             + cause.Clause);
         StateChanged?.Invoke();
-        return ok;
+        return ok ? PresetActivation.Applied : PresetActivation.DeviceRefused;
     }
+}
+
+/// <summary>How a preset activation ended.</summary>
+internal enum PresetActivation { Applied, NoneChosen, Missing, Invalid, DeviceRefused }
+
+internal static class PresetActivations
+{
+    /// <summary>The one wording per refusal, so every surface names the same cause.</summary>
+    public static string Describe(PresetActivation outcome) => outcome switch
+    {
+        PresetActivation.NoneChosen    => "No preset was chosen.",
+        PresetActivation.Missing       => "This preset does not exist.",
+        PresetActivation.Invalid       => "This preset is not valid, so nothing was written.",
+        PresetActivation.DeviceRefused => "The device did not accept this preset's thresholds.",
+        _                              => "",
+    };
 }
 
 /// <summary>The static-service primitives <see cref="ChargeControlService"/> composes, behind an
@@ -101,7 +117,7 @@ internal interface IChargeControlPrimitives
     /// <summary>Supersedes any override; returns the write's success flag.</summary>
     bool ApplyMode(string id);
 
-    ThresholdPreset? FindPreset(string name);
+    ThresholdPreset? FindPreset(string id);
 }
 
 internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
@@ -113,5 +129,5 @@ internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
     public bool ApplyExplicitThresholds(int start, int stop, ActionCause cause) =>
         TravelOverrideService.ApplyExplicitThresholds(start, stop, cause);
     public bool ApplyMode(string id) => TravelOverrideService.ApplyMode(id);
-    public ThresholdPreset? FindPreset(string name) => SettingsService.Current.Presets.FirstOrDefault(p => p.Name == name);
+    public ThresholdPreset? FindPreset(string id) => SettingsService.Read(s => s.PresetById(id));
 }

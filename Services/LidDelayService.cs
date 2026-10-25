@@ -307,6 +307,16 @@ internal static class LidDelayService
     }
 
     /// <param name="cause">What changed it, for the power trail.</param>
+    public static void SetDischargePercent(int percent, ActionCause cause)
+    {
+        int previous = SettingsService.Current.LidDischargeTargetPercent;
+        if (previous == percent) return;
+
+        SettingsService.Update(s => s.LidDischargeTargetPercent = percent);
+        PowerLog.Event($"Lid-delay battery target {previous} % → {percent} %", cause);
+    }
+
+    /// <param name="cause">What changed it, for the power trail.</param>
     public static void SetTimeEnabled(bool enable, ActionCause cause)
     {
         SettingsService.Update(s => s.LidDelayTimeEnabled = enable);

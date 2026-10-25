@@ -50,8 +50,8 @@ public class SettingsStoreTests : IDisposable
         s.TravelOverrideChargeStarted,
         s.NetworkProfilesEnabled,
         string.Join(";", s.NetworkLocationRules.Select(r =>
-            $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName} awake={r.KeepAwakeHere}")),
-        s.UnknownNetworkPresetName,
+            $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{s.PresetById(r.PresetId)?.Name} awake={r.KeepAwakeHere}")),
+        s.PresetById(s.UnknownNetworkPresetId)?.Name,
         s.KeepAwakeDisplayOn,
         // TimeOnly renders per culture; the TimeSpan it maps to does not.
         string.Join(";", s.KeepAwakePresets.Select(k => $"{k.Kind}/{k.Duration}/{k.Until?.ToTimeSpan()}/{k.Name}")),
@@ -128,8 +128,32 @@ public class SettingsStoreTests : IDisposable
         Assert.NotNull(reread);
         Assert.Equal(stamped, reread!.NetworkLocationRules.Select(r => r.Id));
         Assert.Equal(
-            loaded.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName}"),
-            reread.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName}"));
+            loaded.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetId}"),
+            reread.NetworkLocationRules.Select(r => $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetId}"));
+    }
+
+    /// <summary>Name references become identifier references once and survive a save; a profile that
+    /// lost its preset here would apply nothing on its network.</summary>
+    [Fact]
+    public void NameReferencesBecomeIdentifierReferencesAndSurviveASave()
+    {
+        static string References(AppSettings s) => string.Join(";",
+            s.NetworkLocationRules.Select(r => $"{r.Name}>{s.PresetById(r.PresetId)?.Name}")
+             .Append($"fallback>{s.PresetById(s.UnknownNetworkPresetId)?.Name}"));
+        const string expected = "Office [Docking]>Docking;Second home [Wireless]>Daily;fallback>Daily";
+
+        var loaded = SettingsService.ReadFrom(WriteFixture());
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.IdentifiersAreUnsaved);
+        Assert.Equal(expected, References(loaded));
+
+        Assert.True(SettingsService.WriteTo(loaded, File_));
+        Assert.DoesNotContain("\"PresetName\"", System.IO.File.ReadAllText(File_), StringComparison.Ordinal);
+
+        var reread = SettingsService.ReadFrom(File_);
+        Assert.NotNull(reread);
+        Assert.False(reread!.IdentifiersAreUnsaved);
+        Assert.Equal(expected, References(reread));
     }
 
     /// <summary>The installed document still carries the charger switch this build no longer reads.

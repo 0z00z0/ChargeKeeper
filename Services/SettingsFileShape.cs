@@ -122,7 +122,8 @@ internal sealed class SettingsFile
 
     internal sealed class SmartChargeGroup
     {
-        [JsonPropertyOrder(1)] public List<ThresholdPreset> Presets                     { get; set; } = [];
+        // Nullable: absent means the built-in presets, empty means a list the user emptied.
+        [JsonPropertyOrder(1)] public List<ThresholdPreset>? Presets                    { get; set; }
         [JsonPropertyOrder(2)] public bool                  TravelOverrideActive        { get; set; }
         [JsonPropertyOrder(3)] public int?                  TravelOverrideRevertStart   { get; set; }
         [JsonPropertyOrder(4)] public int?                  TravelOverrideRevertStop    { get; set; }
@@ -133,7 +134,10 @@ internal sealed class SettingsFile
     {
         [JsonPropertyOrder(1)] public bool                      NetworkProfilesEnabled   { get; set; }
         [JsonPropertyOrder(2)] public List<NetworkLocationRule> NetworkLocationRules     { get; set; } = [];
+        // Still declared so a write overwrites an older document's value with null; the store keeps
+        // a member no type declares, and the stale name would then be converted at every read.
         [JsonPropertyOrder(3)] public string?                   UnknownNetworkPresetName { get; set; }
+        [JsonPropertyOrder(4)] public string?                   UnknownNetworkPresetId   { get; set; }
     }
 
     internal sealed class KeepAwakeGroup
@@ -282,6 +286,7 @@ internal sealed class SettingsFile
             NetworkProfilesEnabled   = s.NetworkProfilesEnabled,
             NetworkLocationRules     = s.NetworkLocationRules,
             UnknownNetworkPresetName = s.UnknownNetworkPresetName,
+            UnknownNetworkPresetId   = s.UnknownNetworkPresetId,
         },
         KeepAwake = new KeepAwakeGroup
         {
@@ -367,7 +372,7 @@ internal sealed class SettingsFile
         DowntimeGapMinutes  = Graph.DowntimeGapMinutes,
         GraphDisplay        = Graph.GraphDisplay,
 
-        Presets                     = SmartCharge.Presets,
+        Presets                     = SmartCharge.Presets ?? new AppSettings().Presets,
         TravelOverrideActive        = SmartCharge.TravelOverrideActive,
         TravelOverrideRevertStart   = SmartCharge.TravelOverrideRevertStart,
         TravelOverrideRevertStop    = SmartCharge.TravelOverrideRevertStop,
@@ -376,6 +381,7 @@ internal sealed class SettingsFile
         NetworkProfilesEnabled   = Network.NetworkProfilesEnabled,
         NetworkLocationRules     = Network.NetworkLocationRules,
         UnknownNetworkPresetName = Network.UnknownNetworkPresetName,
+        UnknownNetworkPresetId   = Network.UnknownNetworkPresetId,
 
         KeepAwakeDisplayOn = KeepAwake.KeepAwakeDisplayOn,
         KeepAwakePresets   = KeepAwake.KeepAwakePresets,

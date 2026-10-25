@@ -62,7 +62,7 @@ internal sealed partial class SettingsWindow : Window
     // is expensive, and both pages must mark the same profile.
     private NetworkLocation _profileRowLocation;
     private IReadOnlyList<BridgePeer> _profileRowAdapters = [];
-    private IReadOnlyList<string> _profileRowPresets = [];
+    private IReadOnlyList<ThresholdPreset> _profileRowPresets = [];
     private int _winningProfileRow = -1;
 
     public SettingsWindow(TrayMenu menu, Services.MqttPublisher? mqtt)
@@ -1066,7 +1066,7 @@ internal sealed partial class SettingsWindow : Window
             Count     = () => SettingsService.Current.Presets.Count,
             BuildRow  = i => BuildPresetRow(SettingsService.Current.Presets[i]),
             // The thresholds the firmware is actually running, not the stored choice.
-            ActiveTag = () => ActivePresetPolicy.Match(SettingsService.Current.Presets, _thresholdState)?.Name,
+            ActiveTag = () => ActivePresetPolicy.Match(SettingsService.Current.Presets, _thresholdState)?.Id,
             // Hidden entirely where the vendor refuses threshold writes.
             OffersActivation = _ => _thresholdState is { Capable: true },
             ActiveTip = "These thresholds are the ones in use.",
@@ -1147,14 +1147,6 @@ internal sealed partial class SettingsWindow : Window
         RefreshUnknownPresetCombo();
     }
 
-    /// <summary>The preset the firmware's thresholds are, or null when none matches. The vendor read
-    /// is taken first: it blocks, and the settings lock must not be held across it.</summary>
-    private static string? ActivePresetInUse()
-    {
-        var state = ChargeThresholdService.Read();
-        return SettingsService.Read(s => ActivePresetPolicy.Match(s.Presets, state))?.Name;
-    }
-
     /// <summary>Marks the row whose thresholds the firmware is running and leaves the rest offering
     /// activation.</summary>
     private void RefreshPresetActivationStates(ChargeThresholdState? state)
@@ -1165,28 +1157,28 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>Applies a preset from its row, through the same composition every other trigger
     /// uses. Runs off the UI thread — the vendor write blocks.</summary>
-    private void ActivatePreset(string name) => Task.Run(() =>
+    private void ActivatePreset(string presetId) => Task.Run(() =>
     {
-        bool ok = false;
-        try { ok = ChargeControlService.ApplyPresetByName(name, ActionCause.SettingsPage("Smart Charge")); }
+        var outcome = PresetActivation.DeviceRefused;
+        try { outcome = ChargeControlService.ApplyPreset(presetId, ActionCause.SettingsPage("Smart Charge")); }
         catch (Exception ex) { AppLog.Error("SettingsWindow.ActivatePreset", ex); }
 
         RunOnUi(() =>
         {
-            if (!ok)
-                NativeMessageBox.Warning(IntPtr.Zero, AppName, "The device didn't accept this preset's thresholds.");
+            if (outcome != PresetActivation.Applied)
+                NativeMessageBox.Warning(IntPtr.Zero, AppName, PresetActivations.Describe(outcome));
 
             RefreshPresetActivationStates(ChargeThresholdService.Read());
             _menu.ReconcileFromExternalChange();
         });
     });
 
-    /// <summary>Builds one preset's editor row. The commit closures key off the preset's name
+    /// <summary>Builds one preset's editor row. The commit closures key off the preset's identifier
     /// rather than the passed object, so a concurrent <see cref="SettingsService.Reload"/> cannot
-    /// leave them pointing at an orphaned instance — every commit re-looks-up by name.</summary>
+    /// leave them pointing at an orphaned instance.</summary>
     private SettingsExpander BuildPresetRow(ThresholdPreset preset)
     {
-        string presetName = preset.Name;
+        string presetId = preset.Id;
 
         var nameBox = new TextBox { Text = preset.Name, MinWidth = 220 };
 
@@ -1220,7 +1212,7 @@ internal sealed partial class SettingsWindow : Window
         rangeRow.Children.Add(stopText);
 
         var row = PresetRows.Build(
-            ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop), "", presetName,
+            ThresholdPreset.FormatLabel(preset.Name, preset.Start, preset.Stop), "", presetId,
             [
                 new SettingsCard { Header = "Name",                              Content = nameBox },
                 // ContentAlignment.Vertical drops the slider onto its own row, but a SettingsCard's
@@ -1236,21 +1228,21 @@ internal sealed partial class SettingsWindow : Window
             ],
             CriticalBrush());
 
-        row.Activate.Click += (_, _) => ActivatePreset(presetName);
+        row.Activate.Click += (_, _) => ActivatePreset(presetId);
 
-        nameBox.LostFocus += (_, _) => CommitPresetRow(presetName, nameBox, range, row);
-        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetName, nameBox, range, row); };
+        nameBox.LostFocus += (_, _) => CommitPresetRow(presetId, nameBox, range, row);
+        nameBox.KeyDown   += (_, e) => { if (e.Key == VirtualKey.Enter) CommitPresetRow(presetId, nameBox, range, row); };
 
         // Debounced commit, same 700 ms as DashboardWindow's threshold sliders: validating on every
         // ValueChanged would flash an error for each intermediate sub-gap position during a drag.
         var debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         // Stays tracked for the row's whole life: un-tracking here would let the next ValueChanged
         // re-start a timer FlushPresetEdits can no longer reach.
-        _presetDebounceTimers.Add((debounce, () => CommitPresetRow(presetName, nameBox, range, row)));
+        _presetDebounceTimers.Add((debounce, () => CommitPresetRow(presetId, nameBox, range, row)));
         debounce.Tick += (_, _) =>
         {
             debounce.Stop();
-            CommitPresetRow(presetName, nameBox, range, row);
+            CommitPresetRow(presetId, nameBox, range, row);
         };
         range.ValueChanged += (_, _) =>
         {
@@ -1260,7 +1252,7 @@ internal sealed partial class SettingsWindow : Window
             debounce.Start();
         };
 
-        row.Delete.Click += (_, _) => DeletePreset(presetName);
+        row.Delete.Click += (_, _) => DeletePreset(presetId, row);
 
         return row.Expander;
     }
@@ -1268,7 +1260,7 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>Validates and, if valid, saves a preset row's name and thresholds. Reject-on-save:
     /// an invalid edit shows an inline error and writes nothing, leaving the row as the user left
     /// it.</summary>
-    private void CommitPresetRow(string originalName, TextBox nameBox, RangeSelector range,
+    private void CommitPresetRow(string presetId, TextBox nameBox, RangeSelector range,
         PresetRows.Parts row)
     {
         var errorText = row.Error;
@@ -1276,9 +1268,11 @@ internal sealed partial class SettingsWindow : Window
         int start = (int)range.RangeStart;
         int stop  = (int)range.RangeEnd;
 
-        var cur = SettingsService.Current;
-        var otherNames = cur.Presets.Select(p => p.Name);
-        string? error = PresetEditValidator.Validate(newName, start, stop, otherNames, originalName);
+        var before = PresetSnapshot();
+        if (before.FirstOrDefault(p => p.Id == presetId) is not { } stored) return;
+
+        var otherNames = before.Where(p => p.Id != presetId).Select(p => p.Name);
+        string? error = PresetEditValidator.Validate(newName, start, stop, otherNames);
         if (error is not null)
         {
             errorText.Text = error;
@@ -1287,75 +1281,69 @@ internal sealed partial class SettingsWindow : Window
         }
         errorText.Visibility = Visibility.Collapsed;
 
-        bool renamed   = newName != originalName;
-        // Matched before the edit lands, while the stored preset still carries the values the device
-        // would be running if it were the active one.
-        bool wasActive = ActivePresetInUse() == originalName;
-
+        bool renamed = newName != stored.Name;
         SettingsService.Update(s =>
         {
-            // Look up by originalName: the stored preset still carries its old name here, so
-            // matching on newName would find nothing and drop the rename and the range edit both.
-            var preset = s.Presets.FirstOrDefault(p => p.Name == originalName);
-            if (preset is null) return;
-            if (renamed)
-            {
-                PresetCascade.Rename(s, originalName, newName);
-                preset.Name = newName;
-            }
+            if (s.PresetById(presetId) is not { } preset) return;
+            preset.Name  = newName;
             preset.Start = start;
             preset.Stop  = stop;
         });
 
         // Only the active preset may touch the device — editing an inactive one must not
         // (reconcile contract, section C).
-        if (wasActive)
-            PushThresholdsToDevice(start, stop);
+        PushThresholdsIfActive(before, presetId, start, stop);
 
+        row.Header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
         if (renamed)
         {
-            // The name every closure on this row keys off is now stale, and the network rows show
-            // preset names too — rebuild both rather than re-keying a live row in place.
-            RebuildPresetRows();
+            // The network rows, the fallback picker and the preset select show the name.
             RebuildNetworkRuleRows();
-            _mqtt?.Republish();   // the preset select carries the old name until the document is rewritten
-        }
-        else
-        {
-            row.Header.Text = ThresholdPreset.FormatLabel(newName, start, stop);
+            RefreshUnknownPresetCombo();
+            _mqtt?.Republish();
         }
 
         _menu.ReconcileFromExternalChange();
     }
 
-    /// <summary>Pushes thresholds to the device off the UI thread. A failure is reported by toast rather
-    /// than a row's inline error, because by the time the write completes the row may be gone.</summary>
-    private void PushThresholdsToDevice(int start, int stop) => Task.Run(() =>
+    private static List<ThresholdPreset> PresetSnapshot() => SettingsService.Read(s =>
+        s.Presets.Select(p => new ThresholdPreset { Id = p.Id, Name = p.Name, Start = p.Start, Stop = p.Stop }).ToList());
+
+    /// <summary>Pushes thresholds when the firmware runs <paramref name="presetId"/> as matched against
+    /// the list before the edit. Off the UI thread, read included: the vendor read blocks.</summary>
+    private void PushThresholdsIfActive(IReadOnlyList<ThresholdPreset> before, string presetId, int start, int stop) => Task.Run(() =>
     {
         try
         {
-            if (!ChargeControlService.SetExplicitThresholds(start, stop,
-                                                           ActionCause.SettingsPage("Smart Charge")))
+            if (ActivePresetPolicy.Match(before, ChargeThresholdService.Read())?.Id != presetId) return;
+            if (!ChargeControlService.SetExplicitThresholds(start, stop, ActionCause.SettingsPage("Smart Charge")))
                 RunOnUi(() => NativeMessageBox.Warning(
-                    IntPtr.Zero, AppName,
-                    "Saved, but the device didn't accept these thresholds — check the Lenovo driver."));
+                    IntPtr.Zero, AppName, "Saved, but the device did not accept these thresholds."));
         }
-        catch (Exception ex) { AppLog.Error("SettingsWindow.PushThresholdsToDevice", ex); }
+        catch (Exception ex) { AppLog.Error("SettingsWindow.PushThresholdsIfActive", ex); }
     });
 
-    private void DeletePreset(string name)
+    private void DeletePreset(string presetId, PresetRows.Parts row)
     {
-        var s0 = SettingsService.Current;
-        bool wasActive = ActivePresetInUse() == name;
-        var fallbackPreset = s0.Presets.FirstOrDefault(p => p.Name != name);
-        string? fallback = fallbackPreset?.Name;
+        var before = PresetSnapshot();
+        if (before.Count <= 1)
+        {
+            row.Error.Text = "The last preset cannot be deleted.";
+            row.Error.Visibility = Visibility.Visible;
+            return;
+        }
+        var fallback = before.First(p => p.Id != presetId);
 
-        SettingsService.Update(s => PresetCascade.Delete(s, name, fallback));
+        SettingsService.Update(s =>
+        {
+            s.Presets.RemoveAll(p => p.Id == presetId);
+            if (s.UnknownNetworkPresetId == presetId) s.UnknownNetworkPresetId = fallback.Id;
+            foreach (var rule in s.NetworkLocationRules.Where(r => r.PresetId == presetId)) rule.PresetId = fallback.Id;
+        });
 
         // Every surface shows the fallback selected the moment this returns, so push its thresholds
         // too — otherwise the battery keeps running the deleted preset's values.
-        if (wasActive && fallbackPreset is not null)
-            PushThresholdsToDevice(fallbackPreset.Start, fallbackPreset.Stop);
+        PushThresholdsIfActive(before, presetId, fallback.Start, fallback.Stop);
 
         RebuildPresetRows();
         RebuildNetworkRuleRows();
@@ -1386,22 +1374,20 @@ internal sealed partial class SettingsWindow : Window
         WithUpdatingSuppressed(() =>
         {
             UnknownPresetCombo.Items.Clear();
-            UnknownPresetCombo.Items.Add(doNothing);
-            foreach (var p in s.Presets) UnknownPresetCombo.Items.Add(p.Name);
+            UnknownPresetCombo.Items.Add(new ComboBoxItem { Content = doNothing });
+            foreach (var p in s.Presets) UnknownPresetCombo.Items.Add(new ComboBoxItem { Content = p.Name, Tag = p.Id });
 
             UnknownPresetCombo.SelectedItem =
-                s.UnknownNetworkPresetName is { } name && s.Presets.Any(p => p.Name == name)
-                    ? name
-                    : doNothing;
+                UnknownPresetCombo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag is string id && id == s.UnknownNetworkPresetId)
+                ?? UnknownPresetCombo.Items[0];
         });
     }
 
     private void OnUnknownPresetChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updating) return;
-        string? selected = UnknownPresetCombo.SelectedItem as string;
-        string? presetName = selected is null || selected == PresetEditValidator.UnknownNetworkSentinel ? null : selected;
-        SettingsService.Update(s => s.UnknownNetworkPresetName = presetName);
+        string? presetId = (UnknownPresetCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        SettingsService.Update(s => s.UnknownNetworkPresetId = presetId);
     }
 
     private void LoadNetwork()
@@ -1456,7 +1442,7 @@ internal sealed partial class SettingsWindow : Window
         // one, and the winning profile must be the same answer on both pages.
         _profileRowLocation = NetworkProfiles.CurrentLocation();
         _profileRowAdapters = NetworkLocationService.EnumerateAdapters();
-        _profileRowPresets  = SettingsService.Current.Presets.Select(p => p.Name).ToList();
+        _profileRowPresets  = PresetSnapshot();
         _winningProfileRow  = WinningProfileRow(_profileRowLocation);
 
         _networkProfileList.Rebuild();
@@ -1478,8 +1464,8 @@ internal sealed partial class SettingsWindow : Window
         var rule = SettingsService.Current.NetworkLocationRules[index];
 
         var presetCombo = new ComboBox { MinWidth = 220, PlaceholderText = "Choose a preset" };
-        foreach (var n in _profileRowPresets) presetCombo.Items.Add(n);
-        presetCombo.SelectedItem = _profileRowPresets.Contains(rule.PresetName) ? rule.PresetName : null;
+        foreach (var p in _profileRowPresets) presetCombo.Items.Add(new ComboBoxItem { Content = p.Name, Tag = p.Id });
+        presetCombo.SelectedItem = presetCombo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == rule.PresetId);
 
         var row = BuildNetworkRuleRow(
             index, rule, DescribeRulePresetSummary(rule),
@@ -1488,7 +1474,7 @@ internal sealed partial class SettingsWindow : Window
 
         presetCombo.SelectionChanged += (_, _) =>
         {
-            if (presetCombo.SelectedItem is string preset) CommitNetworkRulePreset(index, preset, row.Expander);
+            if (presetCombo.SelectedItem is ComboBoxItem { Tag: string presetId }) CommitNetworkRulePreset(index, presetId, row.Expander);
         };
         return row.Expander;
     }
@@ -1508,7 +1494,7 @@ internal sealed partial class SettingsWindow : Window
     }
 
     private static string DescribeRulePresetSummary(NetworkLocationRule rule) =>
-        string.IsNullOrEmpty(rule.PresetName) ? "No preset assigned" : $"Applies “{rule.PresetName}”";
+        SettingsService.Read(s => s.PresetById(rule.PresetId)) is { } preset ? $"Applies “{preset.Name}”" : "No preset assigned";
 
     /// <summary>The keep-awake facet as the row reads it. A tick nothing acts on says so: the switch
     /// that decides whether it acts is on the page too, and a stored tick with no visible effect is
@@ -1575,11 +1561,11 @@ internal sealed partial class SettingsWindow : Window
         rebuildOtherPage();
     }
 
-    private void CommitNetworkRulePreset(int index, string presetName, SettingsExpander expander)
+    private void CommitNetworkRulePreset(int index, string presetId, SettingsExpander expander)
     {
         SettingsService.Update(s =>
         {
-            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PresetName = presetName;
+            if (index < s.NetworkLocationRules.Count) s.NetworkLocationRules[index].PresetId = presetId;
         });
         var rules = SettingsService.Current.NetworkLocationRules;
         if (index >= rules.Count) return;
@@ -1644,9 +1630,10 @@ internal sealed partial class SettingsWindow : Window
         if (typed is null) return null;   // cancelled
         string name = string.IsNullOrWhiteSpace(typed) ? suggested : typed.Trim();
 
-        var s0 = SettingsService.Current;
-        // The preset in use is the obvious default for a new rule; the first one when none is.
-        string defaultPreset = ActivePresetInUse() ?? s0.Presets.FirstOrDefault()?.Name ?? "";
+        // The preset in use is the obvious default for a new rule; the first one when none is. The
+        // last reading stands in for a fresh one, which would block this thread.
+        string defaultPreset = SettingsService.Read(s =>
+            (ActivePresetPolicy.Match(s.Presets, _thresholdState) ?? s.Presets.FirstOrDefault())?.Id) ?? "";
         string id = StableId.New();
 
         SettingsService.Update(s =>
@@ -1657,7 +1644,7 @@ internal sealed partial class SettingsWindow : Window
                 Name          = name,
                 AdapterMac    = location.AdapterMac,
                 IpCidr        = location.IpCidr,
-                PresetName    = defaultPreset,
+                PresetId      = defaultPreset,
                 KeepAwakeHere = keepAwakeHere,
             });
             // Rules are inert with profiles off, so configuring a location implies wanting them on.

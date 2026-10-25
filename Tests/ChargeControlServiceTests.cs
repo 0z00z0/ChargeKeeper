@@ -45,7 +45,7 @@ public class ChargeControlServiceTests
             return ApplyThresholdsResult;
         }
         public bool ApplyMode(string id) => true;
-        public ThresholdPreset? FindPreset(string name) => Presets.GetValueOrDefault(name);
+        public ThresholdPreset? FindPreset(string id) => Presets.GetValueOrDefault(id);
     }
 
     // Swaps in the fake + a StateChanged counter, runs `body`, and always restores global state.

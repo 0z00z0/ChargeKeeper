@@ -9,6 +9,17 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.0
+
+- Renaming a Smart Charge preset no longer touches the network profiles and the network fallback that
+  use it: each preset carries an identifier of its own, given once as the settings are first read.
+- A preset that cannot be applied says why — none chosen, deleted, not valid or refused by the
+  device — instead of always blaming the device, and the message no longer names a Lenovo driver.
+- The last Smart Charge preset can no longer be deleted, and a settings file without the preset list
+  gives the two built-in presets instead of none.
+- Editing or deleting a preset no longer pauses the Settings window while the battery is read, and
+  picking a battery target on the dashboard is recorded in the log with what caused it.
+
 ## 2.15.3
 
 - The MQTT settings page no longer closes the application when one of its texts cannot be filled in.

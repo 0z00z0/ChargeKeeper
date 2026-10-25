@@ -23,7 +23,7 @@ public class ActionCauseTests
     [
         ("Services/ChargeControlService.cs",   "SetSmartChargeEnabled"),
         ("Services/ChargeControlService.cs",   "SetExplicitThresholds"),
-        ("Services/ChargeControlService.cs",   "ApplyPresetByName"),
+        ("Services/ChargeControlService.cs",   "ApplyPreset"),
         ("Services/ChargeThresholdService.cs", "SetThresholds"),
         ("Services/TravelOverrideService.cs",  "Activate"),
         ("Services/TravelOverrideService.cs",  "Cancel"),
@@ -34,6 +34,7 @@ public class ActionCauseTests
         ("Services/LidDelayService.cs",        "SetTimeEnabled"),
         ("Services/LidDelayService.cs",        "SetDischargeEnabled"),
         ("Services/LidDelayService.cs",        "SetDelayMinutes"),
+        ("Services/LidDelayService.cs",        "SetDischargePercent"),
         ("Services/BatterySleepPark.cs",       "Park"),
         ("Services/BatterySleepPark.cs",       "Restore"),
         ("Services/ScreenBrightnessService.cs", "Set"),

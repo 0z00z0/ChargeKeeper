@@ -13,8 +13,8 @@ internal static class NetworkProfiles
     /// rather than a direct call: the apply marshals its own threads and refresh, and a test has no
     /// device to write to.
     /// </summary>
-    /// <remarks>The cause travels with the name: the apply is several layers from the network, so
-    /// nothing down there could say that a profile match is what chose this preset.</remarks>
+    /// <remarks>The cause travels with the identifier: the apply is several layers from the network,
+    /// so nothing down there could say that a profile match is what chose this preset.</remarks>
     public static Action<string, ActionCause>? ApplyPreset { get; set; }
 
     /// <summary>A profile as a cause names it. One spelling, shared with the keep-awake reaction, so
@@ -28,24 +28,20 @@ internal static class NetworkProfiles
     /// nothing to react to — and a profile naming no preset applies nothing rather than falling
     /// through to the unknown-network one, because the network is known.
     /// </summary>
-    internal static string? WinningPresetName(AppSettings settings, NetworkLocation location) =>
-        settings.FindNetworkRule(location) is { } rule ? Named(rule.PresetName)
+    internal static ThresholdPreset? WinningPreset(AppSettings settings, NetworkLocation location) =>
+        settings.FindNetworkRule(location) is { } rule ? settings.PresetById(rule.PresetId)
         : location.IsEmpty                            ? null
-                                                      : Named(settings.UnknownNetworkPresetName);
-
-    private static string? Named(string? presetName) =>
-        string.IsNullOrWhiteSpace(presetName) ? null : presetName;
+                                                      : settings.PresetById(settings.UnknownNetworkPresetId);
 
     /// <summary>Applies whatever profile wins at <paramref name="location"/>. Nothing happens while
-    /// the feature is off, or where the winning name is no longer a preset.</summary>
+    /// the feature is off, or where the winning reference points at no preset.</summary>
     /// <param name="savedProfileId">The profile just saved on the Settings window, if any, so the
     /// line names the save rather than a join that did not happen.</param>
     public static void ApplyWinner(NetworkLocation location, string? savedProfileId)
     {
         var settings = SettingsService.Current;
         if (!settings.NetworkProfilesEnabled) return;
-        if (WinningPresetName(settings, location) is not { } presetName) return;
-        if (!settings.Presets.Any(p => p.Name == presetName)) return;
+        if (WinningPreset(settings, location) is not { } preset) return;
 
         // What chose this preset is the profile that matched, or the absence of one. Named here
         // because no layer below this point can tell a network-driven apply from any other.
@@ -54,7 +50,7 @@ internal static class NetworkProfiles
             cause = savedProfileId is { Length: > 0 } && rule.Id == savedProfileId
                 ? ActionCause.NetworkProfileSaved(NameOf(rule))
                 : ActionCause.NetworkProfile(NameOf(rule), joined: true);
-        ApplyPreset?.Invoke(presetName, cause);
+        ApplyPreset?.Invoke(preset.Id, cause);
     }
 
     /// <summary>

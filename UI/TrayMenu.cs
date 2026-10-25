@@ -326,38 +326,32 @@ internal sealed class TrayMenu
         if (index < 0) Flyout.Items.Insert(Flyout.Items.IndexOf(_settingsItem), _travelOverrideItem);
     }
 
-    private void ApplyPreset(ThresholdPreset preset, ActionCause cause) => RunApplyPreset(preset.Name, cause);
-
-    /// <summary>Applies the named preset; a no-op when the name is blank or matches no preset. The
-    /// cause travels with the name because what decided is the caller's to say: this is reached from
-    /// <see cref="NetworkProfiles.ApplyPreset"/>, where a profile match is what asked.</summary>
-    public void ApplyPresetByName(string presetName, ActionCause cause)
+    /// <summary>Applies a preset for <see cref="NetworkProfiles.ApplyPreset"/>, whose caller names the cause.</summary>
+    public void ApplyPreset(string presetId, ActionCause cause)
     {
-        if (string.IsNullOrWhiteSpace(presetName)) return;
-        // Resolve first, so an unknown name is a no-op without spinning up a Task.
-        if (SettingsService.Current.Presets.Any(p => p.Name == presetName))
-            RunApplyPreset(presetName, cause);
+        if (SettingsService.Read(s => s.PresetById(presetId)) is not null)
+            RunApplyPreset(presetId, cause);
     }
 
     /// <summary>
     /// Applies the named preset off the UI thread (the vendor RPC blocks) via the shared
     /// <see cref="ChargeControlService"/>, which fires StateChanged → QueueRefresh itself.
     /// </summary>
-    private void RunApplyPreset(string name, ActionCause cause)
+    private void RunApplyPreset(string presetId, ActionCause cause)
         => Task.Run(() =>
         {
-            // A device-rejected preset returns false; without this the apply is completely silent.
             try
             {
-                if (!ChargeControlService.ApplyPresetByName(name, cause))
-                    AppLog.Info($"Preset '{name}' was not applied — the device rejected the write.");
+                var outcome = ChargeControlService.ApplyPreset(presetId, cause);
+                if (outcome != PresetActivation.Applied)
+                    AppLog.Info($"Preset not applied: {PresetActivations.Describe(outcome)}");
             }
             catch { QueueRefresh(); }
         });
 
     /// <summary>
     /// Auto-apply on a detected location change. Runs on the debounce timer's thread, not the UI one —
-    /// <see cref="ApplyPreset"/> marshals its own UI work, so nothing is needed here.
+    /// <see cref="RunApplyPreset"/> marshals its own UI work, so nothing is needed here.
     /// </summary>
     private void OnNetworkLocationChanged(NetworkLocation location)
     {
@@ -366,18 +360,14 @@ internal sealed class TrayMenu
         {
             // One resolution for every surface, so an apply here and an apply from the Settings page
             // cannot pick different presets for one network.
-            string? presetName = NetworkProfiles.WinningPresetName(s, location);
-            var preset = presetName is not null
-                ? s.Presets.FirstOrDefault(p => p.Name == presetName)
-                : null;
-            if (preset is not null)
+            if (NetworkProfiles.WinningPreset(s, location) is { } preset)
             {
                 // The same resolution again, for its other half: which profile matched is what the
                 // line recording the apply has to name, and the preset name alone cannot say it.
                 ActionCause cause = s.FindNetworkRule(location) is { } rule
                     ? ActionCause.NetworkProfile(rule.Name, joined: true)
                     : "the network matching no profile, which the unknown-network preset covers";
-                ApplyPreset(preset, cause); // applies + QueueRefresh internally
+                RunApplyPreset(preset.Id, cause); // applies + QueueRefresh internally
                 return;
             }
         }

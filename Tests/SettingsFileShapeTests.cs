@@ -95,7 +95,7 @@ public class SettingsFileShapeTests : IDisposable
         string.Join("; ", s.KeepAwakePresets.Select(k => $"{k.Kind}/{k.Duration}/{k.Until?.ToTimeSpan()}/{k.Name}")),
         string.Join("; ", s.LidDischargePresets.Select(t => $"{t.Percent}{(t.Name is null ? "" : " " + t.Name)}")),
         string.Join("; ", s.NetworkLocationRules.Select(r =>
-            $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{r.PresetName} awake={r.KeepAwakeHere}")));
+            $"{r.Name}@{r.AdapterMac}/{r.IpCidr}>{s.PresetById(r.PresetId)?.Name} awake={r.KeepAwakeHere}")));
 
     /// <summary>An empty document reads as this application's defaults, not the section types'. The
     /// two differ: a section type declares no preset list and no delay, so binding an empty document
@@ -174,6 +174,22 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Equal(PerformanceSampleRates.Default, loaded.PerformanceSampleRate);
         Assert.False(loaded.ShowPowerActivityInDashboard);
         Assert.True(loaded.ShowGraphInDashboard);
+    }
+
+    /// <summary>Without the preset list the built-in presets are read, as the lid delays are; an empty
+    /// list would leave no dashboard preset and every network profile applying nothing.</summary>
+    [Fact]
+    public void ASmartChargeSectionWithoutThePresetListReadsTheBuiltInPresets()
+    {
+        Directory.CreateDirectory(_dir);
+        Assert.True(SettingsService.WriteTo(new AppSettings(), File_));
+
+        var root = System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(File_))!.AsObject();
+        Assert.True(root[SettingsFile.SmartChargeKey]!.AsObject().Remove("Presets"));
+        System.IO.File.WriteAllText(File_, root.ToJsonString());
+
+        Assert.Equal("Daily 60-80; Travel 80-100",
+                     string.Join("; ", SettingsService.ReadFrom(File_)!.Presets.Select(p => $"{p.Name} {p.Start}-{p.Stop}")));
     }
 
     /// <summary>Genuinely broken JSON is set aside and yields nothing — the flat path widens what

@@ -29,16 +29,16 @@ internal static class NetworkArrivalLog
     internal static string Describe(AppSettings settings, NetworkLocationRule rule)
     {
         var parts = new List<string>();
-        bool presetOrHold = !string.IsNullOrWhiteSpace(rule.PresetName) || rule.KeepAwakeHere;
+        bool presetOrHold = rule.PresetId.Length > 0 || rule.KeepAwakeHere;
 
         if (presetOrHold && !settings.NetworkProfilesEnabled)
             parts.Add("network profiles are switched off, so no preset or keep-awake applies");
         else
         {
-            if (!string.IsNullOrWhiteSpace(rule.PresetName))
-                parts.Add(settings.Presets.FirstOrDefault(p => p.Name == rule.PresetName) is { } preset
+            if (rule.PresetId.Length > 0)
+                parts.Add(settings.PresetById(rule.PresetId) is { } preset
                     ? $"Smart Charge preset '{preset.Name}' ({preset.Start}/{preset.Stop})"
-                    : $"Smart Charge preset '{rule.PresetName}', which no longer exists, so none is applied");
+                    : "a Smart Charge preset that does not exist, so none is applied");
             if (rule.KeepAwakeHere)
                 parts.Add("keep-awake until the network changes");
         }

@@ -255,9 +255,9 @@ public partial class App : Application
         // Also here, not only on resume: a machine slept from a bag may be restarted rather than
         // resumed, and the resume notification then never arrives.
         ReportAnEarlySleepIfOneIsOwed();
-        // Before the first evaluation, so a script bound to a profile is bound to the identifier the
+        // Before the first evaluation, so a script or a profile is bound to the identifier the
         // document keeps rather than one this run invented.
-        SettingsService.PersistNewNetworkProfileIds();
+        SettingsService.PersistNewIdentifiers();
         // First of every location-change subscriber, so the line naming the profile and what it
         // carries is written before any reaction logs its own.
         NetworkArrivalLog.Start();
@@ -387,7 +387,7 @@ public partial class App : Application
                              windowsReady: WindowsReady);
         // One apply for every surface that puts a network profile into effect — the tray's own, which
         // marshals its threads and its refresh; the Settings page and an MQTT command reach it here.
-        NetworkProfiles.ApplyPreset = _menu.ApplyPresetByName;
+        NetworkProfiles.ApplyPreset = _menu.ApplyPreset;
         _trayIcon.ContextFlyout     = _menu.Flyout;
         _trayIcon.LeftClickCommand  = new RelayCommand(ToggleDashboard);
         _trayIcon.RightClickCommand = new RelayCommand(() => _menu!.RefreshState());

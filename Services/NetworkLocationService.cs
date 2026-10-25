@@ -17,7 +17,11 @@ internal sealed class NetworkLocationRule
     public string  Name       { get; set; } = "";
     public string? AdapterMac { get; set; }
     public string? IpCidr     { get; set; }
-    public string  PresetName { get; set; } = "";
+    public string  PresetId   { get; set; } = "";
+
+    /// <summary>An older document's name reference; converted on read and then left out.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PresetName { get; set; }
 
     /// <summary>Hold the machine awake here; leaving is then the off switch.</summary>
     public bool KeepAwakeHere { get; set; }

@@ -22,7 +22,7 @@ internal static class PresetRows
 
     /// <summary>
     /// Builds the shell around <paramref name="cards"/>. <paramref name="tag"/> identifies the row
-    /// to <see cref="Section.RefreshActivation"/> — a name where the items carry a unique one, a list
+    /// to <see cref="Section.RefreshActivation"/> — an identifier where the items carry one, a list
     /// index where they do not. The description is left unset when blank, so a row without one keeps
     /// the header's own height.
     /// </summary>

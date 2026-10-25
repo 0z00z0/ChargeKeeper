@@ -685,7 +685,7 @@ public sealed partial class DashboardWindow : Window
 
             // Nothing is highlighted while the thresholds are no preset's — a travel override or
             // Smart Charge off included.
-            MarkActivePreset(ActivePresetPolicy.Match(presets, chargeState)?.Name);
+            MarkActivePreset(ActivePresetPolicy.Match(presets, chargeState)?.Id);
         }
         PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;
 
@@ -728,7 +728,7 @@ public sealed partial class DashboardWindow : Window
     /// 5 s reconcile only repaints the highlight.</summary>
     private void BuildPresetButtons(IReadOnlyList<ThresholdPreset> presets)
     {
-        var wanted = presets.Select(p => ThresholdPreset.FormatLabel(p.Name, p.Start, p.Stop)).ToList();
+        var wanted = presets.Select(p => p.Id + ThresholdPreset.FormatLabel(p.Name, p.Start, p.Stop)).ToList();
         if (wanted.SequenceEqual(_presetButtonLabels)) return;
 
         _presetButtonLabels = wanted;
@@ -747,7 +747,7 @@ public sealed partial class DashboardWindow : Window
         {
             var button = new ToggleButton
             {
-                Tag                 = preset.Name,
+                Tag                 = preset.Id,
                 Style               = QuickButtonStyle,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment   = VerticalAlignment.Stretch,
@@ -809,24 +809,24 @@ public sealed partial class DashboardWindow : Window
     {
         // ButtonBase, not Button: the preset chip is a ToggleButton since #207, and Click is what
         // both share.
-        if (sender is not ButtonBase { Tag: string name }) return;
+        if (sender is not ButtonBase { Tag: string id }) return;
 
         // A bare ToggleButton checks itself before Click is even raised, which would leave two
         // chips reading Checked until the vendor write below completes and Refresh reads the real
         // state back. Marking the pick synchronously here, the same way Refresh's own pass does,
         // closes that window; a refused write still corrects itself once Refresh runs.
-        MarkActivePreset(name);
+        MarkActivePreset(id);
 
         Task.Run(() =>
         {
-            bool ok = false;
-            try { ok = ChargeControlService.ApplyPresetByName(name, ActionCause.Dashboard("preset buttons")); }
+            var outcome = PresetActivation.DeviceRefused;
+            try { outcome = ChargeControlService.ApplyPreset(id, ActionCause.Dashboard("preset buttons")); }
             catch (Exception ex) { AppLog.Error("DashboardWindow.OnPresetButtonClick", ex); }
 
             RunOnUi(() =>
             {
-                if (!ok) SmartChargeDetailText.Text = "Error — check driver";
                 Refresh();
+                if (outcome != PresetActivation.Applied) SmartChargeDetailText.Text = PresetActivations.Describe(outcome);
             });
         });
     }
@@ -834,11 +834,11 @@ public sealed partial class DashboardWindow : Window
     /// <summary>Marks which preset chip is in use, on the same TimeScaleButtonStyle chrome the Lid
     /// delay chips use (#207): the checked one takes the shared Checked-brush resources set in
     /// <see cref="BuildPresetButtons"/>, and stops accepting clicks so it cannot re-apply itself.</summary>
-    private void MarkActivePreset(string? activeName)
+    private void MarkActivePreset(string? activeId)
     {
         foreach (var button in PresetButtonPanel.Children.OfType<ToggleButton>())
         {
-            bool isActive = (string?)button.Tag == activeName;
+            bool isActive = (string?)button.Tag == activeId;
             button.IsChecked        = isActive;
             button.IsHitTestVisible = !isActive;
             // Weight as well as colour: the filled chip must not be the only thing separating the
@@ -1401,7 +1401,7 @@ public sealed partial class DashboardWindow : Window
         try
         {
             var cause = ActionCause.Dashboard("battery-target chips");
-            SettingsService.Update(x => x.LidDischargeTargetPercent = percent);
+            LidDelayService.SetDischargePercent(percent, cause);
             if (!SettingsService.Current.LidDischargeEnabled) LidDelayService.SetDischargeEnabled(true, cause);
             if (!SettingsService.Current.LidDelayEnabled) LidDelayService.SetEnabled(true, cause);
         }

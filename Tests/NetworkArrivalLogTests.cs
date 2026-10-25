@@ -8,15 +8,16 @@ public class NetworkArrivalLogTests
     [Fact]
     public void Describe_ProfileCarryingAPresetAHoldAndAScript_NamesAllThree()
     {
+        var preset = new ThresholdPreset("Office", 60, 80);
         var rule = new NetworkLocationRule
         {
             Id = "office", Name = "NettPost [Kablet]", AdapterMac = "AA:BB:CC:DD:EE:FF",
-            PresetName = "Office", KeepAwakeHere = true,
+            PresetId = preset.Id, KeepAwakeHere = true,
         };
         var settings = new AppSettings
         {
             NetworkProfilesEnabled = true,
-            Presets = [new ThresholdPreset("Office", 60, 80)],
+            Presets = [preset],
             NetworkLocationRules = [rule],
             Scripts = [new ScriptDefinition("s1", "Mount drives", ScriptTrigger.NetworkJoined, "net use", "office")],
         };

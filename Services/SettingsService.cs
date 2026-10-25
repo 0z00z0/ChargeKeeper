@@ -6,6 +6,8 @@ namespace ChargeKeeper.Services;
 
 internal sealed class ThresholdPreset
 {
+    /// <summary>What every reference holds; the name is only shown.</summary>
+    public string Id    { get; set; } = "";
     public string Name  { get; set; } = "";
     public int    Start { get; set; }
     public int    Stop  { get; set; }
@@ -13,7 +15,7 @@ internal sealed class ThresholdPreset
     // Parameterless ctor required for JSON deserialisation.
     public ThresholdPreset() { }
     public ThresholdPreset(string name, int start, int stop)
-        { Name = name; Start = start; Stop = stop; }
+        { Id = StableId.New(); Name = name; Start = start; Stop = stop; }
 
     /// <summary>Static so a caller holding uncommitted values renders exactly like a saved preset.</summary>
     public static string FormatLabel(string name, int start, int stop) => $"{name}  ({start}–{stop} %)";
@@ -125,8 +127,9 @@ internal sealed class AppSettings
 {
     public List<ThresholdPreset> Presets { get; set; } =
     [
-        new("Daily",  60, 80),
-        new("Travel", 80, 100),
+        // Fixed identifiers, so two default settings objects compare equal.
+        new("Daily",  60, 80)  { Id = "built-in-daily" },
+        new("Travel", 80, 100) { Id = "built-in-travel" },
     ];
 
     /// <summary>The one-shot "charge to 100 % once" override, and what to restore when it completes.
@@ -388,15 +391,18 @@ internal sealed class AppSettings
 
     public List<NetworkLocationRule> NetworkLocationRules { get; set; } = [];
 
-    /// <summary>Whether a profile was given an identifier as the document was read, so the document
-    /// is written back once and the identifier a script is bound to survives the next start. Not a
-    /// setting: it describes this copy of the settings rather than anything a person chose.</summary>
+    /// <summary>Identifiers were stamped as the document was read and are written back once.</summary>
     [JsonIgnore]
-    public bool NetworkProfileIdsAreUnsaved { get; set; }
+    public bool IdentifiersAreUnsaved { get; set; }
 
-    /// <summary>Applied when the location matches no rule. Null = stay put, rather than force a change
-    /// on a network the user simply hasn't named yet.</summary>
+    /// <summary>Applied when the location matches no rule. Null = stay put.</summary>
+    public string? UnknownNetworkPresetId { get; set; }
+
+    /// <summary>An older document's name reference; converted on read and written back as null.</summary>
     public string? UnknownNetworkPresetName { get; set; }
+
+    public ThresholdPreset? PresetById(string? id) =>
+        string.IsNullOrEmpty(id) ? null : Presets.FirstOrDefault(p => p.Id == id);
 
     /// <summary>The single lookup for both the tray status row and the auto-apply, so list order
     /// decides which rule wins in exactly one place.</summary>
@@ -529,22 +535,22 @@ internal static class SettingsService
     internal static AppSettings? ReadFrom(string path)
     {
         var settings = SettingsStore.For(path).Read();
-        // As the document is read rather than when a profile is next edited: a script binds to a
-        // profile's identifier, and one generated afresh on every read would unbind it at every start.
-        if (settings is not null && NetworkLocationRule.StampMissingIds(settings.NetworkLocationRules))
-            settings.NetworkProfileIdsAreUnsaved = true;
+        // Stamped on read so references survive a restart; not short-circuited, both stamps run.
+        if (settings is not null &&
+            (NetworkLocationRule.StampMissingIds(settings.NetworkLocationRules) | PresetReferences.Convert(settings)))
+            settings.IdentifiersAreUnsaved = true;
         return settings;
     }
 
-    /// <summary>Writes back the identifiers stamped onto profiles that had none. Called once at
-    /// startup; a document whose profiles all carry one costs nothing.</summary>
-    public static void PersistNewNetworkProfileIds()
+    /// <summary>Writes back the identifiers stamped on read, once at startup. Raises no
+    /// <see cref="ChangeCommitted"/>, so it costs no MQTT republish.</summary>
+    public static void PersistNewIdentifiers()
     {
         lock (_lock)
         {
             var settings = _current ??= ReadFrom(_path) ?? new AppSettings();
-            if (!settings.NetworkProfileIdsAreUnsaved) return;
-            settings.NetworkProfileIdsAreUnsaved = false;
+            if (!settings.IdentifiersAreUnsaved) return;
+            settings.IdentifiersAreUnsaved = false;
             Save();
         }
     }

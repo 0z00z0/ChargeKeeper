@@ -134,7 +134,7 @@ internal static class SurfaceReader
             DrainWarning:           s.DrainAnomalyWarningEnabled,
             DrainRate:              s.DrainAnomalyPercentPerHour,
             NetworkProfilesEnabled: s.NetworkProfilesEnabled,
-            UnknownNetworkPreset:   s.UnknownNetworkPresetName ?? PresetEditValidator.UnknownNetworkSentinel,
+            UnknownNetworkPreset:   s.PresetById(s.UnknownNetworkPresetId)?.Name ?? PresetEditValidator.UnknownNetworkSentinel,
             NetworkAlias:           adapter.Alias,
             NetworkIpAddress:       adapter.IpAddress,
             NetworkAdapterName:     adapter.AdapterName,
