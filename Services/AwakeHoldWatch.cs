@@ -52,6 +52,10 @@ internal static class AwakeHoldWatch
 {
     private static readonly TimeSpan Cadence = TimeSpan.FromMinutes(5);
 
+    /// <summary>The holds already warned about, one key per line. On disk because the application
+    /// restarts for every update, and a restart is not the holder letting go.</summary>
+    internal const string WarnedFileName = "awake-hold-warned.txt";
+
     private static readonly Lock _sync = new();
     private static readonly Dictionary<string, DateTimeOffset> _firstSeen = new(StringComparer.Ordinal);
     private static readonly HashSet<string> _warned = new(StringComparer.Ordinal);
@@ -75,6 +79,7 @@ internal static class AwakeHoldWatch
         lock (_sync)
         {
             if (_timer is not null) return;
+            _warned.UnionWith(ReadWarned());
             _timer = new System.Threading.Timer(_ => Tick(), null, TimeSpan.FromSeconds(20), Cadence);
         }
     }
@@ -98,6 +103,7 @@ internal static class AwakeHoldWatch
         var threshold = Threshold();
 
         List<(PowerRequestEntry Entry, TimeSpan Held)> warn = [];
+        string[]? warnedToWrite = null;
         lock (_sync)
         {
             _reading   = reading;
@@ -108,18 +114,42 @@ internal static class AwakeHoldWatch
 
             var present = reading.Select(AwakeHoldPolicy.Key).ToHashSet(StringComparer.Ordinal);
             foreach (string gone in _firstSeen.Keys.Where(k => !present.Contains(k)).ToList())
-            {
                 _firstSeen.Remove(gone);
-                _warned.Remove(gone);
-            }
+            bool warnedChanged = _warned.RemoveWhere(k => !present.Contains(k)) > 0;
             foreach (string key in present) _firstSeen.TryAdd(key, now);
 
             foreach (var entry in AwakeHoldPolicy.WorthWarningAbout(reading, _firstSeen, now, threshold))
                 if (_warned.Add(AwakeHoldPolicy.Key(entry)))
+                {
+                    warnedChanged = true;
                     warn.Add((entry, now - _firstSeen[AwakeHoldPolicy.Key(entry)]));
+                }
+
+            if (warnedChanged) warnedToWrite = [.. _warned];
         }
 
-        foreach (var (entry, held) in warn) ToastService.NotifyAwakeHold(entry.ShortHolder, held);
+        if (warnedToWrite is not null) WriteWarned(warnedToWrite);
+        foreach (var (entry, held) in warn) ToastService.NotifyAwakeHold(entry, held);
+    }
+
+    private static string[] ReadWarned()
+    {
+        try
+        {
+            string path = AppPaths.DataFile(WarnedFileName);
+            return File.Exists(path) ? File.ReadAllLines(path) : [];
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"{nameof(AwakeHoldWatch)}.{nameof(ReadWarned)}", ex);
+            return [];
+        }
+    }
+
+    private static void WriteWarned(string[] keys)
+    {
+        try { File.WriteAllLines(AppPaths.DataFile(WarnedFileName), keys); }
+        catch (Exception ex) { AppLog.Error($"{nameof(AwakeHoldWatch)}.{nameof(WriteWarned)}", ex); }
     }
 
     private static TimeSpan Threshold() =>

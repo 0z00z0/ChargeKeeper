@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.3
+
+- The machine-held-awake warning no longer repeats after every restart for a hold it has already
+  reported, and the log now says what raised each notification and records every sound it played.
+
 ## 2.16.2
 
 - Smart Standby on a Lenovo machine can be switched on again when it was off at the last restart,

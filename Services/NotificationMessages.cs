@@ -27,18 +27,26 @@ internal static class NotificationMessages
         "Notifications are unavailable — Windows did not accept the application's registration, " +
         "so no battery warnings can be shown.";
 
-    public static string Shown(NotificationKind kind, int? atPercent) =>
-        atPercent is { } pct
-            ? $"{Subject(kind)} was shown on screen at {pct} %."
-            : $"{Subject(kind)} was shown on screen.";
+    public static string Shown(NotificationKind kind, int? atPercent, ActionCause cause) =>
+        $"{Subject(kind)} was shown on screen{At(atPercent)}{cause.Clause}.";
 
     /// <summary><paramref name="windowsReason"/> is what Windows said, so the line separates a
     /// refusal from a warning that was never attempted.</summary>
-    public static string CouldNotBeShown(NotificationKind kind, int? atPercent, string windowsReason)
-    {
-        string where = atPercent is { } pct ? $" at {pct} %" : "";
-        return $"{Subject(kind)} could not be shown{where}. Windows refused it: {OneLine(windowsReason)}";
-    }
+    public static string CouldNotBeShown(NotificationKind kind, int? atPercent, ActionCause cause, string windowsReason) =>
+        $"{Subject(kind)} could not be shown{At(atPercent)}{cause.Clause}. Windows refused it: {OneLine(windowsReason)}";
+
+    /// <summary>One line per audible tone, so a sound heard with no notification noticed can be
+    /// traced to the notification that made it.</summary>
+    public static string SoundPlayed(NotificationKind kind, string fileName) =>
+        $"{Subject(kind)} played the sound {fileName}.";
+
+    public static string WindowsSoundLeftToWindows(NotificationKind kind) =>
+        $"{Subject(kind)} carries the Windows notification sound, which Windows plays unless it is holding notifications back.";
+
+    public static string SoundPreviewed(string fileName) =>
+        $"The sound {fileName} was played as a preview from the Notifications page.";
+
+    private static string At(int? atPercent) => atPercent is { } pct ? $" at {pct} %" : "";
 
     public static string LowThresholdCrossed(int warnAtPercent, int levelPercent) =>
         $"The battery fell past the {warnAtPercent} % warning level, reaching {levelPercent} % " +
@@ -57,10 +65,8 @@ internal static class NotificationMessages
         "The low-battery warning was reset when the application restarted. A warning will be " +
         $"given again below {warnAtPercent} %.";
 
-    public static string SwitchedOff(NotificationKind kind, int? atPercent) =>
-        atPercent is { } pct
-            ? $"{Subject(kind)} was not shown at {pct} %, because its switch on the Notifications page is off."
-            : $"{Subject(kind)} was not shown, because its switch on the Notifications page is off.";
+    public static string SwitchedOff(NotificationKind kind, int? atPercent, ActionCause cause) =>
+        $"{Subject(kind)} was not shown{At(atPercent)}, because its switch on the Notifications page is off{cause.Clause}.";
 
     public static string SoundHeldBack(NotificationKind kind, NotificationQuietReading quiet) =>
         quiet.FocusSessionActive

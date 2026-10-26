@@ -31,8 +31,8 @@ internal static class ToastService
     }
 
     // Every notification is fire-and-forget and must never crash the app, so the build+show+report
-    // scaffold lives here once.
-    private static void TryShow(NotificationKind kind, int? atPercent, string title, string body)
+    // scaffold lives here once. The cause is the reading that raised it, so the log says why.
+    private static void TryShow(NotificationKind kind, int? atPercent, ActionCause cause, string title, string body)
     {
         var (switchedOn, sound) =
             SettingsService.Read(s => (NotificationSwitches.IsOn(s, kind), s.NotificationSound));
@@ -40,7 +40,7 @@ internal static class ToastService
         // Said in the log, so a notification switched off is not mistaken for one Windows refused.
         if (!switchedOn)
         {
-            AppLog.Info(NotificationMessages.SwitchedOff(kind, atPercent));
+            AppLog.Info(NotificationMessages.SwitchedOff(kind, atPercent, cause));
             return;
         }
 
@@ -54,38 +54,46 @@ internal static class ToastService
                 builder.MuteAudio();
 
             AppNotificationManager.Default.Show(builder.BuildNotification());
-            AppLog.Info(NotificationMessages.Shown(kind, atPercent));
+            AppLog.Info(NotificationMessages.Shown(kind, atPercent, cause));
 
             // After the show, so a refused notification plays nothing.
             NotificationSoundPlayer.PlayFor(kind, sound);
         }
         catch (Exception ex)
         {
-            AppLog.Info(NotificationMessages.CouldNotBeShown(kind, atPercent, ex.Message));
+            AppLog.Info(NotificationMessages.CouldNotBeShown(kind, atPercent, cause, ex.Message));
             AppLog.Error("ToastService.Show", ex);
         }
     }
 
-    public static void NotifyChargeComplete(int stopPct) =>
-        TryShow(NotificationKind.ChargeComplete, stopPct, "Battery charged", stopPct == 100
+    public static void NotifyChargeComplete(int stopPct, int pct) =>
+        TryShow(NotificationKind.ChargeComplete, stopPct,
+                $"the battery ending its charge at {pct} % with the stop level at {stopPct} %",
+                "Battery charged", stopPct == 100
             ? "Fully charged"
             : $"Smart Charge stopped at {stopPct}%  —  charged to limit");
 
-    public static void NotifyChargingStarted() =>
-        TryShow(NotificationKind.ChargingStarted, null, "Charging", "AC power connected");
+    public static void NotifyChargingStarted(int pct) =>
+        TryShow(NotificationKind.ChargingStarted, null, $"the battery starting to charge at {pct} %",
+                "Charging", "AC power connected");
 
-    public static void NotifyLowBattery(int pct) =>
-        TryShow(NotificationKind.LowBattery, pct, "Low battery", $"Battery at {pct}% — connect AC power");
+    public static void NotifyLowBattery(int pct, int warnAtPct) =>
+        TryShow(NotificationKind.LowBattery, pct,
+                $"the battery falling to {pct} %, past the {warnAtPct} % warning level",
+                "Low battery", $"Battery at {pct}% — connect AC power");
 
     public static void NotifyHighBattery(int pct, int warnAtPct) =>
-        TryShow(NotificationKind.HighBattery, pct, "High battery",
-                $"Battery at {pct}% — above the {warnAtPct}% warning level");
+        TryShow(NotificationKind.HighBattery, pct,
+                $"the battery rising to {pct} %, past the {warnAtPct} % warning level",
+                "High battery", $"Battery at {pct}% — above the {warnAtPct}% warning level");
 
     /// <summary><paramref name="dropPercent"/> is always positive — the caller filters rises and flats.</summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
     {
         string span = duration.TotalHours >= 1 ? $"{duration.TotalHours:0.#}h" : $"{duration.Minutes}m";
-        TryShow(NotificationKind.DrainAnomaly, null, "Unusual battery drain",
+        TryShow(NotificationKind.DrainAnomaly, null,
+                $"the battery losing {dropPercent} % over {SleepWatch.Duration(duration)} asleep",
+                "Unusual battery drain",
                 $"Lost {dropPercent}% over {span} while asleep — Modern Standby misbehaving?");
     }
 
@@ -97,7 +105,8 @@ internal static class ToastService
     public static void NotifySleptWhileHot(double celsius, DateTimeOffset atUtc)
     {
         string when = atUtc.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
-        TryShow(NotificationKind.SleptWhileHot, null, "Slept early to cool down",
+        TryShow(NotificationKind.SleptWhileHot, null,
+                $"a reading of {celsius:0.#} °C with the lid shut at {when}", "Slept early to cool down",
                 $"Reached {celsius:0.#} °C with the lid shut at {when}, so the lid-close wait ended and the computer slept.");
     }
 
@@ -108,7 +117,7 @@ internal static class ToastService
     /// simply disappears.
     /// </summary>
     public static void NotifySettingsNotSaved() =>
-        TryShow(NotificationKind.SettingsNotSaved, null, "Settings not saved",
+        TryShow(NotificationKind.SettingsNotSaved, null, "the settings file refusing a write", "Settings not saved",
                 "The settings file could not be written, so the last change is not stored and will "
               + "be gone at the next start. The application log says why.");
 
@@ -118,17 +127,23 @@ internal static class ToastService
     /// warn on every plug and unplug for as long as it stayed broken.
     /// </summary>
     public static void NotifyScriptFailed(string script, string reason) =>
-        TryShow(NotificationKind.ScriptFailed, null, "Script failed",
+        TryShow(NotificationKind.ScriptFailed, null, $"the script '{script}' failing: {reason.ReplaceLineEndings(" ")}", "Script failed",
                 ScriptMessages.FailureNotice(script, reason));
 
     /// <summary>
     /// Said once per hold, and not again until that holder lets go: a program that has held the
     /// machine awake for hours is one fact, not one per reading.
     /// </summary>
-    public static void NotifyAwakeHold(string holder, TimeSpan held) =>
-        TryShow(NotificationKind.AwakeHold, null, "Something is keeping this computer awake",
-                $"{holder} has been asking Windows to stay awake for {SleepWatch.Duration(held)}. "
+    public static void NotifyAwakeHold(PowerRequestEntry hold, TimeSpan held) =>
+        TryShow(NotificationKind.AwakeHold, null, AwakeHoldCause(hold, held),
+                "Something is keeping this computer awake",
+                $"{hold.ShortHolder} has been asking Windows to stay awake for {SleepWatch.Duration(held)}. "
               + "The dashboard lists everything holding the machine awake.");
+
+    /// <summary>The full holder as Windows names it, so two programs with one file name are told apart.</summary>
+    internal static string AwakeHoldCause(PowerRequestEntry hold, TimeSpan held) =>
+        $"the {hold.Kind.ToLowerInvariant()} {hold.Holder} holding a {hold.Category} request for {SleepWatch.Duration(held)}"
+      + (hold.Reason is { Length: > 0 } reason ? $", stating '{reason}'" : "");
 
     public static void Cleanup()
     {

@@ -1005,10 +1005,10 @@ public partial class App : Application
 
             // ToastService.Notify* does a synchronous WinRT/COM Show; the decisions and the latch
             // above were taken under the lock, so only the Show is deferred.
-            if (fireLowBattery)                    ToastService.NotifyLowBattery(pct);
+            if (fireLowBattery)                    ToastService.NotifyLowBattery(pct, lowWarnAtPct);
             if (highBatteryWarnAtPct is { } warnAt) ToastService.NotifyHighBattery(pct, warnAt);
-            if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop);
-            if (fireChargingStarted)               ToastService.NotifyChargingStarted();
+            if (chargeCompleteStopPct is { } stop) ToastService.NotifyChargeComplete(stop, pct);
+            if (fireChargingStarted)               ToastService.NotifyChargingStarted(pct);
 
             _mqtt?.PublishState(liveSnapshot);
         }

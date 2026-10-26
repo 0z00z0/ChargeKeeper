@@ -43,6 +43,23 @@ public class NotificationSoundsTests
         Assert.Contains("return;", body[check..show], StringComparison.Ordinal);
     }
 
+    /// <summary>A tone heard with no notification noticed is traced through the log alone, so the
+    /// shown line names what raised it and a played recording writes a line of its own.</summary>
+    [Fact]
+    public void TheLogSaysWhatRaisedANotificationAndWhenItsSoundPlayed()
+    {
+        var hold = new PowerRequestEntry("DISPLAY", "PROCESS", @"\Device\HarddiskVolume3\Apps\player.exe", null, false);
+        string shown = NotificationMessages.Shown(NotificationKind.AwakeHold, null,
+                                                  ToastService.AwakeHoldCause(hold, TimeSpan.FromMinutes(65)));
+
+        Assert.Equal("A machine-held-awake warning was shown on screen — cause: the process "
+                   + @"\Device\HarddiskVolume3\Apps\player.exe holding a DISPLAY request for 1 hour 5 minutes.", shown);
+
+        string playFor = SourceMethods.Body(File.ReadAllText(RepoFiles.Find("Services/NotificationSoundPlayer.cs")), "PlayFor");
+        Assert.Contains("NotificationMessages.SoundPlayed(kind, file)", playFor, StringComparison.Ordinal);
+        Assert.Contains("NotificationMessages.WindowsSoundLeftToWindows(kind)", playFor, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EveryRecordingIsInTheBuildOutput()
     {
