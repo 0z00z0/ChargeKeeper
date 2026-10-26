@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.5
+
+- Expanding a collapsed row on the dashboard shows its quick buttons at once, instead of several
+  seconds later.
+
 ## 2.16.4
 
 - The dashboard resizes as soon as a row is expanded or collapsed, instead of several seconds later

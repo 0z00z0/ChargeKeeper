@@ -951,10 +951,13 @@ public sealed partial class DashboardWindow : Window
                 content.Visibility = Visibility.Collapsed;
     }
 
+    // A row tap runs its badge's whole pass rather than the collapse alone: the collapse never shows
+    // what it hid, so an expanded row would stay without its chips until the next refresh.
+    // Smart Charge's pass draws from the last vendor read and makes no new one.
     private void OnSmartChargeCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
     {
         _smartChargeExpanded = !_smartChargeExpanded;
-        ApplySmartChargeCollapse();
+        ApplyStatusBadges(_cachedChargeState, _cachedStandbySupported, _cachedStandbyOn);
     }
 
     private void ApplySmartChargeCollapse() => ApplyOneLineCollapse(
@@ -975,7 +978,7 @@ public sealed partial class DashboardWindow : Window
     private void OnLidDelayCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
     {
         _lidDelayExpanded = !_lidDelayExpanded;
-        ApplyLidDelayCollapse();
+        ApplyLidBadge();
     }
 
     private void ApplyLidDelayCollapse() => ApplyOneLineCollapse(
@@ -986,7 +989,7 @@ public sealed partial class DashboardWindow : Window
     private void OnKeepAwakeCollapsedRowTapped(object sender, TappedRoutedEventArgs e)
     {
         _keepAwakeExpanded = !_keepAwakeExpanded;
-        ApplyKeepAwakeCollapse();
+        ApplyKeepAwakeBadge();
     }
 
     private void ApplyKeepAwakeCollapse() => ApplyOneLineCollapse(

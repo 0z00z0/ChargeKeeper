@@ -67,6 +67,20 @@ public class DashboardCollapseContractTests
         Assert.Matches(@"BadgeStack\.SizeChanged\s*\+=[^;]*PlaceWindow\(\)", DashboardSource);
     }
 
+    /// <summary>A row tap runs its badge's whole pass. The collapse alone never shows what it hid, so
+    /// an expanded row would stay without its chips until the next refresh tick.</summary>
+    [Theory]
+    [InlineData("OnLidDelayCollapsedRowTapped", "ApplyLidBadge();")]
+    [InlineData("OnKeepAwakeCollapsedRowTapped", "ApplyKeepAwakeBadge();")]
+    [InlineData("OnSmartChargeCollapsedRowTapped", "ApplyStatusBadges(")]
+    public void ExpandingARowShowsItsChipsAtOnce(string handler, string badgePass)
+    {
+        var body = Regex.Match(DashboardSource, $@"void {handler}\([^)]*\)\s*\{{(?<body>[^}}]*)\}}");
+
+        Assert.True(body.Success, $"{handler} not found in DashboardWindow.xaml.cs.");
+        Assert.Contains(badgePass, body.Groups["body"].Value);
+    }
+
     /// <summary>
     /// The element names each call passes beyond the eight fixed parameters. The last fixed one is
     /// the chevron glyph, so everything after it is extra content.
