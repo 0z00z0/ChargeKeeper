@@ -75,7 +75,7 @@ internal static class UnpublishedSettings
         // absent from the MQTT surface, so editing one reaches nothing outside this process.
         nameof(AppSettings.Scripts),
 
-        // The notification sound and the six switches that have no entity. They decide what this
+        // The notification sound and the five switches that have no entity. They decide what this
         // machine shows and plays; the three warnings with entities keep theirs and are not here.
         nameof(AppSettings.NotificationSound),
         nameof(AppSettings.ChargeCompleteNoticeEnabled),
@@ -83,8 +83,6 @@ internal static class UnpublishedSettings
         nameof(AppSettings.SleptWhileHotWarningEnabled),
         nameof(AppSettings.SettingsNotSavedWarningEnabled),
         nameof(AppSettings.ScriptFailedWarningEnabled),
-        nameof(AppSettings.AwakeHoldWarningEnabled),
-        nameof(AppSettings.AwakeHoldWarningHours),
 
         // How long a charger or lid event settles before its scripts run again. Scripts reach no
         // MQTT entity at all, and neither does the window they settle in.

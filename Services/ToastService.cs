@@ -130,21 +130,6 @@ internal static class ToastService
         TryShow(NotificationKind.ScriptFailed, null, $"the script '{script}' failing: {reason.ReplaceLineEndings(" ")}", "Script failed",
                 ScriptMessages.FailureNotice(script, reason));
 
-    /// <summary>
-    /// Said once per hold, and not again until that holder lets go: a program that has held the
-    /// machine awake for hours is one fact, not one per reading.
-    /// </summary>
-    public static void NotifyAwakeHold(PowerRequestEntry hold, TimeSpan held) =>
-        TryShow(NotificationKind.AwakeHold, null, AwakeHoldCause(hold, held),
-                "Something is keeping this computer awake",
-                $"{hold.ShortHolder} has been asking Windows to stay awake for {SleepWatch.Duration(held)}. "
-              + "The dashboard lists everything holding the machine awake.");
-
-    /// <summary>The full holder as Windows names it, so two programs with one file name are told apart.</summary>
-    internal static string AwakeHoldCause(PowerRequestEntry hold, TimeSpan held) =>
-        $"the {hold.Kind.ToLowerInvariant()} {hold.Holder} holding a {hold.Category} request for {SleepWatch.Duration(held)}"
-      + (hold.Reason is { Length: > 0 } reason ? $", stating '{reason}'" : "");
-
     public static void Cleanup()
     {
         try

@@ -48,12 +48,11 @@ public class NotificationSoundsTests
     [Fact]
     public void TheLogSaysWhatRaisedANotificationAndWhenItsSoundPlayed()
     {
-        var hold = new PowerRequestEntry("DISPLAY", "PROCESS", @"\Device\HarddiskVolume3\Apps\player.exe", null, false);
-        string shown = NotificationMessages.Shown(NotificationKind.AwakeHold, null,
-                                                  ToastService.AwakeHoldCause(hold, TimeSpan.FromMinutes(65)));
+        string shown = NotificationMessages.Shown(NotificationKind.LowBattery, 14,
+                                                  "the battery falling to 14 %, past the 15 % warning level");
 
-        Assert.Equal("A machine-held-awake warning was shown on screen — cause: the process "
-                   + @"\Device\HarddiskVolume3\Apps\player.exe holding a DISPLAY request for 1 hour 5 minutes.", shown);
+        Assert.Equal("A low-battery warning was shown on screen at 14 % — cause: the battery falling to 14 %, "
+                   + "past the 15 % warning level.", shown);
 
         string playFor = SourceMethods.Body(File.ReadAllText(RepoFiles.Find("Services/NotificationSoundPlayer.cs")), "PlayFor");
         Assert.Contains("NotificationMessages.SoundPlayed(kind, file)", playFor, StringComparison.Ordinal);

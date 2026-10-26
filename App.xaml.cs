@@ -268,8 +268,7 @@ public partial class App : Application
         PowerLog.Say($"{StandbyCapability.Describe(StandbyCapability.Read())}, " +
                      "asked once at startup, from the OS power capabilities.");
         KeepAwakeService.Start();
-        // Periodic, not live: reading the list starts a console process, which is far too expensive
-        // at any surface's own cadence.
+        // Reads only while the dashboard's Power activity section is switched on.
         AwakeHoldWatch.Start();
         // The crash-recovery point for the display: puts back a brightness a previous run dimmed and
         // never restored, which Windows keeps across a restart.

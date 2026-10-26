@@ -579,10 +579,6 @@ internal sealed partial class SettingsWindow : Window
         [("60 %", 60), ("70 %", 70), ("75 %", 75), ("80 %", 80), ("85 %", 85), ("90 %", 90), ("95 %", 95)];
     private static readonly (string Label, int Value)[] DrainPctPresets =
         [("1 %/h", 1), ("2 %/h", 2), ("3 %/h", 3), ("5 %/h", 5), ("10 %/h", 10)];
-    // Hours a stranger's keep-awake hold may last before it is worth saying. Nothing under one
-    // hour: a hold that short is a video or a build, which is the feature working rather than news.
-    private static readonly (string Label, int Value)[] AwakeHoldHoursPresets =
-        [("1 hour", 1), ("2 hours", 2), ("4 hours", 4), ("8 hours", 8), ("12 hours", 12), ("24 hours", 24)];
 
     /// <summary>Populates a preset-picker and selects the item matching <paramref name="current"/>.
     /// A stored value that is not one of the presets becomes a custom entry rather than being
@@ -963,14 +959,8 @@ internal sealed partial class SettingsWindow : Window
                 ?? NotificationSoundCombo.Items[0];
             NotificationSoundPreviewButton.IsEnabled = NotificationSounds.HasOwnRecording(s.NotificationSound);
 
-            AwakeHoldToggle.IsOn = s.AwakeHoldWarningEnabled;
-            LoadPresetCombo(AwakeHoldHoursCombo, AwakeHoldHoursPresets,
-                            s.AwakeHoldWarningHours ?? AwakeHoldPolicy.DefaultWarnAfterHours,
-                            v => $"{v} hours");
-            AwakeHoldHoursCombo.IsEnabled = s.AwakeHoldWarningEnabled;
-
             foreach (var toggle in new[] { ChargeCompleteToggle, ChargingStartedToggle, SleptWhileHotToggle,
-                                           SettingsNotSavedToggle, ScriptFailedToggle, AwakeHoldToggle })
+                                           SettingsNotSavedToggle, ScriptFailedToggle })
                 toggle.IsOn = NotificationSwitches.IsOn(s, Enum.Parse<NotificationKind>((string)toggle.Tag));
         });
     }
@@ -981,7 +971,6 @@ internal sealed partial class SettingsWindow : Window
         var  kind = Enum.Parse<NotificationKind>(tag);
         bool on   = toggle.IsOn;
         SettingsService.Update(s => NotificationSwitches.Set(s, kind, on));
-        if (kind == NotificationKind.AwakeHold) AwakeHoldHoursCombo.IsEnabled = on;
     }
 
     private void OnNotificationSoundChanged(object sender, SelectionChangedEventArgs e)
@@ -1030,9 +1019,6 @@ internal sealed partial class SettingsWindow : Window
 
     private void OnDrainPctPerHourChanged(object sender, SelectionChangedEventArgs e)
         => CommitPresetCombo(DrainPctPerHourCombo, (s, v) => s.DrainAnomalyPercentPerHour = v);
-
-    private void OnAwakeHoldHoursChanged(object sender, SelectionChangedEventArgs e)
-        => CommitPresetCombo(AwakeHoldHoursCombo, (s, v) => s.AwakeHoldWarningHours = v);
 
     private void LoadSmartCharge() => RebuildPresetRows();   // also (re)populates UnknownPresetCombo
 

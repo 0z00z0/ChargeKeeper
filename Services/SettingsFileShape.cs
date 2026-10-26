@@ -204,10 +204,6 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(10)] public bool? SleptWhileHotWarningEnabled    { get; set; }
         [JsonPropertyOrder(11)] public bool? SettingsNotSavedWarningEnabled { get; set; }
         [JsonPropertyOrder(12)] public bool? ScriptFailedWarningEnabled     { get; set; }
-        [JsonPropertyOrder(13)] public bool? AwakeHoldWarningEnabled        { get; set; }
-        // Hours, and nullable for the same reason: an absent key takes the application's default
-        // rather than zero, which would warn about every hold the moment it appeared.
-        [JsonPropertyOrder(14)] public int?  AwakeHoldWarningHours          { get; set; }
     }
 
     internal sealed class ScriptsGroup
@@ -329,8 +325,6 @@ internal sealed class SettingsFile
             SleptWhileHotWarningEnabled    = s.SleptWhileHotWarningEnabled,
             SettingsNotSavedWarningEnabled = s.SettingsNotSavedWarningEnabled,
             ScriptFailedWarningEnabled     = s.ScriptFailedWarningEnabled,
-            AwakeHoldWarningEnabled        = s.AwakeHoldWarningEnabled,
-            AwakeHoldWarningHours          = s.AwakeHoldWarningHours,
         },
         Scripts     = new ScriptsGroup { Scripts = s.Scripts, ScriptSettleSeconds = s.ScriptSettleSeconds },
         Mqtt        = new MqttGroup { MqttLastGoodEndpoint = s.MqttLastGoodEndpoint },
@@ -419,8 +413,6 @@ internal sealed class SettingsFile
         SleptWhileHotWarningEnabled    = Notifications.SleptWhileHotWarningEnabled    ?? true,
         SettingsNotSavedWarningEnabled = Notifications.SettingsNotSavedWarningEnabled ?? true,
         ScriptFailedWarningEnabled     = Notifications.ScriptFailedWarningEnabled     ?? true,
-        AwakeHoldWarningEnabled        = Notifications.AwakeHoldWarningEnabled        ?? true,
-        AwakeHoldWarningHours          = Notifications.AwakeHoldWarningHours          ?? AwakeHoldPolicy.DefaultWarnAfterHours,
 
         Scripts             = Scripts.Scripts,
         ScriptSettleSeconds = Scripts.ScriptSettleSeconds ?? ScriptSettleWindow.DefaultSeconds,

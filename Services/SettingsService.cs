@@ -160,15 +160,6 @@ internal sealed class AppSettings
     public bool SettingsNotSavedWarningEnabled { get; set; } = true;
     public bool ScriptFailedWarningEnabled     { get; set; } = true;
 
-    /// <summary>Warn once a program that is not this one has held the machine awake without a break
-    /// for <see cref="AwakeHoldWarningHours"/>.</summary>
-    public bool AwakeHoldWarningEnabled       { get; set; } = true;
-
-    /// <summary>How many unbroken hours a hold must last before it is worth saying. Nullable so a
-    /// document written before the key existed takes
-    /// <see cref="AwakeHoldPolicy.DefaultWarnAfterHours"/> rather than zero.</summary>
-    public int? AwakeHoldWarningHours         { get; set; } = AwakeHoldPolicy.DefaultWarnAfterHours;
-
     /// <summary>The one sound every notification uses; Low and High battery play its falling and
     /// rising recordings. Not published over MQTT.</summary>
     public NotificationSound NotificationSound { get; set; } = NotificationSounds.Default;
@@ -274,8 +265,8 @@ internal sealed class AppSettings
     public bool ShowGraphInDashboard { get; set; } = true;
 
     /// <summary>Whether the dashboard popup shows its Power activity section. Hidden by default.
-    /// Only the section is governed: the awake-hold warning and the wake line in the log run
-    /// regardless.</summary>
+    /// The periodic reading of what holds the machine awake runs only while it is shown; the wake
+    /// line in the log is written regardless.</summary>
     public bool ShowPowerActivityInDashboard { get; set; } = false;
 
     /// <summary>The active session is deliberately not persisted — surviving a reboot would surprise.</summary>

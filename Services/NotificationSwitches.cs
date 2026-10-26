@@ -14,7 +14,6 @@ internal static class NotificationSwitches
         NotificationKind.SleptWhileHot    => settings.SleptWhileHotWarningEnabled,
         NotificationKind.SettingsNotSaved => settings.SettingsNotSavedWarningEnabled,
         NotificationKind.ScriptFailed     => settings.ScriptFailedWarningEnabled,
-        NotificationKind.AwakeHold        => settings.AwakeHoldWarningEnabled,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "a notification with no switch"),
     };
 
@@ -30,7 +29,6 @@ internal static class NotificationSwitches
             case NotificationKind.SleptWhileHot:    settings.SleptWhileHotWarningEnabled    = on; break;
             case NotificationKind.SettingsNotSaved: settings.SettingsNotSavedWarningEnabled = on; break;
             case NotificationKind.ScriptFailed:     settings.ScriptFailedWarningEnabled     = on; break;
-            case NotificationKind.AwakeHold:        settings.AwakeHoldWarningEnabled        = on; break;
             default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "a notification with no switch");
         }
     }

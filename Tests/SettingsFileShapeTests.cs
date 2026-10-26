@@ -126,7 +126,6 @@ public class SettingsFileShapeTests : IDisposable
         [
             "NotificationSound", "ChargeCompleteNoticeEnabled", "ChargingStartedNoticeEnabled",
             "SleptWhileHotWarningEnabled", "SettingsNotSavedWarningEnabled", "ScriptFailedWarningEnabled",
-            "AwakeHoldWarningEnabled", "AwakeHoldWarningHours",
         ];
 
         Directory.CreateDirectory(_dir);
@@ -149,8 +148,6 @@ public class SettingsFileShapeTests : IDisposable
         Assert.True(loaded.SleptWhileHotWarningEnabled,    nameof(loaded.SleptWhileHotWarningEnabled));
         Assert.True(loaded.SettingsNotSavedWarningEnabled, nameof(loaded.SettingsNotSavedWarningEnabled));
         Assert.True(loaded.ScriptFailedWarningEnabled,     nameof(loaded.ScriptFailedWarningEnabled));
-        Assert.True(loaded.AwakeHoldWarningEnabled,        nameof(loaded.AwakeHoldWarningEnabled));
-        Assert.Equal(AwakeHoldPolicy.DefaultWarnAfterHours, loaded.AwakeHoldWarningHours);
     }
 
     /// <summary>A section without the thermal ceiling, the sample rate or the graph switch reads the

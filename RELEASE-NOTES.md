@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.6
+
+- No notification appears any more when another program keeps the computer awake, and the
+  Notifications page no longer has that switch or its hour limit; the dashboard's Power activity
+  section still lists what is holding the machine awake.
+
 ## 2.16.5
 
 - Expanding a collapsed row on the dashboard shows its quick buttons at once, instead of several
