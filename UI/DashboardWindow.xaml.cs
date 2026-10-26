@@ -181,6 +181,10 @@ public sealed partial class DashboardWindow : Window
         // DPI; the column count is recomputed from whatever it turns out to be.
         PresetButtonPanel.SizeChanged += (_, _) => LayoutPresetButtons();
 
+        // A row expanded, collapsed or switched changes the badges' height in the layout pass that
+        // follows; the window is refitted then, rather than on the next refresh tick.
+        BadgeStack.SizeChanged += (_, _) => { if (AppWindow.IsVisible) PlaceWindow(); };
+
         Activated += OnActivated;
         Closed    += (_, _) =>
         {
@@ -328,10 +332,11 @@ public sealed partial class DashboardWindow : Window
         int h      = (int)Math.Ceiling(logicalHeight * s);
         int margin = (int)Math.Ceiling(EdgeMargin    * s);
 
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(w, h));
-        AppWindow.Move(new Windows.Graphics.PointInt32(
+        // One call: a resize before the move would grow the window below the work area for a frame.
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
             work.Right  - w - margin,
-            work.Bottom - h - margin));
+            work.Bottom - h - margin,
+            w, h));
     }
 
     /// <summary>Hides the window so a re-show is cheap; <see cref="_idleCloseTimer"/> reclaims it eventually.</summary>

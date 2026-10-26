@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.4
+
+- The dashboard resizes as soon as a row is expanded or collapsed, instead of several seconds later
+  with its bottom row cut off.
+
 ## 2.16.3
 
 - The machine-held-awake warning no longer repeats after every restart for a hold it has already

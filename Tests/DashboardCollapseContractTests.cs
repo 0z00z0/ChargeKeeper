@@ -56,6 +56,17 @@ public class DashboardCollapseContractTests
         Assert.Contains("PresetButtonPanel", elements);
     }
 
+    /// <summary>A row expanded or collapsed refits the window in the layout pass that follows. Without
+    /// this the window keeps its old height until the next refresh tick, cutting off the bottom row.</summary>
+    [Fact]
+    public void ABadgeHeightChangeRefitsTheWindowAtOnce()
+    {
+        string markup = File.ReadAllText(RepoFiles.Find(Path.Combine("UI", "DashboardWindow.xaml")));
+
+        Assert.Matches(@"<StackPanel x:Name=""BadgeStack"" Grid\.Row=""4""", markup);
+        Assert.Matches(@"BadgeStack\.SizeChanged\s*\+=[^;]*PlaceWindow\(\)", DashboardSource);
+    }
+
     /// <summary>
     /// The element names each call passes beyond the eight fixed parameters. The last fixed one is
     /// the chevron glyph, so everything after it is extra content.

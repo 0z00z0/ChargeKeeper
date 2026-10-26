@@ -181,7 +181,7 @@
 
         <!-- Badge padding is 5 top and bottom rather than the 6 a card would take: the section
              headings are a size larger here, and the popup is height-constrained. -->
-        <StackPanel Grid.Row="4" Spacing="8">
+        <StackPanel x:Name="BadgeStack" Grid.Row="4" Spacing="8">
 
             <Border x:Name="SmartChargeBadge"
                     CornerRadius="6"
