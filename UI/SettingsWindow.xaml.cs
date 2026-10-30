@@ -959,7 +959,7 @@ internal sealed partial class SettingsWindow : Window
                 ?? NotificationSoundCombo.Items[0];
             NotificationSoundPreviewButton.IsEnabled = NotificationSounds.HasOwnRecording(s.NotificationSound);
 
-            foreach (var toggle in new[] { ChargeCompleteToggle, ChargingStartedToggle, SleptWhileHotToggle,
+            foreach (var toggle in new[] { ChargeCompleteToggle, ChargingStartedToggle,
                                            SettingsNotSavedToggle, ScriptFailedToggle })
                 toggle.IsOn = NotificationSwitches.IsOn(s, Enum.Parse<NotificationKind>((string)toggle.Tag));
         });

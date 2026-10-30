@@ -9,6 +9,12 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.7
+
+- No notification appears any more after a wake or a start to say the computer slept early to cool
+  down, and the Notifications page no longer has the switch for that cool-down notice; the log still
+  records the early sleep.
+
 ## 2.16.6
 
 - No notification appears any more when another program keeps the computer awake, and the

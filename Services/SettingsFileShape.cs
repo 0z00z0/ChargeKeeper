@@ -201,9 +201,8 @@ internal sealed class SettingsFile
         // how those notifications behaved; a plain bool would read as off and switch them all off.
         [JsonPropertyOrder(8)]  public bool? ChargeCompleteNoticeEnabled    { get; set; }
         [JsonPropertyOrder(9)]  public bool? ChargingStartedNoticeEnabled   { get; set; }
-        [JsonPropertyOrder(10)] public bool? SleptWhileHotWarningEnabled    { get; set; }
-        [JsonPropertyOrder(11)] public bool? SettingsNotSavedWarningEnabled { get; set; }
-        [JsonPropertyOrder(12)] public bool? ScriptFailedWarningEnabled     { get; set; }
+        [JsonPropertyOrder(10)] public bool? SettingsNotSavedWarningEnabled { get; set; }
+        [JsonPropertyOrder(11)] public bool? ScriptFailedWarningEnabled     { get; set; }
     }
 
     internal sealed class ScriptsGroup
@@ -322,7 +321,6 @@ internal sealed class SettingsFile
             DrainAnomalyWarningEnabled = s.DrainAnomalyWarningEnabled,
             ChargeCompleteNoticeEnabled    = s.ChargeCompleteNoticeEnabled,
             ChargingStartedNoticeEnabled   = s.ChargingStartedNoticeEnabled,
-            SleptWhileHotWarningEnabled    = s.SleptWhileHotWarningEnabled,
             SettingsNotSavedWarningEnabled = s.SettingsNotSavedWarningEnabled,
             ScriptFailedWarningEnabled     = s.ScriptFailedWarningEnabled,
         },
@@ -410,7 +408,6 @@ internal sealed class SettingsFile
         NotificationSound              = Notifications.NotificationSound ?? NotificationSounds.Default,
         ChargeCompleteNoticeEnabled    = Notifications.ChargeCompleteNoticeEnabled    ?? true,
         ChargingStartedNoticeEnabled   = Notifications.ChargingStartedNoticeEnabled   ?? true,
-        SleptWhileHotWarningEnabled    = Notifications.SleptWhileHotWarningEnabled    ?? true,
         SettingsNotSavedWarningEnabled = Notifications.SettingsNotSavedWarningEnabled ?? true,
         ScriptFailedWarningEnabled     = Notifications.ScriptFailedWarningEnabled     ?? true,
 

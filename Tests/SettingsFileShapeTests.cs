@@ -116,7 +116,7 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Empty(Directory.GetFiles(_dir, "settings.*.bad.json"));
     }
 
-    /// <summary>An installed document carries a Notifications section without the sound and the five
+    /// <summary>An installed document carries a Notifications section without the sound and the four
     /// newer switches. It has to read every one of those notifications as on and the sound as
     /// Silent; the section type alone would read the switches as off.</summary>
     [Fact]
@@ -125,7 +125,7 @@ public class SettingsFileShapeTests : IDisposable
         string[] newer =
         [
             "NotificationSound", "ChargeCompleteNoticeEnabled", "ChargingStartedNoticeEnabled",
-            "SleptWhileHotWarningEnabled", "SettingsNotSavedWarningEnabled", "ScriptFailedWarningEnabled",
+            "SettingsNotSavedWarningEnabled", "ScriptFailedWarningEnabled",
         ];
 
         Directory.CreateDirectory(_dir);
@@ -145,7 +145,6 @@ public class SettingsFileShapeTests : IDisposable
         Assert.Equal(NotificationSound.Silent, loaded.NotificationSound);
         Assert.True(loaded.ChargeCompleteNoticeEnabled,    nameof(loaded.ChargeCompleteNoticeEnabled));
         Assert.True(loaded.ChargingStartedNoticeEnabled,   nameof(loaded.ChargingStartedNoticeEnabled));
-        Assert.True(loaded.SleptWhileHotWarningEnabled,    nameof(loaded.SleptWhileHotWarningEnabled));
         Assert.True(loaded.SettingsNotSavedWarningEnabled, nameof(loaded.SettingsNotSavedWarningEnabled));
         Assert.True(loaded.ScriptFailedWarningEnabled,     nameof(loaded.ScriptFailedWarningEnabled));
     }

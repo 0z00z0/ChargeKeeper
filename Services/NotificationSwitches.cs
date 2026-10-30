@@ -11,7 +11,6 @@ internal static class NotificationSwitches
         NotificationKind.DrainAnomaly     => settings.DrainAnomalyWarningEnabled,
         NotificationKind.ChargeComplete   => settings.ChargeCompleteNoticeEnabled,
         NotificationKind.ChargingStarted  => settings.ChargingStartedNoticeEnabled,
-        NotificationKind.SleptWhileHot    => settings.SleptWhileHotWarningEnabled,
         NotificationKind.SettingsNotSaved => settings.SettingsNotSavedWarningEnabled,
         NotificationKind.ScriptFailed     => settings.ScriptFailedWarningEnabled,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "a notification with no switch"),
@@ -26,7 +25,6 @@ internal static class NotificationSwitches
             case NotificationKind.DrainAnomaly:     settings.DrainAnomalyWarningEnabled     = on; break;
             case NotificationKind.ChargeComplete:   settings.ChargeCompleteNoticeEnabled    = on; break;
             case NotificationKind.ChargingStarted:  settings.ChargingStartedNoticeEnabled   = on; break;
-            case NotificationKind.SleptWhileHot:    settings.SleptWhileHotWarningEnabled    = on; break;
             case NotificationKind.SettingsNotSaved: settings.SettingsNotSavedWarningEnabled = on; break;
             case NotificationKind.ScriptFailed:     settings.ScriptFailedWarningEnabled     = on; break;
             default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "a notification with no switch");

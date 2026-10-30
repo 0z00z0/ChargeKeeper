@@ -473,11 +473,6 @@
                         <ToggleSwitch x:Name="ChargingStartedToggle" Tag="ChargingStarted" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Slept early to cool down"
-                                            Description="Notify at the next wake when the computer slept early because it got too hot with the lid shut.">
-                        <ToggleSwitch x:Name="SleptWhileHotToggle" Tag="SleptWhileHot" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
-                    </controls:SettingsCard>
-
                     <controls:SettingsCard Header="Settings not saved"
                                             Description="Notify when the settings file cannot be written, so a change would be gone at the next start.">
                         <ToggleSwitch x:Name="SettingsNotSavedToggle" Tag="SettingsNotSaved" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>

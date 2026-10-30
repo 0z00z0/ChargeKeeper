@@ -734,16 +734,16 @@ public partial class App : Application
             : null;
 
     /// <summary>
-    /// Says, once, that a lid-close wait ended early because the machine got hot. Left until a wake
-    /// because nobody sees a notification inside a closed bag, and cleared as it is reported so it
-    /// is not repeated at every later resume.
+    /// Logs, once, that a lid-close wait ended early because the machine got hot. Written at the
+    /// next wake or start, and cleared as it is reported so it is not repeated at every later
+    /// resume. No notification: by then the event is over.
     /// </summary>
     private static void ReportAnEarlySleepIfOneIsOwed()
     {
         try
         {
             var s = SettingsService.Current;
-            if (s.LidThermalSleptAtCelsius is not { } celsius || s.LidThermalSleptAtUtc is not { } at)
+            if (s.LidThermalSleptAtCelsius is not { } celsius || s.LidThermalSleptAtUtc is null)
                 return;
 
             SettingsService.Update(x =>
@@ -754,7 +754,6 @@ public partial class App : Application
 
             PowerLog.Event($"The computer slept early at {celsius:0.#} °C",
                            "reporting the lid-close temperature ceiling at the first wake after it acted");
-            ToastService.NotifySleptWhileHot(celsius, at);
         }
         catch (Exception ex)
         {

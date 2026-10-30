@@ -98,19 +98,6 @@ internal static class ToastService
     }
 
     /// <summary>
-    /// Said at the next wake rather than when it happened: nobody sees a notification inside a
-    /// closed bag. The wording states the fact and the reading, so the event is not mistaken for a
-    /// crash, a flat battery or a lid-close wait that failed.
-    /// </summary>
-    public static void NotifySleptWhileHot(double celsius, DateTimeOffset atUtc)
-    {
-        string when = atUtc.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
-        TryShow(NotificationKind.SleptWhileHot, null,
-                $"a reading of {celsius:0.#} °C with the lid shut at {when}", "Slept early to cool down",
-                $"Reached {celsius:0.#} °C with the lid shut at {when}, so the lid-close wait ended and the computer slept.");
-    }
-
-    /// <summary>
     /// Said as it happens, because the setting on screen and the setting on disk have parted and
     /// nothing else shows it: the page keeps the new value, the next start comes back with the old
     /// one. The store returns a refused write rather than raising it, so without this the change
