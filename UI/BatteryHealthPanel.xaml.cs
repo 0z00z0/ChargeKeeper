@@ -43,8 +43,8 @@ public sealed partial class BatteryHealthPanel : UserControl
         if (samples.Count < 2)
         {
             SummaryText.Text = samples.Count == 0
-                ? "Gathering data — check back in a few days."
-                : "Gathering data — one more day of tracking will show a trend.";
+                ? "Gathering data. Check back in days."
+                : "Gathering data. A trend needs one more day.";
             return;
         }
 

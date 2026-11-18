@@ -71,7 +71,7 @@ internal static class ToastService
                 $"the battery ending its charge at {pct} % with the stop level at {stopPct} %",
                 "Battery charged", stopPct == 100
             ? "Fully charged"
-            : $"Smart Charge stopped at {stopPct}%  —  charged to limit");
+            : $"Stopped at limit, {stopPct}%");
 
     public static void NotifyChargingStarted(int pct) =>
         TryShow(NotificationKind.ChargingStarted, null, $"the battery starting to charge at {pct} %",
@@ -80,12 +80,12 @@ internal static class ToastService
     public static void NotifyLowBattery(int pct, int warnAtPct) =>
         TryShow(NotificationKind.LowBattery, pct,
                 $"the battery falling to {pct} %, past the {warnAtPct} % warning level",
-                "Low battery", $"Battery at {pct}% — connect AC power");
+                "Low battery", $"At {pct}%. Connect power.");
 
     public static void NotifyHighBattery(int pct, int warnAtPct) =>
         TryShow(NotificationKind.HighBattery, pct,
                 $"the battery rising to {pct} %, past the {warnAtPct} % warning level",
-                "High battery", $"Battery at {pct}% — above the {warnAtPct}% warning level");
+                "High battery", $"At {pct}%, above {warnAtPct}%.");
 
     /// <summary><paramref name="dropPercent"/> is always positive — the caller filters rises and flats.</summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
@@ -94,7 +94,7 @@ internal static class ToastService
         TryShow(NotificationKind.DrainAnomaly, null,
                 $"the battery losing {dropPercent} % over {SleepWatch.Duration(duration)} asleep",
                 "Unusual battery drain",
-                $"Lost {dropPercent}% over {span} while asleep — Modern Standby misbehaving?");
+                $"Lost {dropPercent}% in {span} asleep.");
     }
 
     /// <summary>
@@ -105,8 +105,7 @@ internal static class ToastService
     /// </summary>
     public static void NotifySettingsNotSaved() =>
         TryShow(NotificationKind.SettingsNotSaved, null, "the settings file refusing a write", "Settings not saved",
-                "The settings file could not be written, so the last change is not stored and will "
-              + "be gone at the next start. The application log says why.");
+                "File not writable. Last change is lost at restart.");
 
     /// <summary>
     /// Said the first time a script fails and not again until one of its runs succeeds. The latch is

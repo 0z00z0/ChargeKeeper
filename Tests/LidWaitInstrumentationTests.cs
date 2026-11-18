@@ -43,7 +43,7 @@ public class LidWaitInstrumentationTests
 
         Assert.NotNull(caveat);
         Assert.Contains("Modern Standby", caveat!, StringComparison.Ordinal);
-        Assert.Contains("sleep sooner than the delay says", caveat!, StringComparison.Ordinal);
+        Assert.Contains("sleep sooner than the delay", caveat!, StringComparison.Ordinal);
     }
 
     [Fact]

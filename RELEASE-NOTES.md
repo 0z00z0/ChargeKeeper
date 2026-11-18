@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.8
+
+- Every text in the interface is now a short fragment: Settings titles and descriptions, hover texts,
+  dashboard lines and notification texts state the effect in a few words.
+
 ## 2.16.7
 
 - No notification appears any more after a wake or a start to say the computer slept early to cool

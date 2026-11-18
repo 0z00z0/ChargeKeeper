@@ -412,14 +412,14 @@ public sealed partial class DashboardWindow : Window
         var (holds, at) = AwakeHoldWatch.Current;
 
         AwakeHoldsText.Text =
-            at is null    ? "Holding the machine awake: not read yet."
-            : holds is null ? "Holding the machine awake: could not be read."
+            at is null    ? "Awake holds: not read yet"
+            : holds is null ? "Awake holds: unreadable"
                             : DescribeHolds(holds, at.Value);
 
         // Read here rather than kept: a wake is rare, and the event log answers in milliseconds.
         LastWakeText.Text = WakeSourceReader.LastWake() is { } wake
-            ? $"Last wake: {WakeSourceReader.Describe(wake)}, {wake.At.ToLocalTime():yyyy-MM-dd HH:mm}."
-            : "Last wake: Windows has recorded nothing.";
+            ? $"Last wake: {WakeSourceReader.Describe(wake)}, {wake.At.ToLocalTime():yyyy-MM-dd HH:mm}"
+            : "Last wake: none recorded";
     }
 
     /// <summary>Collapsed, the section takes no space. Returns whether it is shown.</summary>
@@ -434,14 +434,14 @@ public sealed partial class DashboardWindow : Window
     {
         var awake = holds.Where(AwakeHoldPolicy.HoldsTheMachineAwake).ToList();
         string when = $" (read {at.ToLocalTime():HH:mm})";
-        if (awake.Count == 0) return $"Nothing is holding the machine awake{when}.";
+        if (awake.Count == 0) return $"Awake holds: none{when}";
 
         // This application's own holds are named as its own: it takes them for Keep Awake and for a
         // lid-close wait, and listing them as a stranger's is what would send somebody hunting.
         var named = awake.Select(h => h.IsThisApplication
                                           ? $"ChargeKeeper ({h.Category.ToLowerInvariant()})"
                                           : $"{h.ShortHolder} ({h.Category.ToLowerInvariant()})");
-        return $"Holding the machine awake{when}: {string.Join(", ", named)}.";
+        return $"Awake holds{when}: {string.Join(", ", named)}";
     }
 
     /// <summary>
@@ -677,8 +677,7 @@ public sealed partial class DashboardWindow : Window
             // than stopping the charge early — the note has to explain that, not just the number.
             ThresholdFixedNote.Text =
                 $"Capped at about {chargeState!.Stop} % of design capacity. Windows still shows "
-                + "100 % — this hardware lowers the reported full-charge capacity instead of "
-                + "stopping early. Fixed limit, not an adjustable range; changes apply after a restart.";
+                + "100 %. Fixed limit; applies after a restart.";
             ThresholdFixedNote.Visibility = Visibility.Visible;
         }
         else
@@ -717,7 +716,7 @@ public sealed partial class DashboardWindow : Window
         {
             SetFeatureBadge(SmartStandbyBadge, SmartStandbyToggle, standbyOn);
             SmartStandbyDetailText.Text = standbyOn
-                ? "Active — scheduling idle sleep"
+                ? "On — deeper sleep when idle"
                 : "Off — always Modern Standby";
         }
 
@@ -1244,11 +1243,11 @@ public sealed partial class DashboardWindow : Window
 
         BuildLidChips(LidDelayPresetPanel, ref _lidDelayChips, delays,
                       LidDashboardPolicy.ShortLabel,
-                      m => $"Sleep {LidDashboardPolicy.ShortLabel(m)} after the lid closes",
+                      m => $"Sleep {LidDashboardPolicy.ShortLabel(m)} after lid close",
                       OnLidDelayChipChecked, OnLidDelayChipUnchecked);
         BuildLidChips(LidLevelPresetPanel, ref _lidLevelChips, levels,
                       LidDashboardPolicy.LevelLabel,
-                      p => $"Sleep once the battery is down to {LidDashboardPolicy.LevelLabel(p)}",
+                      p => $"Sleep at {LidDashboardPolicy.LevelLabel(p)} battery",
                       OnLidLevelChipChecked, OnLidLevelChipUnchecked);
 
         LayoutLidPresetGroups(delays.Count, levels.Count);

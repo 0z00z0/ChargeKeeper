@@ -88,7 +88,7 @@ internal static class ScriptMessages
     /// <summary>Why the failure notification says what it says. One line, because a notification
     /// carries a title and a body and nothing to click.</summary>
     public static string FailureNotice(string script, string reason) =>
-        $"{script} — {reason}. The application log says what it printed.";
+        $"{script}: {reason}";
 
     /// <summary>A span as a sentence reads it: seconds under a minute, minutes above.</summary>
     private static string Span(TimeSpan took) =>

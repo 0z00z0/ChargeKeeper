@@ -83,9 +83,9 @@ internal static class LidDashboardPolicy
     public static string Describe(bool enabled, bool timeEnabled, int minutes,
                                   bool dischargeEnabled, int targetPercent, bool lockOnClose)
     {
-        if (!enabled) return "Off — the Windows lid setting applies";
+        if (!enabled) return "Off — Windows lid setting applies";
 
-        string time  = $"Sleeps {ShortLabel(Clamp(minutes))} after the lid closes";
+        string time  = $"Sleeps {ShortLabel(Clamp(minutes))} after lid close";
         string level = $"at {LevelLabel(targetPercent)} battery";
         string lead  = lockOnClose ? "On" : "On, unlocked";
 
@@ -94,7 +94,7 @@ internal static class LidDashboardPolicy
             (true,  true ) => $"{lead}\n{time}\nor {level}\nwhichever comes first",
             (true,  false) => $"{lead}\n{time}",
             (false, true ) => $"{lead}\nSleeps {level}",
-            (false, false) => $"{lead}\nSleeps as soon as the lid closes",
+            (false, false) => $"{lead}\nSleeps at lid close",
         };
     }
 

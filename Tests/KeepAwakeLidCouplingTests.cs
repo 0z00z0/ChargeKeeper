@@ -29,11 +29,11 @@ public class KeepAwakeLidCouplingTests
 
     [Fact]
     public void KeepAwakePage_StatesWhatASessionDoesToALidClose() =>
-        Assert.Contains("holds off any lid-close sleep",
+        Assert.Contains("Defers lid-close sleep",
                         Page("KeepAwakePanel", "LidClosePanel"), StringComparison.Ordinal);
 
     [Fact]
     public void LidDelayPage_StatesThatAKeepAwakeSessionHoldsOffTheSleep() =>
-        Assert.Contains("keep-awake session holds the sleep off",
+        Assert.Contains("Keep Awake session defers sleep",
                         Page("LidClosePanel", "ScreenPanel"), StringComparison.Ordinal);
 }

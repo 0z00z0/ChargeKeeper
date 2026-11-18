@@ -101,7 +101,7 @@ internal static class KeepAwakePolicy
     /// </summary>
     public static string? DescribeLidEffect(bool sessionRunning, bool lidDelayEnabled) =>
         sessionRunning && lidDelayEnabled
-            ? "A lid close will not sleep this computer while this session lasts."
+            ? "Session defers lid-close sleep."
             : null;
 
     /// <summary>
@@ -118,11 +118,11 @@ internal static class KeepAwakePolicy
     /// closes".</summary>
     public static string ChipTip(KeepAwakeRequest request) => request.Kind switch
     {
-        KeepAwakeKind.UntilNetworkChange                        => "Stay awake until the computer moves to another network",
-        KeepAwakeKind.UntilTime when request.Until is not null  => $"Stay awake until {SpanLabel(request)}",
+        KeepAwakeKind.UntilNetworkChange                        => "Awake until the network changes",
+        KeepAwakeKind.UntilTime when request.Until is not null  => $"Awake until {SpanLabel(request)}",
         KeepAwakeKind.Duration when request.Duration is { } d && d > TimeSpan.Zero
-                                                                => $"Stay awake for {SpanLabel(request)}",
-        _                                                       => "Stay awake until turned off",
+                                                                => $"Awake for {SpanLabel(request)}",
+        _                                                       => "Awake until turned off",
     };
 
     /// <summary>

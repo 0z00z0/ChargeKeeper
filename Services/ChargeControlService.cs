@@ -91,10 +91,10 @@ internal static class PresetActivations
     /// <summary>The one wording per refusal, so every surface names the same cause.</summary>
     public static string Describe(PresetActivation outcome) => outcome switch
     {
-        PresetActivation.NoneChosen    => "No preset was chosen.",
-        PresetActivation.Missing       => "This preset does not exist.",
-        PresetActivation.Invalid       => "This preset is not valid, so nothing was written.",
-        PresetActivation.DeviceRefused => "The device did not accept this preset's thresholds.",
+        PresetActivation.NoneChosen    => "No preset chosen.",
+        PresetActivation.Missing       => "Preset does not exist.",
+        PresetActivation.Invalid       => "Preset invalid. Nothing written.",
+        PresetActivation.DeviceRefused => "Device refused the thresholds.",
         _                              => "",
     };
 }

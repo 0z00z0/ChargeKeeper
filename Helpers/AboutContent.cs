@@ -26,7 +26,7 @@ internal static class AboutContent
     {
         AppName     = AppInfo.Name,
         Version     = AppInfo.Version,
-        Description = "Keeps your laptop battery healthy — charge limits, a live battery gauge and smart standby control from the system tray. Runs on ThinkPads today (requires the Lenovo Power Management Driver).",
+        Description = "Charge limits, a live battery gauge and standby control from the tray. ThinkPads need the Lenovo Power Management Driver.",
         RepoUrl     = "https://github.com/0z00z0/ChargeKeeper",
         Buttons     = showWhatsNew is null ? [] : [new AboutButton(WhatsNewLabel, showWhatsNew)],
         ExternalLibraries =

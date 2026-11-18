@@ -491,12 +491,11 @@ internal sealed partial class SettingsWindow : Window
         string cap = state is { Enabled: true, Stop: > 0 } ? $"about {state.Stop} %" : "a fixed level";
 
         FixedModeText.Text =
-            $"Fixed charge modes only ({cap} of design capacity when limited); presets and network "
-            + "profiles do not apply. Windows still shows 100 % while a limit is active. Changes "
-            + "take effect after a restart."
+            $"Fixed modes only; no presets or profiles. A limit holds {cap} of design capacity. "
+            + "Windows still shows 100 %. Applies after a restart."
             + (state.Capable
                 ? string.Empty
-                : " Locked by the BIOS on this computer: ChargeKeeper can show the mode, not change it.");
+                : " Locked by the BIOS; read-only.");
     }
 
     /// <summary>Populates the mode radios from the active vendor and selects what the firmware reports.</summary>
@@ -833,8 +832,8 @@ internal sealed partial class SettingsWindow : Window
         bool available = mode != TrayIconMode.Numeric;
         PercentageIconToggle.IsEnabled = available;
         PercentageIconCard.Description = available
-            ? "Adds a second tray icon showing the charge level as a number."
-            : "The Numeric % style already shows the charge level as a number.";
+            ? "Second tray icon with the number."
+            : "Numeric % already shows the number.";
     }
 
     private void OnGraphScaleChanged(object sender, SelectionChangedEventArgs e)
@@ -928,11 +927,11 @@ internal sealed partial class SettingsWindow : Window
         {
             RefreshAllSections();
             _menu.ReconcileFromExternalChange();  // resync the tray toggles + icon
-            NativeMessageBox.Information(IntPtr.Zero, AppName, "Settings reloaded from disk.");
+            NativeMessageBox.Information(IntPtr.Zero, AppName, "Settings reloaded.");
         }
         else
         {
-            NativeMessageBox.Warning(IntPtr.Zero, AppName, "Could not reload settings — the file is missing or invalid.");
+            NativeMessageBox.Warning(IntPtr.Zero, AppName, "Reload failed. File missing or invalid.");
         }
     }
 
@@ -1048,15 +1047,15 @@ internal sealed partial class SettingsWindow : Window
         _thresholdList = new PresetRows.Section
         {
             Panel     = PresetsListPanel,
-            EmptyText = "No presets yet. Add one below.",
+            EmptyText = "No presets.",
             Count     = () => SettingsService.Current.Presets.Count,
             BuildRow  = i => BuildPresetRow(SettingsService.Current.Presets[i]),
             // The thresholds the firmware is actually running, not the stored choice.
             ActiveTag = () => ActivePresetPolicy.Match(SettingsService.Current.Presets, _thresholdState)?.Id,
             // Hidden entirely where the vendor refuses threshold writes.
             OffersActivation = _ => _thresholdState is { Capable: true },
-            ActiveTip = "These thresholds are the ones in use.",
-            IdleTip   = "Applies these thresholds now.",
+            ActiveTip = "In use.",
+            IdleTip   = "Apply now.",
         };
 
         _networkProfileList   = NetworkProfileList(NetworkRulesListPanel, BuildSmartChargeNetworkRow);
@@ -1065,7 +1064,7 @@ internal sealed partial class SettingsWindow : Window
         _keepAwakePresetList = new PresetRows.Section
         {
             Panel     = KeepAwakePresetsListPanel,
-            EmptyText = "No presets yet. Add one below.",
+            EmptyText = "No presets.",
             Count     = () => SettingsService.Current.KeepAwakePresets.Count,
             BuildRow  = i => BuildKeepAwakePresetRow(i, SettingsService.Current.KeepAwakePresets[i]),
             // The preset the running session came from. Always offered: no hardware can refuse a
@@ -1073,35 +1072,35 @@ internal sealed partial class SettingsWindow : Window
             ActiveTag = () => ActiveKeepAwakePresetPolicy.MatchIndex(
                                   SettingsService.Current.KeepAwakePresets, KeepAwakeService.Current) is int i and >= 0
                               ? i : null,
-            ActiveTip = "A session from this preset is running.",
-            IdleTip   = "Starts a session from this preset now.",
+            ActiveTip = "Session running.",
+            IdleTip   = "Start session now.",
         };
 
         _lidDelayList = new PresetRows.Section
         {
             Panel     = LidDelayPresetsListPanel,
-            EmptyText = "No delays yet. Add one below.",
+            EmptyText = "No delays.",
             Count     = () => SettingsService.Current.LidDelayPresets.Count,
             BuildRow  = i => BuildLidDelayPresetRow(i, SettingsService.Current.LidDelayPresets[i]),
             ActiveTag = DelayPresetInUse,
             // Nothing can act on a delay while the lid-close wait itself is off.
             OffersActivation = _ => SettingsService.Current.LidDelayEnabled,
             FeatureOn = () => SettingsService.Current is { LidDelayEnabled: true, LidDelayTimeEnabled: true },
-            ActiveTip = "This is the delay the lid-close wait runs.",
-            IdleTip   = "Makes this the delay the lid-close wait runs.",
+            ActiveTip = "In use as the delay.",
+            IdleTip   = "Use as the delay.",
         };
 
         _lidDischargeList = new PresetRows.Section
         {
             Panel     = LidDischargeTargetsListPanel,
-            EmptyText = "No targets yet. Add one below.",
+            EmptyText = "No targets.",
             Count     = () => SettingsService.Current.LidDischargePresets.Count,
             BuildRow  = i => BuildLidDischargeTargetRow(i, SettingsService.Current.LidDischargePresets[i]),
             ActiveTag = DischargeTargetInUse,
             OffersActivation = _ => SettingsService.Current.LidDelayEnabled,
             FeatureOn = () => SettingsService.Current is { LidDelayEnabled: true, LidDischargeEnabled: true },
-            ActiveTip = "This is the level the lid-close wait drains to.",
-            IdleTip   = "Makes this the level the lid-close wait drains to.",
+            ActiveTip = "In use as the target.",
+            IdleTip   = "Use as the target.",
         };
     }
 
@@ -1117,8 +1116,8 @@ internal sealed partial class SettingsWindow : Window
         ActiveTag = () => _winningProfileRow >= 0 ? _winningProfileRow : null,
         OffersActivation = tag => _winningProfileRow >= 0 && Equals(tag, _winningProfileRow),
         FeatureOn = () => SettingsService.Current.NetworkProfilesEnabled,
-        ActiveTip = "This profile matches the network this computer is on, and is the one being applied.",
-        IdleTip   = "Switches network profiles on and applies this profile now.",
+        ActiveTip = "Matches the current network.",
+        IdleTip   = "Switch on profiles and apply now.",
     };
 
     private void RebuildPresetRows()
@@ -1304,7 +1303,7 @@ internal sealed partial class SettingsWindow : Window
             if (ActivePresetPolicy.Match(before, ChargeThresholdService.Read())?.Id != presetId) return;
             if (!ChargeControlService.SetExplicitThresholds(start, stop, ActionCause.SettingsPage("Smart Charge")))
                 RunOnUi(() => NativeMessageBox.Warning(
-                    IntPtr.Zero, AppName, "Saved, but the device did not accept these thresholds."));
+                    IntPtr.Zero, AppName, "Saved. Device refused the thresholds."));
         }
         catch (Exception ex) { AppLog.Error("SettingsWindow.PushThresholdsIfActive", ex); }
     });
@@ -1442,7 +1441,7 @@ internal sealed partial class SettingsWindow : Window
 
     /// <summary>One wording for both pages, so an empty list reads the same wherever it is met.</summary>
     private const string NoNetworkRulesText =
-        "No network profiles yet. “Add profile for this network…” below adds one for the network currently connected.";
+        "No network profiles.";
 
     /// <summary>One profile's row on the Smart Charge page, where its facet is the charge preset.</summary>
     private SettingsExpander BuildSmartChargeNetworkRow(int index)
@@ -1487,8 +1486,8 @@ internal sealed partial class SettingsWindow : Window
     /// the one state that reads as broken.</summary>
     private static string DescribeRuleKeepAwakeSummary(bool keepAwakeHere) =>
         !keepAwakeHere                                     ? "No keep-awake here"
-        : SettingsService.Current.NetworkProfilesEnabled    ? "Keeps this computer awake"
-                                                            : "Keeps this computer awake — nothing acts on it while network profiles are off";
+        : SettingsService.Current.NetworkProfilesEnabled    ? "Keeps awake"
+                                                            : "Keeps awake. Inactive while profiles are off.";
 
     /// <summary>Builds one network rule's editor row for either page: both carry the name, the match
     /// key and Delete, and differ only in <paramref name="pageCard"/> and the summary line, so a rule
@@ -1590,7 +1589,7 @@ internal sealed partial class SettingsWindow : Window
         var location = NetworkLocationService.DetectCurrent();
         if (location.IsEmpty)
         {
-            NativeMessageBox.Warning(IntPtr.Zero, AppName, "No network detected right now — connect to a network first.");
+            NativeMessageBox.Warning(IntPtr.Zero, AppName, "No network detected.");
             return null;
         }
 
@@ -1721,7 +1720,7 @@ internal sealed partial class SettingsWindow : Window
         var session = KeepAwakeService.Current;
         WithUpdatingSuppressed(() => KeepAwakeToggle.IsOn = session is not null);
         KeepAwakeRemainingText.Text = session is null
-            ? "Not holding this computer awake."
+            ? "Not active."
             : KeepAwakePolicy.DescribeRemaining(DateTimeOffset.Now, session);
         RefreshKeepAwakeAfterText(session is not null);
 
@@ -1807,8 +1806,8 @@ internal sealed partial class SettingsWindow : Window
         LidThermalToggle.IsEnabled       = on && hasReading;
         LidThermalCeilingCombo.IsEnabled = on && hasReading;
         LidThermalCard.Description = hasReading
-            ? "Ends the wait early and sleeps the computer, ahead of the delay and the battery target."
-            : "No temperature reading is available on this computer.";
+            ? "Ends the wait early."
+            : "No temperature reading.";
 
         // Read fresh rather than cached, like every other reading on this page — and shown whether
         // the feature is on or off, because it is what someone deciding whether to switch it on
@@ -1900,8 +1899,8 @@ internal sealed partial class SettingsWindow : Window
         var row = PresetRows.Build(
             DescribeDelayPreset(preset), DescribeDelaySubtitle(preset), index,
             [
-                new SettingsCard { Header = "Name",    Description = "Optional — the delay is shown when this is blank.", Content = nameBox },
-                new SettingsCard { Header = "Minutes", Description = "How long to stay awake with the lid closed.",       Content = minutesBox },
+                new SettingsCard { Header = "Name",    Description = "Optional.", Content = nameBox },
+                new SettingsCard { Header = "Minutes", Description = "Wait with the lid closed.",       Content = minutesBox },
             ],
             CriticalBrush());
 
@@ -1933,7 +1932,7 @@ internal sealed partial class SettingsWindow : Window
             if (!int.TryParse(typed, System.Globalization.NumberStyles.Integer,
                               System.Globalization.CultureInfo.CurrentCulture, out int parsed))
             {
-                ShowInlineError(row.Error, "Enter the delay as a whole number of minutes, like 30.");
+                ShowInlineError(row.Error, "Whole minutes, like 30.");
                 return;
             }
             // The same bounds a remote write is held to, rather than a second, looser set here.
@@ -2062,8 +2061,8 @@ internal sealed partial class SettingsWindow : Window
         var row = PresetRows.Build(
             DescribeDischargeTarget(target), DescribeDischargeSubtitle(target), index,
             [
-                new SettingsCard { Header = "Name",  Description = "Optional — the level is shown when this is blank.", Content = nameBox },
-                new SettingsCard { Header = "Level", Description = "The charge level to drain to, as a percentage.",     Content = percentBox },
+                new SettingsCard { Header = "Name",  Description = "Optional.", Content = nameBox },
+                new SettingsCard { Header = "Level", Description = "Target charge level.",     Content = percentBox },
             ],
             CriticalBrush());
 
@@ -2095,7 +2094,7 @@ internal sealed partial class SettingsWindow : Window
             if (!int.TryParse(typed, System.Globalization.NumberStyles.Integer,
                               System.Globalization.CultureInfo.CurrentCulture, out int parsed))
             {
-                ShowInlineError(row.Error, "Enter the level as a whole number, like 50.");
+                ShowInlineError(row.Error, "Whole number, like 50.");
                 return;
             }
             // The same bounds a remote write is held to, rather than a second, looser set here.
@@ -2242,7 +2241,7 @@ internal sealed partial class SettingsWindow : Window
         if (!KeepAwakeInputParser.TryParse(KeepAwakeCustomBox.Text, out var request))
         {
             ShowInlineError(KeepAwakeCustomErrorText,
-                "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+                "Duration (3h, 90m, 1h30) or time (17:00).");
             return;
         }
 
@@ -2294,8 +2293,8 @@ internal sealed partial class SettingsWindow : Window
         var row = PresetRows.Build(
             DescribePreset(preset), DescribePresetSubtitle(preset), index,
             [
-                new SettingsCard { Header = "Name",    Description = "Optional — the span is shown when this is blank.", Content = nameBox },
-                new SettingsCard { Header = "Expires", Description = "A duration (3h, 90m, 1h30) or a clock time (17:00).", Content = expiresBox },
+                new SettingsCard { Header = "Name",    Description = "Optional.", Content = nameBox },
+                new SettingsCard { Header = "Expires", Description = "3h, 90m, 1h30 or 17:00.", Content = expiresBox },
             ],
             CriticalBrush());
 
@@ -2327,7 +2326,7 @@ internal sealed partial class SettingsWindow : Window
         {
             if (!KeepAwakeInputParser.TryParse(expires, out var parsed))
             {
-                ShowInlineError(row.Error, "Enter a duration like 3h, 90m or 1h30, or a clock time like 17:00.");
+                ShowInlineError(row.Error, "Duration (3h, 90m, 1h30) or time (17:00).");
                 return;
             }
             span = parsed;
@@ -2461,14 +2460,12 @@ internal sealed partial class SettingsWindow : Window
             PublishSetChanged = mqtt.Republish,
             RecallEndpoint    = mqtt.RecallEndpoint,
             DefaultDeviceName = mqtt.DefaultDeviceName,
-            PublishTitle      = "Publish to the server",
-            PublishDescription = "Publishes battery and charge state to a remote control server.",
+            PublishTitle      = "Publish to server",
+            PublishDescription = "Battery and charge state to a remote control server.",
             PublishGroupsInfo =
-                "Each group covers the entities from the Settings page it is named after. Switching "
-                + "one off marks its entities unavailable; switching it back on restores them.",
+                "One group per Settings page. Off marks its entities unavailable.",
             DeviceIdConsequence =
-                "Every ChargeKeeper automation, dashboard card and history graph pointing at the old "
-                + "entities has to be repointed by hand.",
+                "Automations, cards and graphs using the old entities need repointing.",
             CommandLabel      = mqtt.Entities.NameOf,
             Log               = new AppLogSink(),
         };
@@ -2529,7 +2526,7 @@ internal sealed partial class SettingsWindow : Window
 
         if (scripts.Count == 0)
         {
-            ScriptsListPanel.Children.Add(PresetRows.EmptyListText("No scripts yet. Add one below."));
+            ScriptsListPanel.Children.Add(PresetRows.EmptyListText("No scripts."));
             return;
         }
 
@@ -2546,8 +2543,8 @@ internal sealed partial class SettingsWindow : Window
         if (!ScriptTriggerPolicy.NamesANetworkProfile(script.Trigger)) return when;
 
         if (ProfileOf(script) is { } profile)                     return $"{when} — {profile.Name}";
-        if (string.IsNullOrEmpty(script.NetworkProfileId))         return $"{when} — no network profile chosen, so it does not run";
-        return $"{when} — the network profile it was bound to has been deleted, so it does not run";
+        if (string.IsNullOrEmpty(script.NetworkProfileId))         return $"{when} — no profile chosen, does not run";
+        return $"{when} — profile deleted, does not run";
     }
 
     /// <summary>The profile a script is bound to, or null when it names none or names one that has
@@ -2582,7 +2579,7 @@ internal sealed partial class SettingsWindow : Window
             foreach (var profile in profiles) profileCombo.Items.Add(profile.Name);
             profileCombo.SelectedIndex = profiles.FindIndex(p => p.Id == script.NetworkProfileId);
             if (profileCombo.SelectedIndex < 0 && script.NetworkProfileId is { Length: > 0 })
-                profileCombo.PlaceholderText = "The profile this script was bound to has been deleted.";
+                profileCombo.PlaceholderText = "Profile deleted.";
         }
 
         // AcceptsReturn before Text: a TextBox that is still single-line when Text is assigned keeps
@@ -2604,7 +2601,7 @@ internal sealed partial class SettingsWindow : Window
 
         var headerText = new TextBlock { Text = script.DisplayName };
         var runNow     = new Button { Content = "Run now", MinWidth = 88 };
-        ToolTipService.SetToolTip(runNow, "Runs immediately, without waiting for its trigger.");
+        ToolTipService.SetToolTip(runNow, "Runs now, ignoring the trigger.");
 
         var error = new TextBlock
         {
@@ -2623,14 +2620,14 @@ internal sealed partial class SettingsWindow : Window
 
         var cards = new List<SettingsCard>
         {
-            new() { Header = "Name",     Description = "Optional — the event is shown when this is blank.", Content = nameBox },
+            new() { Header = "Name",     Description = "Optional.", Content = nameBox },
             new() { Header = "Runs when", Description = "One event and one direction.", Content = triggerCombo },
         };
         if (namesProfile)
             cards.Add(new SettingsCard
             {
                 Header      = "Network profile",
-                Description = "Runs when this profile's network is joined or left. Add profiles on the Smart Charge page.",
+                Description = "Joining or leaving the profile's network.",
                 Content     = profileCombo,
             });
 
@@ -2747,7 +2744,7 @@ internal sealed partial class SettingsWindow : Window
         var script = scripts[index];
         if (script.IsEmpty)
         {
-            ShowInlineError(error, "There is nothing in this script to run.");
+            ShowInlineError(error, "Script is empty.");
             return;
         }
 
@@ -2755,7 +2752,7 @@ internal sealed partial class SettingsWindow : Window
                                          ActionCause.SettingsPage("Run now button on the Scripts"),
                                          ScriptRunner.TimeLimit))
         {
-            ShowInlineError(error, "This script is already running. The application log says when it started.");
+            ShowInlineError(error, "Already running.");
             return;
         }
 
