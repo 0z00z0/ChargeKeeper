@@ -101,7 +101,7 @@ internal static class KeepAwakePolicy
     /// </summary>
     public static string? DescribeLidEffect(bool sessionRunning, bool lidDelayEnabled) =>
         sessionRunning && lidDelayEnabled
-            ? "Session defers lid-close sleep."
+            ? "This session defers any lid-close sleep."
             : null;
 
     /// <summary>
@@ -122,7 +122,7 @@ internal static class KeepAwakePolicy
         KeepAwakeKind.UntilTime when request.Until is not null  => $"Awake until {SpanLabel(request)}",
         KeepAwakeKind.Duration when request.Duration is { } d && d > TimeSpan.Zero
                                                                 => $"Awake for {SpanLabel(request)}",
-        _                                                       => "Awake until turned off",
+        _                                                       => "Awake until switched off",
     };
 
     /// <summary>

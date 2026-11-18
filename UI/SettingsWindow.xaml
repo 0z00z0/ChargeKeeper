@@ -125,7 +125,7 @@
                     <TextBlock Text="General" Style="{StaticResource SectionHeaderStyle}"/>
 
                     <controls:SettingsCard Header="Startup delay"
-                                            Description="Seconds after sign-in. 0 = no delay.">
+                                            Description="Seconds to wait after sign-in. 0 starts at once.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ComboBox x:Name="StartupDelayCombo" MinWidth="140"
                                       SelectionChanged="OnStartupDelayChanged"/>
@@ -135,7 +135,7 @@
                     <!-- The Tag on each item is the enum member name, which is what the settings
                          document stores; the Content is only a label. -->
                     <controls:SettingsCard Header="Check for updates"
-                                            Description="Check frequency">
+                                            Description="How often to look for a new version.">
                         <ComboBox x:Name="UpdateCadenceCombo" MinWidth="180"
                                   SelectionChanged="OnUpdateCadenceChanged">
                             <ComboBoxItem Content="Every hour"      Tag="EveryHour"/>
@@ -145,7 +145,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Install updates automatically"
-                                            Description="When locked or idle. Closes ChargeKeeper during Setup.">
+                                            Description="Installs once the computer is locked or idle. ChargeKeeper closes while Setup runs.">
                         <ToggleSwitch x:Name="AutomaticInstallToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnAutomaticInstallToggled"/>
                     </controls:SettingsCard>
@@ -157,7 +157,7 @@
                     <!-- Shown alone when no vendor answered: there is nothing to set and nothing to
                          read back. -->
                     <TextBlock x:Name="NoThresholdInterfaceText"
-                               Text="No supported charge limit."
+                               Text="This computer has no charge limit ChargeKeeper can set."
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"
@@ -193,10 +193,10 @@
                     <zz:SettingsSectionHeader Heading="Network profiles"/>
 
                     <controls:SettingsCard Header="Enable network profiles"
-                                            Description="Preset follows the network.">
+                                            Description="Applies a preset when the network changes.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="network profiles"
-                                            Info="Matches MAC address and subnet, not Wi-Fi name."/>
+                                            Info="Matches the adapter's MAC address and subnet, not the Wi-Fi name."/>
                             <ToggleSwitch x:Name="NetworkEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnNetworkEnabledToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -208,7 +208,7 @@
                             Click="OnAddNetworkRule" Margin="0,4,0,12"/>
 
                     <controls:SettingsCard Header="Unknown-network preset"
-                                            Description="Used when no profile matches.">
+                                            Description="Used when no network profile matches.">
                         <ComboBox x:Name="UnknownPresetCombo" MinWidth="200" SelectionChanged="OnUnknownPresetChanged"/>
                     </controls:SettingsCard>
                     </StackPanel>
@@ -220,8 +220,8 @@
                 <StackPanel x:Name="KeepAwakePanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Keep Awake" Style="{StaticResource SectionHeaderStyle}"/>
 
-                    <controls:SettingsCard Header="Session"
-                                            Description="Computer stays awake."
+                    <controls:SettingsCard Header="Keep the computer awake"
+                                            Description="Windows does not sleep while a session runs."
                                             ContentAlignment="Vertical"
                                             HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="8" Margin="0,4,0,4">
@@ -229,8 +229,8 @@
                                 <ToggleSwitch x:Name="KeepAwakeToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeToggled"/>
                                 <TextBlock x:Name="KeepAwakeRemainingText" VerticalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <zz:InfoIcon Subject="the session"
-                                                Info="Ends by itself. Lost on restart. Defers lid-close sleep."/>
+                                <zz:InfoIcon Subject="keeping the computer awake"
+                                                Info="Ends by itself and does not survive a restart. Defers any lid-close sleep until it ends."/>
                             </StackPanel>
 
                             <!-- What a session does beyond its own clock: its effect on the lid, and
@@ -256,17 +256,17 @@
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Keep display on"
-                                            Description="Display stays on and unlocked.">
+                    <controls:SettingsCard Header="Keep the screen on too"
+                                            Description="Screen stays on and unlocked.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="Keep display on"
-                                            Info="Off by default. Uses battery; dashboard badge turns amber."/>
+                            <zz:InfoIcon Subject="keeping the screen on"
+                                            Info="Off by default. Uses more battery, so the dashboard badge turns amber."/>
                             <ToggleSwitch x:Name="KeepAwakeDisplayToggle" OnContent="On" OffContent="Off" Toggled="OnKeepAwakeDisplayToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <zz:SettingsSectionHeader Heading="Presets" InfoSubject="keep-awake presets"
-                                                 Info="Expires: 3h, 90m, 1h30 or 17:00. Tray uses the first preset."/>
+                                                 Info="Expires takes a duration (3h, 90m, 1h30) or a time (17:00). The tray uses the first preset."/>
                     <StackPanel x:Name="KeepAwakePresetsListPanel" Spacing="4"/>
                     <Button x:Name="AddKeepAwakePresetBtn" Content="Add preset" Click="OnAddKeepAwakePreset" Margin="0,4,0,12"/>
 
@@ -275,13 +275,13 @@
                          which collapses entirely on fixed-mode hardware where keep-awake-per-network
                          still has to work. -->
                     <zz:SettingsSectionHeader Heading="Networks" InfoSubject="keep-awake networks"
-                                                 Info="Held from joining to leaving. Needs network profiles on."/>
+                                                 Info="Keeps the computer awake from joining a network until leaving it. Needs network profiles on."/>
 
                     <!-- The same setting the Smart Charge page carries. It is repeated here because
                          it decides whether these rules act at all, and that page's copy is out of
                          reach on fixed-mode hardware. -->
                     <controls:SettingsCard Header="Enable network profiles"
-                                            Description="Profiles need this on.">
+                                            Description="Network profiles act only while this is on.">
                         <ToggleSwitch x:Name="KeepAwakeNetworkEnabledToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnNetworkEnabledToggled"/>
                     </controls:SettingsCard>
@@ -299,16 +299,16 @@
                         <TextBlock Text="Lid delay" Style="{StaticResource SectionHeaderStyle}"
                                    Margin="0" VerticalAlignment="Center"/>
                         <zz:InfoIcon Subject="lid delay"
-                                        Info="Sets lid-close action to Do nothing and battery sleep to Never during a wait."/>
+                                        Info="Sets the Windows lid-close action to “Do nothing”, and battery sleep to Never during a wait."/>
                     </StackPanel>
 
                     <!-- No section heading above the master switch: it governs everything on the
                          page, and a heading over it would claim it belongs to one part. -->
-                    <controls:SettingsCard Header="Handle lid close"
-                                            Description="ChargeKeeper decides when to sleep. Keep Awake session defers sleep.">
+                    <controls:SettingsCard Header="Handle the lid closing"
+                                            Description="ChargeKeeper decides when to sleep, not Windows. A Keep Awake session defers the sleep.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="lid handling"
-                                            Info="First condition reached wins. None on: sleeps at once."/>
+                                            Info="Sleeps at the first condition below that is met, or at once if none is on."/>
                             <ToggleSwitch x:Name="LidDelayToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -324,11 +324,11 @@
                     <!-- The rows that hold whichever kind of wait is running, so they sit above both
                          preset groups rather than beside one of them. Disabled rather than hidden
                          while lid handling is off: with it off there is no lid close to act on. -->
-                    <controls:SettingsCard Header="Switch off after sleep"
-                                            Description="Lid handling ends after one sleep.">
+                    <controls:SettingsCard Header="Switch off after one sleep"
+                                            Description="Lid handling switches off after the next lid-close sleep.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="switching off after sleep"
-                                            Info="Counts only if sleep happens. Opening the lid keeps it on."/>
+                            <zz:InfoIcon Subject="switching off after one sleep"
+                                            Info="Counts only when the computer sleeps. Opening the lid first leaves lid handling on."/>
                             <ToggleSwitch x:Name="LidOffAfterSleepToggle" OnContent="On" OffContent="Off" Toggled="OnLidOffAfterSleepToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
@@ -336,20 +336,20 @@
                     <!-- On by default: handling the lid parks the Windows lid-close action on "do
                          nothing", which also removes the sign-in prompt a lid close normally leads
                          to. This puts it back. -->
-                    <controls:SettingsCard Header="Lock at lid close"
-                                            Description="Locks immediately.">
+                    <controls:SettingsCard Header="Lock when the lid closes"
+                                            Description="Locks the computer at once.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="locking at lid close"
-                                            Info="Restores the sign-in prompt at lid close."/>
+                            <zz:InfoIcon Subject="locking when the lid closes"
+                                            Info="Restores the sign-in prompt that lid handling removes."/>
                             <ToggleSwitch x:Name="LidLockToggle" OnContent="On" OffContent="Off" Toggled="OnLidLockToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <zz:SettingsSectionHeader Heading="Sleep after a time" InfoSubject="the sleep delay"
-                                                 Info="Sleeps after the delay. With a battery target, first reached wins."/>
+                                                 Info="Sleeps once the delay runs out. With a battery target too, the first one reached wins."/>
 
-                    <controls:SettingsCard Header="Sleep after delay"
-                                            Description="Sleeps when the delay below ends.">
+                    <controls:SettingsCard Header="Use the delay"
+                                            Description="Sleeps when the delay chosen below runs out.">
                         <ToggleSwitch x:Name="LidDelayTimeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDelayTimeToggled"/>
                     </controls:SettingsCard>
 
@@ -358,10 +358,10 @@
                             Click="OnAddLidDelayPreset" Margin="0,4,0,12"/>
 
                     <zz:SettingsSectionHeader Heading="Sleep at a battery level" InfoSubject="the battery target"
-                                                 Info="Charging pauses the countdown. With a delay, first reached wins."/>
+                                                 Info="Charging pauses the countdown. With a delay too, the first one reached wins."/>
 
-                    <controls:SettingsCard Header="Sleep at battery level"
-                                            Description="Sleeps at the target below.">
+                    <controls:SettingsCard Header="Use the battery target"
+                                            Description="Sleeps when the battery drains to the target chosen below.">
                         <ToggleSwitch x:Name="LidDischargeToggle" OnContent="On" OffContent="Off" Toggled="OnLidDischargeToggled"/>
                     </controls:SettingsCard>
 
@@ -370,11 +370,11 @@
                             Click="OnAddLidDischargeTarget" Margin="0,4,0,12"/>
 
                     <zz:SettingsSectionHeader Heading="Sleep if the computer gets hot" InfoSubject="the temperature ceiling"
-                                                 Info="Sleeps at once. Never shuts down."/>
+                                                 Info="Sleeps at once and never shuts down, so nothing open is lost."/>
 
                     <controls:SettingsCard x:Name="LidThermalCard"
-                                            Header="Sleep at temperature"
-                                            Description="Ends the wait early.">
+                                            Header="Use the temperature ceiling"
+                                            Description="Ends the wait early once the computer reaches this temperature.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <ComboBox x:Name="LidThermalCeilingCombo" MinWidth="110"
                                       SelectionChanged="OnLidThermalCeilingChanged"/>
@@ -392,15 +392,15 @@
                          reach nothing. -->
                     <controls:SettingsCard x:Name="ScreenUnsupportedCard"
                                             Header="Brightness"
-                                            Description="Not supported by this display. Use the monitor buttons."
+                                            Description="No screen here takes a brightness from Windows. Set a monitor with its own buttons."
                                             Visibility="Collapsed"/>
 
                     <controls:SettingsCard x:Name="ScreenBrightnessCard"
                                             Header="Brightness"
-                                            Description="Built-in screen only.">
+                                            Description="Dims the built-in screen without sleeping the computer.">
                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                             <zz:InfoIcon Subject="brightness"
-                                            Info="Restore returns the level before the first change."/>
+                                            Info="Built-in screen only. Restore puts back the level from before the first change."/>
                             <TextBlock x:Name="ScreenBrightnessValue" VerticalAlignment="Center" MinWidth="44"/>
                             <Slider x:Name="ScreenBrightnessSlider" Width="200" Minimum="0" Maximum="100"
                                     StepFrequency="1" ValueChanged="OnScreenBrightnessChanged"/>
@@ -409,7 +409,7 @@
 
                     <controls:SettingsCard x:Name="ScreenRestoreCard"
                                             Header="Restore brightness"
-                                            Description="Level before the first change.">
+                                            Description="Puts back the level from before the first change.">
                         <Button x:Name="ScreenRestoreBtn" Content="Restore" Click="OnScreenRestore"/>
                     </controls:SettingsCard>
                 </StackPanel>
@@ -420,7 +420,7 @@
                     <!-- One sound for every row below. The choices are filled in code from
                          NotificationSounds.Choices, which also holds their order. -->
                     <controls:SettingsCard Header="Sound"
-                                            Description="All notifications. Low battery falls, high rises.">
+                                            Description="Played with every notification. Low battery falls, High battery rises.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ComboBox x:Name="NotificationSoundCombo" MinWidth="160"
                                       SelectionChanged="OnNotificationSoundChanged"/>
@@ -434,7 +434,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Low battery warning"
-                                            Description="Level while discharging.">
+                                            Description="When the battery falls to this level.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <ComboBox x:Name="LowBattPctCombo" MinWidth="110"
                                       SelectionChanged="OnLowBattPctChanged"/>
@@ -443,10 +443,10 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="High battery warning"
-                                            Description="Level while charging.">
+                                            Description="When the battery rises to this level while charging.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <zz:InfoIcon Subject="the high battery warning"
-                                            Info="Once per rise. Rearms below the level."/>
+                                            Info="Shown once on the way up, then not again until the level drops below."/>
                             <ComboBox x:Name="HighBattPctCombo" MinWidth="110"
                                       SelectionChanged="OnHighBattPctChanged"/>
                             <ToggleSwitch x:Name="HighBattEnabledToggle" OnContent="On" OffContent="Off" Toggled="OnHighBattEnabledToggled"/>
@@ -454,7 +454,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Overnight-drain warning"
-                                            Description="Drain rate while off.">
+                                            Description="When the battery drains faster than this while the computer sleeps.">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <ComboBox x:Name="DrainPctPerHourCombo" MinWidth="110"
                                       SelectionChanged="OnDrainPctPerHourChanged"/>
@@ -464,22 +464,22 @@
 
                     <!-- Each Tag names the NotificationKind its switch governs. -->
                     <controls:SettingsCard Header="Battery charged"
-                                            Description="Charging stops at limit or full.">
+                                            Description="When charging stops at the charge limit or at full.">
                         <ToggleSwitch x:Name="ChargeCompleteToggle" Tag="ChargeComplete" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Charging"
-                                            Description="Charging starts.">
+                                            Description="When the battery starts charging.">
                         <ToggleSwitch x:Name="ChargingStartedToggle" Tag="ChargingStarted" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Settings not saved"
-                                            Description="Settings file not writable.">
+                                            Description="When the settings file cannot be written.">
                         <ToggleSwitch x:Name="SettingsNotSavedToggle" Tag="SettingsNotSaved" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Script failed"
-                                            Description="Once per failure streak.">
+                                            Description="When a script fails; again only after it has succeeded.">
                         <ToggleSwitch x:Name="ScriptFailedToggle" Tag="ScriptFailed" OnContent="On" OffContent="Off" Toggled="OnNotificationSwitchToggled"/>
                     </controls:SettingsCard>
                 </StackPanel>
@@ -490,14 +490,14 @@
                      markup. -->
                 <StackPanel x:Name="ScriptsPanel" Spacing="4" Visibility="Collapsed">
                     <TextBlock Text="Scripts" Style="{StaticResource SectionHeaderStyle}"/>
-                    <TextBlock Text="PowerShell on charger or lid events."
+                    <TextBlock Text="Runs a PowerShell script when the charger or the lid changes state."
                                FontSize="11"
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                     <!-- Not visible from the rows, so a program started from a script would be
                          running with rights nobody chose. -->
-                    <TextBlock Text="Runs as administrator, including programs started."
+                    <TextBlock Text="Scripts run as administrator, and so does anything they start."
                                FontSize="11"
                                TextWrapping="Wrap"
                                Margin="0,4,0,8"
@@ -507,7 +507,7 @@
                          same charger edge have to settle together, or the pair would run at
                          different moments and disagree about the state. -->
                     <controls:SettingsCard Header="Settling window"
-                                            Description="Ignores repeat events, then runs the final state.">
+                                            Description="Ignores repeated charger or lid events for this long, then runs for the settled state.">
                         <ComboBox x:Name="ScriptSettleCombo" MinWidth="140"
                                   SelectionChanged="OnScriptSettleChanged">
                             <ComboBoxItem Content="Off"        Tag="0"/>
@@ -541,7 +541,7 @@
                          because that is the published name of the convention and not the name of a
                          dependency. -->
                     <TextBlock Text="Remote control (MQTT)" Style="{StaticResource SectionHeaderStyle}"/>
-                    <TextBlock Text="Publishes battery, charge and settings as one device."
+                    <TextBlock Text="Publishes the battery, charging and settings to a remote control server as one device."
                                FontSize="11"
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -580,7 +580,7 @@
 
                     <controls:SettingsCard x:Name="DigitStyleCard"
                                             Header="Tray digits"
-                                            Description="Number style.">
+                                            Description="Digit style, or hours left instead of the level.">
                         <!-- Item order IS the TrayDigitStyle order, as the style combo above:
                              the load and save cast by position. Append, never insert. Labels match
                              TrayDigitStyleLabels, which the tray menu reads. -->
@@ -596,54 +596,54 @@
                         </ComboBox>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Main tray icons"
-                                            Description="Experimental. Kept out of the overflow.">
+                    <controls:SettingsCard Header="Icons in the main tray"
+                                            Description="Experimental. Keeps the tray icons out of the overflow.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleSwitch x:Name="PromoteIconsToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnPromoteIconsToggled"/>
-                            <zz:InfoIcon Subject="Main tray icons"
+                            <zz:InfoIcon Subject="icons in the main tray"
                                             Info="May do nothing on some Windows versions."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard x:Name="PercentageIconCard"
                                             Header="Percentage icon"
-                                            Description="Second tray icon with the number.">
+                                            Description="A second tray icon showing the battery level as a number.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleSwitch x:Name="PercentageIconToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnPercentageIconToggled"/>
-                            <zz:InfoIcon Subject="Percentage icon"
-                                            Info="Right-click for its digit style. Starts in the overflow."/>
+                            <zz:InfoIcon Subject="the percentage icon"
+                                            Info="Right-click it for its own digit style. A new tray icon starts in the overflow."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <zz:SettingsSectionHeader Heading="Dashboard"/>
 
-                    <controls:SettingsCard Header="Collapse off features"
-                                            Description="Name and switch only.">
+                    <controls:SettingsCard Header="Compact dashboard rows"
+                                            Description="A switched-off feature shows only its name and switch.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="Collapse off features"
-                                            Info="Off features show name, switch and an expander."/>
+                            <zz:InfoIcon Subject="compact dashboard rows"
+                                            Info="Only switched-off features collapse; an arrow expands them again."/>
                             <ToggleSwitch x:Name="OneLineUntilItMattersToggle" Toggled="OnOneLineUntilItMattersToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard x:Name="ShowGraphInDashboardCard"
-                                            Header="Dashboard graph"
-                                            Description="Off shows a button instead.">
+                                            Header="Graph in the dashboard"
+                                            Description="Off shows a button that opens the graph instead.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="Dashboard graph"
-                                            Info="Off hides range buttons, plot and legend. Button opens the graph window."/>
+                            <zz:InfoIcon Subject="the graph in the dashboard"
+                                            Info="Off hides the range buttons, plot and legend. The button opens the larger graph window."/>
                             <ToggleSwitch x:Name="ShowGraphInDashboardToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnShowGraphInDashboardToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
-                    <controls:SettingsCard Header="Dashboard power activity"
-                                            Description="Awake holds and last wake reason.">
+                    <controls:SettingsCard Header="Power activity in the dashboard"
+                                            Description="What keeps the computer awake, and why it last woke.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <zz:InfoIcon Subject="Dashboard power activity"
-                                            Info="Off removes the section and the five-minute reading."/>
+                            <zz:InfoIcon Subject="power activity in the dashboard"
+                                            Info="Off removes the section and stops the reading taken every five minutes."/>
                             <ToggleSwitch x:Name="ShowPowerActivityToggle" OnContent="On" OffContent="Off"
                                           Toggled="OnShowPowerActivityToggled"/>
                         </StackPanel>
@@ -652,7 +652,7 @@
                     <zz:SettingsSectionHeader Heading="Graph"/>
 
                     <controls:SettingsCard Header="History graph range"
-                                            Description="Default span.">
+                                            Description="Time span shown when the graph opens.">
                         <ComboBox x:Name="GraphScaleCombo" MinWidth="160" SelectionChanged="OnGraphScaleChanged">
                             <ComboBoxItem Content="15 minutes"/>
                             <ComboBoxItem Content="1 hour"/>
@@ -665,7 +665,7 @@
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="History graph line colour"
-                                            Description="Charge line colouring.">
+                                            Description="How the battery level line is coloured.">
                         <!-- Each item's Tag names its GraphLineColouring member and the load and save
                              parse it, so item order carries no meaning here and inserting one is safe.
                              The two combos above are coupled by position instead; leave them be. -->
@@ -677,18 +677,18 @@
                                 <ComboBoxItem Content="By level and state" Tag="ByLevelAndState"/>
                             </ComboBox>
                             <zz:InfoIcon Subject="colouring by level and state"
-                                            Info="By level: on-battery scale. By level and state: adds charging and mains."/>
+                                            Info="By level uses the on-battery scale. By level and state also marks charging and time on the charger."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="History graph shading"
-                                            Description="Fade under the charge line.">
+                                            Description="Draws a fade under the battery level line.">
                         <ToggleSwitch x:Name="GraphShadingToggle" OnContent="On" OffContent="Off"
                                       Toggled="OnGraphShadingToggled"/>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Downtime gap threshold"
-                                            Description="Shortest gap shown as a break. 0 = none.">
+                                            Description="Shortest gap in the samples drawn as a break; 0 draws none.">
                         <ComboBox x:Name="DowntimeGapCombo" MinWidth="140"
                                   SelectionChanged="OnDowntimeGapChanged"/>
                     </controls:SettingsCard>
@@ -703,16 +703,16 @@
                                             Description="Records ChargeKeeper's own resource use.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="Performance graph"
-                                            Info="Off: no cost. On: writes performance-history.csv."/>
+                                            Info="Off costs nothing. On samples ChargeKeeper and writes performance-history.csv."/>
                             <ToggleSwitch x:Name="PerformanceGraphToggle" Toggled="OnPerformanceGraphToggled"/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Sampling rate"
-                                            Description="Processor time. Others every second.">
+                                            Description="How often processor time is read. Everything else is read every second.">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <zz:InfoIcon Subject="Sampling rate"
-                                            Info="Single samples spike at 10, 5 or 2 Hz. Read the dashed mean."/>
+                                            Info="At 10, 5 or 2 Hz single samples spike above the real cost. Read the dashed mean."/>
                             <!-- Item order IS the PerformanceSampleRate order: the load and save cast
                                  between the enum and SelectedIndex by position. Append, never insert. -->
                             <ComboBox x:Name="PerformanceRateCombo" MinWidth="140"
@@ -728,7 +728,7 @@
                     <!-- Vertical, as the Keep Awake page's session card: beside a row of three buttons
                          the description is squeezed into a narrow column. -->
                     <controls:SettingsCard Header="Settings file"
-                                            Description="Stored in settings.json."
+                                            Description="All settings are kept in settings.json."
                                             ContentAlignment="Vertical"
                                             HorizontalContentAlignment="Stretch">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -736,12 +736,12 @@
                             <Button x:Name="OpenSettingsFileBtn" Content="Open settings file" Click="OnOpenSettingsFile"/>
                             <Button x:Name="ReloadSettingsBtn" Content="Reload settings from file" Click="OnReloadSettings"/>
                             <zz:InfoIcon Subject="the settings file"
-                                            Info="Reload picks up manual or synced edits."/>
+                                            Info="Reload reads the file again, picking up a manual or synced edit."/>
                         </StackPanel>
                     </controls:SettingsCard>
 
                     <controls:SettingsCard Header="Logs"
-                                            Description="Activity, power, lid and sleep events.">
+                                            Description="app.log holds activity, power, lid and sleep events.">
                         <DropDownButton x:Name="OpenLogButton" Content="Open log">
                             <DropDownButton.Flyout>
                                 <MenuFlyout Placement="Bottom">

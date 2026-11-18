@@ -58,7 +58,7 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
   beside whichever style the main icon uses, turned on from the Settings window's Appearance section
   or the **Show percentage icon** line in the tray menu. Off by default, and unavailable while the
   main style is already the number.
-- **Main tray icons (experimental)** — asks Windows to keep both tray icons on the taskbar
+- **Icons in the main tray (experimental)** — asks Windows to keep both tray icons on the taskbar
   rather than behind the overflow chevron. Off by default, reversible, and does nothing at all on a
   Windows that keeps the setting somewhere else.
 - **Settings window** — a proper titled window (tray icon → **Settings…**) with a General/Smart

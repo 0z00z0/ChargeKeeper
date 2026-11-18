@@ -27,7 +27,7 @@ internal static class SleepDelayPolicy
         string source = onBattery ? "On battery" : "On mains";
         return value == 0
             ? $"{source}: Windows never sleeps when idle."
-            : $"{source}: Windows sleeps after {Period(value)} idle. Other holds extend that.";
+            : $"{source}: Windows sleeps after {Period(value)} idle. Holds from other programs extend that.";
     }
 
     /// <summary>

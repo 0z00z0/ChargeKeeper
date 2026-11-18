@@ -16,7 +16,7 @@
     <controls:SettingsCard Header="Current network">
         <StackPanel Orientation="Horizontal" Spacing="8">
             <zz:InfoIcon Subject="the current network"
-                            Info="Matching profile, else the detected adapter and subnet."/>
+                            Info="The matching network profile, or else the adapter and subnet detected."/>
             <TextBlock x:Name="ValueText" Text="—" VerticalAlignment="Center"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </StackPanel>

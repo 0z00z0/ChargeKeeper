@@ -84,7 +84,7 @@
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Own processor time, left scale. Sampling rate follows the dot.">
+                            ToolTipService.ToolTip="ChargeKeeper's processor time, left scale. The dot names the sampling rate.">
                     <Border x:Name="LegendProcessorSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendProcessorText" Text="Processor" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -93,7 +93,7 @@
                      read another way, not a third quantity. -->
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Processor average over the span after the dot.">
+                            ToolTipService.ToolTip="Processor time averaged over the span named after the dot.">
                     <Line x:Name="LegendMeanSwatch" X1="0" Y1="0" X2="14" Y2="0"
                           StrokeThickness="2" VerticalAlignment="Center"/>
                     <TextBlock x:Name="LegendMeanText" Text="Processor mean" FontSize="12"
@@ -101,7 +101,7 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Own memory in megabytes, right scale.">
+                            ToolTipService.ToolTip="ChargeKeeper's memory in megabytes, right scale.">
                     <Border x:Name="LegendMemorySwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock x:Name="LegendMemoryText" Text="Memory" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -112,7 +112,7 @@
                  Two more lines on this plot would not read, so they are shown as figures. -->
             <TextBlock x:Name="CountsText"
                        Grid.Column="1"
-                       ToolTipService.ToolTip="Own handles and threads, latest reading."
+                       ToolTipService.ToolTip="ChargeKeeper's open handles and threads, latest reading."
                        Text=""
                        FontSize="12"
                        VerticalAlignment="Center"

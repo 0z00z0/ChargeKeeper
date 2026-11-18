@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.16.9
+
+- The short interface texts read as plain sentences again, with one word for each thing across every
+  page; several Settings titles are clearer, such as Keep the computer awake and Use the delay.
+
 ## 2.16.8
 
 - Every text in the interface is now a short fragment: Settings titles and descriptions, hover texts,

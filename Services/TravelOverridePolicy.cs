@@ -53,6 +53,6 @@ internal static class TravelOverridePolicy
     /// apart. Both readings stay inside the 110-character hover cap.</summary>
     public static string Describe(bool chargeStarted) =>
         chargeStarted
-            ? "Charging to 100 % once. Limit returns at full or unplugged."
-            : "Charge to 100 % once. Limit returns afterwards.";
+            ? "Charging to 100 % once. The limit returns when full or unplugged."
+            : "Charge to 100 % once. The limit returns after that charge.";
 }

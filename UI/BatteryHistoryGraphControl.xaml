@@ -152,19 +152,19 @@
                      explanation. The wording follows what App.SampleHistory records for each line. -->
                 <StackPanel x:Name="LegendLevelItem" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Charge level, left scale.">
+                            ToolTipService.ToolTip="Battery level, left scale.">
                     <Border x:Name="LegendSocSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock Text="Level" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
                 <StackPanel x:Name="LegendLimitItem" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Smart Charge stop level, left scale. No line when off.">
+                            ToolTipService.ToolTip="Charge limit, left scale. No line while Smart Charge is off.">
                     <Border x:Name="LegendLimitSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock Text="Limit" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
                 <StackPanel x:Name="LegendPowerItem" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
                             Background="Transparent"
-                            ToolTipService.ToolTip="Power in watts, right scale. Above zero is charging.">
+                            ToolTipService.ToolTip="Power into or out of the battery in watts, right scale. Above zero is charging.">
                     <Border x:Name="LegendPowerSwatch" Width="8" Height="8" CornerRadius="4"/>
                     <TextBlock Text="Power" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
@@ -184,7 +184,7 @@
                     Height="28"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
-                    ToolTipService.ToolTip="Open battery history"
+                    ToolTipService.ToolTip="Open the battery history graph"
                     Click="OnExpandGlyphClick"/>
         </Grid>
     </Grid>

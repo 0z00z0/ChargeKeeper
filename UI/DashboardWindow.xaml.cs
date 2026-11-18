@@ -413,7 +413,7 @@ public sealed partial class DashboardWindow : Window
 
         AwakeHoldsText.Text =
             at is null    ? "Awake holds: not read yet"
-            : holds is null ? "Awake holds: unreadable"
+            : holds is null ? "Awake holds: could not be read"
                             : DescribeHolds(holds, at.Value);
 
         // Read here rather than kept: a wake is rare, and the event log answers in milliseconds.
@@ -677,7 +677,7 @@ public sealed partial class DashboardWindow : Window
             // than stopping the charge early — the note has to explain that, not just the number.
             ThresholdFixedNote.Text =
                 $"Capped at about {chargeState!.Stop} % of design capacity. Windows still shows "
-                + "100 %. Fixed limit; applies after a restart.";
+                + "100 %. The limit is fixed; changes apply after a restart.";
             ThresholdFixedNote.Visibility = Visibility.Visible;
         }
         else
@@ -1243,7 +1243,7 @@ public sealed partial class DashboardWindow : Window
 
         BuildLidChips(LidDelayPresetPanel, ref _lidDelayChips, delays,
                       LidDashboardPolicy.ShortLabel,
-                      m => $"Sleep {LidDashboardPolicy.ShortLabel(m)} after lid close",
+                      m => $"Sleep {LidDashboardPolicy.ShortLabel(m)} after the lid closes",
                       OnLidDelayChipChecked, OnLidDelayChipUnchecked);
         BuildLidChips(LidLevelPresetPanel, ref _lidLevelChips, levels,
                       LidDashboardPolicy.LevelLabel,

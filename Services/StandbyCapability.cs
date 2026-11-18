@@ -48,6 +48,6 @@ internal readonly record struct StandbyCapability(bool ModernStandby, bool Suppo
     /// </remarks>
     public static string? LidWaitCaveat(StandbyCapability? capability) =>
         capability is { ModernStandby: true }
-            ? "Modern Standby can sleep sooner than the delay. The log shows the time awake."
+            ? "With Modern Standby, Windows can sleep sooner than the delay. The log shows how long each wait stayed awake."
             : null;
 }

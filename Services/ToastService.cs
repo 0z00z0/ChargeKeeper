@@ -71,7 +71,7 @@ internal static class ToastService
                 $"the battery ending its charge at {pct} % with the stop level at {stopPct} %",
                 "Battery charged", stopPct == 100
             ? "Fully charged"
-            : $"Stopped at limit, {stopPct}%");
+            : $"Charging stopped at the {stopPct}% limit.");
 
     public static void NotifyChargingStarted(int pct) =>
         TryShow(NotificationKind.ChargingStarted, null, $"the battery starting to charge at {pct} %",
@@ -80,12 +80,12 @@ internal static class ToastService
     public static void NotifyLowBattery(int pct, int warnAtPct) =>
         TryShow(NotificationKind.LowBattery, pct,
                 $"the battery falling to {pct} %, past the {warnAtPct} % warning level",
-                "Low battery", $"At {pct}%. Connect power.");
+                "Low battery", $"Battery at {pct}%. Connect the charger.");
 
     public static void NotifyHighBattery(int pct, int warnAtPct) =>
         TryShow(NotificationKind.HighBattery, pct,
                 $"the battery rising to {pct} %, past the {warnAtPct} % warning level",
-                "High battery", $"At {pct}%, above {warnAtPct}%.");
+                "High battery", $"Battery at {pct}%, above the {warnAtPct}% warning level.");
 
     /// <summary><paramref name="dropPercent"/> is always positive — the caller filters rises and flats.</summary>
     public static void NotifyDrainAnomaly(int dropPercent, TimeSpan duration)
@@ -94,7 +94,7 @@ internal static class ToastService
         TryShow(NotificationKind.DrainAnomaly, null,
                 $"the battery losing {dropPercent} % over {SleepWatch.Duration(duration)} asleep",
                 "Unusual battery drain",
-                $"Lost {dropPercent}% in {span} asleep.");
+                $"Lost {dropPercent}% in {span} while asleep.");
     }
 
     /// <summary>
@@ -105,7 +105,7 @@ internal static class ToastService
     /// </summary>
     public static void NotifySettingsNotSaved() =>
         TryShow(NotificationKind.SettingsNotSaved, null, "the settings file refusing a write", "Settings not saved",
-                "File not writable. Last change is lost at restart.");
+                "The settings file cannot be written. The last change is lost at the next start.");
 
     /// <summary>
     /// Said the first time a script fails and not again until one of its runs succeeds. The latch is

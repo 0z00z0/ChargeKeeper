@@ -55,9 +55,9 @@
                     Orientation="Horizontal"
                     Spacing="4">
             <Button x:Name="BatteryDisplayButton" Content="Battery" Tag="Battery" Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"
-                    ToolTipService.ToolTip="Level, limit and power"/>
+                    ToolTipService.ToolTip="Battery level, charge limit and power over time"/>
             <Button x:Name="SystemDisplayButton"  Content="System"  Tag="System"  Click="OnGraphDisplayButtonClick" Style="{StaticResource TimeScaleButtonStyle}"
-                    ToolTipService.ToolTip="ChargeKeeper's own processor and memory"/>
+                    ToolTipService.ToolTip="Processor time and memory ChargeKeeper itself uses"/>
         </StackPanel>
 
         <local:BatteryHistoryGraphControl x:Name="HistoryGraph" Grid.Row="2" ShowExpandButton="False"/>

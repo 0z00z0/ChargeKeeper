@@ -312,7 +312,7 @@ internal static class NetworkLocationService
         if (adapterMac is { } mac)  parts.Add($"MAC {mac}");
         if (subnetIgnored && adapterMac is not null) parts.Add(MobileSubnetNote);
         else if (ipCidr is { } cidr) parts.Add($"Subnet {cidr}");
-        return parts.Count > 0 ? string.Join(" · ", parts) : "No match key. Never applies.";
+        return parts.Count > 0 ? string.Join(" · ", parts) : "Nothing to match on, so this profile never applies.";
     }
 
     /// <summary>Reads the current location synchronously — the tray's "Add configuration for this
@@ -737,11 +737,11 @@ internal static class NetworkLocationService
 
     /// <summary>Wording for the <see cref="IsStaleKey"/> hint, shown under the rule's match key.</summary>
     internal const string StaleKeyHint =
-        "Same subnet, different MAC. Will not apply here.";
+        "Same subnet but a different MAC address, so this profile will not apply here.";
 
     /// <inheritdoc cref="IsVirtualAdapterMac"/>
     internal const string VirtualMacHint =
-        "Virtual adapter shared by networks. Save the location again.";
+        "Matched on a virtual adapter that several networks share. Save this location again.";
 
     /// <summary>The one hint that fits, or null when the stored key is sound. The virtual-adapter case
     /// is stated first: it explains a key that matches too much, which the subnet comparison cannot

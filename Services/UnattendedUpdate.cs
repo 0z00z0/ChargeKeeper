@@ -157,9 +157,9 @@ internal static class UnattendedUpdate
             ? $"\n\n{refusal}"
             : "";
 
-        return $"Update to v{targetVersion} did not complete. {AppInfo.Name} is still "
-             + $"v{runningVersion}.{reason}\n\nTry again from the menu. Installer log: "
-             + $"{installerLogPath}";
+        return $"The update to v{targetVersion} did not complete. {AppInfo.Name} is still "
+             + $"v{runningVersion}.{reason}\n\nTry again from the menu. The installer's log is at "
+             + $"{installerLogPath}.";
     }
 
     private static void Discard(string path)

@@ -54,7 +54,7 @@ internal sealed partial class WhatsNewWindow : Window
 
             if (notes.Count == 0)
             {
-                Content.Children.Add(Body("No release notes."));
+                Content.Children.Add(Body("No release notes in this build."));
                 return;
             }
 
@@ -72,7 +72,7 @@ internal sealed partial class WhatsNewWindow : Window
 
                 if (note.Lines.Count == 0)
                 {
-                    Content.Children.Add(Body("Nothing recorded."));
+                    Content.Children.Add(Body("Nothing recorded for this version."));
                     continue;
                 }
 
