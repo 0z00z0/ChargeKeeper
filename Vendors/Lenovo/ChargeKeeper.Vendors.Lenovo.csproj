@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <!-- LenovoSmartStandby service start/stop; same version the app pins. -->
+    <PackageReference Include="System.Diagnostics.EventLog" />
     <PackageReference Include="System.ServiceProcess.ServiceController" />
   </ItemGroup>
 
