@@ -197,7 +197,7 @@ ChargeKeeper itself is costing, plotted live.
 dotnet build -c Release
 ```
 
-Output: `bin\Release\net10.0-windows10.0.26100.0\win-x64\`
+Output: `bin\Release\net11.0-windows10.0.26100.0\win-x64\`
 
 ## Installing & updating
 
@@ -276,7 +276,7 @@ MSBuild target, which calls `scripts\sign.ps1`. To sign manually:
 Verify a signature:
 
 ```powershell
-Get-AuthenticodeSignature .\bin\Release\net10.0-windows10.0.26100.0\win-x64\ChargeKeeper.exe
+Get-AuthenticodeSignature .\bin\Release\net11.0-windows10.0.26100.0\win-x64\ChargeKeeper.exe
 ```
 
 **Notes**

@@ -81,8 +81,8 @@ if (-not (Test-Path (Join-Path $publishDir "ChargeKeeper.pri"))) {
 }
 
 # The markup names the brand typeface at this path only. Without the file the face falls back in
-# silence, and on a machine carrying Cascadia Mono it even looks right, so only the file can tell.
-foreach ($brandAsset in @("CascadiaMono.ttf", "LICENCE-OFL.txt")) {
+# silence, and on a machine carrying Cascadia Code it even looks right, so only the file can tell.
+foreach ($brandAsset in @("CascadiaCode.ttf", "LICENCE-OFL.txt")) {
     if (-not (Test-Path (Join-Path $publishDir "ZeroZero.Brand.WinUI\Assets\Fonts\$brandAsset"))) {
         # ASCII only: Windows PowerShell reads this file as the ANSI code page, where a dash ends a string.
         throw "$brandAsset missing from publish output at ZeroZero.Brand.WinUI\Assets\Fonts, so the brand typeface would not reach an installation."

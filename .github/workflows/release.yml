@@ -76,7 +76,7 @@ jobs:
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.x'
+          dotnet-version: '11.x'
 
       # ── 3b. Test gate ────────────────────────────────────────────────────────
       # Fail-closed like the unsigned guard in step 8b: a tag push publishes to
@@ -97,12 +97,12 @@ jobs:
       # bin\...\ChargeKeeper.dll without the bootstrap initializer, and the installer publish
       # further down this job could then ship an exe that cannot start on a machine lacking the
       # Windows App Runtime. Installing the runtime changes no build input at all.
-      - name: Install Windows App Runtime 2.4.0 (x64)
+      - name: Install Windows App Runtime 2.7.0 (x64)
         shell: pwsh
         timeout-minutes: 5
         run: |
-          $url    = 'https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe'
-          $sha256 = '851C35B0B0A59CE4C55F9171F601193322FC3413143B0DC3390EA11E14CFA7FC'
+          $url    = 'https://aka.ms/windowsappsdk/2.7/2.7.0/windowsappruntimeinstall-x64.exe'
+          $sha256 = 'ED1AC8AA9497473389A288017C7FC352C382BA8DF6C08F36DDB5815BFF283B2A'
           $exe    = Join-Path $env:RUNNER_TEMP 'WindowsAppRuntimeInstall-x64.exe'
 
           Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
@@ -125,13 +125,13 @@ jobs:
           Show-Runtime 'AFTER'
 
           # Asserts the bootstrapper's own requirement (framework family
-          # Microsoft.WindowsAppRuntime.2, >= 2.4.0.0, x64) rather than mere presence — the
+          # Microsoft.WindowsAppRuntime.2, >= 2.7.0.0, x64) rather than mere presence — the
           # runner image already carries a framework package of this family at 2.3.1.0, below
           # what the bootstrapper asks for, so presence proves nothing.
           $fw = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.2' |
-                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.4.0.0' }
+                Where-Object { $_.Architecture -eq 'X64' -and [version]$_.Version -ge [version]'2.7.0.0' }
           if (-not $fw) {
-            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.4.0.0 is registered after install.'
+            throw 'No x64 Microsoft.WindowsAppRuntime.2 framework package >= 2.7.0.0 is registered after install.'
           }
           Write-Host "OK  bootstrap requirement satisfied by $($fw[0].Name) $($fw[0].Version) x64"
 
@@ -583,7 +583,7 @@ jobs:
       # the manifests but does NOT publish a release.
       - name: Create GitHub Release
         if: ${{ github.ref_type == 'tag' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           name: ChargeKeeper v${{ steps.version.outputs.version }}

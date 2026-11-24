@@ -132,18 +132,18 @@
             <SolidColorBrush x:Key="BrandPurpleBrush" Color="#7b8cff"/>
             <SolidColorBrush x:Key="BrandIndigoBrush" Color="#3f5be0"/>
 
-            <!-- Cascadia Mono is the studio's UI face throughout, not only for code. The .ttf comes
+            <!-- Cascadia Code is the studio's UI face throughout, not only for code. The .ttf comes
                  from ZeroZero.Brand.WinUI's output, under a folder named for that assembly, so it is not
                  re-bundled and the path has to name the assembly. -->
-            <FontFamily x:Key="BrandFont">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+            <FontFamily x:Key="BrandFont">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaCode.ttf#Cascadia Code</FontFamily>
 
             <!-- Templated controls resolve these two theme resources rather than the implicit
                  TextBlock style, so both are needed for the font to reach every control. A literal
                  URI, because a FontFamily resource cannot take another resource as its value. -->
-            <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
-            <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaMono.ttf#Cascadia Mono</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaCode.ttf#Cascadia Code</FontFamily>
+            <FontFamily x:Key="ControlContentThemeFontFamily">ms-appx:///ZeroZero.Brand.WinUI/Assets/Fonts/CascadiaCode.ttf#Cascadia Code</FontFamily>
 
-            <!-- Cascadia Mono renders larger than WinUI's default sans at the same point size, so
+            <!-- Cascadia Code renders larger than WinUI's default sans at the same point size, so
                  the control-content size drops a notch to compensate. -->
             <x:Double x:Key="ControlContentThemeFontSize">12.5</x:Double>
 

@@ -139,15 +139,18 @@ internal static class LiveStateBuilder
     /// <summary>Milliwatts as watts to one decimal, the unit the power sensor declares. Null stays
     /// null, so an absent reading reaches the entity as one.</summary>
     internal static double? Watts(int? milliwatts) =>
-        milliwatts is { } mw ? OneDecimal(mw / 1000.0) : null;
+        milliwatts is { } mw ? OneDecimal(mw) : null;
 
     /// <summary>Milliwatt-hours as watt-hours to one decimal, for the two capacity sensors. A
     /// non-positive figure is no reading: firmware reports 0 when it has none.</summary>
     internal static double? WattHours(int? milliwattHours) =>
-        milliwattHours is > 0 and { } mwh ? OneDecimal(mwh / 1000.0) : null;
+        milliwattHours is > 0 and { } mwh ? OneDecimal(mwh) : null;
 
     // Away from zero, not to even. These three readings were rounded by the receiver's own template
     // filter before the app rounded them itself, and that filter rounds a half up — so the default
     // banker's rounding would move a published value by a tenth on the upgrade.
-    private static double OneDecimal(double value) => Math.Round(value, 1, MidpointRounding.AwayFromZero);
+    // Rounded in hundredths, where a half is exact: .NET 11 rounds 45.15 by its binary value,
+    // 45.1499…, so rounding the thousandths to one decimal would give 45.1.
+    private static double OneDecimal(int thousandths) =>
+        Math.Round(thousandths / 100.0, MidpointRounding.AwayFromZero) / 10;
 }

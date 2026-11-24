@@ -81,7 +81,7 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
 > machine, but it drives Lenovo's power-management RPC interface and a Windows service and comes
 > with **no warranty**. Read the code before running it elevated on your own hardware.
 
-![WinUI 3](https://img.shields.io/badge/UI-WinUI%203-blue) ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![License: MIT](https://img.shields.io/badge/License-MIT-green)
+![WinUI 3](https://img.shields.io/badge/UI-WinUI%203-blue) ![.NET 11](https://img.shields.io/badge/.NET-11-512BD4) ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
 ## Install
 
@@ -212,7 +212,7 @@ rest of the app (Smart Standby, auto-start, battery gauge) works fine without it
 
 ### Build prerequisites
 
-- .NET 10 SDK
+- .NET 11 SDK
 - A C++ toolset (Visual Studio / Build Tools with **"Desktop development with C++"**) to build the
   native Smart Charge bridge (`native/`) — only needed once
 - A token that can read the [0z0-shared](https://github.com/0z00z0/0z0-shared) packages on GitHub

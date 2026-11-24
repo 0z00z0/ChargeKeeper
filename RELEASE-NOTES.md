@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.17.0
+
+- The interface text is drawn in Cascadia Code instead of Cascadia Mono; the letters keep the same
+  width, and a few character pairs join into one symbol.
+- A package-only release otherwise: the application runs on .NET 11 and the Windows App SDK 2.7.0,
+  both carried in the install folder, and the shared studio components move to their latest releases.
+
 ## 2.16.9
 
 - The short interface texts read as plain sentences again, with one word for each thing across every

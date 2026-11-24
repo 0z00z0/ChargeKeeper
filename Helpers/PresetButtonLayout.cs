@@ -8,7 +8,7 @@ namespace ChargeKeeper.Helpers;
 internal static class PresetButtonLayout
 {
     /// <summary>
-    /// Narrowest button that still identifies a preset: nine Cascadia Mono glyphs at the buttons'
+    /// Narrowest button that still identifies a preset: nine Cascadia Code glyphs at the buttons'
     /// FontSize 11 (advance ~0.6 em, so ~60 px) plus their 6 px padding on each side. Every preset
     /// name in use is eight characters or fewer, so at this width only an unusually long one is
     /// trimmed — and the full label is on the tooltip either way.
