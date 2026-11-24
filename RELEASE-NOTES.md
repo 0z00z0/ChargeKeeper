@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.17.1
+
+- The installer's wizard images use the studio typeface Cascadia Code.
+
 ## 2.17.0
 
 - The interface text is drawn in Cascadia Code instead of Cascadia Mono; the letters keep the same

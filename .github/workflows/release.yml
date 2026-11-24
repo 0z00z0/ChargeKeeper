@@ -72,8 +72,8 @@ jobs:
           Write-Host "Version: $ver"
           "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      # ── 3. Set up .NET 10 ────────────────────────────────────────────────────
-      - name: Set up .NET 10
+      # ── 3. Set up .NET 11 ────────────────────────────────────────────────────
+      - name: Set up .NET 11
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.x'

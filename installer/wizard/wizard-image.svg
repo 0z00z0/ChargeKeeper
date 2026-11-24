@@ -9,7 +9,7 @@
   bracket gradients (teal->blue, purple->indigo) and amber ring/slash — after this change the
   mark is the only place the full studio gradient survives on the banner, which is exactly the
   intended "made by ZeroZero Software" framing. Below the studio block sits the ChargeKeeper
-  PRODUCT battery glyph (0z0 steel, flat) and the "ChargeKeeper" wordmark in Cascadia Mono.
+  PRODUCT battery glyph (0z0 steel, flat) and the "ChargeKeeper" wordmark in Cascadia Code.
 
   This SVG is the design reference. The shipped .bmp files are rendered from the SAME
   geometry natively (GDI+) by installer\make-wizard-images.ps1, because there is no SVG
@@ -51,8 +51,8 @@
   </g>
 
   <!-- Studio label + studio tagline, under the [Ø] mark. -->
-  <text x="82" y="90"  text-anchor="middle" font-family="Cascadia Mono, monospace" font-size="11" fill="#dde6f4">ZeroZero Software</text>
-  <text x="82" y="106" text-anchor="middle" font-family="Cascadia Mono, monospace" font-size="9"  fill="#64788f">Small tools. Zero bloat.</text>
+  <text x="82" y="90"  text-anchor="middle" font-family="Cascadia Code, monospace" font-size="11" fill="#dde6f4">ZeroZero Software</text>
+  <text x="82" y="106" text-anchor="middle" font-family="Cascadia Code, monospace" font-size="9" fill="#64788f">Small tools. Zero bloat.</text>
 
   <!-- Divider between the studio and product blocks. -->
   <line x1="40" y1="120" x2="124" y2="120" stroke="#1a2840" stroke-width="1"/>
@@ -65,6 +65,6 @@
     <line x1="161" y1="66" x2="161" y2="190" stroke="#C9926B" stroke-width="9"/>
   </g>
 
-  <!-- ChargeKeeper wordmark in Cascadia Mono (no tagline under it). -->
-  <text x="82" y="256" text-anchor="middle" font-family="Cascadia Mono, monospace" font-size="16" font-weight="700" fill="#dde6f4">ChargeKeeper</text>
+  <!-- ChargeKeeper wordmark in Cascadia Code (no tagline under it). -->
+  <text x="82" y="256" text-anchor="middle" font-family="Cascadia Code, monospace" font-size="16" font-weight="700" fill="#dde6f4">ChargeKeeper</text>
 </svg>

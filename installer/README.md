@@ -86,7 +86,7 @@ draws in Product on the dark banner and in Ink on the wizard-small header — De
 only the inner-page heading text (`installer\ChargeKeeper.iss`'s `InitializeWizard`), not a glyph.
 
 **Inner pages stay light.** The wizard runs `WizardStyle=modern` (light modern inner pages) with
-dense-steel headings. The brand typeface (Cascadia Mono) appears **only in the pre-rendered
+dense-steel headings. The brand typeface (Cascadia Code) appears **only in the pre-rendered
 bitmaps** — it is never set as the wizard dialog font, so the inner pages use the native system UI
 font and stay legible at every DPI.
 
