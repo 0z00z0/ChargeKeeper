@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.0
+
+- The dashboard's charge-to-100 % button has an arrow for a time by which the battery is to be full;
+  a 10-minute measurement sets when charging starts, and each full charge refines the estimate.
+
 ## 2.17.1
 
 - The installer's wizard images use the studio typeface Cascadia Code.

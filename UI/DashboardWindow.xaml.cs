@@ -615,8 +615,9 @@ public sealed partial class DashboardWindow : Window
             SmartChargeToggle.IsEnabled = chargeState.Capable;
             // A lift in force is said here rather than left as a bare "Off": the cap really is off
             // at the firmware, and without this the one charge it was asked for reads as permanent.
-            SmartChargeDetailText.Text = TravelOverrideService.IsActive && chargeState.Capable
-                ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
+            var timed = TravelOverrideService.Schedule;
+            SmartChargeDetailText.Text = (TravelOverrideService.IsActive || timed is not null) && chargeState.Capable
+                ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted, timed)
                 : (chargeState.Capable, chargeState.Enabled) switch
             {
                 // Read-only BIOS setting: readable, but every write is refused.
@@ -1522,15 +1523,43 @@ public sealed partial class DashboardWindow : Window
         });
     }
 
-    private void OnTravelOverrideButton(object sender, RoutedEventArgs e)
+    private void OnTravelOverrideButton(SplitButton sender, SplitButtonClickEventArgs e)
     {
-        if (TravelOverrideService.IsActive)
+        if (TravelOverrideService.IsActive || TravelOverrideService.HasSchedule)
             TravelOverrideService.Cancel(ActionCause.Dashboard("charge-to-full button"));
         else
             TravelOverrideService.Activate(ActionCause.Dashboard("charge-to-full button"));
 
         // Re-read so the button label, badge, and sliders reflect the new state immediately.
         Refresh();
+    }
+
+    private void OnChargeByTimeFlyoutOpened(object? sender, object e)
+    {
+        ChargeByTimeStatus.Visibility = Visibility.Collapsed;
+        ChargeByTimeBox.Focus(FocusState.Programmatic);
+    }
+
+    private void OnChargeByTimeKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter) return;
+        e.Handled = true;
+        OnChargeByTimeSet(sender, e);
+    }
+
+    private async void OnChargeByTimeSet(object sender, RoutedEventArgs e)
+    {
+        string? refusal = await ChargeByTimeService.Arm(ChargeByTimeBox.Text,
+                                                        ActionCause.Dashboard("charge-to-full time box"));
+        if (refusal is null)
+        {
+            ChargeByTimeFlyout.Hide();
+            ChargeByTimeBox.Text = "";
+            Refresh();
+            return;
+        }
+        ChargeByTimeStatus.Text = refusal;
+        ChargeByTimeStatus.Visibility = Visibility.Visible;
     }
 
     // Repainted rather than replaced: the arc colour is continuous, so a brush per reading would

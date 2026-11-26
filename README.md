@@ -34,6 +34,12 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
   charge, and a lift armed while unplugged waits for its charger. Smart Charge keeps its own
   thresholds throughout — lifting the cap disables it at the firmware, which is the only lever a
   mode-based vendor has, so the parked pair is what is shown and published meanwhile.
+- **Full by a chosen time** — the arrow on the same dashboard button takes a clock time (`07:30`).
+  The cap is lifted for 10 minutes to measure the charge rate with the charger in use, the limit
+  comes back, and the ordinary lift starts at the chosen time less the estimate and 15 minutes. A
+  time too close to reach starts charging at once and shows the level expected by then. Every
+  charge to 100 % teaches the taper from 80 % to full, kept in `charge-taper.json` in the data
+  folder. The machine is never woken: a start missed asleep runs at the next wake.
 - **Network-aware presets** — automatically apply a preset when the detected network location
   (adapter MAC + IP subnet — never Wi-Fi network name) changes, e.g. a different preset at the
   office dock vs. on the road. Configured under **Network profiles** in the Settings window's

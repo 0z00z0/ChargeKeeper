@@ -128,6 +128,11 @@ internal sealed class SettingsFile
         [JsonPropertyOrder(3)] public int?                  TravelOverrideRevertStart   { get; set; }
         [JsonPropertyOrder(4)] public int?                  TravelOverrideRevertStop    { get; set; }
         [JsonPropertyOrder(5)] public bool                  TravelOverrideChargeStarted { get; set; }
+        [JsonPropertyOrder(6)] public DateTimeOffset?       ChargeByTimeTarget          { get; set; }
+        [JsonPropertyOrder(7)] public bool                  ChargeByTimeTesting         { get; set; }
+        [JsonPropertyOrder(8)] public DateTimeOffset?       ChargeByTimeStartAt         { get; set; }
+        [JsonPropertyOrder(9)] public int?                  ChargeByTimeExpectedPct     { get; set; }
+        [JsonPropertyOrder(10)] public bool                 ChargeByTimeRateUnknown     { get; set; }
     }
 
     internal sealed class NetworkGroup
@@ -275,6 +280,11 @@ internal sealed class SettingsFile
             TravelOverrideRevertStart   = s.TravelOverrideRevertStart,
             TravelOverrideRevertStop    = s.TravelOverrideRevertStop,
             TravelOverrideChargeStarted = s.TravelOverrideChargeStarted,
+            ChargeByTimeTarget          = s.ChargeByTimeTarget,
+            ChargeByTimeTesting         = s.ChargeByTimeTesting,
+            ChargeByTimeStartAt         = s.ChargeByTimeStartAt,
+            ChargeByTimeExpectedPct     = s.ChargeByTimeExpectedPct,
+            ChargeByTimeRateUnknown     = s.ChargeByTimeRateUnknown,
         },
         Network = new NetworkGroup
         {
@@ -369,6 +379,11 @@ internal sealed class SettingsFile
         TravelOverrideRevertStart   = SmartCharge.TravelOverrideRevertStart,
         TravelOverrideRevertStop    = SmartCharge.TravelOverrideRevertStop,
         TravelOverrideChargeStarted = SmartCharge.TravelOverrideChargeStarted,
+        ChargeByTimeTarget          = SmartCharge.ChargeByTimeTarget,
+        ChargeByTimeTesting         = SmartCharge.ChargeByTimeTesting,
+        ChargeByTimeStartAt         = SmartCharge.ChargeByTimeStartAt,
+        ChargeByTimeExpectedPct     = SmartCharge.ChargeByTimeExpectedPct,
+        ChargeByTimeRateUnknown     = SmartCharge.ChargeByTimeRateUnknown,
 
         NetworkProfilesEnabled   = Network.NetworkProfilesEnabled,
         NetworkLocationRules     = Network.NetworkLocationRules,

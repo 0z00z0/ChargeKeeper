@@ -273,6 +273,8 @@ public partial class App : Application
         // The crash-recovery point for the display: puts back a brightness a previous run dimmed and
         // never restored, which Windows keeps across a restart.
         ScreenBrightnessService.Start();
+        // Resumes a timed charge from its record, a measurement a previous run left included.
+        ChargeByTimeService.Start();
         // Also the crash-recovery point: puts the user's own Windows lid-close action back if a
         // previous run died with it still overridden.
         LidDelayService.Start();
@@ -936,7 +938,8 @@ public partial class App : Application
 
                 // The service owns the "revert once charging completes" decision and dispatches any
                 // EC revert on its own background Task.
-                TravelOverrideService.OnBatteryReport(pct, report.Status);
+                TravelOverrideService.OnBatteryReport(pct, report.Status,
+                    report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
 
                 _lastThresholdState = thresholdState;                          // hoisted read above
                 _lastRemainingMwh   = report.RemainingCapacityInMilliwattHours;
@@ -1714,6 +1717,7 @@ public partial class App : Application
         AppLog.Info("User exit via tray menu.");
 
         Battery.AggregateBattery.ReportUpdated -= OnBatteryReportUpdated;
+        ChargeByTimeService.Stop();
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         // SystemEvents holds its handlers in a static list, so an app that forgets this one stays

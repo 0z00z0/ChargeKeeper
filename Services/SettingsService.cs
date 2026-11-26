@@ -140,6 +140,14 @@ internal sealed class AppSettings
     public int? TravelOverrideRevertStop    { get; set; }
     public bool TravelOverrideChargeStarted { get; set; }
 
+    /// <summary>A charge to be full by a chosen time; see <see cref="ChargeByTimeRecord"/>. An
+    /// absent target means none is set.</summary>
+    public DateTimeOffset? ChargeByTimeTarget      { get; set; }
+    public bool            ChargeByTimeTesting     { get; set; }
+    public DateTimeOffset? ChargeByTimeStartAt     { get; set; }
+    public int?            ChargeByTimeExpectedPct { get; set; }
+    public bool            ChargeByTimeRateUnknown { get; set; }
+
     public bool LowBatteryWarningEnabled { get; set; } = true;
     public int  LowBatteryWarningPct     { get; set; } = 15;
 

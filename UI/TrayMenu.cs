@@ -275,15 +275,16 @@ internal sealed class TrayMenu
         TrayIconMode IconMode,          // aligned with _iconModeItems
         TrayDigitStyle DigitStyle,      // aligned with _digitStyleItems
         bool ShowPercentageIcon,
-        string? TravelOverrideLine);    // null when no charge-to-full lift is in force
+        string? TravelOverrideLine);    // null when no charge-to-full lift or timed charge is in force
 
     private MenuState ReadState()
     {
         bool autoStart = SafeCall(TaskSchedulerHelper.IsAutoStartEnabled, fallback: false);
         var (mode, digits, showPercentage) =
             SettingsService.Read(s => (s.IconMode, s.PercentageDigitStyle, s.ShowPercentageIcon));
-        string? travelOverride = TravelOverrideService.IsActive
-            ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted)
+        var timed = TravelOverrideService.Schedule;
+        string? travelOverride = TravelOverrideService.IsActive || timed is not null
+            ? TravelOverridePolicy.Describe(TravelOverrideService.ChargeStarted, timed)
             : null;
         return new MenuState(autoStart, mode, digits, showPercentage, travelOverride);
     }

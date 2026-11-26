@@ -312,13 +312,38 @@
                     <!-- Visible whenever Smart Charge is capable, so an active override can also be
                          cancelled from here. The same chip chrome as the graph's range buttons and
                          the Lid delay/Keep Awake chips (#207), not a bespoke look of its own. -->
-                    <Button x:Name="TravelOverrideButton"
-                            Style="{StaticResource TimeScaleButtonStyle}"
-                            Content="🔝  Charge to 100 % once"
-                            HorizontalAlignment="Stretch"
-                            Margin="0,6,0,0"
-                            Visibility="Collapsed"
-                            Click="OnTravelOverrideButton"/>
+                    <!-- The arrow opens the time choice. Constrained to the window's own bounds so
+                         the flyout is part of this window and opening it is no deactivation. -->
+                    <SplitButton x:Name="TravelOverrideButton"
+                                 Style="{StaticResource ChipSplitButtonStyle}"
+                                 Content="🔝  Charge to 100 % once"
+                                 HorizontalAlignment="Stretch"
+                                 Margin="0,6,0,0"
+                                 Visibility="Collapsed"
+                                 Click="OnTravelOverrideButton">
+                        <SplitButton.Flyout>
+                            <Flyout x:Name="ChargeByTimeFlyout"
+                                    Placement="Bottom"
+                                    ShouldConstrainToRootBounds="True"
+                                    Opened="OnChargeByTimeFlyoutOpened">
+                                <StackPanel Spacing="6" Width="220">
+                                    <TextBlock Text="Full by" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBox x:Name="ChargeByTimeBox"
+                                                 PlaceholderText="07:30"
+                                                 Width="120"
+                                                 KeyDown="OnChargeByTimeKeyDown"/>
+                                        <Button Content="Set" Click="OnChargeByTimeSet"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="ChargeByTimeStatus"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Flyout>
+                        </SplitButton.Flyout>
+                    </SplitButton>
                 </StackPanel>
             </Border>
 

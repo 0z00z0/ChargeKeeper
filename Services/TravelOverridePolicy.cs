@@ -55,4 +55,8 @@ internal static class TravelOverridePolicy
         chargeStarted
             ? "Charging to 100 % once. The limit returns when full or unplugged."
             : "Charge to 100 % once. The limit returns after that charge.";
+
+    /// <summary>The same, with a timed charge's own wording taking precedence where one is set.</summary>
+    public static string Describe(bool chargeStarted, ChargeByTimeRecord? timed) =>
+        timed is not null ? ChargeByTimePolicy.Describe(timed) : Describe(chargeStarted);
 }

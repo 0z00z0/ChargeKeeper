@@ -200,6 +200,19 @@
                 <Setter Property="HorizontalContentAlignment" Value="Center"/>
             </Style>
 
+            <!-- The same chip for the split button, which derives from ContentControl and so takes
+                 nothing from the ButtonBase style above. Keep the two in step. -->
+            <Style x:Key="ChipSplitButtonStyle" TargetType="SplitButton">
+                <Setter Property="Padding" Value="0,4"/>
+                <Setter Property="MinWidth" Value="36"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            </Style>
+
             <!-- One heading treatment for both surfaces: colour, weight and tracking are shared and
                  only the size differs, so the dashboard popup and the Settings window carry the same
                  hierarchy at their own scales. Each heading sits about 1.2x its surface's body size.

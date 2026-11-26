@@ -27,6 +27,8 @@ public class ActionCauseTests
         ("Services/ChargeThresholdService.cs", "SetThresholds"),
         ("Services/TravelOverrideService.cs",  "Activate"),
         ("Services/TravelOverrideService.cs",  "Cancel"),
+        ("Services/TravelOverrideService.cs",  "Lift"),
+        ("Services/ChargeByTimeService.cs",    "Arm"),
         ("Services/TravelOverrideService.cs",  "ApplyExplicitThresholds"),
         ("Services/KeepAwakeService.cs",       "Activate"),
         ("Services/KeepAwakeService.cs",       "Deactivate"),

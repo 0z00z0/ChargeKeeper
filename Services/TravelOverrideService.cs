@@ -12,6 +12,11 @@ internal static class TravelOverrideService
 {
     public static bool IsActive => SettingsService.Current.TravelOverrideActive;
 
+    /// <summary>A charge to be full by a chosen time is set, in any of its phases.</summary>
+    public static bool HasSchedule => SettingsService.Current.ChargeByTimeTarget is not null;
+
+    public static ChargeByTimeRecord? Schedule => ChargeByTimeRecord.From(SettingsService.Current);
+
     /// <summary>False when Smart Charge was already off, so <see cref="Cancel"/> writes nothing.</summary>
     public static bool HasSavedRevertThresholds =>
         SettingsService.Current is { TravelOverrideRevertStart: not null, TravelOverrideRevertStop: not null };
@@ -36,7 +41,14 @@ internal static class TravelOverrideService
     public static event Action? StateChanged;
 
     public static string ActionLabel =>
-        IsActive ? "✕  Revert to charge threshold" : "🔝  Charge to 100 % once";
+        Schedule is { } timed ? $"✕  Cancel full by {ChargeByTimePolicy.Clock(timed.Target)}"
+        : IsActive            ? "✕  Revert to charge threshold"
+                              : "🔝  Charge to 100 % once";
+
+    internal static void NotifyChanged() => StateChanged?.Invoke();
+
+    // Follows each lift's charge to learn the taper from 80 % to full. Battery thread only.
+    private static readonly ChargeTaperRecorder _taper = new();
 
     // Fire-once latch (0 = armed, 1 = revert dispatched). ApplyRevert clears TravelOverrideActive
     // asynchronously, so IsActive lags a few battery ticks behind the dispatch and would otherwise
@@ -50,17 +62,26 @@ internal static class TravelOverrideService
     /// <summary>Saves the current thresholds, then disables Smart Charge so the battery reaches 100 %.
     /// Changes nothing while a lift is already in force: reading the device then would park the lifted
     /// state and lose the pair owed back.</summary>
-    public static void Activate(ActionCause cause)
+    public static void Activate(ActionCause cause) => Lift(cause, timed: null);
+
+    /// <summary>The lift itself. <paramref name="timed"/> stamps a timed charge in the same write as
+    /// the parked pair; without it a timed charge is dropped, because charging now supersedes it.</summary>
+    internal static void Lift(ActionCause cause, Action<AppSettings>? timed)
     {
         Task.Run(() =>
         {
             var state = ChargeThresholdService.Read();
 
             // Update() so a Reload() during this Task's async gap cannot orphan the mutation.
-            bool started = false;
+            bool started = false, converted = false;
             SettingsService.Update(s =>
             {
-                if (s.TravelOverrideActive) return;
+                if (s.TravelOverrideActive)
+                {
+                    converted = timed is null && s.ChargeByTimeTarget is not null;
+                    if (converted) ClearSchedule(s);
+                    return;
+                }
                 started = true;
 
                 // IsLimiting, not Start > 0: HP and Surface report Start as 0 by contract, and
@@ -78,8 +99,15 @@ internal static class TravelOverrideService
 
                 s.TravelOverrideActive        = true;
                 s.TravelOverrideChargeStarted = false;   // armed; the charger may not be in yet
+                if (timed is null) ClearSchedule(s); else timed(s);
             });
 
+            if (converted)
+            {
+                AppLog.Info("TravelOverride: the timed charge becomes a charge to 100 % now" + cause.Clause);
+                StateChanged?.Invoke();
+                return;
+            }
             if (!started)
             {
                 AppLog.Info("TravelOverride: the cap is already lifted, so the request changes nothing" + cause.Clause);
@@ -100,15 +128,48 @@ internal static class TravelOverrideService
         });
     }
 
-    public static void Cancel(ActionCause cause) => ApplyRevert(cause);
+    /// <summary>Ends a lift and any timed charge. One waiting for its start has the limit in force
+    /// already, so only the record goes.</summary>
+    public static void Cancel(ActionCause cause)
+    {
+        if (IsActive) { ApplyRevert(cause, keepSchedule: false); return; }
+        if (!HasSchedule) return;
+        SettingsService.Update(ClearSchedule);
+        AppLog.Info("TravelOverride: the timed charge is cancelled; the limit is already in force" + cause.Clause);
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Puts the parked pair back once, through the latch every ending shares.
+    /// <paramref name="keepSchedule"/> keeps a timed charge waiting for its start.</summary>
+    internal static void EndLift(ActionCause cause, bool keepSchedule)
+    {
+        if (Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0)
+            ApplyRevert(cause, keepSchedule);
+    }
+
+    internal static void DropSchedule(ActionCause cause)
+    {
+        SettingsService.Update(ClearSchedule);
+        AppLog.Info("TravelOverride: the timed charge is dropped" + cause.Clause);
+        StateChanged?.Invoke();
+    }
+
+    private static void ClearSchedule(AppSettings s)
+    {
+        s.ChargeByTimeTarget      = null;
+        s.ChargeByTimeTesting     = false;
+        s.ChargeByTimeStartAt     = null;
+        s.ChargeByTimeExpectedPct = null;
+        s.ChargeByTimeRateUnknown = false;
+    }
 
     /// <summary>Clears the override without touching the thresholds, for when an explicit new choice
     /// supersedes it. Restoring the saved pair (what <see cref="Cancel"/> does) would clobber the
     /// caller's own write; leaving it armed would let the auto-revert clobber it later.</summary>
     public static void Deactivate()
     {
-        if (!IsActive) return;
-        ClearOverrideState();
+        if (!IsActive && !HasSchedule) return;
+        ClearOverrideState(keepSchedule: false);
     }
 
     /// <summary>The single primitive every "apply a Start/Stop" caller funnels through.
@@ -129,24 +190,28 @@ internal static class TravelOverrideService
         var (wasActive, revertStart, revertStop, chargeStarted) =
             (s.TravelOverrideActive, s.TravelOverrideRevertStart, s.TravelOverrideRevertStop,
              s.TravelOverrideChargeStarted);
+        var timed = (s.ChargeByTimeTarget, s.ChargeByTimeTesting, s.ChargeByTimeStartAt,
+                     s.ChargeByTimeExpectedPct, s.ChargeByTimeRateUnknown);
 
         Deactivate();
 
         if (write()) return true;
 
-        if (wasActive)
+        if (wasActive || timed.ChargeByTimeTarget is not null)
             SettingsService.Update(x =>
             {
-                x.TravelOverrideActive        = true;
+                x.TravelOverrideActive        = wasActive;
                 x.TravelOverrideRevertStart   = revertStart;
                 x.TravelOverrideRevertStop    = revertStop;
                 x.TravelOverrideChargeStarted = chargeStarted;
+                (x.ChargeByTimeTarget, x.ChargeByTimeTesting, x.ChargeByTimeStartAt,
+                 x.ChargeByTimeExpectedPct, x.ChargeByTimeRateUnknown) = timed;
             });
         return false;
     }
 
     /// <summary>Shared by <see cref="Deactivate"/> (clear only) and <see cref="ApplyRevert"/> (restore, then clear).</summary>
-    private static void ClearOverrideState()
+    private static void ClearOverrideState(bool keepSchedule)
     {
         SettingsService.Update(s =>
         {
@@ -154,6 +219,7 @@ internal static class TravelOverrideService
             s.TravelOverrideRevertStart   = null;
             s.TravelOverrideRevertStop    = null;
             s.TravelOverrideChargeStarted = false;
+            if (!keepSchedule) ClearSchedule(s);
         });
 
         StateChanged?.Invoke();   // tray tooltip + menu resync immediately
@@ -162,17 +228,20 @@ internal static class TravelOverrideService
     /// <summary>Feeds one battery reading to <see cref="TravelOverridePolicy"/> and carries out what
     /// it decides. Every ending — the charge completing and the charger being removed — is read
     /// there, not here.</summary>
-    public static void OnBatteryReport(int pct, BatteryStatus status)
+    public static void OnBatteryReport(int pct, BatteryStatus status, int? remainingMwh, int? fullMwh)
     {
         if (!IsActive)
         {
             _lastStatus = status;
             Interlocked.Exchange(ref _revertDispatched, 0);   // re-arm for the next activation
+            _taper.Reset();
             return;
         }
 
         var last = _lastStatus;
         _lastStatus = status;
+        var reading = new ChargeReading(AwakeClock.Mark(), pct, status, remainingMwh, fullMwh);
+        _taper.Observe(reading);
 
         switch (TravelOverridePolicy.Decide(active: true, ChargeStarted, pct, status, last))
         {
@@ -185,14 +254,29 @@ internal static class TravelOverrideService
             // CAS the latch so only the first qualifying report dispatches the revert.
             case TravelOverrideStep.Revert when Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0:
                 // The policy decided the charge it was asked for is over; that reading is the cause.
-                ApplyRevert(BatteryStatsFormatter.IsOnAC(status)
+                bool completed = BatteryStatsFormatter.IsOnAC(status);
+                if (completed) Learn(reading);
+                ApplyRevert(completed
                     ? "the charge the cap was lifted for completing"
-                    : "the charger being removed after the charge had begun");
+                    : "the charger being removed after the charge had begun", keepSchedule: false);
                 break;
         }
     }
 
-    private static void ApplyRevert(ActionCause cause)
+    private static void Learn(ChargeReading full)
+    {
+        var (sample, why) = _taper.Finish(full);
+        if (sample is null)
+        {
+            AppLog.Info($"ChargeByTime: this charge to full taught nothing, {why}");
+            return;
+        }
+        var kept = ChargeTaperStore.Installed.Add(sample);
+        AppLog.Info($"ChargeByTime: learned a taper factor of {sample.Factor:0.000} over {sample.TaperMinutes} min " +
+                    $"from 80 % to full; estimates now use {ChargeTaperStore.Median(kept):0.000}, the median of {kept.Count}");
+    }
+
+    private static void ApplyRevert(ActionCause cause, bool keepSchedule)
     {
         // Read synchronously, before the async gap below. Only the write side needs Update().
         var s           = SettingsService.Current;
@@ -222,7 +306,7 @@ internal static class TravelOverrideService
                 }
                 // Nothing was saved, so Smart Charge stays disabled.
 
-                ClearOverrideState();
+                ClearOverrideState(keepSchedule);
             }
             catch (Exception ex)
             {

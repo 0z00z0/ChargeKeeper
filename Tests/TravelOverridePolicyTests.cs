@@ -81,14 +81,14 @@ public class TravelOverridePolicyTests
     {
         // The parked pair is the only record of the user's real thresholds. Written after the cap
         // came off, a crash in between would leave the cap off with nothing to put back.
-        string body    = SourceMethods.Body(ServiceSource(), "Activate");
+        string body    = SourceMethods.Body(ServiceSource(), "Lift");
         int    saved   = body.IndexOf("TravelOverrideRevertStart", StringComparison.Ordinal);
         int    written = body.IndexOf("SetEnabled", StringComparison.Ordinal);
 
-        Assert.True(saved   >= 0, "Activate no longer parks the thresholds.");
-        Assert.True(written >= 0, "Activate no longer lifts the cap on the device.");
+        Assert.True(saved   >= 0, "Lift no longer parks the thresholds.");
+        Assert.True(written >= 0, "Lift no longer lifts the cap on the device.");
         Assert.True(saved < written,
-            "Activate must park the thresholds before it lifts the cap on the device.");
+            "Lift must park the thresholds before it lifts the cap on the device.");
     }
 
     [Fact]

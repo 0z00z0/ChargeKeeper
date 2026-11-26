@@ -36,6 +36,13 @@ internal static class UnpublishedSettings
         nameof(AppSettings.TravelOverrideRevertStop),
         nameof(AppSettings.TravelOverrideChargeStarted),
 
+        // A charge to be full by a chosen time. Only the lift it leads to is published.
+        nameof(AppSettings.ChargeByTimeTarget),
+        nameof(AppSettings.ChargeByTimeTesting),
+        nameof(AppSettings.ChargeByTimeStartAt),
+        nameof(AppSettings.ChargeByTimeExpectedPct),
+        nameof(AppSettings.ChargeByTimeRateUnknown),
+
         // How one window draws its history graph. Deliberately absent from the MQTT surface.
         nameof(AppSettings.GraphTimeScale),
         nameof(AppSettings.GraphLineColouring),
