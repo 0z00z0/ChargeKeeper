@@ -38,6 +38,7 @@ public class ChargeControlServiceTests
         public bool HasSavedRevertThresholds => SavedRevertThresholds;
         public void CancelOverride(ActionCause cause) => CancelOverrideCalls++;
         public void SetEnabled(bool enable) => SetEnabledArg = enable;
+        public void SwitchOff(ActionCause cause) => SetEnabledArg = false;
         public bool ApplyExplicitThresholds(int start, int stop, ActionCause cause)
         {
             ApplyThresholdsArg = (start, stop);

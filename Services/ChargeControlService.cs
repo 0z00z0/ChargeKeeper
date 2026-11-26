@@ -15,16 +15,18 @@ internal static class ChargeControlService
 
     /// <summary>Re-enabling during a travel override goes through the override's cancel path, not a bare
     /// <c>SetEnabled(true)</c> — that would apply firmware's 0/0 defaults and leave the auto-revert armed
-    /// to clobber them. The cancel restores nothing when the override saved nothing, hence the fall-through.</summary>
+    /// to clobber them. The cancel restores nothing when the override saved nothing, hence the fall-through.
+    /// Switching off drops any lift or timed charge, so nothing puts a limit back later.</summary>
     public static void SetSmartChargeEnabled(bool enable, ActionCause cause)
     {
-        if (enable && Primitives.IsOverrideActive)
+        if (!enable) Primitives.SwitchOff(cause);
+        else if (Primitives.IsOverrideActive)
         {
             bool restoresThresholds = Primitives.HasSavedRevertThresholds;
             Primitives.CancelOverride(cause);
             if (!restoresThresholds) Primitives.SetEnabled(true);
         }
-        else Primitives.SetEnabled(enable);
+        else Primitives.SetEnabled(true);
 
         AppLog.Info($"ChargeControl: Smart Charge switched {(enable ? "on" : "off")}" + cause.Clause);
         StateChanged?.Invoke();
@@ -111,6 +113,9 @@ internal interface IChargeControlPrimitives
     void CancelOverride(ActionCause cause);
     void SetEnabled(bool enable);
 
+    /// <summary>Disables the limit and drops any override with nothing owed back.</summary>
+    void SwitchOff(ActionCause cause);
+
     /// <summary>Supersedes any override; returns the write's success flag.</summary>
     bool ApplyExplicitThresholds(int start, int stop, ActionCause cause);
 
@@ -126,6 +131,7 @@ internal sealed class LiveChargeControlPrimitives : IChargeControlPrimitives
     public bool HasSavedRevertThresholds => TravelOverrideService.HasSavedRevertThresholds;
     public void CancelOverride(ActionCause cause) => TravelOverrideService.Cancel(cause);
     public void SetEnabled(bool enable) => ChargeThresholdService.SetEnabled(enable);
+    public void SwitchOff(ActionCause cause) => TravelOverrideService.SwitchOff(cause);
     public bool ApplyExplicitThresholds(int start, int stop, ActionCause cause) =>
         TravelOverrideService.ApplyExplicitThresholds(start, stop, cause);
     public bool ApplyMode(string id) => TravelOverrideService.ApplyMode(id);

@@ -30,10 +30,12 @@ internal static class TravelOverridePolicy
     {
         if (!active) return TravelOverrideStep.Hold;
 
-        // Charging completed. The Charging→Idle edge catches a worn pack settling below 100 %; Idle
-        // at 100 % catches firmware that never reports a Charging phase. Each alone misses one case.
-        if ((lastStatus == BatteryStatus.Charging && status == BatteryStatus.Idle) ||
-            (status == BatteryStatus.Idle && pct >= 100))
+        // Full, whatever the status says: some firmware reports Charging at 100 % for a quarter of an
+        // hour or more, and others never report a Charging phase at all.
+        if (pct >= 100) return TravelOverrideStep.Revert;
+
+        // Charging completed below 100 %, as a worn pack settles.
+        if (lastStatus == BatteryStatus.Charging && status == BatteryStatus.Idle)
             return TravelOverrideStep.Revert;
 
         // The charger came out before the battery filled. Without this ending the lift outlives the

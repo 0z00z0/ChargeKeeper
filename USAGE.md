@@ -80,8 +80,9 @@ forever.
   starts a check and opens the update window  
 - **Charge to 100 % once** — travel override, started from the dashboard button or from Home
   Assistant. It parks the current thresholds, lifts the cap so the battery charges fully, and puts
-  the parked pair back as soon as that charge is over: at full, or the moment the charger is taken
-  out, whichever comes first. While it is in force the tray menu carries a line saying so and saying
+  the parked pair back as soon as that charge is over: when the battery reads 100 %, when charging
+  stops, or the moment the charger is taken out, whichever comes first. Switching Smart Charge off
+  meanwhile ends the lift with nothing put back. While it is in force the tray menu carries a line saying so and saying
   that the limit comes back, and the dashboard button reads **✕ Revert to charge threshold**. The
   whole record is on disk, so a restart or a crash resumes the same single charge; a lift armed
   while unplugged waits for its charger rather than ending at once. Smart Charge is never switched
@@ -94,7 +95,8 @@ forever.
   returns until the start: the chosen time less the estimate and 15 minutes. While it is measuring
   or waiting the tray menu and the dashboard say so, and the button reads **✕ Cancel full by …**,
   which cancels and leaves the limit in force. A threshold, preset, mode or network profile chosen
-  meanwhile cancels it, as it cancels a lift. Nothing wakes the machine: a start missed asleep runs
+  meanwhile cancels it, as it cancels a lift; switching Smart Charge off cancels it and leaves the
+  limit off. Nothing wakes the machine: a start missed asleep runs
   at the next wake  
 - **Settings…** — opens the Settings window  
 - **Icon style** — submenu: **Arc gauge**, **Numeric %** or **Battery fill**  

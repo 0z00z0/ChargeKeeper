@@ -182,6 +182,20 @@ internal static class TravelOverrideService
     /// <summary>The same for a firmware charge mode, on a vendor that offers modes.</summary>
     public static bool ApplyMode(string id) => Supersede(() => ChargeThresholdService.SetMode(id));
 
+    /// <summary>A person switching Smart Charge off, in any phase of a lift or a timed charge: the
+    /// record goes with nothing owed back, and charging continues. A refused write keeps it.</summary>
+    public static bool SwitchOff(ActionCause cause)
+    {
+        bool held = IsActive || HasSchedule;
+        bool ok   = Supersede(() => ChargeThresholdService.SetEnabled(false));
+        if (held)
+            AppLog.Info((ok
+                ? "TravelOverride: Smart Charge is off, so the lift and any timed charge are dropped and no limit returns"
+                : "TravelOverride: switching Smart Charge off was rejected by the device, so the lift and any timed charge are kept")
+                + cause.Clause);
+        return ok;
+    }
+
     private static bool Supersede(Func<bool> write)
     {
         // Snapshot before Deactivate clears it. The saved pair is the only record of the user's real
@@ -254,11 +268,12 @@ internal static class TravelOverrideService
             // CAS the latch so only the first qualifying report dispatches the revert.
             case TravelOverrideStep.Revert when Interlocked.CompareExchange(ref _revertDispatched, 1, 0) == 0:
                 // The policy decided the charge it was asked for is over; that reading is the cause.
-                bool completed = BatteryStatsFormatter.IsOnAC(status);
+                // Learned before the record is cleared; a reading of 100 % counts even unplugged.
+                bool full = pct >= 100, completed = full || BatteryStatsFormatter.IsOnAC(status);
                 if (completed) Learn(reading);
-                ApplyRevert(completed
-                    ? "the charge the cap was lifted for completing"
-                    : "the charger being removed after the charge had begun", keepSchedule: false);
+                ApplyRevert(full      ? "the battery level reading 100 %"
+                          : completed ? "the charge the cap was lifted for completing"
+                                      : "the charger being removed after the charge had begun", keepSchedule: false);
                 break;
         }
     }

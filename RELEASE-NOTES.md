@@ -9,6 +9,13 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.3
+
+- A charge to 100 % ends, and the limit returns, as soon as the battery reads 100 %, even where the
+  firmware still reports charging; such a charge also refines the full-by-time estimate.
+- Switching Smart Charge off during a charge to 100 % or a full-by-time charge leaves it off: the
+  limit no longer comes back afterwards.
+
 ## 2.18.2
 
 - While the cap is lifted for a charge to 100 %, the dashboard's Smart Charge switch reads on, and

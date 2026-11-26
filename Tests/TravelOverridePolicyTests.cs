@@ -55,10 +55,11 @@ public class TravelOverridePolicyTests
     }
 
     [Fact]
-    public void TheLiftEndsAtFullOnFirmwareThatNeverReportsAChargingPhase()
+    public void TheLiftEndsAtFullWhileTheFirmwareStillReportsCharging()
     {
+        // Measured on a Lenovo: Charging for a quarter of an hour at 100 %.
         Assert.Equal(TravelOverrideStep.Revert,
-            Decide(BatteryStatus.Idle, pct: 100, lastStatus: NoPreviousReading));
+            Decide(BatteryStatus.Charging, pct: 100, lastStatus: BatteryStatus.Charging));
     }
 
     // ---- Where the decision is carried out -------------------------------------------------
