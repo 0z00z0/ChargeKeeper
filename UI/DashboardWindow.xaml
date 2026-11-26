@@ -325,21 +325,72 @@
                             <Flyout x:Name="ChargeByTimeFlyout"
                                     Placement="Bottom"
                                     ShouldConstrainToRootBounds="True"
+                                    Opening="OnChargeByTimeFlyoutOpening"
                                     Opened="OnChargeByTimeFlyoutOpened">
-                                <StackPanel Spacing="6" Width="220">
-                                    <TextBlock Text="Full by" FontSize="12"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBox x:Name="ChargeByTimeBox"
-                                                 PlaceholderText="07:30"
-                                                 Width="120"
-                                                 KeyDown="OnChargeByTimeKeyDown"/>
-                                        <Button Content="Set" Click="OnChargeByTimeSet"/>
-                                    </StackPanel>
-                                    <TextBlock x:Name="ChargeByTimeStatus"
-                                               FontSize="11"
-                                               TextWrapping="Wrap"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               Visibility="Collapsed"/>
+                                <Flyout.FlyoutPresenterStyle>
+                                    <Style TargetType="FlyoutPresenter">
+                                        <Setter Property="Background" Value="{StaticResource CardBackgroundFillColorDefaultBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource CardStrokeColorDefaultBrush}"/>
+                                        <Setter Property="Padding" Value="12"/>
+                                    </Style>
+                                </Flyout.FlyoutPresenterStyle>
+                                <StackPanel Spacing="8" Width="200">
+                                    <TextBlock Text="Full by" Style="{StaticResource DashboardHeaderStyle}"/>
+                                    <!-- The editable text and the list rows resolve keys App.xaml leaves stock. -->
+                                    <ComboBox x:Name="ChargeByTimeBox"
+                                              IsEditable="True"
+                                              HorizontalAlignment="Stretch"
+                                              PreviewKeyDown="OnChargeByTimeKeyDown"
+                                              DropDownOpened="OnChargeByTimeDropDownOpened">
+                                        <ComboBox.Resources>
+                                            <StaticResource x:Key="TextControlBackground"              ResourceKey="ComboBoxBackground"/>
+                                            <StaticResource x:Key="TextControlBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                            <StaticResource x:Key="TextControlBackgroundFocused"       ResourceKey="ComboBoxBackgroundFocused"/>
+                                            <StaticResource x:Key="TextControlBorderBrushFocused"      ResourceKey="ComboBoxBackgroundBorderBrushFocused"/>
+                                            <StaticResource x:Key="TextControlBorderBrushPointerOver"  ResourceKey="ComboBoxBorderBrushPointerOver"/>
+                                            <StaticResource x:Key="TextControlForeground"              ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="TextControlForegroundPointerOver"   ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="TextControlForegroundFocused"       ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="TextControlPlaceholderForeground"   ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                            <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                            <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                            <StaticResource x:Key="TextControlSelectionHighlightColor" ResourceKey="AccentFillColorDefaultBrush"/>
+                                            <StaticResource x:Key="ComboBoxEditableDropDownGlyphForeground" ResourceKey="ComboBoxDropDownGlyphForeground"/>
+                                            <StaticResource x:Key="ComboBoxDropDownBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                            <StaticResource x:Key="ComboBoxDropDownBackgroundPointerPressed" ResourceKey="ComboBoxBackgroundPressed"/>
+                                            <StaticResource x:Key="ComboBoxDropDownBackground"         ResourceKey="CardBackgroundFillColorDefaultBrush"/>
+                                            <StaticResource x:Key="ComboBoxDropDownBorderBrush"        ResourceKey="CardStrokeColorDefaultBrush"/>
+                                            <StaticResource x:Key="ComboBoxDropDownForeground"         ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForeground"             ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundPointerOver"  ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundPressed"      ResourceKey="ComboBoxForegroundPressed"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundSelected"     ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedUnfocused" ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedPointerOver" ResourceKey="ComboBoxForeground"/>
+                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedPressed" ResourceKey="ComboBoxForegroundPressed"/>
+                                            <StaticResource x:Key="ComboBoxItemBackgroundPointerOver"  ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                            <StaticResource x:Key="ComboBoxItemBackgroundPressed"      ResourceKey="ComboBoxBackgroundPressed"/>
+                                            <StaticResource x:Key="ComboBoxItemBorderBrushPointerOver" ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                            <StaticResource x:Key="ComboBoxItemBorderBrushPressed"     ResourceKey="ComboBoxBackgroundPressed"/>
+                                        </ComboBox.Resources>
+                                    </ComboBox>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="ChargeByTimeStatus"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <Button Grid.Column="1"
+                                                Content="Set"
+                                                Style="{StaticResource TimeScaleButtonStyle}"
+                                                MinWidth="64"
+                                                VerticalAlignment="Top"
+                                                Click="OnChargeByTimeSet"/>
+                                    </Grid>
                                 </StackPanel>
                             </Flyout>
                         </SplitButton.Flyout>

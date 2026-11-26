@@ -1534,32 +1534,89 @@ public sealed partial class DashboardWindow : Window
         Refresh();
     }
 
-    private void OnChargeByTimeFlyoutOpened(object? sender, object e)
+    private IReadOnlyList<ChargeByTimeEntry.Choice> _chargeByTimeChoices = [];
+    private long _chargeByTimeTextToken = -1;
+
+    private void OnChargeByTimeFlyoutOpening(object? sender, object e)
     {
-        ChargeByTimeStatus.Visibility = Visibility.Collapsed;
-        ChargeByTimeBox.Focus(FocusState.Programmatic);
+        if (_chargeByTimeTextToken < 0)
+        {
+            // The rows' selection takes the chips' own tint; those brushes exist only in code.
+            foreach (string state in new[] { "", "Unfocused", "PointerOver", "Pressed" })
+            {
+                ChargeByTimeBox.Resources[$"ComboBoxItemBackgroundSelected{state}"] = AppColors.TimeScaleSelectedBrush;
+                ChargeByTimeBox.Resources[$"ComboBoxItemBorderBrushSelected{state}"] = AppColors.TimeScaleSelectedBrush;
+            }
+            ChargeByTimeBox.Resources["ComboBoxItemPillFillBrush"] = AppColors.AccentBrush;
+            // Text follows every keystroke through the template's two-way binding.
+            _chargeByTimeTextToken = ChargeByTimeBox.RegisterPropertyChangedCallback(
+                ComboBox.TextProperty, (_, _) => OnChargeByTimeTextChanged());
+        }
+
+        _chargeByTimeChoices = ChargeByTimeEntry.QuarterHours(DateTime.Now);
+        ChargeByTimeBox.ItemsSource = _chargeByTimeChoices.Select(c => c.Label).ToList();
+        ChargeByTimeBox.SelectedIndex = -1;
+        ChargeByTimeBox.Text = "";
+        ChargeByTimeBox.PlaceholderText = new TimeOnly(7, 30).ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+        ShowChargeByTimeDay();
     }
 
+    private void OnChargeByTimeFlyoutOpened(object? sender, object e) =>
+        ChargeByTimeBox.Focus(FocusState.Programmatic);
+
+    private string? ChargeByTimeParserText() =>
+        ChargeByTimeEntry.ParserText(ChargeByTimeBox.Text, _chargeByTimeChoices);
+
+    // A row left selected puts its own text back on focus loss, over whatever was typed since.
+    private void OnChargeByTimeTextChanged()
+    {
+        string typed = ChargeByTimeBox.Text;
+        if (ChargeByTimeBox.SelectedItem is string row && row != typed)
+        {
+            ChargeByTimeBox.SelectedIndex = -1;
+            if (ChargeByTimeBox.Text != typed) ChargeByTimeBox.Text = typed;
+        }
+        ShowChargeByTimeDay();
+    }
+
+    private void ShowChargeByTimeDay() =>
+        ChargeByTimeStatus.Text = ChargeByTimeEntry.Day(ChargeByTimeParserText(), DateTimeOffset.Now) ?? "";
+
+    // The control sizes its list to fifteen rows whatever MaxDropDownHeight says; six fit beside the field.
+    private void OnChargeByTimeDropDownOpened(object? sender, object e)
+    {
+        if (FindNamed(ChargeByTimeBox, "Popup") is Popup { Child: { } child } &&
+            FindNamed(child, "ScrollViewer") is FrameworkElement list)
+            list.MaxHeight = 216;
+    }
+
+    private static FrameworkElement? FindNamed(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement { Name: var n } f && n == name) return f;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindNamed(VisualTreeHelper.GetChild(root, i), name) is { } hit) return hit;
+        return null;
+    }
+
+    // Enter while the list is open picks the highlighted row; only a closed list arms.
     private void OnChargeByTimeKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != Windows.System.VirtualKey.Enter) return;
+        if (e.Key != Windows.System.VirtualKey.Enter || ChargeByTimeBox.IsDropDownOpen) return;
         e.Handled = true;
         OnChargeByTimeSet(sender, e);
     }
 
     private async void OnChargeByTimeSet(object sender, RoutedEventArgs e)
     {
-        string? refusal = await ChargeByTimeService.Arm(ChargeByTimeBox.Text,
+        string? refusal = await ChargeByTimeService.Arm(ChargeByTimeParserText(),
                                                         ActionCause.Dashboard("charge-to-full time box"));
         if (refusal is null)
         {
             ChargeByTimeFlyout.Hide();
-            ChargeByTimeBox.Text = "";
             Refresh();
             return;
         }
         ChargeByTimeStatus.Text = refusal;
-        ChargeByTimeStatus.Visibility = Visibility.Visible;
     }
 
     // Repainted rather than replaced: the arc colour is continuous, so a brush per reading would

@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.1
+
+- The full-by time is a drop-down of every quarter hour that also takes a typed time, and shows
+  whether that time falls today or tomorrow.
+
 ## 2.18.0
 
 - The dashboard's charge-to-100 % button has an arrow for a time by which the battery is to be full;

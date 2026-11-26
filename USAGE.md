@@ -87,8 +87,9 @@ forever.
   while unplugged waits for its charger rather than ending at once. Smart Charge is never switched
   off as a setting — the cap is lifted at the firmware, which is all a mode-based vendor offers, and
   the parked thresholds are what the dashboard and the published entities show meanwhile  
-- **Full by a chosen time** — the arrow on the dashboard's charge-to-100 % button opens a box for a
-  clock time; the next occurrence is used, today or tomorrow. A charger must be connected and a
+- **Full by a chosen time** — the arrow on the dashboard's charge-to-100 % button opens a list of
+  every quarter hour that also takes a typed clock time; the line beneath says whether the next
+  occurrence is today or tomorrow, and Set or Enter starts it. A charger must be connected and a
   charge limit in force. The cap is lifted for 10 minutes to measure the charge rate, then the limit
   returns until the start: the chosen time less the estimate and 15 minutes. While it is measuring
   or waiting the tray menu and the dashboard say so, and the button reads **✕ Cancel full by …**,

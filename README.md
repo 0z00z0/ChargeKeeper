@@ -34,7 +34,7 @@ says the same in words, and `%AppData%\ChargeKeeper\Logs\app.log` carries the re
   charge, and a lift armed while unplugged waits for its charger. Smart Charge keeps its own
   thresholds throughout — lifting the cap disables it at the firmware, which is the only lever a
   mode-based vendor has, so the parked pair is what is shown and published meanwhile.
-- **Full by a chosen time** — the arrow on the same dashboard button takes a clock time (`07:30`).
+- **Full by a chosen time** — the arrow on the same dashboard button takes a clock time, picked from a quarter-hour list or typed (`07:30`).
   The cap is lifted for 10 minutes to measure the charge rate with the charger in use, the limit
   comes back, and the ordinary lift starts at the chosen time less the estimate and 15 minutes. A
   time too close to reach starts charging at once and shows the level expected by then. Every
