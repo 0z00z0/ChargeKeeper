@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.2
+
+- While the cap is lifted for a charge to 100 %, the dashboard's Smart Charge switch reads on, and
+  the preset that comes back afterwards is marked on the dashboard and the Settings page.
+
 ## 2.18.1
 
 - The full-by time is a drop-down of every quarter hour that also takes a typed time, and shows

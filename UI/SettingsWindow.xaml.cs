@@ -1127,7 +1127,7 @@ internal sealed partial class SettingsWindow : Window
         FlushPresetEdits();
 
         // Read once here rather than per row: the vendor read blocks.
-        _thresholdState = ChargeThresholdService.Read();
+        _thresholdState = ChargeThresholdView.Shown(ChargeThresholdService.Read());
         _thresholdList.Rebuild();
         RefreshUnknownPresetCombo();
     }
@@ -1136,7 +1136,7 @@ internal sealed partial class SettingsWindow : Window
     /// activation.</summary>
     private void RefreshPresetActivationStates(ChargeThresholdState? state)
     {
-        _thresholdState = state;
+        _thresholdState = ChargeThresholdView.Shown(state);
         _thresholdList.RefreshActivation();
     }
 

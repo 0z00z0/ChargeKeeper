@@ -601,8 +601,11 @@ public sealed partial class DashboardWindow : Window
         finally { _updatingBadges = false; }
     }
 
-    private void WriteStatusBadges(ChargeThresholdState? chargeState, bool standbySupported, bool standbyOn)
+    private void WriteStatusBadges(ChargeThresholdState? liveState, bool standbySupported, bool standbyOn)
     {
+        var display     = ChargeThresholdView.ForDisplay(liveState);
+        var chargeState = display.Shown;
+
         // The same classifier the Settings page uses, so the two cannot drift. Hidden means no vendor
         // answered; Capable:false with a readable state keeps the badge and disables the switch.
         var surface = ThresholdCapabilityPolicy.Classify(chargeState, ChargeThresholdService.SupportsNumericThresholds);
@@ -657,7 +660,7 @@ public sealed partial class DashboardWindow : Window
 
         // Sync to the device only when the user isn't mid-edit, and only offer the picker where the
         // vendor takes arbitrary percentages — HP's coarse BIOS modes would ignore a dragged value.
-        bool limitActive = chargeState is { Capable: true, Enabled: true };
+        bool limitActive = display.OffersThresholdEdit;
         bool showSliders = limitActive && ChargeThresholdService.SupportsNumericThresholds;
 
         if (showSliders && !_thresholdEditPending && chargeState!.Start > 0 && chargeState.Stop > 0)
@@ -694,8 +697,8 @@ public sealed partial class DashboardWindow : Window
             var presets = SettingsService.Current.Presets;
             BuildPresetButtons(presets);
 
-            // Nothing is highlighted while the thresholds are no preset's — a travel override or
-            // Smart Charge off included.
+            // Nothing is highlighted while the thresholds are no preset's or Smart Charge is off;
+            // under a lift the parked pair decides.
             MarkActivePreset(ActivePresetPolicy.Match(presets, chargeState)?.Id);
         }
         PresetButtonPanel.Visibility = showPresets ? Visibility.Visible : Visibility.Collapsed;

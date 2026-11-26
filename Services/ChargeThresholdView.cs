@@ -28,4 +28,13 @@ internal static class ChargeThresholdView
         live is not null && parked is { } pair
             ? live with { Enabled = true, Start = pair.Start, Stop = pair.Stop }
             : live;
+
+    public static ChargeThresholdDisplay ForDisplay(ChargeThresholdState? live) =>
+        ForDisplay(live, TravelOverrideService.ParkedThresholds);
+
+    /// <summary>Editors follow the device alone: a drag writes what it shows.</summary>
+    internal static ChargeThresholdDisplay ForDisplay(ChargeThresholdState? live, (int Start, int Stop)? parked) =>
+        new(Shown(live, parked), OffersThresholdEdit: live is { Capable: true, Enabled: true });
 }
+
+internal readonly record struct ChargeThresholdDisplay(ChargeThresholdState? Shown, bool OffersThresholdEdit);
