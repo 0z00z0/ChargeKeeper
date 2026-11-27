@@ -552,8 +552,11 @@ public sealed partial class DashboardWindow : Window
 
             // No caption here (the pop-out graph window still has one); the value alone carries the
             // direction, so it is never ambiguous which way "remaining" runs.
-            string? timeRemaining = BatteryStatsFormatter.FormatTimeRemaining(
-                report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
+            // While the charge rate is measured the full charge has not started, so no time to full.
+            string? timeRemaining = TravelOverrideService.Schedule is { Testing: true }
+                ? "Measuring charge speed"
+                : BatteryStatsFormatter.FormatTimeRemaining(
+                    report.ChargeRateInMilliwatts, report.RemainingCapacityInMilliwattHours, report.FullChargeCapacityInMilliwattHours);
             // No estimate (e.g. on AC, held at the charge limit): hide the line rather than showing
             // a placeholder dash next to a live rate reading below it.
             TimeRemainingText.Text       = timeRemaining ?? "";

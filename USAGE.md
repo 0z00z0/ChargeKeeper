@@ -97,7 +97,8 @@ forever.
   which cancels and leaves the limit in force. A threshold, preset, mode or network profile chosen
   meanwhile cancels it, as it cancels a lift; switching Smart Charge off cancels it and leaves the
   limit off. Nothing wakes the machine: a start missed asleep runs
-  at the next wake  
+  at the next wake. During the measurement the dashboard reads **Measuring charge speed** in place
+  of the time to full  
 - **Settings…** — opens the Settings window  
 - **Icon style** — submenu: **Arc gauge**, **Numeric %** or **Battery fill**  
 - **Digit style** — submenu naming the percentage digit style; shown while something is drawing

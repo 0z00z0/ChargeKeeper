@@ -9,6 +9,11 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.5
+
+- While a full-by-time charge measures the charge speed, the dashboard says so in place of the time
+  to full.
+
 ## 2.18.4
 
 - The full-by time list opens at once, directly beneath the field.
