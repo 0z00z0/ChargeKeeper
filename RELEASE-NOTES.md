@@ -9,6 +9,10 @@ application, not what moved in the code. A change carrying no issue collapses in
 line, or is left out. Newest version first; the heading is the version alone, exactly as it appears
 in `ChargeKeeper.csproj`.
 
+## 2.18.4
+
+- The full-by time list opens at once, directly beneath the field.
+
 ## 2.18.3
 
 - A charge to 100 % ends, and the limit returns, as soon as the battery reads 100 %, even where the

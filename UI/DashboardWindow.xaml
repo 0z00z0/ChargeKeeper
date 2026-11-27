@@ -336,44 +336,69 @@
                                 </Flyout.FlyoutPresenterStyle>
                                 <StackPanel Spacing="8" Width="200">
                                     <TextBlock Text="Full by" Style="{StaticResource DashboardHeaderStyle}"/>
-                                    <!-- The editable text and the list rows resolve keys App.xaml leaves stock. -->
-                                    <ComboBox x:Name="ChargeByTimeBox"
-                                              IsEditable="True"
-                                              HorizontalAlignment="Stretch"
-                                              PreviewKeyDown="OnChargeByTimeKeyDown"
-                                              DropDownOpened="OnChargeByTimeDropDownOpened">
-                                        <ComboBox.Resources>
-                                            <StaticResource x:Key="TextControlBackground"              ResourceKey="ComboBoxBackground"/>
-                                            <StaticResource x:Key="TextControlBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
-                                            <StaticResource x:Key="TextControlBackgroundFocused"       ResourceKey="ComboBoxBackgroundFocused"/>
-                                            <StaticResource x:Key="TextControlBorderBrushFocused"      ResourceKey="ComboBoxBackgroundBorderBrushFocused"/>
-                                            <StaticResource x:Key="TextControlBorderBrushPointerOver"  ResourceKey="ComboBoxBorderBrushPointerOver"/>
-                                            <StaticResource x:Key="TextControlForeground"              ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="TextControlForegroundPointerOver"   ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="TextControlForegroundFocused"       ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="TextControlPlaceholderForeground"   ResourceKey="ComboBoxPlaceHolderForeground"/>
-                                            <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="ComboBoxPlaceHolderForeground"/>
-                                            <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="ComboBoxPlaceHolderForeground"/>
-                                            <StaticResource x:Key="TextControlSelectionHighlightColor" ResourceKey="AccentFillColorDefaultBrush"/>
-                                            <StaticResource x:Key="ComboBoxEditableDropDownGlyphForeground" ResourceKey="ComboBoxDropDownGlyphForeground"/>
-                                            <StaticResource x:Key="ComboBoxDropDownBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
-                                            <StaticResource x:Key="ComboBoxDropDownBackgroundPointerPressed" ResourceKey="ComboBoxBackgroundPressed"/>
-                                            <StaticResource x:Key="ComboBoxDropDownBackground"         ResourceKey="CardBackgroundFillColorDefaultBrush"/>
-                                            <StaticResource x:Key="ComboBoxDropDownBorderBrush"        ResourceKey="CardStrokeColorDefaultBrush"/>
-                                            <StaticResource x:Key="ComboBoxDropDownForeground"         ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForeground"             ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundPointerOver"  ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundPressed"      ResourceKey="ComboBoxForegroundPressed"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundSelected"     ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedUnfocused" ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedPointerOver" ResourceKey="ComboBoxForeground"/>
-                                            <StaticResource x:Key="ComboBoxItemForegroundSelectedPressed" ResourceKey="ComboBoxForegroundPressed"/>
-                                            <StaticResource x:Key="ComboBoxItemBackgroundPointerOver"  ResourceKey="ComboBoxBackgroundPointerOver"/>
-                                            <StaticResource x:Key="ComboBoxItemBackgroundPressed"      ResourceKey="ComboBoxBackgroundPressed"/>
-                                            <StaticResource x:Key="ComboBoxItemBorderBrushPointerOver" ResourceKey="ComboBoxBackgroundPointerOver"/>
-                                            <StaticResource x:Key="ComboBoxItemBorderBrushPressed"     ResourceKey="ComboBoxBackgroundPressed"/>
-                                        </ComboBox.Resources>
-                                    </ComboBox>
+                                    <!-- A text box and a drop button; the list is a flyout of its own whose
+                                         height is fixed before it is placed, so it opens against the field. -->
+                                    <Grid x:Name="ChargeByTimeField" ColumnSpacing="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FlyoutBase.AttachedFlyout>
+                                            <Flyout x:Name="ChargeByTimeListFlyout"
+                                                    Placement="BottomEdgeAlignedLeft"
+                                                    ShouldConstrainToRootBounds="True">
+                                                <Flyout.FlyoutPresenterStyle>
+                                                    <Style TargetType="FlyoutPresenter">
+                                                        <Setter Property="Background" Value="{StaticResource CardBackgroundFillColorDefaultBrush}"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource CardStrokeColorDefaultBrush}"/>
+                                                        <Setter Property="Padding" Value="0,4"/>
+                                                        <Setter Property="MinWidth" Value="0"/>
+                                                        <Setter Property="MinHeight" Value="0"/>
+                                                    </Style>
+                                                </Flyout.FlyoutPresenterStyle>
+                                                <ListView x:Name="ChargeByTimeList"
+                                                          Width="200"
+                                                          Height="216"
+                                                          SelectionMode="None"
+                                                          IsItemClickEnabled="True"
+                                                          ItemClick="OnChargeByTimeRowClick">
+                                                    <ListView.Resources>
+                                                        <StaticResource x:Key="ListViewItemForeground"              ResourceKey="ComboBoxForeground"/>
+                                                        <StaticResource x:Key="ListViewItemForegroundPointerOver"   ResourceKey="ComboBoxForeground"/>
+                                                        <StaticResource x:Key="ListViewItemForegroundPressed"       ResourceKey="ComboBoxForegroundPressed"/>
+                                                        <StaticResource x:Key="ListViewItemBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                                        <StaticResource x:Key="ListViewItemBackgroundPressed"       ResourceKey="ComboBoxBackgroundPressed"/>
+                                                    </ListView.Resources>
+                                                </ListView>
+                                            </Flyout>
+                                        </FlyoutBase.AttachedFlyout>
+                                        <!-- The text box resolves keys App.xaml leaves stock. -->
+                                        <TextBox x:Name="ChargeByTimeBox"
+                                                 TextChanged="OnChargeByTimeTextChanged"
+                                                 KeyDown="OnChargeByTimeKeyDown">
+                                            <TextBox.Resources>
+                                                <StaticResource x:Key="TextControlBackground"              ResourceKey="ComboBoxBackground"/>
+                                                <StaticResource x:Key="TextControlBackgroundPointerOver"   ResourceKey="ComboBoxBackgroundPointerOver"/>
+                                                <StaticResource x:Key="TextControlBackgroundFocused"       ResourceKey="ComboBoxBackgroundFocused"/>
+                                                <StaticResource x:Key="TextControlBorderBrushFocused"      ResourceKey="ComboBoxBackgroundBorderBrushFocused"/>
+                                                <StaticResource x:Key="TextControlBorderBrushPointerOver"  ResourceKey="ComboBoxBorderBrushPointerOver"/>
+                                                <StaticResource x:Key="TextControlForeground"              ResourceKey="ComboBoxForeground"/>
+                                                <StaticResource x:Key="TextControlForegroundPointerOver"   ResourceKey="ComboBoxForeground"/>
+                                                <StaticResource x:Key="TextControlForegroundFocused"       ResourceKey="ComboBoxForeground"/>
+                                                <StaticResource x:Key="TextControlPlaceholderForeground"   ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                                <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                                <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="ComboBoxPlaceHolderForeground"/>
+                                                <StaticResource x:Key="TextControlSelectionHighlightColor" ResourceKey="AccentFillColorDefaultBrush"/>
+                                            </TextBox.Resources>
+                                        </TextBox>
+                                        <Button Grid.Column="1"
+                                                Style="{StaticResource TimeScaleButtonStyle}"
+                                                VerticalAlignment="Stretch"
+                                                ToolTipService.ToolTip="Pick a quarter hour"
+                                                Click="OnChargeByTimeDropClick">
+                                            <FontIcon Glyph="&#xE70D;" FontSize="12"/>
+                                        </Button>
+                                    </Grid>
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>

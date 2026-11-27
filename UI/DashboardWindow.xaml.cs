@@ -1538,27 +1538,11 @@ public sealed partial class DashboardWindow : Window
     }
 
     private IReadOnlyList<ChargeByTimeEntry.Choice> _chargeByTimeChoices = [];
-    private long _chargeByTimeTextToken = -1;
 
     private void OnChargeByTimeFlyoutOpening(object? sender, object e)
     {
-        if (_chargeByTimeTextToken < 0)
-        {
-            // The rows' selection takes the chips' own tint; those brushes exist only in code.
-            foreach (string state in new[] { "", "Unfocused", "PointerOver", "Pressed" })
-            {
-                ChargeByTimeBox.Resources[$"ComboBoxItemBackgroundSelected{state}"] = AppColors.TimeScaleSelectedBrush;
-                ChargeByTimeBox.Resources[$"ComboBoxItemBorderBrushSelected{state}"] = AppColors.TimeScaleSelectedBrush;
-            }
-            ChargeByTimeBox.Resources["ComboBoxItemPillFillBrush"] = AppColors.AccentBrush;
-            // Text follows every keystroke through the template's two-way binding.
-            _chargeByTimeTextToken = ChargeByTimeBox.RegisterPropertyChangedCallback(
-                ComboBox.TextProperty, (_, _) => OnChargeByTimeTextChanged());
-        }
-
         _chargeByTimeChoices = ChargeByTimeEntry.QuarterHours(DateTime.Now);
-        ChargeByTimeBox.ItemsSource = _chargeByTimeChoices.Select(c => c.Label).ToList();
-        ChargeByTimeBox.SelectedIndex = -1;
+        ChargeByTimeList.ItemsSource = _chargeByTimeChoices.Select(c => c.Label).ToList();
         ChargeByTimeBox.Text = "";
         ChargeByTimeBox.PlaceholderText = new TimeOnly(7, 30).ToString("t", System.Globalization.CultureInfo.CurrentCulture);
         ShowChargeByTimeDay();
@@ -1570,41 +1554,31 @@ public sealed partial class DashboardWindow : Window
     private string? ChargeByTimeParserText() =>
         ChargeByTimeEntry.ParserText(ChargeByTimeBox.Text, _chargeByTimeChoices);
 
-    // A row left selected puts its own text back on focus loss, over whatever was typed since.
-    private void OnChargeByTimeTextChanged()
-    {
-        string typed = ChargeByTimeBox.Text;
-        if (ChargeByTimeBox.SelectedItem is string row && row != typed)
-        {
-            ChargeByTimeBox.SelectedIndex = -1;
-            if (ChargeByTimeBox.Text != typed) ChargeByTimeBox.Text = typed;
-        }
-        ShowChargeByTimeDay();
-    }
+    private void OnChargeByTimeTextChanged(object sender, TextChangedEventArgs e) => ShowChargeByTimeDay();
 
     private void ShowChargeByTimeDay() =>
         ChargeByTimeStatus.Text = ChargeByTimeEntry.Day(ChargeByTimeParserText(), DateTimeOffset.Now) ?? "";
 
-    // The control sizes its list to fifteen rows whatever MaxDropDownHeight says; six fit beside the field.
-    private void OnChargeByTimeDropDownOpened(object? sender, object e)
+    private void OnChargeByTimeDropClick(object sender, RoutedEventArgs e) =>
+        FlyoutBase.ShowAttachedFlyout(ChargeByTimeField);
+
+    private void OnChargeByTimeRowClick(object sender, ItemClickEventArgs e)
     {
-        if (FindNamed(ChargeByTimeBox, "Popup") is Popup { Child: { } child } &&
-            FindNamed(child, "ScrollViewer") is FrameworkElement list)
-            list.MaxHeight = 216;
+        ChargeByTimeBox.Text = (string)e.ClickedItem;
+        ChargeByTimeListFlyout.Hide();
+        ChargeByTimeBox.Focus(FocusState.Programmatic);
     }
 
-    private static FrameworkElement? FindNamed(DependencyObject root, string name)
-    {
-        if (root is FrameworkElement { Name: var n } f && n == name) return f;
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            if (FindNamed(VisualTreeHelper.GetChild(root, i), name) is { } hit) return hit;
-        return null;
-    }
-
-    // Enter while the list is open picks the highlighted row; only a closed list arms.
+    // Down opens the list from the keyboard; Enter in the field arms.
     private void OnChargeByTimeKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != Windows.System.VirtualKey.Enter || ChargeByTimeBox.IsDropDownOpen) return;
+        if (e.Key == Windows.System.VirtualKey.Down)
+        {
+            e.Handled = true;
+            OnChargeByTimeDropClick(sender, e);
+            return;
+        }
+        if (e.Key != Windows.System.VirtualKey.Enter) return;
         e.Handled = true;
         OnChargeByTimeSet(sender, e);
     }
